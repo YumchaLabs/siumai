@@ -80,21 +80,22 @@ Audio transcription with Whisper and text-to-speech generation.
 - Audio format handling
 - Streaming audio processing
 
-### [image_generation.rs](image_generation.rs)
-**🎨 DALL-E image generation**
+### [image_generation_showcase.rs](image_generation_showcase.rs)
+**🎨 DALL-E image generation showcase**
 
-Create and edit images using DALL-E models.
+Comprehensive demonstration of OpenAI's DALL-E image generation capabilities.
 
 ```bash
-# Note: This example is not yet implemented
-# cargo run --example openai_image_generation
+cargo run --example image_generation_showcase
 ```
 
 **What you'll learn:**
-- Image generation with DALL-E
-- Image editing and variations
-- Prompt optimization for images
-- Image format and size options
+- Image generation with DALL-E 2 and DALL-E 3
+- Different image sizes and quality settings
+- Prompt optimization for better results
+- Image format handling and saving
+- Cost optimization strategies
+- Error handling and retry logic
 
 ### [files_api.rs](files_api.rs)
 **📁 Files API and Assistants**

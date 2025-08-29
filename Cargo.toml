@@ -209,6 +209,10 @@ name = "openai_compatible_models_showcase"
 path = "examples/04_providers/openai_compatible/models_showcase.rs"
 
 [[example]]
+name = "siliconflow_showcase"
+path = "examples/04_providers/openai_compatible/siliconflow.rs"
+
+[[example]]
 name = "openai_responses_api"
 path = "examples/04_providers/openai/openai_responses_api.rs"
 
@@ -246,7 +250,11 @@ path = "examples/06_mcp_integration/stdio_mcp_server.rs"
 
 [[example]]
 name = "image_generation_showcase"
-path = "examples/06_image_generation/image_generation_showcase.rs"
+path = "examples/04_providers/openai/image_generation_showcase.rs"
+
+[[example]]
+name = "adapter_system_showcase"
+path = "examples/04_providers/openai_compatible/adapter_system_showcase.rs"
 
 
 

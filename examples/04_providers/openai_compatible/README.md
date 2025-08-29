@@ -46,6 +46,33 @@ cargo run --example siliconflow
 - Combining chat, embeddings, and reranking
 - Advanced document relevance scoring
 
+### 🧠 [Adapter System Showcase](./adapter_system_showcase.rs)
+**Comprehensive OpenAI-compatible adapter system demonstration**
+
+Features demonstrated:
+- Provider adapter architecture and capabilities
+- Parameter transformation (thinking_budget → reasoning_effort)
+- Field mapping (reasoning_content → thinking)
+- Model-specific configurations and optimizations
+- Real API integration with DeepSeek thinking
+- Complete workflow from architecture to production usage
+
+```bash
+# Run the adapter system showcase
+cargo run --example adapter_system_showcase
+
+# With API key for real integration testing
+SILICONFLOW_API_KEY="your-key" cargo run --example adapter_system_showcase
+```
+
+**Key Learning Points:**
+- Understanding the new adapter architecture
+- How parameter transformation works automatically
+- Field mapping for different provider formats
+- Model-specific optimizations and configurations
+- Real-world integration patterns with thinking capabilities
+- Production-ready usage examples
+
 ## 🚀 Getting Started
 
 ### Prerequisites

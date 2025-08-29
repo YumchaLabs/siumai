@@ -1,10 +1,11 @@
 # Changelog
 
-## [0.9.2] - 2025-08-29
+## [0.10.0] - 2025-08-29
 
 ### Added
 
 - **SiliconFlow Provider with Rerank Support** - Added comprehensive SiliconFlow provider integration including chat, embeddings, image generation, and document reranking capabilities for improved RAG systems
+- **OpenAI-Compatible Adapter System** - Introduced new adapter architecture for OpenAI-compatible providers with automatic parameter transformation (thinking_budget → reasoning_effort), field mapping (reasoning_content → thinking), and model-specific configurations. Enables seamless integration of providers like SiliconFlow with DeepSeek thinking capabilities while maintaining unified API.
 
 ### Fixed
 

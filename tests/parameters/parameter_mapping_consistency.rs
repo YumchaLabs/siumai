@@ -605,67 +605,55 @@ fn test_ollama_native_api_parameters() {
     assert_eq!(config.ollama_params.think, Some(true));
 }
 
-/// Test OpenAI-compatible providers (DeepSeek, OpenRouter) parameter validation
+/// Test OpenAI-compatible providers using new adapter system
 #[test]
 fn test_openai_compatible_providers_validation() {
-    use siumai::providers::openai_compatible::providers::OpenAiCompatibleProvider;
     use siumai::providers::openai_compatible::{
-        config::OpenAiCompatibleConfig,
-        providers::{DeepSeekProvider, OpenRouterProvider},
+        adapter::ProviderAdapter,
+        providers::siliconflow::SiliconFlowAdapter,
+        types::RequestType,
     };
 
-    // Test DeepSeek provider validation
-    let deepseek_config =
-        OpenAiCompatibleConfig::new("deepseek".to_string(), "test-key".to_string());
-    assert!(DeepSeekProvider::validate_config(&deepseek_config).is_ok());
+    // Test SiliconFlow adapter
+    let adapter = SiliconFlowAdapter;
 
-    // Test empty API key validation
-    let invalid_config = OpenAiCompatibleConfig::new("deepseek".to_string(), "".to_string());
-    assert!(DeepSeekProvider::validate_config(&invalid_config).is_err());
+    // Test provider properties
+    assert_eq!(adapter.provider_id(), "siliconflow");
+    assert_eq!(adapter.base_url(), "https://api.siliconflow.cn/v1");
 
-    // Test OpenRouter provider validation
-    let openrouter_config =
-        OpenAiCompatibleConfig::new("openrouter".to_string(), "test-key".to_string());
-    assert!(OpenRouterProvider::validate_config(&openrouter_config).is_ok());
+    // Test model validation
+    assert!(adapter.validate_model("deepseek-chat").is_ok());
+    assert!(adapter.validate_model("").is_err());
 
-    // Test provider constants
-    assert_eq!(DeepSeekProvider::PROVIDER_ID, "deepseek");
-    assert_eq!(
-        DeepSeekProvider::DEFAULT_BASE_URL,
-        "https://api.deepseek.com/v1"
-    );
-    assert_eq!(DeepSeekProvider::DEFAULT_MODEL, "deepseek-chat");
+    // Test field mappings for DeepSeek models
+    let deepseek_mappings = adapter.get_field_mappings("deepseek-chat");
+    assert_eq!(deepseek_mappings.thinking_fields, vec!["reasoning_content", "thinking"]);
 
-    assert_eq!(OpenRouterProvider::PROVIDER_ID, "openrouter");
-    assert_eq!(
-        OpenRouterProvider::DEFAULT_BASE_URL,
-        "https://openrouter.ai/api/v1"
-    );
-    assert_eq!(OpenRouterProvider::DEFAULT_MODEL, "openai/gpt-4o");
+    // Test field mappings for other models
+    let standard_mappings = adapter.get_field_mappings("qwen-turbo");
+    assert_eq!(standard_mappings.thinking_fields, vec!["thinking"]);
 
     // Test parameter transformation
-    let mut params = std::collections::HashMap::new();
-    params.insert(
-        "temperature".to_string(),
-        serde_json::Value::Number(serde_json::Number::from_f64(0.7).unwrap()),
-    );
+    let mut params = serde_json::json!({
+        "model": "deepseek-chat",
+        "messages": [],
+        "thinking_budget": 1000,
+        "temperature": 0.7
+    });
 
-    // DeepSeek parameter transformation should work
-    assert!(DeepSeekProvider::transform_params(&mut params).is_ok());
+    // Test parameter transformation
+    assert!(adapter.transform_request_params(&mut params, "deepseek-chat", RequestType::Chat).is_ok());
 
-    // OpenRouter parameter transformation should work
-    assert!(OpenRouterProvider::transform_params(&mut params).is_ok());
+    // Verify transformation worked
+    assert!(params.get("reasoning_effort").is_some());
+    assert!(params.get("thinking_budget").is_none());
 
     // Test capabilities
-    let deepseek_caps = DeepSeekProvider::supported_capabilities();
-    assert!(deepseek_caps.supports("chat"));
-    assert!(deepseek_caps.supports("streaming"));
-    assert!(deepseek_caps.supports("tools"));
-
-    let openrouter_caps = OpenRouterProvider::supported_capabilities();
-    assert!(openrouter_caps.supports("chat"));
-    assert!(openrouter_caps.supports("streaming"));
-    assert!(openrouter_caps.supports("tools"));
+    let caps = adapter.capabilities();
+    assert!(caps.chat);
+    assert!(caps.streaming);
+    assert!(caps.thinking);
+    assert!(caps.rerank);
 }
 
 /// Test parameter mapping consistency across different scenarios

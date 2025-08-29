@@ -285,6 +285,12 @@ impl Provider {
     pub fn deepseek() -> crate::providers::openai::OpenAiBuilder {
         crate::builder::LlmBuilder::new().deepseek()
     }
+
+    /// Create a SiliconFlow client builder (OpenAI-compatible with adapter)
+    #[cfg(feature = "openai")]
+    pub fn siliconflow() -> crate::providers::openai_compatible::providers::SiliconFlowBuilder {
+        crate::providers::openai_compatible::providers::SiliconFlowBuilder::new()
+    }
 }
 
 /// Siumai unified interface entry point

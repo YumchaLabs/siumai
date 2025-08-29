@@ -39,9 +39,20 @@
 //! }
 //! ```
 
-pub mod config;
 pub mod images;
 pub mod providers;
 
+// New adapter system modules
+pub mod adapter;
+pub mod openai_client;
+pub mod openai_config;
+pub mod types;
+
 // Re-export model constants for easy access
 pub use providers::models::{deepseek, groq, openrouter, siliconflow, xai};
+
+// Re-export new adapter system
+pub use adapter::ProviderAdapter;
+pub use openai_client::OpenAiCompatibleClient;
+pub use openai_config::OpenAiCompatibleConfig;
+pub use types::{FieldMappings, ModelConfig, ProviderCapabilities, RequestType};

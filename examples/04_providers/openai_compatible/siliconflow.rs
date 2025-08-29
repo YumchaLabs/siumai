@@ -6,7 +6,7 @@
 use siumai::prelude::*;
 use siumai::providers::openai_compatible::siliconflow;
 use siumai::traits::{ChatCapability, EmbeddingCapability, RerankCapability};
-use siumai::types::{EmbeddingRequest, RerankRequest};
+use siumai::types::RerankRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,17 +51,18 @@ async fn chat_example(client: &impl ChatCapability) -> Result<(), Box<dyn std::e
     println!("Using DeepSeek Chat model:");
     let messages = vec![
         system!("You are a helpful AI assistant specialized in explaining complex topics simply."),
-        user!("Explain quantum computing in simple terms.")
+        user!("Explain quantum computing in simple terms."),
     ];
 
     let response = client.chat(messages).await?;
-    println!("Response: {}\n", response.content);
+    println!(
+        "Response: {}\n",
+        response.content_text().unwrap_or_default()
+    );
 
     // Test with Qwen model
     println!("Using Qwen 2.5 model:");
-    let messages = vec![
-        user!("Write a haiku about artificial intelligence.")
-    ];
+    let messages = vec![user!("Write a haiku about artificial intelligence.")];
 
     // Note: You would need to create a new client with different model for this
     // This is just to show the model variety available
@@ -75,7 +76,9 @@ async fn chat_example(client: &impl ChatCapability) -> Result<(), Box<dyn std::e
 }
 
 /// Demonstrate embedding capabilities
-async fn embedding_example(client: &impl EmbeddingCapability) -> Result<(), Box<dyn std::error::Error>> {
+async fn embedding_example(
+    client: &impl EmbeddingCapability,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔢 Embedding Example");
     println!("--------------------");
 
@@ -87,20 +90,18 @@ async fn embedding_example(client: &impl EmbeddingCapability) -> Result<(), Box<
 
     println!("Generating embeddings for {} texts...", texts.len());
 
-    let request = EmbeddingRequest::new(
-        siliconflow::BGE_M3.to_string(),
-        texts.clone(),
+    let response = client.embed(texts.clone()).await?;
+
+    println!("Generated {} embeddings", response.embeddings.len());
+    println!("Embedding dimensions: {}", response.embeddings[0].len());
+    println!(
+        "Token usage: {}",
+        response.usage.map(|u| u.total_tokens).unwrap_or(0)
     );
 
-    let response = client.embed(request).await?;
-
-    println!("Generated {} embeddings", response.data.len());
-    println!("Embedding dimensions: {}", response.data[0].embedding.len());
-    println!("Token usage: {}", response.usage.total_tokens);
-
     // Show similarity between first two embeddings
-    if response.data.len() >= 2 {
-        let similarity = cosine_similarity(&response.data[0].embedding, &response.data[1].embedding);
+    if response.embeddings.len() >= 2 {
+        let similarity = cosine_similarity(&response.embeddings[0], &response.embeddings[1]);
         println!("Similarity between first two texts: {:.4}", similarity);
     }
 
@@ -142,7 +143,11 @@ async fn rerank_example(client: &impl RerankCapability) -> Result<(), Box<dyn st
             "  {}. [Score: {:.4}] {}",
             i + 1,
             result.relevance_score,
-            result.document.as_ref().map(|d| &d.text).unwrap_or("N/A")
+            result
+                .document
+                .as_ref()
+                .map(|d| d.text.as_str())
+                .unwrap_or("N/A")
         );
     }
 
@@ -155,12 +160,14 @@ async fn rerank_example(client: &impl RerankCapability) -> Result<(), Box<dyn st
 }
 
 /// Demonstrate a complete RAG workflow using SiliconFlow
-async fn rag_workflow_example(client: &(impl ChatCapability + EmbeddingCapability + RerankCapability)) -> Result<(), Box<dyn std::error::Error>> {
+async fn rag_workflow_example(
+    client: &(impl ChatCapability + EmbeddingCapability + RerankCapability),
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Complete RAG Workflow Example");
     println!("---------------------------------");
 
     let user_question = "How do transformers work in natural language processing?";
-    
+
     // Simulate a knowledge base
     let knowledge_base = vec![
         "Transformers use self-attention mechanisms to process sequences of data in parallel.".to_string(),
@@ -178,11 +185,7 @@ async fn rag_workflow_example(client: &(impl ChatCapability + EmbeddingCapabilit
 
     // Step 1: Generate embeddings for the question (for semantic search)
     println!("\n📝 Step 1: Generate query embedding...");
-    let query_embedding_request = EmbeddingRequest::new(
-        siliconflow::BGE_M3.to_string(),
-        vec![user_question.to_string()],
-    );
-    let _query_embedding = client.embed(query_embedding_request).await?;
+    let _query_embedding = client.embed(vec![user_question.to_string()]).await?;
     println!("✅ Query embedding generated");
 
     // Step 2: Rerank documents based on relevance
@@ -196,34 +199,48 @@ async fn rag_workflow_example(client: &(impl ChatCapability + EmbeddingCapabilit
     .with_return_documents(true);
 
     let rerank_response = client.rerank(rerank_request).await?;
-    
-    println!("✅ Top {} relevant documents selected:", rerank_response.results.len());
+
+    println!(
+        "✅ Top {} relevant documents selected:",
+        rerank_response.results.len()
+    );
     for (i, result) in rerank_response.results.iter().enumerate() {
-        println!("  {}. [Score: {:.4}] {}", 
-            i + 1, 
+        println!(
+            "  {}. [Score: {:.4}] {}",
+            i + 1,
             result.relevance_score,
-            result.document.as_ref().map(|d| &d.text).unwrap_or("N/A")
+            result
+                .document
+                .as_ref()
+                .map(|d| d.text.as_str())
+                .unwrap_or("N/A")
         );
     }
 
     // Step 3: Use top documents as context for chat
     println!("\n💬 Step 3: Generate answer using top documents as context...");
-    let context = rerank_response.results
+    let context = rerank_response
+        .results
         .iter()
         .take(3)
-        .filter_map(|r| r.document.as_ref().map(|d| &d.text))
+        .filter_map(|r| r.document.as_ref().map(|d| d.text.as_str()))
         .collect::<Vec<_>>()
         .join("\n\n");
 
     let chat_messages = vec![
-        system!("You are a helpful AI assistant. Answer the user's question based on the provided context. If the context doesn't contain enough information, say so."),
-        user!("Context:\n{}\n\nQuestion: {}", context, user_question)
+        system!(
+            "You are a helpful AI assistant. Answer the user's question based on the provided context. If the context doesn't contain enough information, say so."
+        ),
+        user!(format!(
+            "Context:\n{}\n\nQuestion: {}",
+            context, user_question
+        )),
     ];
 
     let chat_response = client.chat(chat_messages).await?;
-    
+
     println!("🤖 AI Answer:");
-    println!("{}", chat_response.content);
+    println!("{}", chat_response.content_text().unwrap_or_default());
     println!();
 
     Ok(())
@@ -234,7 +251,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    
+
     if norm_a == 0.0 || norm_b == 0.0 {
         0.0
     } else {
