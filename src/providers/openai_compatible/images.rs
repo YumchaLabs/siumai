@@ -92,7 +92,7 @@ impl SiliconFlowImages {
 
     /// Convert ImageGenerationRequest to SiliconFlowImageRequest
     fn convert_request(&self, request: ImageGenerationRequest) -> SiliconFlowImageRequest {
-        let model = request.model.unwrap_or_else(|| Self::default_model());
+        let model = request.model.unwrap_or_else(Self::default_model);
 
         let image_size = request.size.unwrap_or_else(|| "1024x1024".to_string());
 
