@@ -5,12 +5,13 @@
 
 use crate::error::LlmError;
 use crate::stream::{ChatStream, ChatStreamEvent};
-use crate::types::{ChatResponse, FinishReason, MessageContent, Usage};
+use crate::types::{ResponseMetadata, Usage};
 use crate::utils::streaming::{JsonEventConverter, StreamFactory};
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Ollama stream response structure
 #[derive(Debug, Clone, Deserialize)]
@@ -37,7 +38,10 @@ struct OllamaMessage {
 
 /// Ollama event converter
 #[derive(Clone)]
-pub struct OllamaEventConverter;
+pub struct OllamaEventConverter {
+    /// Track if StreamStart has been emitted
+    stream_started: Arc<Mutex<bool>>,
+}
 
 impl Default for OllamaEventConverter {
     fn default() -> Self {
@@ -47,90 +51,87 @@ impl Default for OllamaEventConverter {
 
 impl OllamaEventConverter {
     pub fn new() -> Self {
-        Self
+        Self {
+            stream_started: Arc::new(Mutex::new(false)),
+        }
     }
 
-    /// Convert Ollama stream response to ChatStreamEvent
-    fn convert_ollama_response(&self, response: OllamaStreamResponse) -> Option<ChatStreamEvent> {
-        // Handle completion
-        if response.done == Some(true) {
-            // Handle usage information
-            if let (Some(prompt_tokens), Some(completion_tokens)) =
+    /// Convert Ollama stream response to multiple ChatStreamEvents
+    async fn convert_ollama_response_async(
+        &self,
+        response: OllamaStreamResponse,
+    ) -> Vec<ChatStreamEvent> {
+        use crate::utils::streaming::EventBuilder;
+
+        let mut builder = EventBuilder::new();
+
+        // Check if we need to emit StreamStart first
+        if self.needs_stream_start().await {
+            let metadata = self.create_stream_start_metadata(&response);
+            builder = builder.add_stream_start(metadata);
+        }
+
+        // Process content - NO MORE CONTENT LOSS!
+        if let Some(content) = self.extract_content(&response) {
+            builder = builder.add_content_delta(content, None);
+        }
+
+        // Process usage updates
+        if let Some(usage) = self.extract_usage(&response) {
+            builder = builder.add_usage_update(usage);
+        }
+
+        builder.build()
+    }
+
+    /// Check if StreamStart event needs to be emitted
+    async fn needs_stream_start(&self) -> bool {
+        let mut started = self.stream_started.lock().await;
+        if !*started {
+            *started = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Extract content from Ollama response
+    fn extract_content(&self, response: &OllamaStreamResponse) -> Option<String> {
+        response
+            .message
+            .as_ref()?
+            .content
+            .as_ref()
+            .filter(|content| !content.is_empty())
+            .cloned()
+    }
+
+    /// Extract usage information
+    fn extract_usage(&self, response: &OllamaStreamResponse) -> Option<Usage> {
+        if response.done == Some(true)
+            && let (Some(prompt_tokens), Some(completion_tokens)) =
                 (response.prompt_eval_count, response.eval_count)
-            {
-                let usage_info = Usage {
-                    prompt_tokens,
-                    completion_tokens,
-                    total_tokens: prompt_tokens + completion_tokens,
-                    cached_tokens: None,
-                    reasoning_tokens: None,
-                };
-                return Some(ChatStreamEvent::UsageUpdate { usage: usage_info });
-            }
-
-            // Stream end
-            let response = ChatResponse {
-                id: None,
-                model: response.model,
-                content: MessageContent::Text("".to_string()),
-                usage: None,
-                finish_reason: Some(FinishReason::Stop),
-                tool_calls: None,
-                thinking: None,
-                metadata: HashMap::new(),
-            };
-            return Some(ChatStreamEvent::StreamEnd { response });
+        {
+            return Some(Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+                cached_tokens: None,
+                reasoning_tokens: None,
+            });
         }
-
-        // Handle message content
-        if let Some(message) = response.message {
-            // Handle tool calls
-            if let Some(tool_calls) = message.tool_calls {
-                // For Ollama, we typically get complete tool calls in streaming
-                // Convert to the expected ToolCallDelta format
-                for tool_call in tool_calls {
-                    let function = tool_call.function;
-                    let call_id = format!("call_{}", uuid::Uuid::new_v4());
-
-                    // Return function name first
-                    if !function.name.is_empty() {
-                        return Some(ChatStreamEvent::ToolCallDelta {
-                            id: call_id.clone(),
-                            function_name: Some(function.name.clone()),
-                            arguments_delta: None,
-                            index: None,
-                        });
-                    }
-
-                    // Then return arguments if available
-                    let arguments_json =
-                        serde_json::to_string(&function.arguments).unwrap_or_default();
-                    if !arguments_json.is_empty() && arguments_json != "null" {
-                        return Some(ChatStreamEvent::ToolCallDelta {
-                            id: call_id,
-                            function_name: None,
-                            arguments_delta: Some(arguments_json),
-                            index: None,
-                        });
-                    }
-                }
-            }
-
-            // Handle thinking content
-            if let Some(thinking) = message.thinking {
-                return Some(ChatStreamEvent::ThinkingDelta { delta: thinking });
-            }
-
-            // Handle regular content
-            if let Some(content) = message.content {
-                return Some(ChatStreamEvent::ContentDelta {
-                    delta: content,
-                    index: None,
-                });
-            }
-        }
-
         None
+    }
+
+    /// Create StreamStart metadata from Ollama response
+    fn create_stream_start_metadata(&self, response: &OllamaStreamResponse) -> ResponseMetadata {
+        ResponseMetadata {
+            id: None, // Ollama doesn't provide ID in stream events
+            model: response.model.clone(),
+            created: Some(chrono::Utc::now()),
+            provider: "ollama".to_string(),
+            request_id: None,
+        }
     }
 }
 
@@ -138,14 +139,21 @@ impl JsonEventConverter for OllamaEventConverter {
     fn convert_json<'a>(
         &'a self,
         json_data: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
+    ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
     {
         Box::pin(async move {
             match serde_json::from_str::<OllamaStreamResponse>(json_data) {
-                Ok(ollama_response) => self.convert_ollama_response(ollama_response).map(Ok),
-                Err(e) => Some(Err(LlmError::ParseError(format!(
-                    "Failed to parse Ollama JSON: {e}"
-                )))),
+                Ok(ollama_response) => self
+                    .convert_ollama_response_async(ollama_response)
+                    .await
+                    .into_iter()
+                    .map(Ok)
+                    .collect(),
+                Err(e) => {
+                    vec![Err(LlmError::ParseError(format!(
+                        "Failed to parse Ollama JSON: {e}"
+                    )))]
+                }
             }
         })
     }
@@ -247,12 +255,17 @@ mod tests {
             r#"{"model":"llama2","message":{"role":"assistant","content":"Hello"},"done":false}"#;
 
         let result = converter.convert_json(json_data).await;
-        assert!(result.is_some());
+        assert!(!result.is_empty());
 
-        if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = result {
+        // In the new architecture, we might get StreamStart + ContentDelta
+        let content_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
+
+        if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
             assert_eq!(delta, "Hello");
         } else {
-            panic!("Expected ContentDelta event");
+            panic!("Expected ContentDelta event in results: {:?}", result);
         }
     }
 
@@ -264,13 +277,18 @@ mod tests {
         let json_data = r#"{"model":"llama2","done":true,"prompt_eval_count":10,"eval_count":20}"#;
 
         let result = converter.convert_json(json_data).await;
-        assert!(result.is_some());
+        assert!(!result.is_empty());
 
-        if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = result {
+        // In the new architecture, we might get StreamStart + UsageUpdate
+        let usage_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::UsageUpdate { .. })));
+
+        if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
             assert_eq!(usage.prompt_tokens, 10);
             assert_eq!(usage.completion_tokens, 20);
         } else {
-            panic!("Expected UsageUpdate event");
+            panic!("Expected UsageUpdate event in results: {:?}", result);
         }
     }
 }

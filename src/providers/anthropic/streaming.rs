@@ -6,7 +6,7 @@
 use crate::error::LlmError;
 use crate::params::AnthropicParams;
 use crate::stream::{ChatStream, ChatStreamEvent};
-use crate::types::{ChatResponse, FinishReason, MessageContent, Usage};
+use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 use serde::Deserialize;
@@ -95,8 +95,19 @@ impl AnthropicEventConverter {
     fn convert_anthropic_event(&self, event: AnthropicStreamEvent) -> Option<ChatStreamEvent> {
         match event.r#type.as_str() {
             "message_start" => {
-                // Stream start event
-                None // We don't emit stream start events for now
+                // Extract metadata from message_start event
+                if let Some(message) = event.message {
+                    let metadata = ResponseMetadata {
+                        id: message.id,
+                        model: message.model,
+                        created: Some(chrono::Utc::now()), // Anthropic doesn't provide created timestamp in stream
+                        provider: "anthropic".to_string(),
+                        request_id: None, // Anthropic doesn't provide request_id in stream events
+                    };
+                    Some(ChatStreamEvent::StreamStart { metadata })
+                } else {
+                    None
+                }
             }
             "content_block_delta" => {
                 if let Some(delta) = event.delta
@@ -183,7 +194,7 @@ impl SseEventConverter for AnthropicEventConverter {
     fn convert_event(
         &self,
         event: Event,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
+    ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
             // Log the raw event data for debugging
@@ -191,12 +202,18 @@ impl SseEventConverter for AnthropicEventConverter {
 
             // Handle special cases first
             if event.data.trim() == "[DONE]" {
-                return None;
+                return vec![];
             }
 
             // Try to parse as standard Anthropic event
             match serde_json::from_str::<AnthropicStreamEvent>(&event.data) {
-                Ok(anthropic_event) => self.convert_anthropic_event(anthropic_event).map(Ok),
+                Ok(anthropic_event) => {
+                    if let Some(chat_event) = self.convert_anthropic_event(anthropic_event) {
+                        vec![Ok(chat_event)]
+                    } else {
+                        vec![]
+                    }
+                }
                 Err(e) => {
                     // Enhanced error reporting with event data
                     tracing::warn!("Failed to parse Anthropic SSE event: {}", e);
@@ -214,18 +231,18 @@ impl SseEventConverter for AnthropicEventConverter {
                                 .and_then(|m| m.as_str())
                                 .unwrap_or("Unknown error");
 
-                            return Some(Err(LlmError::ApiError {
+                            return vec![Err(LlmError::ApiError {
                                 code: 0, // Unknown status code from SSE
                                 message: format!("Anthropic API error: {}", error_message),
                                 details: Some(error_obj.clone()),
-                            }));
+                            })];
                         }
                     }
 
-                    Some(Err(LlmError::ParseError(format!(
+                    vec![Err(LlmError::ParseError(format!(
                         "Failed to parse Anthropic event: {}. Raw data: {}",
                         e, event.data
-                    ))))
+                    )))]
                 }
             }
         })
@@ -458,9 +475,9 @@ mod tests {
         };
 
         let result = converter.convert_event(event).await;
-        assert!(result.is_some());
+        assert!(!result.is_empty());
 
-        if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = result {
+        if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = result.first() {
             assert_eq!(delta, "Hello");
         } else {
             panic!("Expected ContentDelta event");

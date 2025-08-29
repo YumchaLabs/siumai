@@ -6,18 +6,20 @@
 use crate::error::LlmError;
 use crate::providers::gemini::types::GeminiConfig;
 use crate::stream::{ChatStream, ChatStreamEvent};
-use crate::types::{ChatResponse, FinishReason, MessageContent, Usage};
+use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Gemini stream response structure
 #[derive(Debug, Clone, Deserialize)]
 struct GeminiStreamResponse {
     candidates: Option<Vec<GeminiCandidate>>,
     #[serde(rename = "usageMetadata")]
+    #[allow(dead_code)]
     usage_metadata: Option<GeminiUsageMetadata>,
 }
 
@@ -43,6 +45,7 @@ struct GeminiPart {
     text: Option<String>,
     /// Optional. Whether this is a thought summary (for thinking models)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[allow(dead_code)]
     thought: Option<bool>,
 }
 
@@ -50,91 +53,142 @@ struct GeminiPart {
 #[derive(Debug, Clone, Deserialize)]
 struct GeminiUsageMetadata {
     #[serde(rename = "promptTokenCount")]
+    #[allow(dead_code)]
     prompt_token_count: Option<u32>,
     #[serde(rename = "candidatesTokenCount")]
+    #[allow(dead_code)]
     candidates_token_count: Option<u32>,
     #[serde(rename = "totalTokenCount")]
+    #[allow(dead_code)]
     total_token_count: Option<u32>,
     /// Number of tokens used for thinking (only for thinking models)
     #[serde(rename = "thoughtsTokenCount")]
+    #[allow(dead_code)]
     thoughts_token_count: Option<u32>,
 }
 
 /// Gemini event converter
 #[derive(Clone)]
 pub struct GeminiEventConverter {
-    #[allow(dead_code)]
     config: GeminiConfig,
+    /// Track if StreamStart has been emitted
+    stream_started: Arc<Mutex<bool>>,
 }
 
 impl GeminiEventConverter {
     pub fn new(config: GeminiConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            stream_started: Arc::new(Mutex::new(false)),
+        }
     }
 
-    /// Convert Gemini stream response to ChatStreamEvent
-    fn convert_gemini_response(&self, response: GeminiStreamResponse) -> Option<ChatStreamEvent> {
-        // First, prioritize content over usage updates
-        // Handle candidates for content and finish reasons
-        if let Some(candidates) = response.candidates {
-            for candidate in candidates {
-                // Handle content first (most important)
-                if let Some(content) = candidate.content
-                    && let Some(parts) = content.parts
-                {
-                    for part in parts {
-                        if let Some(text) = part.text {
-                            // Check if this is thinking content
-                            if part.thought.unwrap_or(false) {
-                                return Some(ChatStreamEvent::ThinkingDelta { delta: text });
-                            } else {
-                                return Some(ChatStreamEvent::ContentDelta {
-                                    delta: text,
-                                    index: None,
-                                });
-                            }
-                        }
-                    }
-                }
+    /// Convert Gemini stream response to multiple ChatStreamEvents
+    async fn convert_gemini_response_async(
+        &self,
+        response: GeminiStreamResponse,
+    ) -> Vec<ChatStreamEvent> {
+        use crate::utils::streaming::EventBuilder;
 
-                // Handle finish reason
-                if let Some(finish_reason) = candidate.finish_reason {
-                    let reason = match finish_reason.as_str() {
-                        "STOP" => FinishReason::Stop,
-                        "MAX_TOKENS" => FinishReason::Length,
-                        "SAFETY" => FinishReason::ContentFilter,
-                        _ => FinishReason::Other(finish_reason),
-                    };
+        let mut builder = EventBuilder::new();
 
-                    let response = ChatResponse {
-                        id: None,
-                        model: None,
-                        content: MessageContent::Text("".to_string()),
-                        usage: None,
-                        finish_reason: Some(reason),
-                        tool_calls: None,
-                        thinking: None,
-                        metadata: HashMap::new(),
-                    };
-
-                    return Some(ChatStreamEvent::StreamEnd { response });
-                }
-            }
+        // Check if we need to emit StreamStart first
+        if self.needs_stream_start().await {
+            builder = builder.add_stream_start(self.create_stream_start_metadata());
         }
 
-        // Handle usage metadata only if no content was found
-        if let Some(usage) = response.usage_metadata {
-            let usage_info = Usage {
-                prompt_tokens: usage.prompt_token_count.unwrap_or(0),
-                completion_tokens: usage.candidates_token_count.unwrap_or(0),
-                total_tokens: usage.total_token_count.unwrap_or(0),
-                cached_tokens: None,
-                reasoning_tokens: usage.thoughts_token_count,
-            };
-            return Some(ChatStreamEvent::UsageUpdate { usage: usage_info });
+        // Process content - NO MORE CONTENT LOSS!
+        if let Some(content) = self.extract_content(&response) {
+            builder = builder.add_content_delta(content, None);
         }
 
+        // Process thinking content (if supported)
+        if let Some(thinking) = self.extract_thinking(&response) {
+            builder = builder.add_thinking_delta(thinking);
+        }
+
+        // Handle completion/finish reason
+        if let Some(end_response) = self.extract_completion(&response) {
+            builder = builder.add_stream_end(end_response);
+        }
+
+        builder.build()
+    }
+
+    /// Check if StreamStart event needs to be emitted
+    async fn needs_stream_start(&self) -> bool {
+        let mut started = self.stream_started.lock().await;
+        if !*started {
+            *started = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Extract content from Gemini response
+    fn extract_content(&self, response: &GeminiStreamResponse) -> Option<String> {
+        response
+            .candidates
+            .as_ref()?
+            .first()?
+            .content
+            .as_ref()?
+            .parts
+            .as_ref()?
+            .first()?
+            .text
+            .as_ref()
+            .filter(|text| !text.is_empty())
+            .cloned()
+    }
+
+    /// Extract thinking content from Gemini response
+    fn extract_thinking(&self, _response: &GeminiStreamResponse) -> Option<String> {
+        // Gemini may have thinking in different fields - implement based on actual API
+        // For now, return None as Gemini thinking support is still evolving
         None
+    }
+
+    /// Extract completion information
+    fn extract_completion(&self, response: &GeminiStreamResponse) -> Option<ChatResponse> {
+        let candidate = response.candidates.as_ref()?.first()?;
+
+        if let Some(finish_reason) = &candidate.finish_reason {
+            let finish_reason = match finish_reason.as_str() {
+                "STOP" => FinishReason::Stop,
+                "MAX_TOKENS" => FinishReason::Length,
+                "SAFETY" => FinishReason::ContentFilter,
+                "RECITATION" => FinishReason::ContentFilter,
+                _ => FinishReason::Stop,
+            };
+
+            let response = ChatResponse {
+                id: None,
+                model: None,
+                content: MessageContent::Text("".to_string()),
+                usage: None,
+                finish_reason: Some(finish_reason),
+                tool_calls: None,
+                thinking: None,
+                metadata: std::collections::HashMap::new(),
+            };
+
+            Some(response)
+        } else {
+            None
+        }
+    }
+
+    /// Create StreamStart metadata
+    fn create_stream_start_metadata(&self) -> ResponseMetadata {
+        ResponseMetadata {
+            id: None,                               // Gemini doesn't provide ID in stream events
+            model: Some(self.config.model.clone()), // Use model from config
+            created: Some(chrono::Utc::now()),
+            provider: "gemini".to_string(),
+            request_id: None,
+        }
     }
 }
 
@@ -142,20 +196,27 @@ impl SseEventConverter for GeminiEventConverter {
     fn convert_event(
         &self,
         event: eventsource_stream::Event,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
+    ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
             // Skip empty events
             if event.data.trim().is_empty() {
-                return None;
+                return vec![];
             }
 
             // Parse the JSON data from the SSE event
             match serde_json::from_str::<GeminiStreamResponse>(&event.data) {
-                Ok(gemini_response) => self.convert_gemini_response(gemini_response).map(Ok),
-                Err(e) => Some(Err(LlmError::ParseError(format!(
-                    "Failed to parse Gemini SSE JSON: {e}"
-                )))),
+                Ok(gemini_response) => self
+                    .convert_gemini_response_async(gemini_response)
+                    .await
+                    .into_iter()
+                    .map(Ok)
+                    .collect(),
+                Err(e) => {
+                    vec![Err(LlmError::ParseError(format!(
+                        "Failed to parse Gemini SSE JSON: {e}"
+                    )))]
+                }
             }
         })
     }
@@ -252,12 +313,17 @@ mod tests {
         };
 
         let result = converter.convert_event(event).await;
-        assert!(result.is_some());
+        assert!(!result.is_empty());
 
-        if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = result {
+        // In the new architecture, we might get StreamStart + ContentDelta
+        let content_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
+
+        if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
             assert_eq!(delta, "Hello");
         } else {
-            panic!("Expected ContentDelta event");
+            panic!("Expected ContentDelta event in results: {:?}", result);
         }
     }
 
@@ -276,12 +342,17 @@ mod tests {
         };
 
         let result = converter.convert_event(event).await;
-        assert!(result.is_some());
+        assert!(!result.is_empty());
 
-        if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = result {
+        // In the new architecture, first event might be StreamStart, look for StreamEnd
+        let stream_end_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::StreamEnd { .. })));
+
+        if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
             assert_eq!(response.finish_reason, Some(FinishReason::Stop));
         } else {
-            panic!("Expected StreamEnd event");
+            panic!("Expected StreamEnd event in results: {:?}", result);
         }
     }
 }

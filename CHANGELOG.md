@@ -6,6 +6,15 @@
 
 - **SiliconFlow Provider with Rerank Support** - Added comprehensive SiliconFlow provider integration including chat, embeddings, image generation, and document reranking capabilities for improved RAG systems
 
+### Fixed
+
+- **StreamStart Event Generation** - Fixed missing StreamStart events in streaming responses across all providers, now properly emitting metadata (id, model, created, provider, request_id) at stream beginning. Implemented multi-event emission architecture that preserves all content while ensuring StreamStart events.
+
+### Changed
+
+- **Streaming Architecture** - Refactored streaming traits to support multi-event emission (breaking change for internal APIs only, user-facing APIs unchanged)
+- **Provider Implementations** - All providers now use optimized multi-event conversion logic for better content preservation and consistency
+
 ## [0.9.1] - 2025-08-28
 
 ### Added

@@ -1,188 +1,179 @@
-# Real LLM Integration Tests
+# Tests
 
-This directory contains comprehensive integration tests for all supported LLM providers. These tests use real API keys and make actual API calls, so they are ignored by default to prevent accidental usage during normal testing.
+This directory contains all test files for the Siumai project, organized by functionality.
 
-## 🚀 Quick Start
+## Directory Structure
 
-### Set Environment Variables
+```
+tests/
+├── README.md                           # This file
+├── streaming/                          # Streaming functionality tests
+│   ├── stream_start_event_test.rs     # StreamStart event generation tests
+│   ├── complete_stream_events_test.rs # Complete streaming event sequence tests
+│   ├── streaming_integration_test.rs  # General streaming integration tests
+│   └── tool_call_streaming_integration_test.rs # Tool call streaming tests
+├── providers/                          # Provider-specific tests
+│   ├── provider_interface_test.rs     # Provider interface compliance tests
+│   ├── provider_headers_test.rs       # HTTP header validation tests
+│   └── gemini_thinking_test.rs        # Gemini thinking capability tests
+├── capabilities/                       # Feature capability tests
+│   ├── audio_capability_test.rs       # Audio processing capability tests
+│   ├── tool_capability_test.rs        # Tool calling capability tests
+│   ├── vision_capability_test.rs      # Vision/image processing capability tests
+│   ├── image_generation_test.rs       # Image generation capability tests
+│   └── embedding_integration_tests.rs # Embedding generation tests
+├── parameters/                         # Parameter handling tests
+│   ├── parameter_validation_test.rs   # Parameter validation tests
+│   ├── parameter_advanced_tests.rs    # Advanced parameter handling tests
+│   ├── parameter_mapping_consistency.rs # Parameter mapping consistency tests
+│   ├── parameter_internal_verification_test.rs # Internal parameter verification
+│   └── siumai_parameter_passing_test.rs # Parameter passing tests
+├── mock/                              # Mock testing framework
+│   ├── mock_framework.rs             # HTTP mock testing framework
+│   └── mock_streaming_provider.rs    # Mock streaming provider for testing
+├── core/                              # Core functionality tests
+│   ├── clone_support_test.rs         # Clone trait implementation tests
+│   ├── config_validation_tests.rs    # Configuration validation tests
+│   ├── concurrency_tests.rs          # Concurrency and thread safety tests
+│   ├── network_error_tests.rs        # Network error handling tests
+│   └── resource_management_tests.rs  # Resource management tests
+├── integration/                       # Integration tests
+│   └── siliconflow_rerank_test.rs    # SiliconFlow rerank integration tests
+├── integration_tests.rs              # Core integration tests
+├── real_llm_integration_test.rs       # Tests with real LLM providers (requires API keys)
+├── request_builder_integration_test.rs # Request builder integration tests
+├── request_builder_consistency.rs     # Request builder consistency tests
+├── siumai_unified_interface_test.rs   # Unified interface tests
+├── unified_reasoning_test.rs          # Unified reasoning capability tests
+├── max_tokens_default_test.rs         # Max tokens default behavior tests
+└── url_compatibility_test.rs          # URL compatibility tests
+```
 
-First, set the API keys for the providers you want to test:
+## Test Categories
 
+### 🌊 Streaming Tests (`tests/streaming/`)
+Tests for streaming functionality across all providers:
+- **StreamStart Event Tests** - Verify metadata emission at stream beginning
+- **Complete Event Sequence Tests** - Test full streaming event flows
+- **Integration Tests** - General streaming functionality
+- **Tool Call Streaming** - Tool call specific streaming tests
+
+### 🔌 Provider Tests (`tests/providers/`)
+Tests for provider-specific functionality:
+- **Interface Compliance** - Ensure providers implement required interfaces
+- **Header Validation** - HTTP header handling tests
+- **Provider-Specific Features** - Tests for unique provider capabilities
+
+### 🎯 Capability Tests (`tests/capabilities/`)
+Tests for specific AI capabilities:
+- **Audio Processing** - Audio input/output handling
+- **Tool Calling** - Function calling capabilities
+- **Vision** - Image processing and analysis
+- **Image Generation** - Image creation capabilities
+- **Embeddings** - Text embedding generation
+
+### ⚙️ Parameter Tests (`tests/parameters/`)
+Tests for parameter handling and validation:
+- **Validation** - Parameter validation logic
+- **Advanced Handling** - Complex parameter scenarios
+- **Mapping Consistency** - Parameter mapping across providers
+- **Internal Verification** - Internal parameter processing
+
+### 🎭 Mock Tests (`tests/mock/`)
+Mock testing framework and utilities:
+- **HTTP Mock Framework** - Mock server for HTTP requests
+- **Streaming Mock Provider** - Mock provider for streaming tests
+
+### 🏗️ Core Tests (`tests/core/`)
+Core functionality and infrastructure tests:
+- **Clone Support** - Clone trait implementations
+- **Configuration** - Configuration validation
+- **Concurrency** - Thread safety and concurrent access
+- **Network Errors** - Error handling and recovery
+- **Resource Management** - Memory and resource cleanup
+
+## Running Tests
+
+### All Tests
 ```bash
-# Required API Keys
-export OPENAI_API_KEY="your-openai-key"
-export ANTHROPIC_API_KEY="your-anthropic-key"
-export GEMINI_API_KEY="your-gemini-key"
-export DEEPSEEK_API_KEY="your-deepseek-key"
-export OPENROUTER_API_KEY="your-openrouter-key"
-export GROQ_API_KEY="your-groq-key"
-export XAI_API_KEY="your-xai-key"
-
-# Optional Base URL Overrides (for proxies/custom endpoints)
-export OPENAI_BASE_URL="https://your-proxy.com/v1"
-export ANTHROPIC_BASE_URL="https://your-proxy.com"
+cargo test
 ```
 
-### Run Tests
-
+### By Category
 ```bash
-# Test all available providers (skips providers without API keys)
-cargo test test_all_available_providers -- --ignored
+# Streaming tests
+cargo test --test "streaming/*"
 
-# Test specific providers
-cargo test test_openai_integration -- --ignored
-cargo test test_anthropic_integration -- --ignored
-cargo test test_gemini_integration -- --ignored
-cargo test test_deepseek_integration -- --ignored
-cargo test test_openrouter_integration -- --ignored
-cargo test test_groq_integration -- --ignored
-cargo test test_xai_integration -- --ignored
+# Provider tests
+cargo test --test "providers/*"
+
+# Capability tests
+cargo test --test "capabilities/*"
+
+# Parameter tests
+cargo test --test "parameters/*"
+
+# Mock tests
+cargo test --test "mock/*"
+
+# Core tests
+cargo test --test "core/*"
 ```
 
-## 📋 Test Coverage
-
-Each provider test includes comprehensive coverage of:
-
-### ✅ Non-streaming Chat
-- Basic request/response functionality
-- Message handling (system, user, assistant)
-- Response content validation
-- Usage statistics verification
-
-### 🌊 Streaming Chat
-- Real-time response streaming
-- Content delta accumulation
-- Thinking/reasoning content capture
-- Stream completion handling
-- Error handling
-
-### 🔢 Embeddings (if supported)
-- Text embedding generation
-- Multiple text batch processing
-- Dimension validation
-- Usage statistics
-
-### 🧠 Reasoning/Thinking (if supported)
-- Advanced reasoning capabilities
-- Model-specific reasoning features:
-  - **OpenAI**: o1 models with reasoning tokens
-  - **Anthropic**: Thinking with configurable budget
-  - **Gemini**: Dynamic thinking
-  - **DeepSeek**: Reasoner models
-  - **OpenRouter**: o1 models through proxy
-  - **xAI**: Grok reasoning capabilities
-
-## 🏗️ Provider Capabilities Matrix
-
-| Provider   | Chat | Streaming | Embeddings | Reasoning | Models Used |
-|------------|------|-----------|------------|-----------|-------------|
-| OpenAI     | ✅   | ✅        | ✅         | ✅        | gpt-4o-mini, o1-mini |
-| Anthropic  | ✅   | ✅        | ❌         | ✅        | claude-3-5-haiku, claude-3-5-sonnet |
-| Gemini     | ✅   | ✅        | ✅         | ✅        | gemini-1.5-flash, gemini-1.5-pro |
-| DeepSeek   | ✅   | ✅        | ❌         | ✅        | deepseek-chat, deepseek-reasoner |
-| OpenRouter | ✅   | ✅        | ❌         | ✅        | gpt-4o, gpt-4-turbo |
-| Groq       | ✅   | ✅        | ❌         | ❌        | llama-3.1-8b |
-| xAI        | ✅   | ✅        | ❌         | ✅        | grok-beta, grok-vision-beta |
-
-## 🔧 Configuration
-
-### Environment Variables
-
-#### Required API Keys
-- `OPENAI_API_KEY`: OpenAI API key
-- `ANTHROPIC_API_KEY`: Anthropic API key  
-- `GEMINI_API_KEY`: Google Gemini API key
-- `DEEPSEEK_API_KEY`: DeepSeek API key
-- `OPENROUTER_API_KEY`: OpenRouter API key
-- `GROQ_API_KEY`: Groq API key
-- `XAI_API_KEY`: xAI API key
-
-#### Optional Base URL Overrides
-- `OPENAI_BASE_URL`: Override OpenAI base URL (for proxies/custom endpoints) - only used if set
-- `ANTHROPIC_BASE_URL`: Override Anthropic base URL - only used if set
-
-### Test Behavior
-
-- **Automatic Skipping**: Tests automatically skip providers without API keys
-- **Comprehensive Logging**: Detailed output for each test phase
-- **Error Handling**: Clear error messages and panic on failures
-- **Usage Tracking**: Reports token usage and costs where available
-
-## 📊 Example Output
-
-```
-🚀 Running integration tests for all available providers...
-
-✅ Testing OpenAI provider...
-  📝 Testing non-streaming chat for OpenAI...
-    ✅ Non-streaming chat successful: 4
-    📊 Usage: 15 prompt + 1 completion = 16 total tokens
-  🌊 Testing streaming chat for OpenAI...
-    ✅ Streaming chat successful
-    📝 Accumulated content: 1
-2
-3
-4
-5
-    📊 Usage: 18 prompt + 11 completion = 29 total tokens
-  🔢 Testing embedding for OpenAI...
-    ✅ Embedding successful: 2 embeddings with 1536 dimensions
-    📊 Usage: 4 total tokens
-  🧠 Testing OpenAI reasoning for OpenAI...
-    ✅ OpenAI reasoning successful
-    📝 Response: To solve this step by step...
-    🧠 Reasoning tokens: 1247
-    📊 Usage: 35 prompt + 89 completion = 124 total tokens
-
-⏭️ Skipping Anthropic (no API key)
-...
-
-📊 Test Summary:
-   Tested providers: ["OpenAI", "Gemini"]
-   Skipped providers: ["Anthropic", "DeepSeek", "OpenRouter", "Groq", "xAI"]
-   Total providers tested: 2/7
-```
-
-## 🛠️ Development
-
-### Adding New Providers
-
-1. Add provider configuration to `get_provider_configs()`
-2. Add provider case to `test_provider_integration()`
-3. Add individual test function if needed
-4. Add reasoning test function if the provider supports it
-
-### Modifying Test Cases
-
-The test prompts are designed to be:
-- **Brief**: To minimize API costs
-- **Deterministic**: To produce consistent results
-- **Comprehensive**: To test all major features
-
-Feel free to modify the test prompts in the helper functions to better suit your testing needs.
-
-## ⚠️ Important Notes
-
-- **API Costs**: These tests make real API calls and will incur costs
-- **Rate Limits**: Be aware of provider rate limits when running tests
-- **Network Required**: Tests require internet connectivity
-- **API Keys**: Never commit API keys to version control
-- **Ignored by Default**: Tests are ignored to prevent accidental execution
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-1. **Missing API Key**: Set the required environment variable
-2. **Invalid API Key**: Check your API key is correct and has sufficient permissions
-3. **Rate Limiting**: Wait and retry, or use different API keys
-4. **Network Issues**: Check internet connectivity
-5. **Model Unavailable**: Some models may not be available in all regions
-
-### Debug Mode
-
-For more detailed output, run tests with:
-
+### Individual Test Files
 ```bash
-RUST_LOG=debug cargo test test_all_available_providers -- --ignored --nocapture
+# StreamStart event tests
+cargo test --test streaming/stream_start_event_test
+
+# Complete streaming sequence tests
+cargo test --test streaming/complete_stream_events_test
+
+# Mock streaming provider tests
+cargo test --test mock/mock_streaming_provider
 ```
+
+## Test Requirements
+
+Some tests require environment variables:
+- `OPENAI_API_KEY` - For OpenAI integration tests
+- `ANTHROPIC_API_KEY` - For Anthropic integration tests
+- `GOOGLE_API_KEY` - For Google/Gemini integration tests
+
+## Mock Testing
+
+The mock framework provides utilities for:
+- **HTTP Mock Servers** - Simulate API responses
+- **Error Injection** - Test error handling scenarios
+- **Network Failure Simulation** - Test network resilience
+- **Rate Limiting Simulation** - Test rate limit handling
+- **Authentication Failure Testing** - Test auth error scenarios
+- **Streaming Event Simulation** - Test complete streaming flows
+
+## Adding New Tests
+
+When adding new tests, place them in the appropriate category:
+
+1. **Streaming-related** → `tests/streaming/`
+2. **Provider-specific** → `tests/providers/`
+3. **Capability/feature** → `tests/capabilities/`
+4. **Parameter handling** → `tests/parameters/`
+5. **Mock/testing utilities** → `tests/mock/`
+6. **Core functionality** → `tests/core/`
+
+Follow the naming convention: `{feature}_{type}_test.rs`
+
+## Recent Additions
+
+### StreamStart Event Fix (v0.9.2)
+- Added comprehensive StreamStart event tests
+- Fixed missing StreamStart events across all providers
+- Created complete streaming event sequence tests
+- Added mock streaming provider for testing
+
+The streaming tests now verify that all providers correctly emit:
+1. **StreamStart** - With proper metadata at stream beginning
+2. **ContentDelta** - Incremental content updates
+3. **ToolCallDelta** - Tool call information (where supported)
+4. **ThinkingDelta** - Reasoning content (where supported)
+5. **UsageUpdate** - Token usage information
+6. **StreamEnd** - Final response with complete data

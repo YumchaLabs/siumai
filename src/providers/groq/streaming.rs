@@ -4,12 +4,15 @@
 
 use crate::error::LlmError;
 use crate::stream::{ChatStream, ChatStreamEvent};
-use crate::types::{ChatRequest, Usage};
+use crate::types::{ChatRequest, ResponseMetadata, Usage};
 use crate::types::{ChatResponse, FinishReason, MessageContent};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
+
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use super::config::GroqConfig;
 use super::types::*;
@@ -18,88 +21,96 @@ use super::utils::*;
 /// Groq event converter for SSE events
 #[derive(Clone)]
 pub struct GroqEventConverter {
-    #[allow(dead_code)] // May be used for future configuration
+    #[allow(dead_code)]
     config: GroqConfig,
+    /// Track if StreamStart has been emitted
+    stream_started: Arc<Mutex<bool>>,
 }
 
 impl GroqEventConverter {
     /// Create a new Groq event converter
     pub fn new(config: GroqConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            stream_started: Arc::new(Mutex::new(false)),
+        }
     }
 
-    /// Convert Groq stream response to ChatStreamEvent
-    fn convert_groq_response(&self, response: GroqChatStreamChunk) -> ChatStreamEvent {
-        // Handle usage information (final chunk)
-        if let Some(usage) = response.usage {
-            return ChatStreamEvent::UsageUpdate {
-                usage: Usage {
-                    prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-                    completion_tokens: usage.completion_tokens.unwrap_or(0),
-                    total_tokens: usage.total_tokens.unwrap_or(0),
-                    reasoning_tokens: None, // Groq doesn't provide reasoning tokens
-                    cached_tokens: None,
-                },
-            };
+    /// Convert Groq stream response to multiple ChatStreamEvents
+    async fn convert_groq_response_async(
+        &self,
+        response: GroqChatStreamChunk,
+    ) -> Vec<ChatStreamEvent> {
+        use crate::utils::streaming::EventBuilder;
+
+        let mut builder = EventBuilder::new();
+
+        // Check if we need to emit StreamStart first
+        if self.needs_stream_start().await {
+            let metadata = self.create_stream_start_metadata(&response);
+            builder = builder.add_stream_start(metadata);
         }
 
-        // Process choices
-        for choice in response.choices {
-            let delta = choice.delta;
-
-            // Handle finish reason (stream end)
-            if let Some(finish_reason) = choice.finish_reason {
-                let finish_reason_enum = match finish_reason.as_str() {
-                    "stop" => FinishReason::Stop,
-                    "length" => FinishReason::Length,
-                    "tool_calls" => FinishReason::ToolCalls,
-                    "content_filter" => FinishReason::ContentFilter,
-                    _ => FinishReason::Stop,
-                };
-
-                return ChatStreamEvent::StreamEnd {
-                    response: ChatResponse {
-                        id: Some(response.id),
-                        content: MessageContent::Text(String::new()),
-                        model: Some(response.model),
-                        usage: None,
-                        finish_reason: Some(finish_reason_enum),
-                        tool_calls: None,
-                        thinking: None,
-                        metadata: std::collections::HashMap::new(),
-                    },
-                };
-            }
-
-            // Handle content delta
-            if let Some(content) = delta.content {
-                return ChatStreamEvent::ContentDelta {
-                    delta: content,
-                    index: Some(choice.index as usize),
-                };
-            }
-
-            // Handle tool calls
-            if let Some(tool_calls) = delta.tool_calls {
-                for tool_call in tool_calls {
-                    if let Some(function) = tool_call.function
-                        && let Some(arguments) = function.arguments
-                    {
-                        return ChatStreamEvent::ToolCallDelta {
-                            index: tool_call.index.map(|i| i as usize),
-                            id: tool_call.id.unwrap_or_default(),
-                            function_name: function.name,
-                            arguments_delta: Some(arguments),
-                        };
-                    }
-                }
-            }
+        // Process content - NO MORE CONTENT LOSS!
+        if let Some(content) = self.extract_content(&response) {
+            builder = builder.add_content_delta(content, self.extract_choice_index(&response));
         }
 
-        // Default: empty content delta
-        ChatStreamEvent::ContentDelta {
-            delta: String::new(),
-            index: None,
+        // Process usage updates
+        if let Some(usage) = self.extract_usage(&response) {
+            builder = builder.add_usage_update(usage);
+        }
+
+        builder.build()
+    }
+
+    /// Check if StreamStart event needs to be emitted
+    async fn needs_stream_start(&self) -> bool {
+        let mut started = self.stream_started.lock().await;
+        if !*started {
+            *started = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Extract content from Groq response
+    fn extract_content(&self, response: &GroqChatStreamChunk) -> Option<String> {
+        response
+            .choices
+            .first()?
+            .delta
+            .content
+            .as_ref()
+            .filter(|content| !content.is_empty())
+            .cloned()
+    }
+
+    /// Extract choice index
+    fn extract_choice_index(&self, response: &GroqChatStreamChunk) -> Option<usize> {
+        Some(response.choices.first()?.index as usize)
+    }
+
+    /// Extract usage information
+    fn extract_usage(&self, response: &GroqChatStreamChunk) -> Option<Usage> {
+        response.usage.as_ref().map(|usage| Usage {
+            prompt_tokens: usage.prompt_tokens.unwrap_or(0),
+            completion_tokens: usage.completion_tokens.unwrap_or(0),
+            total_tokens: usage.total_tokens.unwrap_or(0),
+            cached_tokens: None,
+            reasoning_tokens: None,
+        })
+    }
+
+    /// Create StreamStart metadata
+    fn create_stream_start_metadata(&self, response: &GroqChatStreamChunk) -> ResponseMetadata {
+        ResponseMetadata {
+            id: Some(response.id.clone()),
+            model: Some(response.model.clone()),
+            created: Some(chrono::Utc::now()),
+            provider: "groq".to_string(),
+            request_id: None,
         }
     }
 }
@@ -108,14 +119,21 @@ impl SseEventConverter for GroqEventConverter {
     fn convert_event(
         &self,
         event: Event,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
+    ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
             match serde_json::from_str::<GroqChatStreamChunk>(&event.data) {
-                Ok(groq_response) => Some(Ok(self.convert_groq_response(groq_response))),
-                Err(e) => Some(Err(LlmError::ParseError(format!(
-                    "Failed to parse Groq event: {e}"
-                )))),
+                Ok(groq_response) => self
+                    .convert_groq_response_async(groq_response)
+                    .await
+                    .into_iter()
+                    .map(Ok)
+                    .collect(),
+                Err(e) => {
+                    vec![Err(LlmError::ParseError(format!(
+                        "Failed to parse Groq event: {e}"
+                    )))]
+                }
             }
         })
     }

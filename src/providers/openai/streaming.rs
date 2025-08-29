@@ -6,13 +6,15 @@
 use crate::error::LlmError;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::stream::{ChatStream, ChatStreamEvent};
-use crate::types::{ChatResponse, FinishReason, MessageContent, Usage};
+use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// OpenAI stream event structure
 #[derive(Debug, Clone, Deserialize)]
@@ -28,6 +30,7 @@ struct OpenAiStreamEvent {
 struct OpenAiStreamChoice {
     index: Option<usize>,
     delta: Option<OpenAiStreamDelta>,
+    #[allow(dead_code)]
     finish_reason: Option<String>,
 }
 
@@ -44,6 +47,7 @@ struct OpenAiStreamDelta {
 /// OpenAI tool call delta
 #[derive(Debug, Clone, Deserialize)]
 struct OpenAiToolCallDelta {
+    #[allow(dead_code)]
     index: Option<usize>,
     id: Option<String>,
     function: Option<OpenAiFunctionCallDelta>,
@@ -83,103 +87,138 @@ struct OpenAiPromptTokensDetails {
 pub struct OpenAiEventConverter {
     #[allow(dead_code)]
     config: OpenAiConfig,
+    /// Track if StreamStart has been emitted
+    stream_started: Arc<Mutex<bool>>,
 }
 
 impl OpenAiEventConverter {
     pub fn new(config: OpenAiConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            stream_started: Arc::new(Mutex::new(false)),
+        }
     }
 
-    /// Convert OpenAI stream event to ChatStreamEvent
-    fn convert_openai_event(&self, event: OpenAiStreamEvent) -> ChatStreamEvent {
-        // Handle choices first (prioritize content over usage)
-        if let Some(choices) = event.choices {
-            for choice in choices {
-                if let Some(delta) = choice.delta {
-                    // Handle content delta
-                    if let Some(content) = delta.content {
-                        return ChatStreamEvent::ContentDelta {
-                            delta: content,
-                            index: choice.index,
-                        };
-                    }
+    /// Convert OpenAI stream event to multiple ChatStreamEvents
+    async fn convert_openai_event_async(&self, event: OpenAiStreamEvent) -> Vec<ChatStreamEvent> {
+        use crate::utils::streaming::EventBuilder;
 
-                    // Handle thinking content (for reasoning models)
-                    if let Some(thinking) = delta.thinking {
-                        return ChatStreamEvent::ThinkingDelta { delta: thinking };
-                    }
+        let mut builder = EventBuilder::new();
 
-                    // Handle tool calls
-                    if let Some(tool_calls) = delta.tool_calls {
-                        for tool_call in tool_calls {
-                            if let Some(function) = tool_call.function {
-                                if let Some(name) = function.name {
-                                    return ChatStreamEvent::ToolCallDelta {
-                                        id: tool_call.id.unwrap_or_default(),
-                                        function_name: Some(name),
-                                        arguments_delta: None,
-                                        index: tool_call.index,
-                                    };
-                                }
-                                if let Some(arguments) = function.arguments {
-                                    return ChatStreamEvent::ToolCallDelta {
-                                        id: tool_call.id.unwrap_or_default(),
-                                        function_name: None,
-                                        arguments_delta: Some(arguments),
-                                        index: tool_call.index,
-                                    };
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Handle finish reason
-                if let Some(finish_reason) = choice.finish_reason {
-                    let reason = match finish_reason.as_str() {
-                        "stop" => FinishReason::Stop,
-                        "length" => FinishReason::Length,
-                        "tool_calls" => FinishReason::ToolCalls,
-                        "content_filter" => FinishReason::ContentFilter,
-                        _ => FinishReason::Other(finish_reason),
-                    };
-
-                    let response = ChatResponse {
-                        id: event.id,
-                        model: event.model,
-                        content: MessageContent::Text("".to_string()),
-                        usage: None,
-                        finish_reason: Some(reason),
-                        tool_calls: None,
-                        thinking: None,
-                        metadata: HashMap::new(),
-                    };
-
-                    return ChatStreamEvent::StreamEnd { response };
-                }
-            }
+        // Check if we need to emit StreamStart first
+        if self.needs_stream_start().await {
+            let metadata = self.create_stream_start_metadata(&event);
+            builder = builder.add_stream_start(metadata);
         }
 
-        // Handle usage information only if no content was found
-        if let Some(usage) = event.usage {
-            let usage_info = Usage {
-                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-                completion_tokens: usage.completion_tokens.unwrap_or(0),
-                total_tokens: usage.total_tokens.unwrap_or(0),
-                cached_tokens: usage
-                    .prompt_tokens_details
-                    .and_then(|details| details.cached_tokens),
-                reasoning_tokens: usage
-                    .completion_tokens_details
-                    .and_then(|details| details.reasoning_tokens),
-            };
-            return ChatStreamEvent::UsageUpdate { usage: usage_info };
+        // Process content delta - NO MORE CONTENT LOSS!
+        if let Some(content) = self.extract_content(&event) {
+            builder = builder.add_content_delta(content, self.extract_choice_index(&event));
         }
 
-        // Default: empty content delta
-        ChatStreamEvent::ContentDelta {
-            delta: "".to_string(),
-            index: None,
+        // Process tool calls
+        if let Some((id, name, args)) = self.extract_tool_call(&event) {
+            builder =
+                builder.add_tool_call_delta(id, name, args, self.extract_choice_index(&event));
+        }
+
+        // Process thinking content (for reasoning models)
+        if let Some(thinking) = self.extract_thinking(&event) {
+            builder = builder.add_thinking_delta(thinking);
+        }
+
+        // Process usage updates
+        if let Some(usage) = self.extract_usage(&event) {
+            builder = builder.add_usage_update(usage);
+        }
+
+        builder.build()
+    }
+
+    /// Check if StreamStart event needs to be emitted
+    async fn needs_stream_start(&self) -> bool {
+        let mut started = self.stream_started.lock().await;
+        if !*started {
+            *started = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Extract content from OpenAI event
+    fn extract_content(&self, event: &OpenAiStreamEvent) -> Option<String> {
+        event
+            .choices
+            .as_ref()?
+            .first()?
+            .delta
+            .as_ref()?
+            .content
+            .as_ref()
+            .filter(|content| !content.is_empty())
+            .cloned()
+    }
+
+    /// Extract tool call information
+    fn extract_tool_call(
+        &self,
+        event: &OpenAiStreamEvent,
+    ) -> Option<(String, Option<String>, Option<String>)> {
+        let choice = event.choices.as_ref()?.first()?;
+        let tool_call = choice.delta.as_ref()?.tool_calls.as_ref()?.first()?;
+
+        let id = tool_call.id.clone()?;
+        let function_name = tool_call.function.as_ref()?.name.clone();
+        let arguments = tool_call.function.as_ref()?.arguments.clone();
+
+        Some((id, function_name, arguments))
+    }
+
+    /// Extract thinking content
+    fn extract_thinking(&self, event: &OpenAiStreamEvent) -> Option<String> {
+        event
+            .choices
+            .as_ref()?
+            .first()?
+            .delta
+            .as_ref()?
+            .thinking
+            .as_ref()
+            .filter(|thinking| !thinking.is_empty())
+            .cloned()
+    }
+
+    /// Extract usage information
+    fn extract_usage(&self, event: &OpenAiStreamEvent) -> Option<Usage> {
+        event.usage.as_ref().map(|usage| Usage {
+            prompt_tokens: usage.prompt_tokens.unwrap_or(0),
+            completion_tokens: usage.completion_tokens.unwrap_or(0),
+            total_tokens: usage.total_tokens.unwrap_or(0),
+            cached_tokens: usage
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|details| details.cached_tokens),
+            reasoning_tokens: usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|details| details.reasoning_tokens),
+        })
+    }
+
+    /// Extract choice index
+    fn extract_choice_index(&self, event: &OpenAiStreamEvent) -> Option<usize> {
+        event.choices.as_ref()?.first()?.index
+    }
+
+    /// Create StreamStart metadata from OpenAI event
+    fn create_stream_start_metadata(&self, event: &OpenAiStreamEvent) -> ResponseMetadata {
+        ResponseMetadata {
+            id: event.id.clone(),
+            model: event.model.clone(),
+            created: Some(chrono::Utc::now()),
+            provider: "openai".to_string(),
+            request_id: None, // OpenAI doesn't provide request_id in stream events
         }
     }
 }
@@ -188,14 +227,21 @@ impl SseEventConverter for OpenAiEventConverter {
     fn convert_event(
         &self,
         event: Event,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
+    ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
             match serde_json::from_str::<OpenAiStreamEvent>(&event.data) {
-                Ok(openai_event) => Some(Ok(self.convert_openai_event(openai_event))),
-                Err(e) => Some(Err(LlmError::ParseError(format!(
-                    "Failed to parse OpenAI event: {e}"
-                )))),
+                Ok(openai_event) => self
+                    .convert_openai_event_async(openai_event)
+                    .await
+                    .into_iter()
+                    .map(Ok)
+                    .collect(),
+                Err(e) => {
+                    vec![Err(LlmError::ParseError(format!(
+                        "Failed to parse OpenAI event: {e}"
+                    )))]
+                }
             }
         })
     }

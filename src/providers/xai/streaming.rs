@@ -4,12 +4,14 @@
 
 use crate::error::LlmError;
 use crate::stream::{ChatStream, ChatStreamEvent};
-use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
+use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use super::config::XaiConfig;
 use super::types::*;
@@ -20,91 +22,94 @@ use super::utils::*;
 pub struct XaiEventConverter {
     #[allow(dead_code)]
     config: XaiConfig,
+    /// Track if StreamStart has been emitted
+    stream_started: Arc<Mutex<bool>>,
 }
 
 impl XaiEventConverter {
     pub fn new(config: XaiConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            stream_started: Arc::new(Mutex::new(false)),
+        }
     }
 
-    /// Convert xAI stream event to ChatStreamEvent
-    fn convert_xai_event(&self, event: XaiStreamChunk) -> ChatStreamEvent {
-        // Handle choices first (prioritize content over usage)
-        for choice in event.choices {
-            let delta = choice.delta;
+    /// Convert xAI stream event to multiple ChatStreamEvents
+    async fn convert_xai_event_async(&self, event: XaiStreamChunk) -> Vec<ChatStreamEvent> {
+        use crate::utils::streaming::EventBuilder;
 
-            // Handle content delta
-            if let Some(content) = delta.content {
-                return ChatStreamEvent::ContentDelta {
-                    delta: content,
-                    index: Some(choice.index as usize),
-                };
-            }
+        let mut builder = EventBuilder::new();
 
-            // Handle reasoning content delta (xAI specific)
-            if let Some(reasoning) = delta.reasoning_content {
-                return ChatStreamEvent::ThinkingDelta { delta: reasoning };
-            }
-
-            // Handle tool calls
-            if let Some(tool_calls) = delta.tool_calls {
-                for tool_call in tool_calls {
-                    if let Some(function) = tool_call.function {
-                        if let Some(name) = function.name {
-                            return ChatStreamEvent::ToolCallDelta {
-                                id: tool_call.id.unwrap_or_default(),
-                                function_name: Some(name),
-                                arguments_delta: None,
-                                index: Some(tool_call.index as usize),
-                            };
-                        }
-                        if let Some(arguments) = function.arguments {
-                            return ChatStreamEvent::ToolCallDelta {
-                                id: tool_call.id.unwrap_or_default(),
-                                function_name: None,
-                                arguments_delta: Some(arguments),
-                                index: Some(tool_call.index as usize),
-                            };
-                        }
-                    }
-                }
-            }
-
-            // Handle finish reason
-            if let Some(finish_reason) = choice.finish_reason {
-                let reason = parse_finish_reason(Some(&finish_reason));
-
-                let response = ChatResponse {
-                    id: Some(event.id),
-                    model: Some(event.model),
-                    content: MessageContent::Text("".to_string()),
-                    usage: None,
-                    finish_reason: Some(reason),
-                    tool_calls: None,
-                    thinking: None,
-                    metadata: HashMap::new(),
-                };
-
-                return ChatStreamEvent::StreamEnd { response };
-            }
+        // Check if we need to emit StreamStart first
+        if self.needs_stream_start().await {
+            let metadata = self.create_stream_start_metadata(&event);
+            builder = builder.add_stream_start(metadata);
         }
 
-        // Handle usage information only if no content was found
-        if let Some(usage) = event.usage {
-            let usage_info = Usage {
-                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-                completion_tokens: usage.completion_tokens.unwrap_or(0),
-                total_tokens: usage.total_tokens.unwrap_or(0),
-                cached_tokens: None, // xAI doesn't provide cached tokens info
-                reasoning_tokens: usage.reasoning_tokens,
-            };
-            return ChatStreamEvent::UsageUpdate { usage: usage_info };
+        // Process content - NO MORE CONTENT LOSS!
+        if let Some(content) = self.extract_content(&event) {
+            builder = builder.add_content_delta(content, self.extract_choice_index(&event));
         }
 
-        // Default: empty content delta
-        ChatStreamEvent::ContentDelta {
-            delta: "".to_string(),
-            index: None,
+        // Process thinking content
+        if let Some(thinking) = self.extract_thinking(&event) {
+            builder = builder.add_thinking_delta(thinking);
+        }
+
+        builder.build()
+    }
+
+    /// Check if StreamStart event needs to be emitted
+    async fn needs_stream_start(&self) -> bool {
+        let mut started = self.stream_started.lock().await;
+        if !*started {
+            *started = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Extract content from xAI event
+    fn extract_content(&self, event: &XaiStreamChunk) -> Option<String> {
+        event
+            .choices
+            .first()?
+            .delta
+            .content
+            .as_ref()
+            .filter(|content| !content.is_empty())
+            .cloned()
+    }
+
+    /// Extract thinking content
+    fn extract_thinking(&self, event: &XaiStreamChunk) -> Option<String> {
+        event
+            .choices
+            .first()?
+            .delta
+            .reasoning_content
+            .as_ref()
+            .filter(|thinking| !thinking.is_empty())
+            .cloned()
+    }
+
+    /// Extract choice index
+    fn extract_choice_index(&self, event: &XaiStreamChunk) -> Option<usize> {
+        Some(event.choices.first()?.index as usize)
+    }
+
+    /// Create StreamStart metadata
+    fn create_stream_start_metadata(&self, event: &XaiStreamChunk) -> ResponseMetadata {
+        ResponseMetadata {
+            id: Some(event.id.clone()),
+            model: Some(event.model.clone()),
+            created: Some(
+                chrono::DateTime::from_timestamp(event.created as i64, 0)
+                    .unwrap_or_else(chrono::Utc::now),
+            ),
+            provider: "xai".to_string(),
+            request_id: None,
         }
     }
 }
@@ -113,14 +118,21 @@ impl SseEventConverter for XaiEventConverter {
     fn convert_event(
         &self,
         event: Event,
-    ) -> Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
+    ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
             match serde_json::from_str::<XaiStreamChunk>(&event.data) {
-                Ok(xai_event) => Some(Ok(self.convert_xai_event(xai_event))),
-                Err(e) => Some(Err(LlmError::ParseError(format!(
-                    "Failed to parse xAI event: {e}"
-                )))),
+                Ok(xai_event) => self
+                    .convert_xai_event_async(xai_event)
+                    .await
+                    .into_iter()
+                    .map(Ok)
+                    .collect(),
+                Err(e) => {
+                    vec![Err(LlmError::ParseError(format!(
+                        "Failed to parse xAI event: {e}"
+                    )))]
+                }
             }
         })
     }

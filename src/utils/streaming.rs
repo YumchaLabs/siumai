@@ -12,17 +12,20 @@ use futures_util::StreamExt;
 use std::future::Future;
 use std::pin::Pin;
 
-/// Type alias for SSE event conversion future
+/// Type alias for SSE event conversion future - now supports multiple events
 type SseEventFuture<'a> =
-    Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>;
+    Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>;
 
-/// Type alias for JSON event conversion future
+/// Type alias for JSON event conversion future - now supports multiple events
 type JsonEventFuture<'a> =
-    Pin<Box<dyn Future<Output = Option<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>;
+    Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>;
 
 /// Trait for converting provider-specific SSE events to ChatStreamEvent
+///
+/// This trait now supports multi-event emission, allowing a single provider event
+/// to generate multiple ChatStreamEvents (e.g., StreamStart + ContentDelta).
 pub trait SseEventConverter: Send + Sync {
-    /// Convert an SSE event to a ChatStreamEvent
+    /// Convert an SSE event to zero or more ChatStreamEvents
     fn convert_event(&self, event: Event) -> SseEventFuture<'_>;
 
     /// Handle the end of stream
@@ -32,8 +35,10 @@ pub trait SseEventConverter: Send + Sync {
 }
 
 /// Trait for converting JSON data to ChatStreamEvent (for providers like Gemini)
+///
+/// This trait now supports multi-event emission for JSON-based streaming.
 pub trait JsonEventConverter: Send + Sync {
-    /// Convert JSON data to a ChatStreamEvent
+    /// Convert JSON data to zero or more ChatStreamEvents
     fn convert_json<'a>(&'a self, json_data: &'a str) -> JsonEventFuture<'a>;
 }
 
@@ -62,24 +67,28 @@ impl StreamFactory {
         // Use eventsource-stream for UTF-8 handling, then parse as JSON
         let sse_stream = byte_stream.into_sse_stream();
 
-        let chat_stream = sse_stream.filter_map(move |event_result| {
-            let converter = converter.clone();
-            async move {
-                match event_result {
-                    Ok(event) => {
-                        // For JSON streaming, we treat the data as raw JSON
-                        if event.data.trim().is_empty() {
-                            return None;
-                        }
+        let chat_stream = sse_stream
+            .then(move |event_result| {
+                let converter = converter.clone();
+                async move {
+                    match event_result {
+                        Ok(event) => {
+                            // For JSON streaming, we treat the data as raw JSON
+                            if event.data.trim().is_empty() {
+                                return vec![];
+                            }
 
-                        converter.convert_json(&event.data).await
+                            converter.convert_json(&event.data).await
+                        }
+                        Err(e) => {
+                            let error =
+                                Err(LlmError::ParseError(format!("JSON parsing error: {e}")));
+                            vec![error]
+                        }
                     }
-                    Err(e) => Some(Err(LlmError::ParseError(format!(
-                        "JSON parsing error: {e}"
-                    )))),
                 }
-            }
-        });
+            })
+            .flat_map(futures::stream::iter);
 
         // Explicitly type the boxed stream to help the compiler
         let boxed_stream: ChatStream = Box::pin(chat_stream);
@@ -124,33 +133,130 @@ impl StreamFactory {
         // Use eventsource-stream to parse SSE
         let sse_stream = byte_stream.into_sse_stream();
 
-        // Convert SSE events to ChatStreamEvents
-        let chat_stream = sse_stream.filter_map(move |event_result| {
-            let converter = converter.clone();
-            async move {
-                match event_result {
-                    Ok(event) => {
-                        // Handle special [DONE] event
-                        if event.data.trim() == "[DONE]" {
-                            return converter.handle_stream_end();
-                        }
+        // Convert SSE events to ChatStreamEvents - now supports multiple events per conversion
+        let chat_stream = sse_stream
+            .then(move |event_result| {
+                let converter = converter.clone();
+                async move {
+                    match event_result {
+                        Ok(event) => {
+                            // Handle special [DONE] event
+                            if event.data.trim() == "[DONE]" {
+                                if let Some(end_event) = converter.handle_stream_end() {
+                                    return vec![end_event];
+                                } else {
+                                    return vec![];
+                                }
+                            }
 
-                        // Skip empty events
-                        if event.data.trim().is_empty() {
-                            return None;
-                        }
+                            // Skip empty events
+                            if event.data.trim().is_empty() {
+                                return vec![];
+                            }
 
-                        // Convert using provider-specific logic
-                        converter.convert_event(event).await
+                            // Convert using provider-specific logic - now returns multiple events
+                            converter.convert_event(event).await
+                        }
+                        Err(e) => {
+                            let error =
+                                Err(LlmError::StreamError(format!("SSE parsing error: {e}")));
+                            vec![error]
+                        }
                     }
-                    Err(e) => Some(Err(LlmError::StreamError(format!(
-                        "SSE parsing error: {e}"
-                    )))),
                 }
-            }
-        });
+            })
+            .flat_map(futures::stream::iter);
 
         Ok(Box::pin(chat_stream))
+    }
+}
+
+/// Helper utilities for efficient event building
+pub struct EventBuilder {
+    events: Vec<ChatStreamEvent>,
+}
+
+impl EventBuilder {
+    /// Create a new event builder
+    pub fn new() -> Self {
+        Self {
+            events: Vec::with_capacity(2), // Most conversions produce 1-2 events
+        }
+    }
+
+    /// Create a new event builder with specific capacity
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            events: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Add a StreamStart event
+    pub fn add_stream_start(mut self, metadata: crate::types::ResponseMetadata) -> Self {
+        self.events.push(ChatStreamEvent::StreamStart { metadata });
+        self
+    }
+
+    /// Add a ContentDelta event (only if delta is not empty)
+    pub fn add_content_delta(mut self, delta: String, index: Option<usize>) -> Self {
+        if !delta.is_empty() {
+            self.events
+                .push(ChatStreamEvent::ContentDelta { delta, index });
+        }
+        self
+    }
+
+    /// Add a ToolCallDelta event
+    pub fn add_tool_call_delta(
+        mut self,
+        id: String,
+        function_name: Option<String>,
+        arguments_delta: Option<String>,
+        index: Option<usize>,
+    ) -> Self {
+        self.events.push(ChatStreamEvent::ToolCallDelta {
+            id,
+            function_name,
+            arguments_delta,
+            index,
+        });
+        self
+    }
+
+    /// Add a ThinkingDelta event (only if delta is not empty)
+    pub fn add_thinking_delta(mut self, delta: String) -> Self {
+        if !delta.is_empty() {
+            self.events.push(ChatStreamEvent::ThinkingDelta { delta });
+        }
+        self
+    }
+
+    /// Add a UsageUpdate event
+    pub fn add_usage_update(mut self, usage: crate::types::Usage) -> Self {
+        self.events.push(ChatStreamEvent::UsageUpdate { usage });
+        self
+    }
+
+    /// Add a StreamEnd event
+    pub fn add_stream_end(mut self, response: crate::types::ChatResponse) -> Self {
+        self.events.push(ChatStreamEvent::StreamEnd { response });
+        self
+    }
+
+    /// Build the events vector
+    pub fn build(self) -> Vec<ChatStreamEvent> {
+        self.events
+    }
+
+    /// Build the events vector wrapped in Results
+    pub fn build_results(self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        self.events.into_iter().map(Ok).collect()
+    }
+}
+
+impl Default for EventBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
