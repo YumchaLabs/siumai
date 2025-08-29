@@ -118,7 +118,7 @@ pub use error::LlmError;
 pub use traits::{
     AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability,
     FileManagementCapability, ImageGenerationCapability, ModelListingCapability,
-    ModerationCapability, ProviderCapabilities, VisionCapability,
+    ModerationCapability, ProviderCapabilities, RerankCapability, VisionCapability,
 };
 
 // Client trait

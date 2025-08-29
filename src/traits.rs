@@ -1127,6 +1127,45 @@ pub trait OpenAiEmbeddingCapability: EmbeddingCapability {
     ) -> Result<EmbeddingResponse, LlmError>;
 }
 
+/// Document reranking capability trait.
+///
+/// This trait provides document reranking functionality, which is useful for
+/// improving search relevance by reordering documents based on their relevance
+/// to a specific query. This is commonly used in RAG (Retrieval-Augmented Generation)
+/// systems to improve the quality of retrieved documents.
+///
+/// # API References
+/// - SiliconFlow: <https://docs.siliconflow.cn/cn/api-reference/rerank/create-rerank>
+/// - Cohere: <https://docs.cohere.com/reference/rerank>
+/// - Jina AI: <https://jina.ai/reranker/>
+#[async_trait]
+pub trait RerankCapability: Send + Sync {
+    /// Rerank documents based on their relevance to a query.
+    ///
+    /// # Arguments
+    /// * `request` - The rerank request containing query and documents
+    ///
+    /// # Returns
+    /// Reranked documents with relevance scores
+    async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError>;
+
+    /// Get the maximum number of documents that can be reranked in a single request.
+    ///
+    /// # Returns
+    /// Maximum document count, or None if unlimited
+    fn max_documents(&self) -> Option<u32> {
+        None
+    }
+
+    /// Get supported rerank models for this provider.
+    ///
+    /// # Returns
+    /// List of available rerank model names
+    fn supported_models(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
 /// Gemini-specific capabilities.
 #[async_trait]
 pub trait GeminiCapability: Send + Sync {

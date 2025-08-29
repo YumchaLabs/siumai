@@ -25,6 +25,27 @@ cargo run --example openai_compatible_models_showcase
 - Cost and performance trade-offs
 - When to use which provider
 
+### 🎯 [SiliconFlow Comprehensive](./siliconflow.rs)
+**Complete showcase of SiliconFlow's AI capabilities**
+
+Features demonstrated:
+- Chat with DeepSeek and Qwen models
+- Text embeddings with BGE models
+- Document reranking for improved search relevance
+- Complete RAG (Retrieval-Augmented Generation) workflow
+- Multi-capability integration
+
+```bash
+# Run the SiliconFlow example
+cargo run --example siliconflow
+```
+
+**Key Learning Points:**
+- How to use SiliconFlow's reranking capabilities
+- Building complete RAG systems
+- Combining chat, embeddings, and reranking
+- Advanced document relevance scoring
+
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -34,6 +55,9 @@ Set up API keys for the providers you want to use:
 ```bash
 # DeepSeek (cost-effective, good performance)
 export DEEPSEEK_API_KEY="your-deepseek-key"
+
+# SiliconFlow (comprehensive AI platform with reranking)
+export SILICONFLOW_API_KEY="your-siliconflow-key"
 
 # Groq (ultra-fast inference)
 export GROQ_API_KEY="your-groq-key"

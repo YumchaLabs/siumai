@@ -233,6 +233,68 @@ impl OpenAiCompatibleProvider for XAIProvider {
     }
 }
 
+/// SiliconFlow provider implementation
+#[derive(Debug, Clone)]
+pub struct SiliconFlowProvider;
+
+impl OpenAiCompatibleProvider for SiliconFlowProvider {
+    const PROVIDER_ID: &'static str = "siliconflow";
+    const DISPLAY_NAME: &'static str = "SiliconFlow";
+    const DESCRIPTION: &'static str = "SiliconFlow AI models with reranking capabilities";
+    const DEFAULT_BASE_URL: &'static str = "https://api.siliconflow.cn/v1";
+    const DEFAULT_MODEL: &'static str = "deepseek-chat";
+
+    fn validate_config(_config: &super::config::OpenAiCompatibleConfig) -> Result<(), LlmError> {
+        // SiliconFlow-specific validation
+        Ok(())
+    }
+
+    fn transform_params(params: &mut HashMap<String, serde_json::Value>) -> Result<(), LlmError> {
+        // SiliconFlow-specific parameter transformations for image generation
+
+        // Map OpenAI 'n' parameter to SiliconFlow 'batch_size'
+        if let Some(n_value) = params.remove("n") {
+            params.insert("batch_size".to_string(), n_value);
+        }
+
+        // Map OpenAI 'size' parameter to SiliconFlow 'image_size'
+        if let Some(size_value) = params.remove("size") {
+            params.insert("image_size".to_string(), size_value);
+        }
+
+        // Add SiliconFlow-specific default parameters for image generation
+        if params.contains_key("prompt") && params.contains_key("model") {
+            // Set default inference steps if not provided
+            if !params.contains_key("num_inference_steps") {
+                params.insert(
+                    "num_inference_steps".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(20)),
+                );
+            }
+
+            // Set default guidance scale if not provided
+            if !params.contains_key("guidance_scale") {
+                params.insert(
+                    "guidance_scale".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from_f64(7.5).unwrap()),
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn supported_capabilities() -> ProviderCapabilities {
+        ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_embedding()
+            .with_custom_feature("rerank", true)
+            .with_custom_feature("image_generation", true)
+            .with_custom_feature("audio", true)
+    }
+}
+
 /// Groq provider implementation
 pub struct GroqProvider;
 

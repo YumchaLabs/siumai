@@ -64,7 +64,7 @@ siumai = { version = "0.9.1", features = ["ollama"] }
 
 | Feature | Providers | Description |
 |---------|-----------|-------------|
-| `openai` | OpenAI + compatible | OpenAI, DeepSeek, OpenRouter |
+| `openai` | OpenAI + compatible | OpenAI, DeepSeek, OpenRouter, SiliconFlow |
 | `anthropic` | Anthropic | Claude models with thinking mode |
 | `google` | Google | Gemini models with multimodal capabilities |
 | `ollama` | Ollama | Local AI models |
@@ -194,9 +194,11 @@ Siumai uses a capability-based architecture that separates different AI function
 
 - **`ChatCapability`**: Basic chat functionality
 - **`AudioCapability`**: Text-to-speech and speech-to-text
-- **`VisionCapability`**: Image analysis and generation
+- **`ImageGenerationCapability`**: Image generation, editing, and variations
+- **`VisionCapability`**: Image analysis and understanding
 - **`ToolCapability`**: Function calling and tool usage
 - **`EmbeddingCapability`**: Text embeddings
+- **`RerankCapability`**: Document reranking and relevance scoring
 
 ### Provider-Specific Traits
 
@@ -805,29 +807,59 @@ std::fs::write("output.mp3", response.audio_data)?;
 
 #### Image Generation
 
+Generate images using OpenAI DALL-E or SiliconFlow models:
+
 ```rust
-use siumai::models;
-use siumai::providers::openai::{OpenAiConfig, OpenAiImages};
+use siumai::prelude::*;
 use siumai::traits::ImageGenerationCapability;
 use siumai::types::ImageGenerationRequest;
 
-let config = OpenAiConfig::new("your-api-key");
-let client = OpenAiImages::new(config, reqwest::Client::new());
+// OpenAI DALL-E
+let client = LlmBuilder::new()
+    .openai()
+    .api_key("your-openai-api-key")
+    .build()
+    .await?;
 
 let request = ImageGenerationRequest {
-    prompt: "A beautiful sunset".to_string(),
-    model: Some(models::openai::DALL_E_3.to_string()),
+    prompt: "A futuristic city with flying cars at sunset".to_string(),
     size: Some("1024x1024".to_string()),
     count: 1,
+    model: Some("dall-e-3".to_string()),
+    quality: Some("hd".to_string()),
+    style: Some("vivid".to_string()),
     ..Default::default()
 };
 
 let response = client.generate_images(request).await?;
 for image in response.images {
     if let Some(url) = image.url {
-        println!("Image URL: {}", url);
+        println!("Generated image: {}", url);
     }
 }
+
+// SiliconFlow with advanced parameters
+use siumai::providers::openai_compatible::siliconflow;
+
+let siliconflow_client = LlmBuilder::new()
+    .siliconflow()
+    .api_key("your-siliconflow-api-key")
+    .build()
+    .await?;
+
+let sf_request = ImageGenerationRequest {
+    prompt: "A beautiful landscape with mountains".to_string(),
+    negative_prompt: Some("blurry, low quality".to_string()),
+    size: Some("1024x1024".to_string()),
+    count: 1,
+    model: Some(siliconflow::KOLORS.to_string()),
+    steps: Some(20),
+    guidance_scale: Some(7.5),
+    seed: Some(42),
+    ..Default::default()
+};
+
+let sf_response = siliconflow_client.generate_images(sf_request).await?;
 ```
 
 ## 🧪 Testing
@@ -900,15 +932,16 @@ Each provider test includes:
 
 #### Supported Providers
 
-| Provider   | Chat | Streaming | Embeddings | Reasoning |
-|------------|------|-----------|------------|-----------|
-| OpenAI     | ✅   | ✅        | ✅         | ✅ (o1)   |
-| Anthropic  | ✅   | ✅        | ❌         | ✅ (thinking) |
-| Gemini     | ✅   | ✅        | ✅         | ✅ (thinking) |
-| DeepSeek   | ✅   | ✅        | ❌         | ✅ (reasoner) |
-| OpenRouter | ✅   | ✅        | ❌         | ✅ (o1 models) |
-| Groq       | ✅   | ✅        | ❌         | ❌        |
-| xAI        | ✅   | ✅        | ❌         | ✅ (Grok) |
+| Provider     | Chat | Streaming | Embeddings | Reasoning | Rerank | Images |
+|--------------|------|-----------|------------|-----------|--------|--------|
+| OpenAI       | ✅   | ✅        | ✅         | ✅ (o1)   | ❌     | ✅     |
+| Anthropic    | ✅   | ✅        | ❌         | ✅ (thinking) | ❌     | ❌     |
+| Gemini       | ✅   | ✅        | ✅         | ✅ (thinking) | ❌     | ✅     |
+| DeepSeek     | ✅   | ✅        | ❌         | ✅ (reasoner) | ❌     | ❌     |
+| OpenRouter   | ✅   | ✅        | ❌         | ✅ (o1 models) | ❌     | ❌     |
+| SiliconFlow  | ✅   | ✅        | ✅         | ✅ (reasoner) | ✅     | ✅     |
+| Groq         | ✅   | ✅        | ❌         | ❌        | ❌     | ❌     |
+| xAI          | ✅   | ✅        | ❌         | ✅ (Grok) | ❌     | ❌     |
 
 See [tests/README.md](tests/README.md) for detailed instructions.
 

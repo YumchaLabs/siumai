@@ -21,6 +21,9 @@ use super::config::OpenAiConfig;
 struct OpenAiImageRequest {
     /// Text prompt describing the image
     prompt: String,
+    /// Negative prompt (what to avoid) - for SiliconFlow
+    #[serde(skip_serializing_if = "Option::is_none")]
+    negative_prompt: Option<String>,
     /// Model to use (dall-e-2 or dall-e-3)
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
@@ -99,18 +102,61 @@ impl OpenAiImages {
         }
     }
 
+    /// Check if this is a SiliconFlow instance
+    fn is_siliconflow(&self) -> bool {
+        self.config.base_url.contains("siliconflow.cn")
+    }
+
     /// Get the default image generation model.
     fn default_model(&self) -> String {
-        "dall-e-3".to_string()
+        if self.is_siliconflow() {
+            "Kwai-Kolors/Kolors".to_string()
+        } else {
+            "dall-e-3".to_string()
+        }
     }
 
     /// Get supported image generation models.
     fn get_supported_models(&self) -> Vec<String> {
-        vec![
-            "dall-e-2".to_string(),
-            "dall-e-3".to_string(),
-            "gpt-image-1".to_string(), // New model
-        ]
+        if self.is_siliconflow() {
+            vec![
+                "Kwai-Kolors/Kolors".to_string(),
+                "black-forest-labs/FLUX.1-schnell".to_string(),
+                "stabilityai/stable-diffusion-3.5-large".to_string(),
+            ]
+        } else {
+            vec![
+                "dall-e-2".to_string(),
+                "dall-e-3".to_string(),
+                "gpt-image-1".to_string(), // New model
+            ]
+        }
+    }
+
+    /// Convert OpenAI request to SiliconFlow format if needed
+    fn convert_request_for_provider(&self, request: &OpenAiImageRequest) -> serde_json::Value {
+        if self.is_siliconflow() {
+            // Convert to SiliconFlow format
+            let mut siliconflow_request = serde_json::json!({
+                "model": request.model.as_ref().unwrap_or(&self.default_model()),
+                "prompt": request.prompt,
+                "image_size": request.size.as_ref().unwrap_or(&"1024x1024".to_string()),
+                "batch_size": request.n.unwrap_or(1),
+                "num_inference_steps": 20,
+                "guidance_scale": 7.5
+            });
+
+            // Add optional parameters
+            if let Some(negative_prompt) = &request.negative_prompt {
+                siliconflow_request["negative_prompt"] =
+                    serde_json::Value::String(negative_prompt.clone());
+            }
+
+            siliconflow_request
+        } else {
+            // Use original OpenAI format
+            serde_json::to_value(request).unwrap_or_default()
+        }
     }
 
     /// Make an image generation API request.
@@ -129,11 +175,14 @@ impl OpenAiImages {
             headers.insert(header_name, header_value);
         }
 
+        // Convert request format based on provider
+        let request_body = self.convert_request_for_provider(&request);
+
         let response = self
             .http_client
             .post(&url)
             .headers(headers)
-            .json(&request)
+            .json(&request_body)
             .send()
             .await
             .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
@@ -283,6 +332,7 @@ impl ImageGenerationCapability for OpenAiImages {
 
         let openai_request = OpenAiImageRequest {
             prompt: request.prompt,
+            negative_prompt: request.negative_prompt,
             model: Some(model),
             n: if request.count > 0 {
                 Some(request.count)
@@ -302,30 +352,47 @@ impl ImageGenerationCapability for OpenAiImages {
 
     /// Get supported image sizes for this provider.
     fn get_supported_sizes(&self) -> Vec<String> {
-        // Return all supported sizes across all models
-        vec![
-            "256x256".to_string(),
-            "512x512".to_string(),
-            "1024x1024".to_string(),
-            "1792x1024".to_string(),
-            "1024x1792".to_string(),
-            "2048x2048".to_string(), // New size for gpt-image-1
-        ]
+        if self.is_siliconflow() {
+            // SiliconFlow supported sizes
+            vec![
+                "1024x1024".to_string(),
+                "960x1280".to_string(),
+                "768x1024".to_string(),
+                "720x1440".to_string(),
+                "720x1280".to_string(),
+            ]
+        } else {
+            // OpenAI supported sizes
+            vec![
+                "256x256".to_string(),
+                "512x512".to_string(),
+                "1024x1024".to_string(),
+                "1792x1024".to_string(),
+                "1024x1792".to_string(),
+                "2048x2048".to_string(), // New size for gpt-image-1
+            ]
+        }
     }
 
     /// Get supported response formats for this provider.
     fn get_supported_formats(&self) -> Vec<String> {
-        vec!["url".to_string(), "b64_json".to_string()]
+        if self.is_siliconflow() {
+            // SiliconFlow only supports URL format
+            vec!["url".to_string()]
+        } else {
+            // OpenAI supports both formats
+            vec!["url".to_string(), "b64_json".to_string()]
+        }
     }
 
     /// Check if the provider supports image editing.
     fn supports_image_editing(&self) -> bool {
-        true // OpenAI supports image editing
+        !self.is_siliconflow() // SiliconFlow doesn't support image editing
     }
 
     /// Check if the provider supports image variations.
     fn supports_image_variations(&self) -> bool {
-        true // OpenAI supports image variations
+        !self.is_siliconflow() // SiliconFlow doesn't support image variations
     }
 
     /// Edit an existing image based on a prompt.

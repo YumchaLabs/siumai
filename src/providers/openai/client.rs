@@ -12,7 +12,9 @@ use crate::traits::*;
 use crate::types::*;
 
 use super::chat::OpenAiChatCapability;
+use super::images::OpenAiImages;
 use super::models::OpenAiModels;
+use super::rerank::OpenAiRerank;
 use super::responses::OpenAiResponses;
 use super::types::OpenAiSpecificParams;
 use super::utils::get_default_models;
@@ -24,6 +26,10 @@ pub struct OpenAiClient {
     chat_capability: OpenAiChatCapability,
     /// Models capability implementation
     models_capability: OpenAiModels,
+    /// Rerank capability implementation
+    rerank_capability: OpenAiRerank,
+    /// Image generation capability implementation
+    images_capability: OpenAiImages,
     /// Common parameters
     common_params: CommonParams,
     /// OpenAI-specific parameters
@@ -52,6 +58,8 @@ impl Clone for OpenAiClient {
         Self {
             chat_capability: self.chat_capability.clone(),
             models_capability: self.models_capability.clone(),
+            rerank_capability: self.rerank_capability.clone(),
+            images_capability: self.images_capability.clone(),
             common_params: self.common_params.clone(),
             openai_params: self.openai_params.clone(),
             specific_params: self.specific_params.clone(),
@@ -94,9 +102,21 @@ impl OpenAiClient {
             config.http_config.clone(),
         );
 
+        let rerank_capability = OpenAiRerank::new(
+            config.api_key.clone(),
+            config.base_url.clone(),
+            http_client.clone(),
+            config.organization.clone(),
+            config.project.clone(),
+        );
+
+        let images_capability = OpenAiImages::new(config.clone(), http_client.clone());
+
         Self {
             chat_capability,
             models_capability,
+            rerank_capability,
+            images_capability,
             common_params: config.common_params,
             openai_params: config.openai_params,
             specific_params,
@@ -395,6 +415,7 @@ impl LlmProvider for OpenAiClient {
             .with_embedding()
             .with_custom_feature("structured_output", true)
             .with_custom_feature("batch_processing", true)
+            .with_custom_feature("rerank", true)
     }
 
     fn http_client(&self) -> &reqwest::Client {
@@ -434,9 +455,73 @@ impl LlmClient for OpenAiClient {
     }
 
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
-        // OpenAI client doesn't directly implement ImageGenerationCapability
-        // Image generation is handled through separate OpenAiImages struct
-        None
+        // Return the image generation capability
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl RerankCapability for OpenAiClient {
+    /// Rerank documents based on their relevance to a query
+    async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
+        self.rerank_capability.rerank(request).await
+    }
+
+    /// Get the maximum number of documents that can be reranked
+    fn max_documents(&self) -> Option<u32> {
+        self.rerank_capability.max_documents()
+    }
+
+    /// Get supported rerank models for this provider
+    fn supported_models(&self) -> Vec<String> {
+        self.rerank_capability.supported_models()
+    }
+}
+
+#[async_trait]
+impl ImageGenerationCapability for OpenAiClient {
+    /// Generate images from text prompts.
+    async fn generate_images(
+        &self,
+        request: ImageGenerationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.images_capability.generate_images(request).await
+    }
+
+    /// Edit an existing image with a text prompt.
+    async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.images_capability.edit_image(request).await
+    }
+
+    /// Create variations of an existing image.
+    async fn create_variation(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.images_capability.create_variation(request).await
+    }
+
+    /// Get supported image sizes for this provider.
+    fn get_supported_sizes(&self) -> Vec<String> {
+        self.images_capability.get_supported_sizes()
+    }
+
+    /// Get supported response formats for this provider.
+    fn get_supported_formats(&self) -> Vec<String> {
+        self.images_capability.get_supported_formats()
+    }
+
+    /// Check if the provider supports image editing.
+    fn supports_image_editing(&self) -> bool {
+        self.images_capability.supports_image_editing()
+    }
+
+    /// Check if the provider supports image variations.
+    fn supports_image_variations(&self) -> bool {
+        self.images_capability.supports_image_variations()
     }
 }
 

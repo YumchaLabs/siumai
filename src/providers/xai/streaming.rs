@@ -29,19 +29,7 @@ impl XaiEventConverter {
 
     /// Convert xAI stream event to ChatStreamEvent
     fn convert_xai_event(&self, event: XaiStreamChunk) -> ChatStreamEvent {
-        // Handle usage information
-        if let Some(usage) = event.usage {
-            let usage_info = Usage {
-                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-                completion_tokens: usage.completion_tokens.unwrap_or(0),
-                total_tokens: usage.total_tokens.unwrap_or(0),
-                cached_tokens: None, // xAI doesn't provide cached tokens info
-                reasoning_tokens: usage.reasoning_tokens,
-            };
-            return ChatStreamEvent::UsageUpdate { usage: usage_info };
-        }
-
-        // Handle choices
+        // Handle choices first (prioritize content over usage)
         for choice in event.choices {
             let delta = choice.delta;
 
@@ -99,6 +87,18 @@ impl XaiEventConverter {
 
                 return ChatStreamEvent::StreamEnd { response };
             }
+        }
+
+        // Handle usage information only if no content was found
+        if let Some(usage) = event.usage {
+            let usage_info = Usage {
+                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
+                completion_tokens: usage.completion_tokens.unwrap_or(0),
+                total_tokens: usage.total_tokens.unwrap_or(0),
+                cached_tokens: None, // xAI doesn't provide cached tokens info
+                reasoning_tokens: usage.reasoning_tokens,
+            };
+            return ChatStreamEvent::UsageUpdate { usage: usage_info };
         }
 
         // Default: empty content delta

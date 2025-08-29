@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.2] - 2025-08-29
+
+### Added
+
+- **SiliconFlow Provider with Rerank Support** - Added comprehensive SiliconFlow provider integration including chat, embeddings, image generation, and document reranking capabilities for improved RAG systems
+
 ## [0.9.1] - 2025-08-28
 
 ### Added

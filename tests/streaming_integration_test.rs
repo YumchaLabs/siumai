@@ -150,6 +150,107 @@ async fn test_openai_usage_conversion() {
 }
 
 #[tokio::test]
+async fn test_openai_content_prioritized_over_usage() {
+    let config = siumai::providers::openai::config::OpenAiConfig::default();
+    let converter = OpenAiEventConverter::new(config);
+
+    // Test event with both content and usage - content should be prioritized
+    let event = Event {
+        event: "message".to_string(),
+        data: r#"{"id":"0198f39ebed63df1a3b0736f167707b4","object":"chat.completion.chunk","created":1756433923,"model":"deepseek-ai/DeepSeek-V3","choices":[{"index":0,"delta":{"content":"` and","reasoning_content":null},"finish_reason":null}],"system_fingerprint":"","usage":{"prompt_tokens":39,"completion_tokens":306,"total_tokens":345}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.is_some());
+
+    // Should return ContentDelta, not UsageUpdate
+    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, index })) = result {
+        assert_eq!(delta, "` and");
+        assert_eq!(index, Some(0));
+    } else {
+        panic!("Expected ContentDelta event, not UsageUpdate");
+    }
+}
+
+#[tokio::test]
+async fn test_xai_content_prioritized_over_usage() {
+    use siumai::providers::xai::config::XaiConfig;
+    use siumai::providers::xai::streaming::XaiEventConverter;
+
+    let config = XaiConfig::default();
+    let converter = XaiEventConverter::new(config);
+
+    // Test event with both content and usage - content should be prioritized
+    let event = Event {
+        event: "message".to_string(),
+        data: r#"{"id":"test-id","object":"chat.completion.chunk","created":1756433923,"model":"grok-beta","choices":[{"index":0,"delta":{"content":"Hello world","reasoning_content":null},"finish_reason":null}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.is_some());
+
+    // Should return ContentDelta, not UsageUpdate
+    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, index })) = result {
+        assert_eq!(delta, "Hello world");
+        assert_eq!(index, Some(0));
+    } else {
+        panic!("Expected ContentDelta event, not UsageUpdate");
+    }
+}
+
+#[tokio::test]
+async fn test_openai_image_generation_capability() {
+    use siumai::providers::openai::{OpenAiConfig, OpenAiImages};
+    use siumai::traits::ImageGenerationCapability;
+    use siumai::types::ImageGenerationRequest;
+
+    let config = OpenAiConfig::new("test-key");
+    let images = OpenAiImages::new(config, reqwest::Client::new());
+
+    // Test supported sizes
+    let sizes = images.get_supported_sizes();
+    assert!(!sizes.is_empty());
+    assert!(sizes.contains(&"1024x1024".to_string()));
+
+    // Test supported formats
+    let formats = images.get_supported_formats();
+    assert!(!formats.is_empty());
+    assert!(formats.contains(&"url".to_string()));
+
+    // Test capabilities
+    assert!(images.supports_image_editing());
+    assert!(images.supports_image_variations());
+}
+
+#[tokio::test]
+async fn test_siliconflow_image_generation_capability() {
+    use siumai::providers::openai::{OpenAiConfig, OpenAiImages};
+    use siumai::traits::ImageGenerationCapability;
+
+    // Create a SiliconFlow-like config
+    let config = OpenAiConfig::new("test-key").with_base_url("https://api.siliconflow.cn/v1");
+    let images = OpenAiImages::new(config, reqwest::Client::new());
+
+    // Test supported sizes for SiliconFlow
+    let sizes = images.get_supported_sizes();
+    assert!(!sizes.is_empty());
+    assert!(sizes.contains(&"1024x1024".to_string()));
+    assert!(sizes.contains(&"960x1280".to_string()));
+
+    // Test supported formats for SiliconFlow
+    let formats = images.get_supported_formats();
+    assert_eq!(formats, vec!["url".to_string()]);
+
+    // Test capabilities for SiliconFlow
+    assert!(!images.supports_image_editing()); // SiliconFlow doesn't support editing
+    assert!(!images.supports_image_variations()); // SiliconFlow doesn't support variations
+}
+
+#[tokio::test]
 async fn test_openai_finish_reason_conversion() {
     let config = siumai::providers::openai::config::OpenAiConfig::default();
     let converter = OpenAiEventConverter::new(config);

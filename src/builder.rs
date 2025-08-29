@@ -539,6 +539,37 @@ impl LlmBuilder {
             .model("openai/gpt-4o")
     }
 
+    /// Create a `SiliconFlow` client builder (OpenAI-compatible).
+    ///
+    /// `SiliconFlow` provides access to various AI models including chat, embeddings,
+    /// reranking, and image generation capabilities.
+    /// Uses OpenAI-compatible API by configuring the OpenAI client with SiliconFlow's endpoint.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::builder::LlmBuilder;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .siliconflow()
+    ///         .api_key("your-siliconflow-api-key")
+    ///         .model("deepseek-chat")
+    ///         .temperature(0.7)
+    ///         .build()
+    ///         .await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    #[cfg(feature = "openai")]
+    pub fn siliconflow(self) -> crate::providers::openai::OpenAiBuilder {
+        // Create OpenAI builder with SiliconFlow-specific defaults
+        crate::providers::openai::OpenAiBuilder::new(self)
+            .base_url("https://api.siliconflow.cn/v1")
+            .model("deepseek-chat")
+    }
+
     /// Generic provider builder (for custom providers)
     pub const fn provider(self, provider_type: ProviderType) -> GenericProviderBuilder {
         GenericProviderBuilder::new(self, provider_type)

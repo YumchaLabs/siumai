@@ -199,6 +199,91 @@ pub mod xai {
     }
 }
 
+/// SiliconFlow model constants
+pub mod siliconflow {
+    /// Chat models
+    pub const DEEPSEEK_CHAT: &str = "deepseek-chat";
+    pub const DEEPSEEK_CODER: &str = "deepseek-coder";
+    pub const DEEPSEEK_REASONER: &str = "deepseek-reasoner";
+    pub const QWEN_2_5_72B_INSTRUCT: &str = "Qwen/Qwen2.5-72B-Instruct";
+    pub const QWEN_2_5_32B_INSTRUCT: &str = "Qwen/Qwen2.5-32B-Instruct";
+    pub const QWEN_2_5_14B_INSTRUCT: &str = "Qwen/Qwen2.5-14B-Instruct";
+    pub const QWEN_2_5_7B_INSTRUCT: &str = "Qwen/Qwen2.5-7B-Instruct";
+
+    /// Embedding models
+    pub const BGE_LARGE_EN_V1_5: &str = "BAAI/bge-large-en-v1.5";
+    pub const BGE_LARGE_ZH_V1_5: &str = "BAAI/bge-large-zh-v1.5";
+    pub const BGE_M3: &str = "BAAI/bge-m3";
+    pub const TEXT_EMBEDDING_ADA_002: &str = "text-embedding-ada-002";
+
+    /// Rerank models
+    pub const BGE_RERANKER_V2_M3: &str = "BAAI/bge-reranker-v2-m3";
+    pub const BGE_RERANKER_V2_M3_PRO: &str = "Pro/BAAI/bge-reranker-v2-m3";
+    pub const QWEN3_RERANKER_8B: &str = "Qwen/Qwen3-Reranker-8B";
+    pub const QWEN3_RERANKER_4B: &str = "Qwen/Qwen3-Reranker-4B";
+    pub const QWEN3_RERANKER_0_6B: &str = "Qwen/Qwen3-Reranker-0.6B";
+    pub const BCE_RERANKER_BASE_V1: &str = "netease-youdao/bce-reranker-base_v1";
+
+    /// Image generation models
+    pub const FLUX_1_SCHNELL: &str = "black-forest-labs/FLUX.1-schnell";
+    pub const STABLE_DIFFUSION_3_5_LARGE: &str = "stabilityai/stable-diffusion-3.5-large";
+    pub const KOLORS: &str = "Kwai-Kolors/Kolors";
+
+    /// Get all SiliconFlow chat models
+    pub fn all_chat_models() -> Vec<String> {
+        vec![
+            DEEPSEEK_CHAT.to_string(),
+            DEEPSEEK_CODER.to_string(),
+            DEEPSEEK_REASONER.to_string(),
+            QWEN_2_5_72B_INSTRUCT.to_string(),
+            QWEN_2_5_32B_INSTRUCT.to_string(),
+            QWEN_2_5_14B_INSTRUCT.to_string(),
+            QWEN_2_5_7B_INSTRUCT.to_string(),
+        ]
+    }
+
+    /// Get all SiliconFlow embedding models
+    pub fn all_embedding_models() -> Vec<String> {
+        vec![
+            BGE_LARGE_EN_V1_5.to_string(),
+            BGE_LARGE_ZH_V1_5.to_string(),
+            BGE_M3.to_string(),
+            TEXT_EMBEDDING_ADA_002.to_string(),
+        ]
+    }
+
+    /// Get all SiliconFlow rerank models
+    pub fn all_rerank_models() -> Vec<String> {
+        vec![
+            BGE_RERANKER_V2_M3.to_string(),
+            BGE_RERANKER_V2_M3_PRO.to_string(),
+            QWEN3_RERANKER_8B.to_string(),
+            QWEN3_RERANKER_4B.to_string(),
+            QWEN3_RERANKER_0_6B.to_string(),
+            BCE_RERANKER_BASE_V1.to_string(),
+        ]
+    }
+
+    /// Get all SiliconFlow image generation models
+    pub fn all_image_models() -> Vec<String> {
+        vec![
+            FLUX_1_SCHNELL.to_string(),
+            STABLE_DIFFUSION_3_5_LARGE.to_string(),
+            KOLORS.to_string(),
+        ]
+    }
+
+    /// Get all SiliconFlow models
+    pub fn all_models() -> Vec<String> {
+        let mut models = Vec::new();
+        models.extend(all_chat_models());
+        models.extend(all_embedding_models());
+        models.extend(all_rerank_models());
+        models.extend(all_image_models());
+        models
+    }
+}
+
 /// Groq model constants
 pub mod groq {
     /// Llama 3.1 70B Versatile
@@ -225,6 +310,7 @@ pub fn get_models_for_provider(provider: &str) -> Vec<String> {
         "openrouter" => openrouter::all_models(),
         "xai" => xai::all_models(),
         "groq" => groq::all_models(),
+        "siliconflow" => siliconflow::all_models(),
         _ => vec![],
     }
 }

@@ -92,23 +92,7 @@ impl OpenAiEventConverter {
 
     /// Convert OpenAI stream event to ChatStreamEvent
     fn convert_openai_event(&self, event: OpenAiStreamEvent) -> ChatStreamEvent {
-        // Handle usage information
-        if let Some(usage) = event.usage {
-            let usage_info = Usage {
-                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-                completion_tokens: usage.completion_tokens.unwrap_or(0),
-                total_tokens: usage.total_tokens.unwrap_or(0),
-                cached_tokens: usage
-                    .prompt_tokens_details
-                    .and_then(|details| details.cached_tokens),
-                reasoning_tokens: usage
-                    .completion_tokens_details
-                    .and_then(|details| details.reasoning_tokens),
-            };
-            return ChatStreamEvent::UsageUpdate { usage: usage_info };
-        }
-
-        // Handle choices
+        // Handle choices first (prioritize content over usage)
         if let Some(choices) = event.choices {
             for choice in choices {
                 if let Some(delta) = choice.delta {
@@ -174,6 +158,22 @@ impl OpenAiEventConverter {
                     return ChatStreamEvent::StreamEnd { response };
                 }
             }
+        }
+
+        // Handle usage information only if no content was found
+        if let Some(usage) = event.usage {
+            let usage_info = Usage {
+                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
+                completion_tokens: usage.completion_tokens.unwrap_or(0),
+                total_tokens: usage.total_tokens.unwrap_or(0),
+                cached_tokens: usage
+                    .prompt_tokens_details
+                    .and_then(|details| details.cached_tokens),
+                reasoning_tokens: usage
+                    .completion_tokens_details
+                    .and_then(|details| details.reasoning_tokens),
+            };
+            return ChatStreamEvent::UsageUpdate { usage: usage_info };
         }
 
         // Default: empty content delta

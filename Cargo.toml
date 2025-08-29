@@ -244,6 +244,10 @@ path = "examples/06_mcp_integration/stdio_mcp_client.rs"
 name = "stdio_mcp_server"
 path = "examples/06_mcp_integration/stdio_mcp_server.rs"
 
+[[example]]
+name = "image_generation_showcase"
+path = "examples/06_image_generation/image_generation_showcase.rs"
+
 
 
 # The profile that 'dist' will build with

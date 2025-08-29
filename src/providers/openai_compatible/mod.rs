@@ -40,7 +40,8 @@
 //! ```
 
 pub mod config;
+pub mod images;
 pub mod providers;
 
 // Re-export model constants for easy access
-pub use providers::models::{deepseek, groq, openrouter, xai};
+pub use providers::models::{deepseek, groq, openrouter, siliconflow, xai};

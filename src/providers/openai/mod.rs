@@ -61,6 +61,7 @@ pub mod chat;
 pub mod embeddings;
 pub mod files;
 pub mod images;
+pub mod rerank;
 pub mod responses;
 pub mod streaming;
 pub mod structured_output;
@@ -89,6 +90,7 @@ pub use files::OpenAiFiles;
 pub use images::OpenAiImages;
 pub use models::OpenAiModels;
 pub use moderation::OpenAiModeration;
+pub use rerank::OpenAiRerank;
 pub use responses::{
     ListResponsesQuery, OpenAiResponses, ResponseMetadata, ResponseStatus, ResponsesApiCapability,
 };
