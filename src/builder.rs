@@ -479,71 +479,11 @@ impl LlmBuilder {
 
     // OpenAI-Compatible Providers
 
-    /// Create a `DeepSeek` client builder (OpenAI-compatible).
-    ///
-    /// `DeepSeek` provides cost-effective AI with reasoning capabilities.
-    /// Uses OpenAI-compatible API by configuring the OpenAI client with DeepSeek's endpoint.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::builder::LlmBuilder;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client = LlmBuilder::new()
-    ///         .deepseek()
-    ///         .api_key("your-deepseek-api-key")
-    ///         .model("deepseek-chat")
-    ///         .temperature(0.1)
-    ///         .build()
-    ///         .await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    #[cfg(feature = "openai")]
-    pub fn deepseek(self) -> crate::providers::openai::OpenAiBuilder {
-        // Create OpenAI builder with DeepSeek-specific defaults
-        crate::providers::openai::OpenAiBuilder::new(self)
-            .base_url("https://api.deepseek.com/v1")
-            .model("deepseek-chat")
-    }
-
-    /// Create an `OpenRouter` client builder (OpenAI-compatible).
-    ///
-    /// `OpenRouter` provides access to multiple AI models through a unified API.
-    /// Uses OpenAI-compatible API by configuring the OpenAI client with OpenRouter's endpoint.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::builder::LlmBuilder;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client = LlmBuilder::new()
-    ///         .openrouter()
-    ///         .api_key("your-openrouter-api-key")
-    ///         .model("openai/gpt-4")
-    ///         .temperature(0.7)
-    ///         .build()
-    ///         .await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    #[cfg(feature = "openai")]
-    pub fn openrouter(self) -> crate::providers::openai::OpenAiBuilder {
-        // Create OpenAI builder with OpenRouter-specific defaults
-        crate::providers::openai::OpenAiBuilder::new(self)
-            .base_url("https://openrouter.ai/api/v1")
-            .model("openai/gpt-4o")
-    }
-
     /// Create a `SiliconFlow` client builder (OpenAI-compatible).
     ///
     /// `SiliconFlow` provides access to various AI models including chat, embeddings,
     /// reranking, and image generation capabilities.
-    /// Uses OpenAI-compatible API by configuring the OpenAI client with SiliconFlow's endpoint.
+    /// Uses the unified OpenAI-compatible system with proper adapter handling.
     ///
     /// # Example
     /// ```rust,no_run
@@ -563,11 +503,62 @@ impl LlmBuilder {
     /// }
     /// ```
     #[cfg(feature = "openai")]
-    pub fn siliconflow(self) -> crate::providers::openai::OpenAiBuilder {
-        // Create OpenAI builder with SiliconFlow-specific defaults
-        crate::providers::openai::OpenAiBuilder::new(self)
-            .base_url("https://api.siliconflow.cn/v1")
-            .model("deepseek-chat")
+    pub fn siliconflow(self) -> OpenAiCompatibleBuilder {
+        OpenAiCompatibleBuilder::new(self, "siliconflow")
+    }
+
+    /// Create a `DeepSeek` client builder (OpenAI-compatible).
+    ///
+    /// `DeepSeek` provides access to DeepSeek models with reasoning capabilities.
+    /// Uses the unified OpenAI-compatible system with proper adapter handling.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::builder::LlmBuilder;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .deepseek()
+    ///         .api_key("your-deepseek-api-key")
+    ///         .model("deepseek-chat")
+    ///         .temperature(0.7)
+    ///         .build()
+    ///         .await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    #[cfg(feature = "openai")]
+    pub fn deepseek(self) -> OpenAiCompatibleBuilder {
+        OpenAiCompatibleBuilder::new(self, "deepseek")
+    }
+
+    /// Create an `OpenRouter` client builder (OpenAI-compatible).
+    ///
+    /// `OpenRouter` provides access to multiple AI models through a unified API.
+    /// Uses the unified OpenAI-compatible system with proper adapter handling.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::builder::LlmBuilder;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .openrouter()
+    ///         .api_key("your-openrouter-api-key")
+    ///         .model("openai/gpt-4")
+    ///         .temperature(0.7)
+    ///         .build()
+    ///         .await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    #[cfg(feature = "openai")]
+    pub fn openrouter(self) -> OpenAiCompatibleBuilder {
+        OpenAiCompatibleBuilder::new(self, "openrouter")
     }
 
     /// Generic provider builder (for custom providers)
@@ -1802,6 +1793,192 @@ impl GenericProviderBuilder {
         Err(LlmError::UnsupportedOperation(
             "Generic provider not yet implemented".to_string(),
         ))
+    }
+}
+
+/// OpenAI-compatible builder for configuring OpenAI-compatible providers.
+///
+/// This unified builder supports all OpenAI-compatible providers (SiliconFlow, DeepSeek,
+/// OpenRouter, etc.) using the adapter system for proper parameter handling and field mapping.
+///
+/// # Example
+/// ```rust,no_run
+/// use siumai::builder::LlmBuilder;
+/// use std::time::Duration;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     // SiliconFlow
+///     let client = LlmBuilder::new()
+///         .with_timeout(Duration::from_secs(60))
+///         .siliconflow()
+///         .api_key("your-api-key")
+///         .model("deepseek-chat")
+///         .temperature(0.7)
+///         .build()
+///         .await?;
+///
+///     Ok(())
+/// }
+/// ```
+#[derive(Debug, Clone)]
+#[cfg(feature = "openai")]
+pub struct OpenAiCompatibleBuilder {
+    /// Base builder with HTTP configuration
+    base: LlmBuilder,
+    /// Provider identifier (siliconflow, deepseek, openrouter, etc.)
+    provider_id: String,
+    /// API key for the provider
+    api_key: Option<String>,
+    /// Model to use
+    model: Option<String>,
+    /// Common parameters
+    common_params: crate::types::CommonParams,
+    /// HTTP configuration
+    http_config: crate::types::HttpConfig,
+}
+
+#[cfg(feature = "openai")]
+impl OpenAiCompatibleBuilder {
+    /// Create a new OpenAI-compatible builder
+    pub fn new(base: LlmBuilder, provider_id: &str) -> Self {
+        // Get default model from registry
+        let default_model =
+            crate::providers::openai_compatible::default_models::get_default_chat_model(
+                provider_id,
+            )
+            .map(|model| model.to_string());
+
+        Self {
+            base,
+            provider_id: provider_id.to_string(),
+            api_key: None,
+            model: default_model,
+            common_params: crate::types::CommonParams::default(),
+            http_config: crate::types::HttpConfig::default(),
+        }
+    }
+
+    /// Set the API key
+    pub fn api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// Set the model
+    pub fn model<S: Into<String>>(mut self, model: S) -> Self {
+        self.model = Some(model.into());
+        self
+    }
+
+    /// Set temperature
+    pub fn temperature(mut self, temperature: f32) -> Self {
+        self.common_params.temperature = Some(temperature);
+        self
+    }
+
+    /// Set max tokens
+    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
+        self.common_params.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// Set top_p
+    pub fn top_p(mut self, top_p: f32) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
+    /// Set HTTP configuration
+    pub fn with_http_config(mut self, config: crate::types::HttpConfig) -> Self {
+        self.http_config = config;
+        self
+    }
+
+    /// Set custom HTTP client
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.base = self.base.with_http_client(client);
+        self
+    }
+
+    /// Build the OpenAI-compatible client
+    pub async fn build(
+        self,
+    ) -> Result<crate::providers::openai_compatible::OpenAiCompatibleClient, LlmError> {
+        let api_key = self.api_key.ok_or_else(|| {
+            LlmError::ConfigurationError(format!("API key is required for {}", self.provider_id))
+        })?;
+
+        // Create adapter based on provider
+        let adapter: Box<dyn crate::providers::openai_compatible::adapter::ProviderAdapter> =
+            match self.provider_id.as_str() {
+                "siliconflow" => Box::new(
+                    crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter,
+                ),
+                // Add more providers here as needed
+                // "deepseek" => Box::new(crate::providers::openai_compatible::providers::deepseek::DeepSeekAdapter),
+                // "openrouter" => Box::new(crate::providers::openai_compatible::providers::openrouter::OpenRouterAdapter),
+                _ => {
+                    return Err(LlmError::ConfigurationError(format!(
+                        "Unsupported provider: {}",
+                        self.provider_id
+                    )));
+                }
+            };
+
+        // Get base URL before moving adapter
+        let base_url = adapter.base_url().to_string();
+
+        // Create configuration
+        let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+            &self.provider_id,
+            &api_key,
+            &base_url,
+            adapter,
+        );
+
+        // Set model if provided
+        if let Some(model) = self.model {
+            config = config.with_model(&model);
+        }
+
+        // Set common parameters
+        config = config.with_common_params(self.common_params);
+
+        // Merge HTTP configurations
+        let mut final_http_config = self.http_config;
+
+        // Apply base builder HTTP settings
+        if let Some(timeout) = self.base.timeout {
+            final_http_config.timeout = Some(timeout);
+        }
+        if let Some(connect_timeout) = self.base.connect_timeout {
+            final_http_config.connect_timeout = Some(connect_timeout);
+        }
+        if let Some(user_agent) = self.base.user_agent {
+            final_http_config.user_agent = Some(user_agent);
+        }
+        if let Some(proxy) = self.base.proxy {
+            final_http_config.proxy = Some(proxy);
+        }
+
+        // Merge headers from base builder
+        for (key, value) in self.base.default_headers {
+            final_http_config.headers.insert(key, value);
+        }
+
+        config = config.with_http_config(final_http_config);
+
+        // Create client with or without custom HTTP client
+        if let Some(http_client) = self.base.http_client {
+            crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+                config,
+                http_client,
+            )
+            .await
+        } else {
+            crate::providers::openai_compatible::OpenAiCompatibleClient::new(config).await
+        }
     }
 }
 

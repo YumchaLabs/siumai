@@ -274,22 +274,22 @@ impl Provider {
         crate::providers::groq::GroqBuilder::new()
     }
 
-    /// Create an `OpenRouter` client builder
+    /// Create an `OpenRouter` client builder (OpenAI-compatible with adapter)
     #[cfg(feature = "openai")]
-    pub fn openrouter() -> crate::providers::openai::OpenAiBuilder {
+    pub fn openrouter() -> crate::builder::OpenAiCompatibleBuilder {
         crate::builder::LlmBuilder::new().openrouter()
     }
 
-    /// Create a `DeepSeek` client builder
+    /// Create a `DeepSeek` client builder (OpenAI-compatible with adapter)
     #[cfg(feature = "openai")]
-    pub fn deepseek() -> crate::providers::openai::OpenAiBuilder {
+    pub fn deepseek() -> crate::builder::OpenAiCompatibleBuilder {
         crate::builder::LlmBuilder::new().deepseek()
     }
 
     /// Create a SiliconFlow client builder (OpenAI-compatible with adapter)
     #[cfg(feature = "openai")]
-    pub fn siliconflow() -> crate::providers::openai_compatible::providers::SiliconFlowBuilder {
-        crate::providers::openai_compatible::providers::SiliconFlowBuilder::new()
+    pub fn siliconflow() -> crate::builder::OpenAiCompatibleBuilder {
+        crate::builder::LlmBuilder::new().siliconflow()
     }
 }
 

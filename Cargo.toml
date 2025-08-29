@@ -205,10 +205,6 @@ name = "openai_vision_processing"
 path = "examples/04_providers/openai/vision_processing.rs"
 
 [[example]]
-name = "openai_compatible_models_showcase"
-path = "examples/04_providers/openai_compatible/models_showcase.rs"
-
-[[example]]
 name = "siliconflow_showcase"
 path = "examples/04_providers/openai_compatible/siliconflow.rs"
 

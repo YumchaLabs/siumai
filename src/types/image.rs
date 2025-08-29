@@ -1,9 +1,10 @@
 //! Image generation and processing types
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Image generation request
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImageGenerationRequest {
     /// Text prompt describing the image
     pub prompt: String,
@@ -34,7 +35,7 @@ pub struct ImageGenerationRequest {
 }
 
 /// Image edit request
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageEditRequest {
     /// Original image data
     pub image: Vec<u8>,
@@ -53,7 +54,7 @@ pub struct ImageEditRequest {
 }
 
 /// Image variation request
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageVariationRequest {
     /// Original image data
     pub image: Vec<u8>,
@@ -68,7 +69,7 @@ pub struct ImageVariationRequest {
 }
 
 /// Image generation response
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageGenerationResponse {
     /// Generated images
     pub images: Vec<GeneratedImage>,
@@ -77,7 +78,7 @@ pub struct ImageGenerationResponse {
 }
 
 /// A single generated image
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneratedImage {
     /// Image URL (if `response_format` is "url")
     pub url: Option<String>,

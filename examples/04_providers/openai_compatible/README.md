@@ -4,27 +4,6 @@ This directory contains examples demonstrating OpenAI-compatible providers throu
 
 ## 📋 Available Examples
 
-### 🚀 [Models Showcase](./models_showcase.rs)
-**Exploring different OpenAI-compatible providers and models**
-
-Features demonstrated:
-- DeepSeek models and capabilities
-- Groq high-speed inference
-- Other OpenAI-compatible providers
-- Performance and cost comparisons
-- Provider-specific optimizations
-
-```bash
-# Run the models showcase example
-cargo run --example openai_compatible_models_showcase
-```
-
-**Key Learning Points:**
-- How to configure different compatible providers
-- Understanding each provider's strengths
-- Cost and performance trade-offs
-- When to use which provider
-
 ### 🎯 [SiliconFlow Comprehensive](./siliconflow.rs)
 **Complete showcase of SiliconFlow's AI capabilities**
 

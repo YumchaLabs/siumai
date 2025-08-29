@@ -288,7 +288,7 @@ async fn test_complete_streaming_sequence_content_preservation() {
     let converter = OpenAiEventConverter::new(config);
 
     // Simulate a complete streaming sequence where first event has content
-    let events_data = vec![
+    let events_data = [
         // First event with content - this is the critical test case
         r#"{"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"The"},"finish_reason":null}]}"#,
         // Second event

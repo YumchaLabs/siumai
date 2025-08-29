@@ -62,7 +62,7 @@ async fn chat_example(client: &impl ChatCapability) -> Result<(), Box<dyn std::e
 
     // Test with Qwen model
     println!("Using Qwen 2.5 model:");
-    let messages = vec![user!("Write a haiku about artificial intelligence.")];
+    let _messages = [user!("Write a haiku about artificial intelligence.")];
 
     // Note: You would need to create a new client with different model for this
     // This is just to show the model variety available

@@ -959,6 +959,11 @@ cargo run --example basic_usage
 - [Examples](examples/)
 - [Integration Tests](tests/)
 
+### 🛠️ Developer Documentation
+
+- [Adding OpenAI-Compatible Providers](docs/adding-openai-compatible-providers.md) - Step-by-step guide for contributors
+- [OpenAI-Compatible Architecture](docs/openai-compatible-architecture.md) - Architecture design and principles
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.

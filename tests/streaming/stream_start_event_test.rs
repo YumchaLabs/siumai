@@ -74,8 +74,10 @@ async fn test_anthropic_stream_start_event() {
 
 #[tokio::test]
 async fn test_gemini_stream_start_event() {
-    let mut config = siumai::providers::gemini::types::GeminiConfig::default();
-    config.model = "gemini-pro".to_string();
+    let config = siumai::providers::gemini::types::GeminiConfig {
+        model: "gemini-pro".to_string(),
+        ..Default::default()
+    };
     let converter = GeminiEventConverter::new(config);
 
     // Test that first event generates StreamStart

@@ -4,6 +4,7 @@
 
 use super::adapter::ProviderAdapter;
 use crate::error::LlmError;
+use crate::types::{CommonParams, HttpConfig};
 
 /// Configuration for OpenAI-compatible providers
 #[derive(Debug, Clone)]
@@ -14,8 +15,12 @@ pub struct OpenAiCompatibleConfig {
     pub api_key: String,
     /// Base URL for the provider
     pub base_url: String,
-    /// Default model to use
-    pub default_model: String,
+    /// Model to use
+    pub model: String,
+    /// Common parameters shared across providers
+    pub common_params: CommonParams,
+    /// HTTP configuration (timeout, proxy, etc.)
+    pub http_config: HttpConfig,
     /// Custom headers for requests
     pub custom_headers: reqwest::header::HeaderMap,
     /// Provider adapter for handling specifics
@@ -34,15 +39,29 @@ impl OpenAiCompatibleConfig {
             provider_id: provider_id.to_string(),
             api_key: api_key.to_string(),
             base_url: base_url.to_string(),
-            default_model: String::new(),
+            model: String::new(),
+            common_params: CommonParams::default(),
+            http_config: HttpConfig::default(),
             custom_headers: reqwest::header::HeaderMap::new(),
             adapter,
         }
     }
 
-    /// Set the default model
+    /// Set the model
     pub fn with_model(mut self, model: &str) -> Self {
-        self.default_model = model.to_string();
+        self.model = model.to_string();
+        self
+    }
+
+    /// Set common parameters
+    pub fn with_common_params(mut self, params: CommonParams) -> Self {
+        self.common_params = params;
+        self
+    }
+
+    /// Set HTTP configuration
+    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
+        self.http_config = config;
         self
     }
 
@@ -117,7 +136,7 @@ mod tests {
         )
         .with_model("test-model");
 
-        assert_eq!(config.default_model, "test-model");
+        assert_eq!(config.model, "test-model");
     }
 
     #[test]

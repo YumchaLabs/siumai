@@ -417,7 +417,7 @@ async fn test_error_handling() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    let error_event = result.iter().find(|event| matches!(event, Err(_)));
+    let error_event = result.iter().find(|event| event.is_err());
 
     if error_event.is_some() {
         // Expected error

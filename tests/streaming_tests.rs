@@ -1,7 +1,7 @@
-/// Comprehensive streaming tests for the siumai library
-///
-/// This module includes all streaming-related tests to ensure the multi-event
-/// emission architecture works correctly across all providers.
+// Comprehensive streaming tests for the siumai library
+//
+// This module includes all streaming-related tests to ensure the multi-event
+// emission architecture works correctly across all providers.
 
 // Include all streaming test modules
 mod streaming {

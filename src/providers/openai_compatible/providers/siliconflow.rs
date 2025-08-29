@@ -6,8 +6,9 @@
 use crate::error::LlmError;
 use crate::providers::openai_compatible::{
     adapter::ProviderAdapter,
-    types::{FieldMappings, ModelConfig, ProviderCapabilities, RequestType},
+    types::{FieldMappings, ModelConfig, RequestType},
 };
+use crate::traits::ProviderCapabilities;
 
 /// SiliconFlow adapter
 ///
@@ -15,6 +16,17 @@ use crate::providers::openai_compatible::{
 /// which use "reasoning_content" instead of "thinking" for reasoning output.
 #[derive(Debug, Clone)]
 pub struct SiliconFlowAdapter;
+
+impl SiliconFlowAdapter {
+    /// Check if a model is a DeepSeek hybrid inference model
+    /// Based on Cherry Studio's isDeepSeekHybridInferenceModel function
+    fn is_deepseek_hybrid_inference_model(model: &str) -> bool {
+        let model_lower = model.to_lowercase();
+        // Match DeepSeek V3.1 and related models
+        let deepseek_v3_regex = regex::Regex::new(r"deepseek-v3(?:\.1|-1-\d+)?").unwrap();
+        deepseek_v3_regex.is_match(&model_lower) || model_lower.contains("deepseek-chat-v3.1")
+    }
+}
 
 impl ProviderAdapter for SiliconFlowAdapter {
     fn provider_id(&self) -> &'static str {
@@ -24,21 +36,14 @@ impl ProviderAdapter for SiliconFlowAdapter {
     fn transform_request_params(
         &self,
         params: &mut serde_json::Value,
-        model: &str,
+        _model: &str,
         request_type: RequestType,
     ) -> Result<(), LlmError> {
         match request_type {
             RequestType::Chat => {
-                // DeepSeek models specific handling
-                if model.contains("deepseek") {
-                    // Map thinking_budget to reasoning_effort for DeepSeek models
-                    if let Some(thinking_budget) = params.get("thinking_budget") {
-                        params["reasoning_effort"] = thinking_budget.clone();
-                        if let Some(obj) = params.as_object_mut() {
-                            obj.remove("thinking_budget");
-                        }
-                    }
-                }
+                // No special chat parameter transformation needed for SiliconFlow
+                // The thinking functionality is handled at the library level
+                // through ChatResponse.thinking field
             }
             RequestType::ImageGeneration => {
                 // SiliconFlow image generation parameter mappings
@@ -73,7 +78,7 @@ impl ProviderAdapter for SiliconFlowAdapter {
     }
 
     fn get_field_mappings(&self, model: &str) -> FieldMappings {
-        if model.contains("deepseek") {
+        if Self::is_deepseek_hybrid_inference_model(model) {
             // DeepSeek models use reasoning_content field
             FieldMappings::deepseek()
         } else {
@@ -83,7 +88,7 @@ impl ProviderAdapter for SiliconFlowAdapter {
     }
 
     fn get_model_config(&self, model: &str) -> ModelConfig {
-        if model.contains("deepseek") {
+        if Self::is_deepseek_hybrid_inference_model(model) {
             ModelConfig::deepseek()
         } else if model.contains("qwen") && (model.contains("reasoning") || model.contains("qwq")) {
             ModelConfig::qwen_reasoning()
@@ -93,11 +98,19 @@ impl ProviderAdapter for SiliconFlowAdapter {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::siliconflow()
+        ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_vision()
+            .with_embedding()
+            .with_custom_feature("thinking", true)
+            .with_custom_feature("rerank", true)
+            .with_custom_feature("image_generation", true)
     }
 
     fn base_url(&self) -> &str {
-        "https://api.siliconflow.cn/v1"
+        "https://api.siliconflow.cn"
     }
 
     fn validate_model(&self, model: &str) -> Result<(), LlmError> {
@@ -113,6 +126,30 @@ impl ProviderAdapter for SiliconFlowAdapter {
 
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
         Box::new(self.clone())
+    }
+
+    fn supports_image_generation(&self) -> bool {
+        true // SiliconFlow supports image generation
+    }
+
+    fn get_supported_image_sizes(&self) -> Vec<String> {
+        vec![
+            "512x512".to_string(),
+            "768x768".to_string(),
+            "1024x1024".to_string(),
+            "1152x896".to_string(),
+            "896x1152".to_string(),
+            "1216x832".to_string(),
+            "832x1216".to_string(),
+            "1344x768".to_string(),
+            "768x1344".to_string(),
+            "1536x640".to_string(),
+            "640x1536".to_string(),
+        ]
+    }
+
+    fn get_supported_image_formats(&self) -> Vec<String> {
+        vec!["url".to_string(), "b64_json".to_string()]
     }
 }
 
@@ -207,7 +244,7 @@ mod tests {
     #[test]
     fn test_deepseek_field_mappings() {
         let adapter = SiliconFlowAdapter;
-        let mappings = adapter.get_field_mappings("deepseek-chat");
+        let mappings = adapter.get_field_mappings("deepseek-v3.1");
         assert_eq!(
             mappings.thinking_fields,
             vec!["reasoning_content", "thinking"]
@@ -222,20 +259,46 @@ mod tests {
     }
 
     #[test]
-    fn test_deepseek_parameter_transform() {
+    fn test_chat_parameter_transform() {
         let adapter = SiliconFlowAdapter;
         let mut params = json!({
-            "model": "deepseek-chat",
+            "model": "deepseek-v3.1",
             "messages": [],
-            "thinking_budget": 1000
+            "temperature": 0.7
         });
 
         adapter
-            .transform_request_params(&mut params, "deepseek-chat", RequestType::Chat)
+            .transform_request_params(&mut params, "deepseek-v3.1", RequestType::Chat)
             .unwrap();
 
-        assert!(params.get("reasoning_effort").is_some());
-        assert!(params.get("thinking_budget").is_none());
+        // Chat parameters should remain unchanged
+        assert_eq!(
+            params.get("temperature").unwrap(),
+            &serde_json::Value::Number(serde_json::Number::from_f64(0.7).unwrap())
+        );
+        assert_eq!(params.get("model").unwrap(), "deepseek-v3.1");
+    }
+
+    #[test]
+    fn test_deepseek_v3_model_detection() {
+        assert!(SiliconFlowAdapter::is_deepseek_hybrid_inference_model(
+            "deepseek-v3"
+        ));
+        assert!(SiliconFlowAdapter::is_deepseek_hybrid_inference_model(
+            "deepseek-v3.1"
+        ));
+        assert!(SiliconFlowAdapter::is_deepseek_hybrid_inference_model(
+            "deepseek-chat-v3.1"
+        ));
+        assert!(SiliconFlowAdapter::is_deepseek_hybrid_inference_model(
+            "DeepSeek-V3.1"
+        ));
+        assert!(!SiliconFlowAdapter::is_deepseek_hybrid_inference_model(
+            "deepseek-chat"
+        ));
+        assert!(!SiliconFlowAdapter::is_deepseek_hybrid_inference_model(
+            "qwen-turbo"
+        ));
     }
 
     #[test]

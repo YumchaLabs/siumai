@@ -416,6 +416,35 @@ pub mod model_constants {
             pub const DEEPSEEK_REASONER: &str = c::openrouter::deepseek::DEEPSEEK_REASONER;
             pub const LLAMA_3_1_405B: &str = c::openrouter::meta::LLAMA_3_1_405B;
         }
+
+        /// SiliconFlow models
+        pub mod siliconflow {
+            use super::c;
+
+            // Chat models
+            pub const DEEPSEEK_CHAT: &str = c::siliconflow::DEEPSEEK_CHAT;
+            pub const DEEPSEEK_CODER: &str = c::siliconflow::DEEPSEEK_CODER;
+            pub const DEEPSEEK_REASONER: &str = c::siliconflow::DEEPSEEK_REASONER;
+            pub const QWEN_2_5_72B: &str = c::siliconflow::QWEN_2_5_72B_INSTRUCT;
+            pub const QWEN_2_5_32B: &str = c::siliconflow::QWEN_2_5_32B_INSTRUCT;
+            pub const QWEN_2_5_14B: &str = c::siliconflow::QWEN_2_5_14B_INSTRUCT;
+            pub const QWEN_2_5_7B: &str = c::siliconflow::QWEN_2_5_7B_INSTRUCT;
+
+            // Embedding models
+            pub const BGE_LARGE_EN: &str = c::siliconflow::BGE_LARGE_EN_V1_5;
+            pub const BGE_LARGE_ZH: &str = c::siliconflow::BGE_LARGE_ZH_V1_5;
+            pub const BGE_M3: &str = c::siliconflow::BGE_M3;
+            pub const TEXT_EMBEDDING_ADA_002: &str = c::siliconflow::TEXT_EMBEDDING_ADA_002;
+
+            // Rerank models
+            pub const BGE_RERANKER_V2_M3: &str = c::siliconflow::BGE_RERANKER_V2_M3;
+            pub const BGE_RERANKER_V2_M3_PRO: &str = c::siliconflow::BGE_RERANKER_V2_M3_PRO;
+
+            // Image generation models
+            pub const FLUX_1_SCHNELL: &str = c::siliconflow::FLUX_1_SCHNELL;
+            pub const STABLE_DIFFUSION_3_5_LARGE: &str = c::siliconflow::STABLE_DIFFUSION_3_5_LARGE;
+            pub const KOLORS: &str = c::siliconflow::KOLORS;
+        }
     }
 
     /// Ollama models with simplified access

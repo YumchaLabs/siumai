@@ -352,4 +352,116 @@ mod builder_tests {
 
         // Placeholder assertion
     }
+
+    /// Test OpenAI-compatible HTTP configuration
+    #[tokio::test]
+    async fn test_openai_compatible_http_config() {
+        println!("🧪 Testing OpenAI-compatible HTTP configuration");
+
+        // Create HTTP config with various settings
+        let http_config = HttpConfig {
+            timeout: Some(Duration::from_secs(60)),
+            connect_timeout: Some(Duration::from_secs(10)),
+            user_agent: Some("test-agent/1.0".to_string()),
+            ..Default::default()
+        };
+
+        // Add custom headers
+        let mut http_config = http_config;
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Custom-Header".to_string(), "test-value".to_string());
+        headers.insert("X-Request-ID".to_string(), "test-123".to_string());
+        http_config.headers = headers;
+
+        // Test SiliconFlow with HTTP config
+        let result = LlmBuilder::new()
+            .siliconflow()
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .with_http_config(http_config.clone())
+            .build()
+            .await;
+
+        match result {
+            Ok(client) => {
+                println!("    ✅ SiliconFlow client created with HTTP config");
+                assert_eq!(client.provider_id(), "siliconflow");
+                assert_eq!(client.model(), "deepseek-chat");
+            }
+            Err(e) => {
+                // Expected to fail with invalid API key, but should not fail due to HTTP config
+                println!(
+                    "    ✅ Failed with expected error (not HTTP config related): {}",
+                    e
+                );
+                assert!(!e.to_string().contains("HTTP"));
+                assert!(!e.to_string().contains("timeout"));
+            }
+        }
+
+        // Test DeepSeek with HTTP config
+        let result = LlmBuilder::new()
+            .deepseek()
+            .api_key("test-key")
+            .with_http_config(http_config)
+            .build()
+            .await;
+
+        match result {
+            Ok(client) => {
+                println!("    ✅ DeepSeek client created with HTTP config");
+                assert_eq!(client.provider_id(), "deepseek");
+            }
+            Err(e) => {
+                println!(
+                    "    ✅ Failed with expected error (not HTTP config related): {}",
+                    e
+                );
+                assert!(!e.to_string().contains("HTTP"));
+            }
+        }
+    }
+
+    /// Test default model configuration for OpenAI-compatible providers
+    #[tokio::test]
+    async fn test_openai_compatible_default_models() {
+        println!("🧪 Testing default model configuration for OpenAI-compatible providers");
+
+        // Test SiliconFlow default model
+        let result = LlmBuilder::new()
+            .siliconflow()
+            .api_key("test-key")
+            .build()
+            .await;
+
+        match result {
+            Ok(client) => {
+                println!("    ✅ SiliconFlow client created with default model");
+                assert_eq!(client.model(), "deepseek-chat");
+            }
+            Err(e) => {
+                println!("    ✅ Failed with expected error: {}", e);
+                // Should not fail due to model configuration
+                assert!(!e.to_string().contains("model"));
+            }
+        }
+
+        // Test OpenRouter default model
+        let result = LlmBuilder::new()
+            .openrouter()
+            .api_key("test-key")
+            .build()
+            .await;
+
+        match result {
+            Ok(client) => {
+                println!("    ✅ OpenRouter client created with default model");
+                assert_eq!(client.model(), "openai/gpt-4o");
+            }
+            Err(e) => {
+                println!("    ✅ Failed with expected error: {}", e);
+                assert!(!e.to_string().contains("model"));
+            }
+        }
+    }
 }

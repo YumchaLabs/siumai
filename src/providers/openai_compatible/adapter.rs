@@ -3,8 +3,9 @@
 //! This module defines the core adapter trait for OpenAI-compatible providers.
 //! It's inspired by Cherry Studio's RequestTransformer and ResponseChunkTransformer patterns.
 
-use super::types::{FieldMappings, ModelConfig, ProviderCapabilities, RequestType};
+use super::types::{FieldMappings, ModelConfig, RequestType};
 use crate::error::LlmError;
+use crate::traits::ProviderCapabilities;
 
 /// Provider adapter trait
 ///
@@ -112,6 +113,39 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     ///
     /// This is needed because we store adapters in configurations.
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter>;
+
+    /// Check if provider supports image generation
+    fn supports_image_generation(&self) -> bool {
+        false
+    }
+
+    /// Transform image generation request parameters
+    fn transform_image_request(
+        &self,
+        _request: &mut crate::types::ImageGenerationRequest,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    /// Get supported image sizes
+    fn get_supported_image_sizes(&self) -> Vec<String> {
+        vec!["1024x1024".to_string()]
+    }
+
+    /// Get supported image formats
+    fn get_supported_image_formats(&self) -> Vec<String> {
+        vec!["url".to_string()]
+    }
+
+    /// Check if provider supports image editing
+    fn supports_image_editing(&self) -> bool {
+        false
+    }
+
+    /// Check if provider supports image variations
+    fn supports_image_variations(&self) -> bool {
+        false
+    }
 }
 
 /// Helper trait for cloning boxed adapters

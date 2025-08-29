@@ -117,71 +117,6 @@ impl ModelConfig {
     }
 }
 
-/// Provider capabilities information
-#[derive(Debug, Clone, Default)]
-pub struct ProviderCapabilities {
-    pub chat: bool,
-    pub streaming: bool,
-    pub thinking: bool,
-    pub tools: bool,
-    pub vision: bool,
-    pub audio: bool,
-    pub embedding: bool,
-    pub rerank: bool,
-    pub image_generation: bool,
-    pub file_management: bool,
-}
-
-impl ProviderCapabilities {
-    /// Create capabilities for SiliconFlow
-    pub fn siliconflow() -> Self {
-        Self {
-            chat: true,
-            streaming: true,
-            thinking: true,
-            tools: true,
-            vision: true,
-            audio: false,
-            embedding: true,
-            rerank: true,
-            image_generation: true,
-            file_management: false,
-        }
-    }
-
-    /// Create capabilities for DeepSeek
-    pub fn deepseek() -> Self {
-        Self {
-            chat: true,
-            streaming: true,
-            thinking: true,
-            tools: true,
-            vision: false,
-            audio: false,
-            embedding: false,
-            rerank: false,
-            image_generation: false,
-            file_management: false,
-        }
-    }
-
-    /// Create capabilities for OpenRouter
-    pub fn openrouter() -> Self {
-        Self {
-            chat: true,
-            streaming: true,
-            thinking: false,
-            tools: true,
-            vision: true,
-            audio: false,
-            embedding: false,
-            rerank: false,
-            image_generation: true,
-            file_management: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,17 +144,5 @@ mod tests {
         assert!(config.supports_thinking);
         assert_eq!(config.max_tokens, Some(8192));
         assert!(config.parameter_mappings.contains_key("thinking_budget"));
-    }
-
-    #[test]
-    fn test_provider_capabilities() {
-        let caps = ProviderCapabilities::siliconflow();
-        assert!(caps.chat);
-        assert!(caps.thinking);
-        assert!(caps.rerank);
-
-        let caps = ProviderCapabilities::deepseek();
-        assert!(caps.thinking);
-        assert!(!caps.rerank);
     }
 }

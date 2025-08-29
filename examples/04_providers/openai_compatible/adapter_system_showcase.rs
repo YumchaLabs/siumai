@@ -11,6 +11,7 @@ use siumai::{
     },
     traits::ChatCapability,
     types::ChatMessage,
+    user,
 };
 
 #[tokio::main]
@@ -61,11 +62,14 @@ fn test_siliconflow_adapter() {
     println!("✓ Capabilities:");
     println!("  - Chat: {}", capabilities.chat);
     println!("  - Streaming: {}", capabilities.streaming);
-    println!("  - Thinking: {}", capabilities.thinking);
+    println!("  - Thinking: {}", capabilities.supports("thinking"));
     println!("  - Tools: {}", capabilities.tools);
     println!("  - Vision: {}", capabilities.vision);
-    println!("  - Rerank: {}", capabilities.rerank);
-    println!("  - Image Generation: {}", capabilities.image_generation);
+    println!("  - Rerank: {}", capabilities.supports("rerank"));
+    println!(
+        "  - Image Generation: {}",
+        capabilities.supports("image_generation")
+    );
 }
 
 fn test_parameter_transformation() {
@@ -74,34 +78,71 @@ fn test_parameter_transformation() {
 
     let adapter = SiliconFlowAdapter;
 
-    // Test DeepSeek parameter transformation
+    // Test standard chat parameter handling (no transformation needed)
     let mut params = serde_json::json!({
-        "model": "deepseek-chat",
+        "model": "qwen-turbo",
         "messages": [{"role": "user", "content": "Hello"}],
-        "thinking_budget": 1000,
-        "temperature": 0.7
+        "temperature": 0.7,
+        "max_tokens": 1000
     });
 
     println!("📤 Original parameters:");
     println!("   {}", serde_json::to_string_pretty(&params).unwrap());
 
     adapter
-        .transform_request_params(&mut params, "deepseek-chat", RequestType::Chat)
+        .transform_request_params(&mut params, "qwen-turbo", RequestType::Chat)
         .expect("Parameter transformation should succeed");
 
     println!("📥 Transformed parameters:");
     println!("   {}", serde_json::to_string_pretty(&params).unwrap());
 
-    // Verify transformation
+    // Verify no transformation for standard chat models
+    assert_eq!(params.get("model").unwrap(), "qwen-turbo");
+    assert_eq!(params.get("temperature").unwrap(), 0.7);
+    assert_eq!(params.get("max_tokens").unwrap(), 1000);
+    println!("✓ Standard chat parameters preserved correctly");
+
+    // Test image generation parameter transformation
+    println!("\n🖼️ Testing Image Generation Parameter Transformation");
+    let mut image_params = serde_json::json!({
+        "model": "stable-diffusion",
+        "prompt": "A beautiful landscape",
+        "n": 2,
+        "size": "512x512"
+    });
+
+    println!("📤 Original image parameters:");
+    println!(
+        "   {}",
+        serde_json::to_string_pretty(&image_params).unwrap()
+    );
+
+    adapter
+        .transform_request_params(
+            &mut image_params,
+            "stable-diffusion",
+            RequestType::ImageGeneration,
+        )
+        .expect("Image parameter transformation should succeed");
+
+    println!("📥 Transformed image parameters:");
+    println!(
+        "   {}",
+        serde_json::to_string_pretty(&image_params).unwrap()
+    );
+
+    // Verify image parameter transformation
     assert!(
-        params.get("reasoning_effort").is_some(),
-        "reasoning_effort should be present"
+        image_params.get("batch_size").is_some(),
+        "batch_size should be present"
     );
     assert!(
-        params.get("thinking_budget").is_none(),
-        "thinking_budget should be removed"
+        image_params.get("image_size").is_some(),
+        "image_size should be present"
     );
-    println!("✓ Parameter transformation successful");
+    assert!(image_params.get("n").is_none(), "n should be removed");
+    assert!(image_params.get("size").is_none(), "size should be removed");
+    println!("✓ Image generation parameter transformation successful");
 
     // Test image generation parameters
     let mut img_params = serde_json::json!({
@@ -144,9 +185,9 @@ fn test_field_mappings() {
 
     let adapter = SiliconFlowAdapter;
 
-    // Test DeepSeek field mappings
-    let deepseek_mappings = adapter.get_field_mappings("deepseek-chat");
-    println!("📋 DeepSeek model field mappings:");
+    // Test DeepSeek V3.1 field mappings (hybrid inference model)
+    let deepseek_mappings = adapter.get_field_mappings("deepseek-v3.1");
+    println!("📋 DeepSeek V3.1 model field mappings:");
     println!(
         "   Thinking fields: {:?}",
         deepseek_mappings.thinking_fields
@@ -161,9 +202,25 @@ fn test_field_mappings() {
         deepseek_mappings.thinking_fields,
         vec!["reasoning_content", "thinking"]
     );
-    println!("✓ DeepSeek uses reasoning_content as primary thinking field");
+    println!("✓ DeepSeek V3.1 uses reasoning_content as primary thinking field");
 
-    // Test standard model field mappings
+    // Test standard model field mappings for comparison
+    let standard_mappings = adapter.get_field_mappings("qwen-turbo");
+    println!("\n📋 Standard model field mappings (qwen-turbo):");
+    println!(
+        "   Thinking fields: {:?}",
+        standard_mappings.thinking_fields
+    );
+    println!("   Content field: {}", standard_mappings.content_field);
+    println!(
+        "   Tool calls field: {}",
+        standard_mappings.tool_calls_field
+    );
+
+    assert_eq!(standard_mappings.thinking_fields, vec!["thinking"]);
+    println!("✓ Standard models use thinking field");
+
+    // Test standard field mappings
     let standard_mappings = adapter.get_field_mappings("qwen-turbo");
     println!("\n📋 Standard model field mappings:");
     println!(
@@ -182,9 +239,9 @@ fn test_model_configurations() {
 
     let adapter = SiliconFlowAdapter;
 
-    // Test DeepSeek model config
-    let deepseek_config = adapter.get_model_config("deepseek-chat");
-    println!("🧠 DeepSeek model configuration:");
+    // Test DeepSeek V3.1 model config
+    let deepseek_config = adapter.get_model_config("deepseek-v3.1");
+    println!("🧠 DeepSeek V3.1 model configuration:");
     println!(
         "   Supports thinking: {}",
         deepseek_config.supports_thinking
@@ -235,11 +292,11 @@ async fn test_real_api_integration(api_key: &str) -> Result<(), Box<dyn std::err
     println!("\n🌐 Testing Real API Integration");
     println!("-------------------------------");
 
-    // Test 1: Basic chat with adapter system
+    // Test 1: Basic chat with adapter system (using DeepSeek V3 as in Cherry Studio)
     println!("\n💬 Test 1: Basic Chat with New Adapter System");
     let client = Provider::siliconflow()
         .api_key(api_key)
-        .model("deepseek-chat")
+        .model("deepseek-ai/DeepSeek-V3")
         .build()
         .await?;
 
@@ -247,7 +304,8 @@ async fn test_real_api_integration(api_key: &str) -> Result<(), Box<dyn std::err
     println!("   Provider: {}", client.provider_id());
     println!("   Model: {}", client.model());
 
-    let messages = vec![ChatMessage::user("Hello! Please introduce yourself briefly.").build()];
+    // Use the macro for simpler message creation
+    let messages = vec![user!("Hello! Please introduce yourself briefly.")];
 
     println!("📤 Sending basic chat request...");
     let response = client.chat_with_tools(messages, None).await?;
@@ -324,17 +382,17 @@ mod tests {
 
         // Test basic adapter properties
         assert_eq!(adapter.provider_id(), "siliconflow");
-        assert_eq!(adapter.base_url(), "https://api.siliconflow.cn/v1");
+        assert_eq!(adapter.base_url(), "https://api.siliconflow.cn");
 
         // Test model validation
-        assert!(adapter.validate_model("deepseek-chat").is_ok());
+        assert!(adapter.validate_model("deepseek-ai/DeepSeek-V3.1").is_ok());
         assert!(adapter.validate_model("").is_err());
 
         // Test capabilities
         let caps = adapter.capabilities();
         assert!(caps.chat);
-        assert!(caps.thinking);
-        assert!(caps.rerank);
+        assert!(caps.supports("thinking"));
+        assert!(caps.supports("rerank"));
     }
 
     #[test]
@@ -343,13 +401,17 @@ mod tests {
 
         // Test with no thinking_budget
         let mut params = serde_json::json!({
-            "model": "deepseek-chat",
+            "model": "deepseek-ai/DeepSeek-V3.1",
             "messages": []
         });
 
         assert!(
             adapter
-                .transform_request_params(&mut params, "deepseek-chat", RequestType::Chat)
+                .transform_request_params(
+                    &mut params,
+                    "deepseek-ai/DeepSeek-V3.1",
+                    RequestType::Chat
+                )
                 .is_ok()
         );
         assert!(params.get("reasoning_effort").is_none());
