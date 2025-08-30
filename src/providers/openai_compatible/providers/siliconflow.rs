@@ -383,14 +383,19 @@ impl SiliconFlowBuilder {
     /// * `enable` - Whether to enable thinking mode
     ///
     /// # Example
-    /// ```rust
-    /// let client = LlmBuilder::new()
-    ///     .siliconflow()
-    ///     .api_key("your-api-key")
-    ///     .model("deepseek-ai/DeepSeek-V3.1")
-    ///     .with_thinking(true)
-    ///     .build()
-    ///     .await?;
+    /// ```rust,no_run
+    /// use siumai::LlmBuilder;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .siliconflow()
+    ///         .api_key("your-api-key")
+    ///         .model("deepseek-ai/DeepSeek-V3.1")
+    ///         .with_thinking(true)
+    ///         .build()
+    ///         .await?;
+    /// #   Ok(())
+    /// # }
     /// ```
     pub fn with_thinking(mut self, enable: bool) -> Self {
         self.enable_thinking = Some(enable);
@@ -406,14 +411,19 @@ impl SiliconFlowBuilder {
     /// * `budget` - Number of tokens (128-32768, default varies by model size)
     ///
     /// # Example
-    /// ```rust
-    /// let client = LlmBuilder::new()
-    ///     .siliconflow()
-    ///     .api_key("your-api-key")
-    ///     .model("deepseek-ai/DeepSeek-V3.1")
-    ///     .with_thinking_budget(8192)  // 8K tokens for complex reasoning
-    ///     .build()
-    ///     .await?;
+    /// ```rust,no_run
+    /// use siumai::LlmBuilder;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .siliconflow()
+    ///         .api_key("your-api-key")
+    ///         .model("deepseek-ai/DeepSeek-V3.1")
+    ///         .with_thinking_budget(8192)  // 8K tokens for complex reasoning
+    ///         .build()
+    ///         .await?;
+    /// #   Ok(())
+    /// # }
     /// ```
     pub fn with_thinking_budget(mut self, budget: u32) -> Self {
         // Clamp to SiliconFlow's supported range
