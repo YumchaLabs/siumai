@@ -43,6 +43,21 @@ impl Clone for GroqClient {
     }
 }
 
+impl std::fmt::Debug for GroqClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroqClient")
+            .field("provider_name", &"groq")
+            .field("model", &self.config.common_params.model)
+            .field("base_url", &self.config.base_url)
+            .field("temperature", &self.config.common_params.temperature)
+            .field("max_tokens", &self.config.common_params.max_tokens)
+            .field("top_p", &self.config.common_params.top_p)
+            .field("seed", &self.config.common_params.seed)
+            .field("has_tracing", &self.tracing_config.is_some())
+            .finish()
+    }
+}
+
 impl GroqClient {
     /// Create a new `Groq` client
     pub fn new(config: GroqConfig, http_client: reqwest::Client) -> Self {

@@ -74,6 +74,34 @@ impl Clone for OpenAiClient {
     }
 }
 
+impl std::fmt::Debug for OpenAiClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug_struct = f.debug_struct("OpenAiClient");
+
+        debug_struct
+            .field("provider_name", &"openai")
+            .field("model", &self.common_params.model)
+            .field("base_url", &self.chat_capability.base_url)
+            .field("temperature", &self.common_params.temperature)
+            .field("max_tokens", &self.common_params.max_tokens)
+            .field("top_p", &self.common_params.top_p)
+            .field("seed", &self.common_params.seed)
+            .field("use_responses_api", &self.use_responses_api)
+            .field("has_tracing", &self.tracing_config.is_some())
+            .field("built_in_tools_count", &self.built_in_tools.len());
+
+        // Only show organization/project if they exist (but don't show the actual values)
+        if self.specific_params.organization.is_some() {
+            debug_struct.field("has_organization", &true);
+        }
+        if self.specific_params.project.is_some() {
+            debug_struct.field("has_project", &true);
+        }
+
+        debug_struct.finish()
+    }
+}
+
 impl OpenAiClient {
     /// Creates a new `OpenAI` client with configuration and HTTP client
     pub fn new(config: super::OpenAiConfig, http_client: reqwest::Client) -> Self {

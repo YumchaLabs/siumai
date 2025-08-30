@@ -39,6 +39,20 @@ impl Clone for Siumai {
     }
 }
 
+impl std::fmt::Debug for Siumai {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Siumai")
+            .field("provider_type", &self.metadata.provider_type)
+            .field("provider_name", &self.metadata.provider_name)
+            .field(
+                "supported_models_count",
+                &self.metadata.supported_models.len(),
+            )
+            .field("capabilities", &self.metadata.capabilities)
+            .finish()
+    }
+}
+
 /// Metadata about the provider
 #[derive(Debug, Clone)]
 pub struct ProviderMetadata {
@@ -1242,6 +1256,40 @@ impl<'a> VisionCapabilityProxy<'a> {
 impl Default for SiumaiBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Debug for SiumaiBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug_struct = f.debug_struct("SiumaiBuilder");
+
+        debug_struct
+            .field("provider_type", &self.provider_type)
+            .field("provider_name", &self.provider_name)
+            .field("base_url", &self.base_url)
+            .field("model", &self.common_params.model)
+            .field("temperature", &self.common_params.temperature)
+            .field("max_tokens", &self.common_params.max_tokens)
+            .field("top_p", &self.common_params.top_p)
+            .field("seed", &self.common_params.seed)
+            .field("capabilities_count", &self.capabilities.len())
+            .field("reasoning_enabled", &self.reasoning_enabled)
+            .field("reasoning_budget", &self.reasoning_budget)
+            .field("has_tracing", &self.tracing_config.is_some())
+            .field("timeout", &self.http_config.timeout);
+
+        // Only show existence of sensitive fields, not their values
+        if self.api_key.is_some() {
+            debug_struct.field("has_api_key", &true);
+        }
+        if self.organization.is_some() {
+            debug_struct.field("has_organization", &true);
+        }
+        if self.project.is_some() {
+            debug_struct.field("has_project", &true);
+        }
+
+        debug_struct.finish()
     }
 }
 

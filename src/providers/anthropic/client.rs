@@ -49,6 +49,38 @@ impl Clone for AnthropicClient {
     }
 }
 
+impl std::fmt::Debug for AnthropicClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnthropicClient")
+            .field("provider_name", &"anthropic")
+            .field("model", &self.common_params.model)
+            .field("base_url", &self.chat_capability.base_url)
+            .field("temperature", &self.common_params.temperature)
+            .field("max_tokens", &self.common_params.max_tokens)
+            .field("top_p", &self.common_params.top_p)
+            .field("seed", &self.common_params.seed)
+            .field(
+                "beta_features_count",
+                &self.specific_params.beta_features.len(),
+            )
+            .field(
+                "thinking_enabled",
+                &self
+                    .specific_params
+                    .thinking_config
+                    .as_ref()
+                    .map(|c| c.is_enabled())
+                    .unwrap_or(false),
+            )
+            .field(
+                "cache_control_enabled",
+                &self.specific_params.cache_control.is_some(),
+            )
+            .field("has_tracing", &self.tracing_config.is_some())
+            .finish()
+    }
+}
+
 impl AnthropicClient {
     /// Creates a new Anthropic client
     pub fn new(

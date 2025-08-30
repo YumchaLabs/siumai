@@ -123,6 +123,41 @@ impl Clone for ClientWrapper {
     }
 }
 
+impl std::fmt::Debug for ClientWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientWrapper::OpenAi(_) => f
+                .debug_tuple("ClientWrapper::OpenAi")
+                .field(&"[LlmClient]")
+                .finish(),
+            ClientWrapper::Anthropic(_) => f
+                .debug_tuple("ClientWrapper::Anthropic")
+                .field(&"[LlmClient]")
+                .finish(),
+            ClientWrapper::Gemini(_) => f
+                .debug_tuple("ClientWrapper::Gemini")
+                .field(&"[LlmClient]")
+                .finish(),
+            ClientWrapper::Groq(_) => f
+                .debug_tuple("ClientWrapper::Groq")
+                .field(&"[LlmClient]")
+                .finish(),
+            ClientWrapper::XAI(_) => f
+                .debug_tuple("ClientWrapper::XAI")
+                .field(&"[LlmClient]")
+                .finish(),
+            ClientWrapper::Ollama(_) => f
+                .debug_tuple("ClientWrapper::Ollama")
+                .field(&"[LlmClient]")
+                .finish(),
+            ClientWrapper::Custom(_) => f
+                .debug_tuple("ClientWrapper::Custom")
+                .field(&"[LlmClient]")
+                .finish(),
+        }
+    }
+}
+
 impl ClientWrapper {
     /// Creates an `OpenAI` client wrapper
     pub fn openai(client: Box<dyn LlmClient>) -> Self {

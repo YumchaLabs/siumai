@@ -65,6 +65,24 @@ impl Clone for OllamaClient {
     }
 }
 
+impl std::fmt::Debug for OllamaClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OllamaClient")
+            .field("provider_name", &"ollama")
+            .field("model", &self.common_params.model)
+            .field("base_url", &self.base_url)
+            .field("temperature", &self.common_params.temperature)
+            .field("max_tokens", &self.common_params.max_tokens)
+            .field("top_p", &self.common_params.top_p)
+            .field("seed", &self.common_params.seed)
+            .field("keep_alive", &self.ollama_params.keep_alive)
+            .field("num_ctx", &self.ollama_params.num_ctx)
+            .field("num_gpu", &self.ollama_params.num_gpu)
+            .field("has_tracing", &self.tracing_config.is_some())
+            .finish()
+    }
+}
+
 impl OllamaClient {
     /// Creates a new Ollama client with configuration and HTTP client
     pub fn new(config: OllamaConfig, http_client: reqwest::Client) -> Self {
