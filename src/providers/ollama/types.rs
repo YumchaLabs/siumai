@@ -322,7 +322,7 @@ pub struct OllamaVersionResponse {
 /// use std::collections::HashMap;
 ///
 /// let mut model_options = HashMap::new();
-/// model_options.insert("temperature".to_string(), serde_json::Value::Number(0.1.into()));
+/// model_options.insert("temperature".to_string(), serde_json::json!(0.1));
 ///
 /// let options = OllamaEmbeddingOptions::new()
 ///     .with_truncate(true)
