@@ -6,12 +6,13 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use secrecy::ExposeSecret;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::error::LlmError;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::traits::RerankCapability;
-use crate::types::{RerankRequest, RerankResponse};
+use crate::types::{RerankRequest, RerankResponse, RerankResult, RerankTokenUsage};
 
 /// OpenAI-compatible rerank capability implementation
 #[derive(Debug, Clone)]
@@ -170,13 +171,8 @@ impl RerankCapability for OpenAiRerank {
             ));
         }
 
-        let rerank_response: RerankResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                LlmError::provider_error(
-                    "siliconflow",
-                    format!("Failed to parse rerank response: {e}"),
-                )
-            })?;
+        // Parse the response - SiliconFlow has a different format than standard OpenAI
+        let rerank_response = parse_siliconflow_rerank_response(&response_text)?;
 
         Ok(rerank_response)
     }
@@ -285,4 +281,41 @@ mod tests {
 
         assert_eq!(rerank.max_documents(), Some(1000));
     }
+}
+
+/// SiliconFlow-specific rerank response structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SiliconFlowRerankResponse {
+    pub id: String,
+    pub results: Vec<RerankResult>,
+    pub meta: SiliconFlowMeta,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SiliconFlowMeta {
+    pub tokens: RerankTokenUsage,
+}
+
+/// Parse SiliconFlow rerank response format
+fn parse_siliconflow_rerank_response(response_text: &str) -> Result<RerankResponse, LlmError> {
+    // First try to parse as standard format
+    if let Ok(standard_response) = serde_json::from_str::<RerankResponse>(response_text) {
+        return Ok(standard_response);
+    }
+
+    // If that fails, try SiliconFlow format
+    let sf_response: SiliconFlowRerankResponse =
+        serde_json::from_str(response_text).map_err(|e| {
+            LlmError::provider_error(
+                "siliconflow",
+                format!("Failed to parse SiliconFlow rerank response: {e}"),
+            )
+        })?;
+
+    // Convert to standard format
+    Ok(RerankResponse {
+        id: sf_response.id,
+        results: sf_response.results,
+        tokens: sf_response.meta.tokens,
+    })
 }

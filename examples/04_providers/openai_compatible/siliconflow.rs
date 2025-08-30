@@ -20,24 +20,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 SiliconFlow Provider Showcase");
     println!("=================================\n");
 
-    // Create SiliconFlow client
+    // Create SiliconFlow client with a working model
     let client = LlmBuilder::new()
         .siliconflow()
         .api_key(&api_key)
+        .model("deepseek-ai/DeepSeek-V3") // Use a model that works
         .build()
         .await?;
 
     // Example 1: Chat with DeepSeek models
     chat_example(&client).await?;
 
-    // Example 2: Text embeddings
-    embedding_example(&client).await?;
+    // Example 2: Text embeddings (need a separate client with embedding model)
+    let embedding_client = LlmBuilder::new()
+        .siliconflow()
+        .api_key(&api_key)
+        .model("netease-youdao/bce-embedding-base_v1") // Use a working embedding model
+        .build()
+        .await?;
+    embedding_example(&embedding_client).await?;
 
     // Example 3: Document reranking (SiliconFlow's unique feature)
-    rerank_example(&client).await?;
+    let rerank_client = LlmBuilder::new()
+        .siliconflow()
+        .api_key(&api_key)
+        .model("BAAI/bge-reranker-v2-m3") // Use a working rerank model
+        .build()
+        .await?;
+    rerank_example(&rerank_client).await?;
 
     // Example 4: RAG workflow combining all capabilities
-    rag_workflow_example(&client).await?;
+    rag_workflow_example(&client, &embedding_client, &rerank_client).await?;
 
     Ok(())
 }
@@ -161,7 +174,9 @@ async fn rerank_example(client: &impl RerankCapability) -> Result<(), Box<dyn st
 
 /// Demonstrate a complete RAG workflow using SiliconFlow
 async fn rag_workflow_example(
-    client: &(impl ChatCapability + EmbeddingCapability + RerankCapability),
+    chat_client: &impl ChatCapability,
+    embedding_client: &impl EmbeddingCapability,
+    rerank_client: &impl RerankCapability,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Complete RAG Workflow Example");
     println!("---------------------------------");
@@ -185,7 +200,9 @@ async fn rag_workflow_example(
 
     // Step 1: Generate embeddings for the question (for semantic search)
     println!("\n📝 Step 1: Generate query embedding...");
-    let _query_embedding = client.embed(vec![user_question.to_string()]).await?;
+    let _query_embedding = embedding_client
+        .embed(vec![user_question.to_string()])
+        .await?;
     println!("✅ Query embedding generated");
 
     // Step 2: Rerank documents based on relevance
@@ -198,7 +215,7 @@ async fn rag_workflow_example(
     .with_top_n(3)
     .with_return_documents(true);
 
-    let rerank_response = client.rerank(rerank_request).await?;
+    let rerank_response = rerank_client.rerank(rerank_request).await?;
 
     println!(
         "✅ Top {} relevant documents selected:",
@@ -237,7 +254,7 @@ async fn rag_workflow_example(
         )),
     ];
 
-    let chat_response = client.chat(chat_messages).await?;
+    let chat_response = chat_client.chat(chat_messages).await?;
 
     println!("🤖 AI Answer:");
     println!("{}", chat_response.content_text().unwrap_or_default());

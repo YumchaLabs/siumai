@@ -177,6 +177,28 @@ impl OpenAiCompatibleClient {
 
     /// Convert OpenAI response to ChatResponse (based on OpenAI's parse_chat_response)
     fn parse_chat_response(&self, response: OpenAiChatResponse) -> Result<ChatResponse, LlmError> {
+        // Extract thinking content from multiple possible fields first (before consuming choices)
+        let mut thinking_content: Option<String> = None;
+
+        // Check for thinking content in provider-specific fields first
+        if let Some(raw_choice) = response.choices.first()
+            && let Ok(choice_value) = serde_json::to_value(&raw_choice.message)
+        {
+            // Try multiple field names in priority order (like Cherry Studio)
+            let thinking_fields = ["reasoning_content", "reasoning", "thinking"];
+
+            for field_name in thinking_fields.iter() {
+                if let Some(field_value) = choice_value.get(field_name)
+                    && let Some(thinking_text) = field_value.as_str()
+                    && !thinking_text.trim().is_empty()
+                {
+                    thinking_content = Some(thinking_text.to_string());
+                    break;
+                }
+            }
+        }
+
+        // Now extract the choice (consuming the vector)
         let choice = response
             .choices
             .into_iter()
@@ -187,20 +209,23 @@ impl OpenAiCompatibleClient {
                 details: None,
             })?;
 
-        // Extract thinking content and filter it from the main content
-        let mut thinking_content: Option<String> = None;
-
         let content = if let Some(content) = choice.message.content {
             match content {
                 serde_json::Value::String(text) => {
-                    // Check for thinking tags in the content (similar to OpenAI's implementation)
-                    let thinking_regex = regex::Regex::new(r"<think>(.*?)</think>").unwrap();
-                    if let Some(captures) = thinking_regex.captures(&text) {
-                        thinking_content = Some(captures.get(1).unwrap().as_str().to_string());
-                        // Remove thinking tags from main content
-                        let cleaned_text = thinking_regex.replace_all(&text, "").trim().to_string();
-                        MessageContent::Text(cleaned_text)
+                    // If no thinking content found in dedicated fields, check for thinking tags
+                    if thinking_content.is_none() {
+                        let thinking_regex = regex::Regex::new(r"<think>(.*?)</think>").unwrap();
+                        if let Some(captures) = thinking_regex.captures(&text) {
+                            thinking_content = Some(captures.get(1).unwrap().as_str().to_string());
+                            // Remove thinking tags from main content
+                            let cleaned_text =
+                                thinking_regex.replace_all(&text, "").trim().to_string();
+                            MessageContent::Text(cleaned_text)
+                        } else {
+                            MessageContent::Text(text)
+                        }
                     } else {
+                        // If thinking content was found in dedicated fields, use content as-is
                         MessageContent::Text(text)
                     }
                 }
@@ -452,8 +477,7 @@ impl RerankCapability for OpenAiCompatibleClient {
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
 
-        let rerank_response: RerankResponse = serde_json::from_str(&response_text)
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse response: {}", e)))?;
+        let rerank_response = parse_rerank_response(&response_text, &self.config.provider_id)?;
 
         Ok(rerank_response)
     }
@@ -752,7 +776,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         )
         .with_model("test-model");
 
@@ -768,9 +792,55 @@ mod tests {
             "",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         );
 
         assert!(OpenAiCompatibleClient::new(config).await.is_err());
+    }
+}
+
+/// SiliconFlow-specific rerank response structure
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct SiliconFlowRerankResponse {
+    pub id: String,
+    pub results: Vec<RerankResult>,
+    pub meta: SiliconFlowMeta,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct SiliconFlowMeta {
+    pub tokens: RerankTokenUsage,
+}
+
+/// Parse rerank response based on provider
+fn parse_rerank_response(
+    response_text: &str,
+    provider_id: &str,
+) -> Result<RerankResponse, LlmError> {
+    // First try to parse as standard format
+    if let Ok(standard_response) = serde_json::from_str::<RerankResponse>(response_text) {
+        return Ok(standard_response);
+    }
+
+    // If that fails and it's SiliconFlow, try SiliconFlow format
+    if provider_id == "siliconflow" {
+        let sf_response: SiliconFlowRerankResponse =
+            serde_json::from_str(response_text).map_err(|e| {
+                LlmError::ParseError(format!("Failed to parse SiliconFlow rerank response: {e}"))
+            })?;
+
+        // Convert to standard format
+        Ok(RerankResponse {
+            id: sf_response.id,
+            results: sf_response.results,
+            tokens: sf_response.meta.tokens,
+        })
+    } else {
+        // For other providers, return the original parsing error
+        Err(LlmError::ParseError(format!(
+            "Failed to parse rerank response for provider {}: {}",
+            provider_id,
+            serde_json::from_str::<RerankResponse>(response_text).unwrap_err()
+        )))
     }
 }

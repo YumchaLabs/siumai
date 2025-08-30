@@ -81,10 +81,12 @@ pub const ENABLED_PROVIDERS: &str = env!("SIUMAI_ENABLED_PROVIDERS");
 /// Number of enabled providers at compile time  
 pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 
+pub mod analysis;
 pub mod benchmarks;
 pub mod builder;
 pub mod client;
 pub mod custom_provider;
+pub mod defaults;
 pub mod error;
 pub mod multimodal;
 pub mod params;

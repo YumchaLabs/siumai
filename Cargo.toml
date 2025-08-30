@@ -12,9 +12,7 @@ readme = "README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "async"]
 categories = ["api-bindings"]
 
-exclude = [
-    "docs/*",
-]
+exclude = ["docs/*"]
 
 [dependencies]
 # Async traits
@@ -56,7 +54,13 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 
 # Tracing and observability
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "time", "chrono"] }
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "json",
+    "fmt",
+    "time",
+    "chrono",
+] }
 tracing-appender = "0.2"
 
 # Random number generation (for retry jitter)
@@ -94,7 +98,13 @@ wiremock = "0.6"
 tracing-test = "0.2"
 tempfile = "3.0"
 futures-util = "0.3"
-rmcp = { version = "0.6", features = ["transport-io", "transport-child-process", "macros", "server", "client"] }
+rmcp = { version = "0.6.1", features = [
+    "transport-io",
+    "transport-child-process",
+    "macros",
+    "server",
+    "client",
+] }
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 axum = "0.8.4"
@@ -249,14 +259,10 @@ name = "image_generation_showcase"
 path = "examples/04_providers/openai/image_generation_showcase.rs"
 
 [[example]]
-name = "adapter_system_showcase"
-path = "examples/04_providers/openai_compatible/adapter_system_showcase.rs"
-
-
+name = "siliconflow_usage_examples"
+path = "examples/04_providers/siliconflow/usage_examples.rs"
 
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
 lto = "thin"
-
-

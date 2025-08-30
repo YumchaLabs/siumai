@@ -62,7 +62,7 @@ impl DefaultModelRegistry {
         // SiliconFlow defaults (using constants from models.rs)
         configs.insert(
             "siliconflow",
-            DefaultModelConfig::new(super::providers::models::siliconflow::DEEPSEEK_CHAT)
+            DefaultModelConfig::new(super::providers::models::siliconflow::DEEPSEEK_V3_1)
                 .with_embedding(super::providers::models::siliconflow::BGE_LARGE_ZH_V1_5)
                 .with_image(super::providers::models::siliconflow::STABLE_DIFFUSION_3_5_LARGE)
                 .with_rerank(super::providers::models::siliconflow::BGE_RERANKER_V2_M3),
@@ -171,7 +171,7 @@ mod tests {
         // Test SiliconFlow defaults
         assert_eq!(
             registry.get_default_chat_model("siliconflow"),
-            Some("deepseek-chat")
+            Some("deepseek-ai/DeepSeek-V3.1")
         );
         assert_eq!(
             registry.get_default_embedding_model("siliconflow"),
@@ -179,7 +179,7 @@ mod tests {
         );
         assert_eq!(
             registry.get_default_image_model("siliconflow"),
-            Some("stabilityai/stable-diffusion-3.5-large")
+            Some("stabilityai/stable-diffusion-3-5-large")
         );
 
         // Test DeepSeek defaults
@@ -201,7 +201,10 @@ mod tests {
     #[test]
     fn test_global_registry() {
         // Test global registry functions
-        assert_eq!(get_default_chat_model("siliconflow"), Some("deepseek-chat"));
+        assert_eq!(
+            get_default_chat_model("siliconflow"),
+            Some("deepseek-ai/DeepSeek-V3.1")
+        );
         assert_eq!(get_default_chat_model("deepseek"), Some("deepseek-chat"));
         assert_eq!(get_default_chat_model("openrouter"), Some("openai/gpt-4o"));
         assert_eq!(get_default_chat_model("unknown"), None);

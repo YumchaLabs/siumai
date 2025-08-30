@@ -345,11 +345,11 @@ mod duration_option_serde {
 impl Default for HttpConfig {
     fn default() -> Self {
         Self {
-            timeout: Some(Duration::from_secs(30)),
-            connect_timeout: Some(Duration::from_secs(10)),
+            timeout: Some(crate::defaults::http::REQUEST_TIMEOUT),
+            connect_timeout: Some(crate::defaults::http::CONNECT_TIMEOUT),
             headers: HashMap::new(),
             proxy: None,
-            user_agent: Some("siumai/0.1.0".to_string()),
+            user_agent: Some(crate::defaults::http::USER_AGENT.to_string()),
         }
     }
 }

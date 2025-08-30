@@ -406,11 +406,11 @@ pub mod optimization {
     impl Default for ConnectionPoolConfig {
         fn default() -> Self {
             Self {
-                max_idle_per_host: 10,
-                max_idle_total: 100,
-                connect_timeout: Duration::from_secs(10),
-                request_timeout: Duration::from_secs(30),
-                keep_alive_timeout: Duration::from_secs(90),
+                max_idle_per_host: crate::defaults::http::MAX_IDLE_PER_HOST,
+                max_idle_total: crate::defaults::http::MAX_IDLE_TOTAL,
+                connect_timeout: crate::defaults::http::CONNECT_TIMEOUT,
+                request_timeout: crate::defaults::http::REQUEST_TIMEOUT,
+                keep_alive_timeout: crate::defaults::http::KEEP_ALIVE_TIMEOUT,
             }
         }
     }
@@ -424,7 +424,7 @@ pub mod optimization {
             .pool_idle_timeout(config.keep_alive_timeout)
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
-            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_keepalive(crate::defaults::http::TCP_KEEP_ALIVE)
             .tcp_nodelay(true)
             .build()?;
 

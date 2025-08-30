@@ -381,6 +381,7 @@ impl SiumaiBuilder {
             "ollama" => ProviderType::Ollama,
             "xai" => ProviderType::XAI,
             "groq" => ProviderType::Groq,
+            "siliconflow" => ProviderType::Custom("siliconflow".to_string()),
             "deepseek" => ProviderType::Custom("deepseek".to_string()),
             "openrouter" => ProviderType::Custom("openrouter".to_string()),
             _ => ProviderType::Custom(name),
@@ -419,6 +420,14 @@ impl SiumaiBuilder {
     pub fn ollama(mut self) -> Self {
         self.provider_type = Some(ProviderType::Ollama);
         self.provider_name = Some("ollama".to_string());
+        self
+    }
+
+    /// Create a `SiliconFlow` provider (convenience method)
+    #[cfg(feature = "openai")]
+    pub fn siliconflow(mut self) -> Self {
+        self.provider_type = Some(ProviderType::Custom("siliconflow".to_string()));
+        self.provider_name = Some("siliconflow".to_string());
         self
     }
 
@@ -682,6 +691,10 @@ impl SiumaiBuilder {
                 ProviderType::Groq => "llama-3.1-70b-versatile".to_string(),
                 ProviderType::Custom(ref name) => match name.as_str() {
                     #[cfg(feature = "openai")]
+                    "siliconflow" => {
+                        models::openai_compatible::siliconflow::DEEPSEEK_V3_1.to_string()
+                    }
+                    #[cfg(feature = "openai")]
                     "deepseek" => models::openai_compatible::deepseek::CHAT.to_string(),
                     #[cfg(feature = "openai")]
                     "openrouter" => models::openai_compatible::openrouter::GPT_4O.to_string(),
@@ -940,6 +953,30 @@ impl SiumaiBuilder {
                         let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
                             .with_base_url(
                                 base_url.unwrap_or_else(|| "https://api.deepseek.com".to_string()),
+                            )
+                            .with_model(common_params.model.clone());
+
+                        // Use validated common parameters
+                        if let Some(temp) = common_params.temperature {
+                            config = config.with_temperature(temp);
+                        }
+                        if let Some(max_tokens) = common_params.max_tokens {
+                            config = config.with_max_tokens(max_tokens);
+                        }
+
+                        let http_client = reqwest::Client::new();
+                        Box::new(crate::providers::openai::OpenAiClient::new(
+                            config,
+                            http_client,
+                        ))
+                    }
+                    #[cfg(feature = "openai")]
+                    "siliconflow" => {
+                        // Use OpenAI-compatible client for SiliconFlow
+                        let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
+                            .with_base_url(
+                                base_url
+                                    .unwrap_or_else(|| "https://api.siliconflow.cn/v1".to_string()),
                             )
                             .with_model(common_params.model.clone());
 

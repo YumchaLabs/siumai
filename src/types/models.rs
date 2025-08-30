@@ -421,28 +421,147 @@ pub mod model_constants {
         pub mod siliconflow {
             use super::c;
 
-            // Chat models
-            pub const DEEPSEEK_CHAT: &str = c::siliconflow::DEEPSEEK_CHAT;
-            pub const DEEPSEEK_CODER: &str = c::siliconflow::DEEPSEEK_CODER;
-            pub const DEEPSEEK_REASONER: &str = c::siliconflow::DEEPSEEK_REASONER;
-            pub const QWEN_2_5_72B: &str = c::siliconflow::QWEN_2_5_72B_INSTRUCT;
-            pub const QWEN_2_5_32B: &str = c::siliconflow::QWEN_2_5_32B_INSTRUCT;
-            pub const QWEN_2_5_14B: &str = c::siliconflow::QWEN_2_5_14B_INSTRUCT;
-            pub const QWEN_2_5_7B: &str = c::siliconflow::QWEN_2_5_7B_INSTRUCT;
+            // ========================================================================
+            // Chat Models - Most Popular and Recommended
+            // ========================================================================
 
-            // Embedding models
-            pub const BGE_LARGE_EN: &str = c::siliconflow::BGE_LARGE_EN_V1_5;
-            pub const BGE_LARGE_ZH: &str = c::siliconflow::BGE_LARGE_ZH_V1_5;
+            /// DeepSeek V3.1 - Latest flagship reasoning model
+            pub const DEEPSEEK_V3_1: &str = c::siliconflow::DEEPSEEK_V3_1;
+            /// DeepSeek V3.1 Pro version
+            pub const DEEPSEEK_V3_1_PRO: &str = c::siliconflow::DEEPSEEK_V3_1_PRO;
+            /// DeepSeek V3 - Previous flagship model
+            pub const DEEPSEEK_V3: &str = c::siliconflow::DEEPSEEK_V3;
+            /// DeepSeek V3 Pro version
+            pub const DEEPSEEK_V3_PRO: &str = c::siliconflow::DEEPSEEK_V3_PRO;
+            /// DeepSeek R1 - Reasoning model
+            pub const DEEPSEEK_R1: &str = c::siliconflow::DEEPSEEK_R1;
+            /// DeepSeek R1 Pro version
+            pub const DEEPSEEK_R1_PRO: &str = c::siliconflow::DEEPSEEK_R1_PRO;
+            /// DeepSeek V2.5 - Previous generation
+            pub const DEEPSEEK_V2_5: &str = c::siliconflow::DEEPSEEK_V2_5;
+            /// DeepSeek VL2 - Vision-language model
+            pub const DEEPSEEK_VL2: &str = c::siliconflow::DEEPSEEK_VL2;
+
+            /// Qwen 3 235B A22B - Latest flagship
+            pub const QWEN3_235B_A22B: &str = c::siliconflow::QWEN3_235B_A22B;
+            /// Qwen 3 235B A22B Instruct
+            pub const QWEN3_235B_A22B_INSTRUCT: &str = c::siliconflow::QWEN3_235B_A22B_INSTRUCT;
+            /// Qwen 3 235B A22B Thinking
+            pub const QWEN3_235B_A22B_THINKING: &str = c::siliconflow::QWEN3_235B_A22B_THINKING;
+            /// Qwen 3 32B
+            pub const QWEN3_32B: &str = c::siliconflow::QWEN3_32B;
+            /// Qwen 3 30B A3B
+            pub const QWEN3_30B_A3B: &str = c::siliconflow::QWEN3_30B_A3B;
+            /// Qwen 3 30B A3B Instruct
+            pub const QWEN3_30B_A3B_INSTRUCT: &str = c::siliconflow::QWEN3_30B_A3B_INSTRUCT;
+            /// Qwen 3 30B A3B Thinking
+            pub const QWEN3_30B_A3B_THINKING: &str = c::siliconflow::QWEN3_30B_A3B_THINKING;
+            /// Qwen 3 14B
+            pub const QWEN3_14B: &str = c::siliconflow::QWEN3_14B;
+            /// Qwen 3 8B
+            pub const QWEN3_8B: &str = c::siliconflow::QWEN3_8B;
+
+            /// Qwen 2.5 72B Instruct
+            pub const QWEN_2_5_72B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_72B_INSTRUCT;
+            /// Qwen 2.5 72B Instruct 128K context
+            pub const QWEN_2_5_72B_INSTRUCT_128K: &str = c::siliconflow::QWEN_2_5_72B_INSTRUCT_128K;
+            /// Qwen 2.5 32B Instruct
+            pub const QWEN_2_5_32B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_32B_INSTRUCT;
+            /// Qwen 2.5 14B Instruct
+            pub const QWEN_2_5_14B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_14B_INSTRUCT;
+            /// Qwen 2.5 7B Instruct
+            pub const QWEN_2_5_7B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_7B_INSTRUCT;
+
+            /// Qwen 2.5 VL 72B Instruct - Vision-language model
+            pub const QWEN_2_5_VL_72B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_VL_72B_INSTRUCT;
+            /// Qwen 2.5 VL 32B Instruct - Vision-language model
+            pub const QWEN_2_5_VL_32B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_VL_32B_INSTRUCT;
+            /// Qwen 2.5 VL 7B Instruct Pro - Vision-language model
+            pub const QWEN_2_5_VL_7B_INSTRUCT_PRO: &str =
+                c::siliconflow::QWEN_2_5_VL_7B_INSTRUCT_PRO;
+
+            /// Qwen 2.5 Coder models
+            pub const QWEN_2_5_CODER_32B_INSTRUCT: &str =
+                c::siliconflow::QWEN_2_5_CODER_32B_INSTRUCT;
+            pub const QWEN_2_5_CODER_7B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_CODER_7B_INSTRUCT;
+            pub const QWEN_2_5_CODER_7B_INSTRUCT_PRO: &str =
+                c::siliconflow::QWEN_2_5_CODER_7B_INSTRUCT_PRO;
+
+            /// Qwen 3 Coder models
+            pub const QWEN3_CODER_480B_A35B_INSTRUCT: &str =
+                c::siliconflow::QWEN3_CODER_480B_A35B_INSTRUCT;
+            pub const QWEN3_CODER_30B_A3B_INSTRUCT: &str =
+                c::siliconflow::QWEN3_CODER_30B_A3B_INSTRUCT;
+
+            /// QwQ 32B - Reasoning model
+            pub const QWQ_32B: &str = c::siliconflow::QWQ_32B;
+            /// QVQ 72B Preview - Vision-question model
+            pub const QVQ_72B_PREVIEW: &str = c::siliconflow::QVQ_72B_PREVIEW;
+
+            /// Kimi K2 Instruct
+            pub const KIMI_K2_INSTRUCT: &str = c::siliconflow::KIMI_K2_INSTRUCT;
+            /// Kimi K2 Instruct Pro
+            pub const KIMI_K2_INSTRUCT_PRO: &str = c::siliconflow::KIMI_K2_INSTRUCT_PRO;
+
+            /// GLM models
+            pub const GLM_4_5: &str = c::siliconflow::GLM_4_5;
+            pub const GLM_4_5_AIR: &str = c::siliconflow::GLM_4_5_AIR;
+            pub const GLM_4_5V: &str = c::siliconflow::GLM_4_5V;
+            pub const GLM_4_1V_9B_THINKING: &str = c::siliconflow::GLM_4_1V_9B_THINKING;
+            pub const GLM_4_1V_9B_THINKING_PRO: &str = c::siliconflow::GLM_4_1V_9B_THINKING_PRO;
+
+            // ========================================================================
+            // Embedding Models
+            // ========================================================================
+
+            /// BCE Embedding Base V1 - NetEase Youdao (Recommended)
+            pub const BCE_EMBEDDING_BASE_V1: &str = c::siliconflow::BCE_EMBEDDING_BASE_V1;
+
+            /// Qwen 3 Embedding models (Latest)
+            pub const QWEN3_EMBEDDING_8B: &str = c::siliconflow::QWEN3_EMBEDDING_8B;
+            pub const QWEN3_EMBEDDING_4B: &str = c::siliconflow::QWEN3_EMBEDDING_4B;
+            pub const QWEN3_EMBEDDING_0_6B: &str = c::siliconflow::QWEN3_EMBEDDING_0_6B;
+
+            /// BGE models (Legacy but still available)
+            pub const BGE_LARGE_EN_V1_5: &str = c::siliconflow::BGE_LARGE_EN_V1_5;
+            pub const BGE_LARGE_ZH_V1_5: &str = c::siliconflow::BGE_LARGE_ZH_V1_5;
             pub const BGE_M3: &str = c::siliconflow::BGE_M3;
-            pub const TEXT_EMBEDDING_ADA_002: &str = c::siliconflow::TEXT_EMBEDDING_ADA_002;
+            pub const BGE_M3_PRO: &str = c::siliconflow::BGE_M3_PRO;
 
-            // Rerank models
+            // ========================================================================
+            // Rerank Models
+            // ========================================================================
+
+            /// BGE Reranker V2 M3 (Recommended)
             pub const BGE_RERANKER_V2_M3: &str = c::siliconflow::BGE_RERANKER_V2_M3;
+            /// BGE Reranker V2 M3 Pro
             pub const BGE_RERANKER_V2_M3_PRO: &str = c::siliconflow::BGE_RERANKER_V2_M3_PRO;
 
-            // Image generation models
+            /// BCE Reranker Base V1 - NetEase Youdao
+            pub const BCE_RERANKER_BASE_V1: &str = c::siliconflow::BCE_RERANKER_BASE_V1;
+
+            /// Qwen 3 Reranker models (Latest)
+            pub const QWEN3_RERANKER_8B: &str = c::siliconflow::QWEN3_RERANKER_8B;
+            pub const QWEN3_RERANKER_4B: &str = c::siliconflow::QWEN3_RERANKER_4B;
+            pub const QWEN3_RERANKER_0_6B: &str = c::siliconflow::QWEN3_RERANKER_0_6B;
+
+            // ========================================================================
+            // Image Generation Models
+            // ========================================================================
+
+            /// FLUX.1 models (Recommended)
+            pub const FLUX_1_PRO: &str = c::siliconflow::FLUX_1_PRO;
+            pub const FLUX_1_DEV: &str = c::siliconflow::FLUX_1_DEV;
             pub const FLUX_1_SCHNELL: &str = c::siliconflow::FLUX_1_SCHNELL;
+            pub const FLUX_1_SCHNELL_PRO: &str = c::siliconflow::FLUX_1_SCHNELL_PRO;
+            pub const FLUX_1_DEV_LORA: &str = c::siliconflow::FLUX_1_DEV_LORA;
+
+            /// Stable Diffusion models
             pub const STABLE_DIFFUSION_3_5_LARGE: &str = c::siliconflow::STABLE_DIFFUSION_3_5_LARGE;
+            pub const STABLE_DIFFUSION_XL_BASE_1_0: &str =
+                c::siliconflow::STABLE_DIFFUSION_XL_BASE_1_0;
+
+            /// Kolors
             pub const KOLORS: &str = c::siliconflow::KOLORS;
         }
     }

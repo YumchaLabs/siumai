@@ -276,9 +276,9 @@ impl LlmBuilder {
     /// Sets reasonable timeouts, compression, and other production-ready settings.
     pub fn with_defaults() -> Self {
         Self::new()
-            .with_timeout(Duration::from_secs(60))
-            .with_connect_timeout(Duration::from_secs(10))
-            .with_user_agent("siumai/0.1.0")
+            .with_timeout(crate::defaults::timeouts::STANDARD)
+            .with_connect_timeout(crate::defaults::http::CONNECT_TIMEOUT)
+            .with_user_agent(crate::defaults::http::USER_AGENT)
             .with_gzip(true)
             .with_brotli(true)
     }
@@ -288,9 +288,9 @@ impl LlmBuilder {
     /// Uses shorter timeouts suitable for interactive applications.
     pub fn fast() -> Self {
         Self::new()
-            .with_timeout(Duration::from_secs(30))
+            .with_timeout(crate::defaults::timeouts::FAST)
             .with_connect_timeout(Duration::from_secs(5))
-            .with_user_agent("siumai/0.1.0")
+            .with_user_agent(crate::defaults::http::USER_AGENT)
     }
 
     /// Create a builder optimized for long-running operations.
@@ -298,9 +298,9 @@ impl LlmBuilder {
     /// Uses longer timeouts suitable for batch processing or complex tasks.
     pub fn long_running() -> Self {
         Self::new()
-            .with_timeout(Duration::from_secs(300))
+            .with_timeout(crate::defaults::timeouts::LONG_RUNNING)
             .with_connect_timeout(Duration::from_secs(30))
-            .with_user_agent("siumai/0.1.0")
+            .with_user_agent(crate::defaults::http::USER_AGENT)
     }
 
     /// Use a custom HTTP client.
@@ -899,8 +899,11 @@ impl OpenAiBuilder {
         };
 
         let http_client = self.base.http_client.unwrap_or_else(|| {
-            let mut builder = reqwest::Client::builder()
-                .timeout(self.base.timeout.unwrap_or(Duration::from_secs(30)));
+            let mut builder = reqwest::Client::builder().timeout(
+                self.base
+                    .timeout
+                    .unwrap_or(crate::defaults::http::REQUEST_TIMEOUT),
+            );
 
             if let Some(timeout) = self.http_config.timeout {
                 builder = builder.timeout(timeout);
@@ -1836,6 +1839,8 @@ pub struct OpenAiCompatibleBuilder {
     common_params: crate::types::CommonParams,
     /// HTTP configuration
     http_config: crate::types::HttpConfig,
+    /// Provider-specific configuration
+    provider_specific_config: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[cfg(feature = "openai")]
@@ -1856,6 +1861,7 @@ impl OpenAiCompatibleBuilder {
             model: default_model,
             common_params: crate::types::CommonParams::default(),
             http_config: crate::types::HttpConfig::default(),
+            provider_specific_config: std::collections::HashMap::new(),
         }
     }
 
@@ -1901,6 +1907,71 @@ impl OpenAiCompatibleBuilder {
         self
     }
 
+    /// Enable thinking mode for supported models (SiliconFlow only)
+    ///
+    /// When enabled, models that support thinking (like DeepSeek V3.1, Qwen 3, etc.)
+    /// will include their reasoning process in the response.
+    ///
+    /// # Arguments
+    /// * `enable` - Whether to enable thinking mode
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::prelude::*;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .siliconflow()
+    ///         .api_key("your-api-key")
+    ///         .model("deepseek-ai/DeepSeek-V3.1")
+    ///         .with_thinking(true)
+    ///         .build()
+    ///         .await?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    pub fn with_thinking(mut self, enable: bool) -> Self {
+        // Store thinking preference for later use in adapter creation
+        self.provider_specific_config.insert(
+            "enable_thinking".to_string(),
+            serde_json::Value::Bool(enable),
+        );
+        self
+    }
+
+    /// Set the thinking budget (maximum tokens for reasoning) for supported models (SiliconFlow only)
+    ///
+    /// This controls how many tokens the model can use for its internal reasoning process.
+    /// Higher values allow for more detailed reasoning but consume more tokens.
+    ///
+    /// # Arguments
+    /// * `budget` - Number of tokens (128-32768, default varies by model size)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::prelude::*;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .siliconflow()
+    ///         .api_key("your-api-key")
+    ///         .model("deepseek-ai/DeepSeek-V3.1")
+    ///         .with_thinking_budget(8192)  // 8K tokens for complex reasoning
+    ///         .build()
+    ///         .await?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    pub fn with_thinking_budget(mut self, budget: u32) -> Self {
+        // Clamp to reasonable range and store for later use in adapter creation
+        let clamped_budget = budget.clamp(128, 32768);
+        self.provider_specific_config.insert(
+            "thinking_budget".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
+        );
+        self
+    }
+
     /// Build the OpenAI-compatible client
     pub async fn build(
         self,
@@ -1912,9 +1983,33 @@ impl OpenAiCompatibleBuilder {
         // Create adapter based on provider
         let adapter: Box<dyn crate::providers::openai_compatible::adapter::ProviderAdapter> =
             match self.provider_id.as_str() {
-                "siliconflow" => Box::new(
-                    crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter,
-                ),
+                "siliconflow" => {
+                    // Create SiliconFlow adapter with thinking configuration if provided
+                    let enable_thinking = self
+                        .provider_specific_config
+                        .get("enable_thinking")
+                        .and_then(|v| v.as_bool());
+                    let thinking_budget = self
+                        .provider_specific_config
+                        .get("thinking_budget")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as u32);
+
+                    let adapter = if let Some(enable) = enable_thinking {
+                        if enable {
+                            crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::with_thinking_enabled(thinking_budget)
+                        } else {
+                            crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::with_thinking_disabled()
+                        }
+                    } else if let Some(budget) = thinking_budget {
+                        // If only budget is specified, enable thinking with that budget
+                        crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::with_thinking_enabled(Some(budget))
+                    } else {
+                        crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::new()
+                    };
+
+                    Box::new(adapter)
+                }
                 // Add more providers here as needed
                 // "deepseek" => Box::new(crate::providers::openai_compatible::providers::deepseek::DeepSeekAdapter),
                 // "openrouter" => Box::new(crate::providers::openai_compatible::providers::openrouter::OpenRouterAdapter),

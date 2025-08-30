@@ -118,7 +118,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         );
 
         assert_eq!(config.provider_id, "test");
@@ -132,7 +132,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         )
         .with_model("test-model");
 
@@ -146,7 +146,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_ok());
 
@@ -155,7 +155,7 @@ mod tests {
             "",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_err());
 
@@ -164,7 +164,7 @@ mod tests {
             "test",
             "",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_err());
 
@@ -173,7 +173,7 @@ mod tests {
             "test",
             "test-key",
             "invalid-url",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_err());
     }
@@ -184,7 +184,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter),
+            Box::new(SiliconFlowAdapter::new()),
         )
         .with_header("X-Custom", "test-value")
         .unwrap();
