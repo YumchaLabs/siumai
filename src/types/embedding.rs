@@ -57,6 +57,21 @@ impl EmbeddingRequest {
         Self::single(text).with_task_type(EmbeddingTaskType::Classification)
     }
 
+    /// Create an embedding request for clustering
+    pub fn clustering(text: impl Into<String>) -> Self {
+        Self::single(text).with_task_type(EmbeddingTaskType::Clustering)
+    }
+
+    /// Create an embedding request for question answering
+    pub fn question_answering(text: impl Into<String>) -> Self {
+        Self::single(text).with_task_type(EmbeddingTaskType::QuestionAnswering)
+    }
+
+    /// Create an embedding request for fact verification
+    pub fn fact_verification(text: impl Into<String>) -> Self {
+        Self::single(text).with_task_type(EmbeddingTaskType::FactVerification)
+    }
+
     /// Set the model to use
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
@@ -105,10 +120,16 @@ impl EmbeddingRequest {
         );
         self
     }
+
+    /// Set provider-specific parameters from a map
+    pub fn with_provider_params(mut self, params: HashMap<String, serde_json::Value>) -> Self {
+        self.provider_params.extend(params);
+        self
+    }
 }
 
 /// Supported embedding formats
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingFormat {
     /// Standard float32 vectors

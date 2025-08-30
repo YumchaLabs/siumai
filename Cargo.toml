@@ -199,6 +199,10 @@ name = "google_basic_usage"
 path = "examples/04_providers/google/basic_usage.rs"
 
 [[example]]
+name = "google_embedding_task_types"
+path = "examples/04_providers/google/embedding_with_task_types.rs"
+
+[[example]]
 name = "ollama_basic_setup"
 path = "examples/04_providers/ollama/basic_setup.rs"
 

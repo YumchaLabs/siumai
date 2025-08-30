@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Provider-Specific Embedding Configurations** - Added type-safe embedding configuration options for each provider (GeminiEmbeddingOptions with task types, OpenAiEmbeddingOptions with custom dimensions, OllamaEmbeddingOptions with model parameters) through extension traits, enabling optimized embeddings while maintaining unified interface
 - **SiliconFlow Provider with Rerank Support** - Added comprehensive SiliconFlow provider integration including chat, embeddings, image generation, and document reranking capabilities for improved RAG systems
 - **OpenAI-Compatible Adapter System** - Introduced new adapter architecture for OpenAI-compatible providers with automatic parameter transformation (thinking_budget → reasoning_effort), field mapping (reasoning_content → thinking), and model-specific configurations. Enables seamless integration of providers like SiliconFlow with DeepSeek thinking capabilities while maintaining unified API.
 - **Secure Debug Trait Implementation** - Implemented custom Debug trait for all client types with complete sensitive information hiding (API keys, tokens) using clean `has_*` flags instead of masked values, providing production-safe debugging output.

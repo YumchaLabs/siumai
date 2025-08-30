@@ -757,8 +757,10 @@ if is_ready {
 ```rust
 use siumai::models;
 use siumai::prelude::*;
+use siumai::types::{EmbeddingRequest, EmbeddingTaskType};
+use siumai::traits::EmbeddingExtensions;
 
-// Unified interface - works with any provider that supports embeddings
+// Basic unified interface - works with any provider that supports embeddings
 let client = Siumai::builder()
     .openai()
     .api_key("your-api-key")
@@ -771,6 +773,27 @@ let response = client.embed(texts).await?;
 println!("Got {} embeddings with {} dimensions",
          response.embeddings.len(),
          response.embeddings[0].len());
+
+// ✨ NEW: Advanced unified interface with task types and configuration
+let gemini_client = Siumai::builder()
+    .gemini()
+    .api_key("your-gemini-key")
+    .model("gemini-embedding-001")
+    .build()
+    .await?;
+
+// Use task type optimization for better results
+let query_request = EmbeddingRequest::query("What is machine learning?");
+let query_response = gemini_client.embed_with_config(query_request).await?;
+
+let doc_request = EmbeddingRequest::document("ML is a subset of AI...");
+let doc_response = gemini_client.embed_with_config(doc_request).await?;
+
+// Custom configuration with task type and dimensions
+let custom_request = EmbeddingRequest::new(vec!["Custom text".to_string()])
+    .with_task_type(EmbeddingTaskType::SemanticSimilarity)
+    .with_dimensions(768);
+let custom_response = gemini_client.embed_with_config(custom_request).await?;
 
 // Provider-specific interface for advanced features
 let embeddings_client = Provider::openai()

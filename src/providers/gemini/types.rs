@@ -1008,3 +1008,141 @@ pub struct ListFilesResponse {
 pub struct DownloadFileResponse {
     // This is typically just raw bytes, but we'll handle it in the implementation
 }
+
+// ================================================================================================
+// Embedding Types
+// ================================================================================================
+
+/// Gemini-specific embedding configuration options
+///
+/// This struct provides type-safe configuration for Gemini embedding requests,
+/// including task type optimization, context titles, and custom dimensions.
+///
+/// # Example
+/// ```rust,no_run
+/// use siumai::providers::gemini::GeminiEmbeddingOptions;
+/// use siumai::types::EmbeddingTaskType;
+///
+/// let options = GeminiEmbeddingOptions::new()
+///     .with_task_type(EmbeddingTaskType::RetrievalQuery)
+///     .with_title("Search Context")
+///     .with_output_dimensionality(768);
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct GeminiEmbeddingOptions {
+    /// Task type for optimization (Gemini-specific feature)
+    pub task_type: Option<crate::types::EmbeddingTaskType>,
+    /// Title for additional context (helps with embedding quality)
+    pub title: Option<String>,
+    /// Custom output dimensions (128-3072, must be supported by model)
+    pub output_dimensionality: Option<u32>,
+}
+
+impl GeminiEmbeddingOptions {
+    /// Create new Gemini embedding options with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set task type for optimization
+    ///
+    /// Different task types optimize the embedding for specific use cases:
+    /// - `RetrievalQuery`: For search queries
+    /// - `RetrievalDocument`: For documents to be searched
+    /// - `SemanticSimilarity`: For similarity comparison
+    /// - `Classification`: For text classification
+    /// - `Clustering`: For grouping similar texts
+    /// - `QuestionAnswering`: For Q&A systems
+    /// - `FactVerification`: For fact checking
+    pub fn with_task_type(mut self, task_type: crate::types::EmbeddingTaskType) -> Self {
+        self.task_type = Some(task_type);
+        self
+    }
+
+    /// Set title for additional context
+    ///
+    /// The title provides additional context that can improve embedding quality.
+    /// This is particularly useful for documents or when the text needs context.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Set custom output dimensions
+    ///
+    /// Allows customizing the embedding vector size. Must be between 128-3072
+    /// and supported by the specific model being used.
+    pub fn with_output_dimensionality(mut self, dimensions: u32) -> Self {
+        self.output_dimensionality = Some(dimensions);
+        self
+    }
+
+    /// Apply these options to an EmbeddingRequest
+    ///
+    /// This method modifies the provided EmbeddingRequest to include
+    /// Gemini-specific parameters.
+    pub fn apply_to_request(
+        self,
+        mut request: crate::types::EmbeddingRequest,
+    ) -> crate::types::EmbeddingRequest {
+        if let Some(task_type) = self.task_type {
+            request = request.with_task_type(task_type);
+        }
+        if let Some(title) = self.title {
+            request = request.with_provider_param("title", serde_json::Value::String(title));
+        }
+        if let Some(dims) = self.output_dimensionality {
+            request.dimensions = Some(dims);
+        }
+        request
+    }
+}
+
+/// Extension trait for EmbeddingRequest to add Gemini-specific configuration
+pub trait GeminiEmbeddingRequestExt {
+    /// Configure this request with Gemini-specific options
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::EmbeddingRequest;
+    /// use siumai::providers::gemini::{GeminiEmbeddingOptions, GeminiEmbeddingRequestExt};
+    /// use siumai::types::EmbeddingTaskType;
+    ///
+    /// let request = EmbeddingRequest::new(vec!["text".to_string()])
+    ///     .with_gemini_config(
+    ///         GeminiEmbeddingOptions::new()
+    ///             .with_task_type(EmbeddingTaskType::RetrievalQuery)
+    ///             .with_title("Search Context")
+    ///     );
+    /// ```
+    fn with_gemini_config(self, config: GeminiEmbeddingOptions) -> Self;
+
+    /// Quick method to set Gemini task type
+    fn with_gemini_task_type(self, task_type: crate::types::EmbeddingTaskType) -> Self;
+
+    /// Quick method to set Gemini title
+    fn with_gemini_title(self, title: impl Into<String>) -> Self;
+
+    /// Quick method to set Gemini output dimensions
+    fn with_gemini_dimensions(self, dimensions: u32) -> Self;
+}
+
+impl GeminiEmbeddingRequestExt for crate::types::EmbeddingRequest {
+    fn with_gemini_config(self, config: GeminiEmbeddingOptions) -> Self {
+        config.apply_to_request(self)
+    }
+
+    fn with_gemini_task_type(self, task_type: crate::types::EmbeddingTaskType) -> Self {
+        self.with_task_type(task_type)
+    }
+
+    fn with_gemini_title(self, title: impl Into<String>) -> Self {
+        self.with_provider_param("title", serde_json::Value::String(title.into()))
+    }
+
+    fn with_gemini_dimensions(self, dimensions: u32) -> Self {
+        let mut request = self;
+        request.dimensions = Some(dimensions);
+        request
+    }
+}

@@ -306,3 +306,162 @@ pub struct OllamaVersionResponse {
     /// Ollama version
     pub version: String,
 }
+
+// ================================================================================================
+// Embedding Types
+// ================================================================================================
+
+/// Ollama-specific embedding configuration options
+///
+/// This struct provides type-safe configuration for Ollama embedding requests,
+/// including truncation control, model keep-alive settings, and custom model options.
+///
+/// # Example
+/// ```rust,no_run
+/// use siumai::providers::ollama::OllamaEmbeddingOptions;
+/// use std::collections::HashMap;
+///
+/// let mut model_options = HashMap::new();
+/// model_options.insert("temperature".to_string(), serde_json::Value::Number(0.1.into()));
+///
+/// let options = OllamaEmbeddingOptions::new()
+///     .with_truncate(true)
+///     .with_keep_alive("5m")
+///     .with_options(model_options);
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct OllamaEmbeddingOptions {
+    /// Whether to truncate input to fit context length
+    pub truncate: Option<bool>,
+    /// How long to keep the model loaded in memory
+    pub keep_alive: Option<String>,
+    /// Additional model-specific options
+    pub options: Option<HashMap<String, serde_json::Value>>,
+}
+
+impl OllamaEmbeddingOptions {
+    /// Create new Ollama embedding options with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set truncation behavior
+    ///
+    /// When true, input text will be truncated to fit the model's context length.
+    /// When false, requests with text longer than context length will fail.
+    pub fn with_truncate(mut self, truncate: bool) -> Self {
+        self.truncate = Some(truncate);
+        self
+    }
+
+    /// Set keep alive duration
+    ///
+    /// Controls how long the model stays loaded in memory after the request.
+    /// Examples: "5m", "10s", "1h", or "0" to unload immediately.
+    pub fn with_keep_alive(mut self, duration: impl Into<String>) -> Self {
+        self.keep_alive = Some(duration.into());
+        self
+    }
+
+    /// Set model options
+    ///
+    /// Additional options to pass to the model. Common options include:
+    /// - `temperature`: Controls randomness (0.0 to 1.0)
+    /// - `top_p`: Controls diversity via nucleus sampling
+    /// - `top_k`: Controls diversity by limiting token choices
+    /// - `repeat_penalty`: Penalizes repetition
+    pub fn with_options(mut self, options: HashMap<String, serde_json::Value>) -> Self {
+        self.options = Some(options);
+        self
+    }
+
+    /// Add a single model option
+    ///
+    /// Convenience method to add individual options without creating a HashMap.
+    pub fn with_option(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        let mut options = self.options.unwrap_or_default();
+        options.insert(key.into(), value);
+        self.options = Some(options);
+        self
+    }
+
+    /// Apply these options to an EmbeddingRequest
+    ///
+    /// This method modifies the provided EmbeddingRequest to include
+    /// Ollama-specific parameters.
+    pub fn apply_to_request(
+        self,
+        mut request: crate::types::EmbeddingRequest,
+    ) -> crate::types::EmbeddingRequest {
+        if let Some(truncate) = self.truncate {
+            request = request.with_provider_param("truncate", serde_json::Value::Bool(truncate));
+        }
+        if let Some(keep_alive) = self.keep_alive {
+            request =
+                request.with_provider_param("keep_alive", serde_json::Value::String(keep_alive));
+        }
+        if let Some(options) = self.options {
+            request = request.with_provider_param(
+                "options",
+                serde_json::Value::Object(options.into_iter().collect()),
+            );
+        }
+        request
+    }
+}
+
+/// Extension trait for EmbeddingRequest to add Ollama-specific configuration
+pub trait OllamaEmbeddingRequestExt {
+    /// Configure this request with Ollama-specific options
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::EmbeddingRequest;
+    /// use siumai::providers::ollama::{OllamaEmbeddingOptions, OllamaEmbeddingRequestExt};
+    ///
+    /// let request = EmbeddingRequest::new(vec!["text".to_string()])
+    ///     .with_ollama_config(
+    ///         OllamaEmbeddingOptions::new()
+    ///             .with_truncate(true)
+    ///             .with_keep_alive("5m")
+    ///     );
+    /// ```
+    fn with_ollama_config(self, config: OllamaEmbeddingOptions) -> Self;
+
+    /// Quick method to set Ollama truncation behavior
+    fn with_ollama_truncate(self, truncate: bool) -> Self;
+
+    /// Quick method to set Ollama keep alive duration
+    fn with_ollama_keep_alive(self, duration: impl Into<String>) -> Self;
+
+    /// Quick method to add a single Ollama model option
+    fn with_ollama_option(self, key: impl Into<String>, value: serde_json::Value) -> Self;
+}
+
+impl OllamaEmbeddingRequestExt for crate::types::EmbeddingRequest {
+    fn with_ollama_config(self, config: OllamaEmbeddingOptions) -> Self {
+        config.apply_to_request(self)
+    }
+
+    fn with_ollama_truncate(self, truncate: bool) -> Self {
+        self.with_provider_param("truncate", serde_json::Value::Bool(truncate))
+    }
+
+    fn with_ollama_keep_alive(self, duration: impl Into<String>) -> Self {
+        self.with_provider_param("keep_alive", serde_json::Value::String(duration.into()))
+    }
+
+    fn with_ollama_option(self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        // Get existing options or create new ones
+        let mut options = self
+            .provider_params
+            .get("options")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+
+        options.insert(key.into(), value);
+
+        self.with_provider_param("options", serde_json::Value::Object(options))
+    }
+}

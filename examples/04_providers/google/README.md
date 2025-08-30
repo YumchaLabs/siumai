@@ -24,6 +24,27 @@ cargo run --example google_basic_usage
 - Cost and performance characteristics
 - Best practices for Gemini usage
 
+### 🔍 [Embedding with Task Types](./embedding_with_task_types.rs)
+**Advanced embedding capabilities with task type optimization**
+
+Features demonstrated:
+- Gemini's 8 different task type optimizations
+- Provider-specific embedding configurations
+- Type-safe configuration methods
+- Batch processing with task types
+- Performance comparison between task types
+
+```bash
+# Run the embedding example
+cargo run --example google_embedding_task_types
+```
+
+**Key Learning Points:**
+- How to optimize embeddings for specific use cases
+- Understanding task type benefits
+- Provider-specific configuration patterns
+- Best practices for embedding quality
+
 ## 🚀 Getting Started
 
 ### Prerequisites
