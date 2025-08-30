@@ -437,7 +437,7 @@ mod builder_tests {
         match result {
             Ok(client) => {
                 println!("    ✅ SiliconFlow client created with default model");
-                assert_eq!(client.model(), "deepseek-chat");
+                assert_eq!(client.model(), "deepseek-ai/DeepSeek-V3.1");
             }
             Err(e) => {
                 println!("    ✅ Failed with expected error: {}", e);
