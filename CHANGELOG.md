@@ -6,6 +6,7 @@
 
 - **SiliconFlow Provider with Rerank Support** - Added comprehensive SiliconFlow provider integration including chat, embeddings, image generation, and document reranking capabilities for improved RAG systems
 - **OpenAI-Compatible Adapter System** - Introduced new adapter architecture for OpenAI-compatible providers with automatic parameter transformation (thinking_budget → reasoning_effort), field mapping (reasoning_content → thinking), and model-specific configurations. Enables seamless integration of providers like SiliconFlow with DeepSeek thinking capabilities while maintaining unified API.
+- **Secure Debug Trait Implementation** - Implemented custom Debug trait for all client types with complete sensitive information hiding (API keys, tokens) using clean `has_*` flags instead of masked values, providing production-safe debugging output.
 
 ### Fixed
 
