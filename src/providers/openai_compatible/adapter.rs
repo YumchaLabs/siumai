@@ -1,20 +1,85 @@
-//! Provider Adapter System
+//! Enhanced Provider Adapter System
 //!
 //! This module defines the core adapter trait for OpenAI-compatible providers.
-//! It's inspired by Cherry Studio's RequestTransformer and ResponseChunkTransformer patterns.
+//! It's inspired by Cherry Studio's RequestTransformer and ResponseChunkTransformer patterns
+//! and fully integrates with our existing traits and HTTP configuration system.
 
 use super::types::{FieldMappings, ModelConfig, RequestType};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
+use crate::types::HttpConfig;
+use std::collections::HashMap;
 
-/// Provider adapter trait
+/// Enhanced Provider Compatibility Configuration
+///
+/// This struct defines compatibility flags for different OpenAI API features,
+/// similar to Cherry Studio's provider configuration system.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ProviderCompatibility {
+    /// Whether the provider supports array content format in messages
+    pub supports_array_content: bool,
+    /// Whether the provider supports stream_options parameter
+    pub supports_stream_options: bool,
+    /// Whether the provider supports developer role in messages
+    pub supports_developer_role: bool,
+    /// Whether the provider supports enable_thinking parameter
+    pub supports_enable_thinking: bool,
+    /// Whether the provider supports service_tier parameter
+    pub supports_service_tier: bool,
+    /// Whether the provider forces streaming for certain models
+    pub force_streaming_models: Vec<String>,
+    /// Custom compatibility flags
+    pub custom_flags: HashMap<String, bool>,
+}
+
+impl ProviderCompatibility {
+    /// Create compatibility config for standard OpenAI API
+    pub fn openai_standard() -> Self {
+        Self {
+            supports_array_content: true,
+            supports_stream_options: true,
+            supports_developer_role: true,
+            supports_enable_thinking: true,
+            supports_service_tier: true,
+            force_streaming_models: vec![],
+            custom_flags: HashMap::new(),
+        }
+    }
+
+    /// Create compatibility config for DeepSeek
+    pub fn deepseek() -> Self {
+        Self {
+            supports_array_content: false, // DeepSeek doesn't support array content
+            supports_stream_options: true,
+            supports_developer_role: true,
+            supports_enable_thinking: false, // Uses reasoning_content instead
+            supports_service_tier: false,
+            force_streaming_models: vec!["deepseek-reasoner".to_string()],
+            custom_flags: HashMap::new(),
+        }
+    }
+
+    /// Create compatibility config for providers with limited support
+    pub fn limited_compatibility() -> Self {
+        Self {
+            supports_array_content: false,
+            supports_stream_options: false,
+            supports_developer_role: false,
+            supports_enable_thinking: false,
+            supports_service_tier: false,
+            force_streaming_models: vec![],
+            custom_flags: HashMap::new(),
+        }
+    }
+}
+
+/// Enhanced Provider adapter trait
 ///
 /// This trait defines the interface for adapting different OpenAI-compatible providers
 /// to handle their specific request/response formats and parameter requirements.
 ///
-/// Inspired by Cherry Studio's transformer patterns:
-/// - RequestTransformer: handles request parameter transformation
-/// - ResponseChunkTransformer: handles response format adaptation
+/// Inspired by Cherry Studio's transformer patterns and fully integrated with our
+/// existing traits system including ProviderCapabilities and HttpConfig.
 pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// Provider identifier
     fn provider_id(&self) -> &'static str;
@@ -80,13 +145,43 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
         reqwest::header::HeaderMap::new()
     }
 
-    /// Get provider capabilities
+    /// Get provider capabilities (integrates with existing traits system)
     ///
-    /// This defines what features this provider supports.
+    /// This defines what features this provider supports, using our existing
+    /// ProviderCapabilities struct from traits.rs.
     ///
     /// # Returns
     /// Capabilities supported by this provider
     fn capabilities(&self) -> ProviderCapabilities;
+
+    /// Get provider compatibility configuration
+    ///
+    /// This defines OpenAI API compatibility flags, similar to Cherry Studio's
+    /// provider configuration system.
+    ///
+    /// # Returns
+    /// Compatibility configuration for this provider
+    fn compatibility(&self) -> ProviderCompatibility {
+        ProviderCompatibility::openai_standard()
+    }
+
+    /// Apply HTTP configuration to the adapter
+    ///
+    /// This allows the adapter to customize HTTP settings based on provider requirements.
+    /// Integrates with our existing HttpConfig system from types/common.rs.
+    ///
+    /// # Arguments
+    /// * `http_config` - The base HTTP configuration to modify
+    ///
+    /// # Returns
+    /// Modified HTTP configuration
+    fn apply_http_config(&self, http_config: HttpConfig) -> HttpConfig {
+        // Default implementation: no modifications
+        // Providers can override to add custom headers, timeouts, etc.
+        http_config
+    }
+
+
 
     /// Validate model compatibility
     ///

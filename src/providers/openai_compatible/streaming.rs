@@ -99,23 +99,32 @@ impl OpenAiCompatibleEventConverter {
     ) -> Vec<ChatStreamEvent> {
         use crate::utils::streaming::EventBuilder;
 
+        // DEBUG: Log the incoming event
+        println!("🔄 convert_event_async called with event ID: {:?}", event.id);
+
         let mut builder = EventBuilder::new();
 
         // Check if we need to emit StreamStart first
         if self.needs_stream_start().await {
             let metadata = self.create_stream_start_metadata(&event);
             builder = builder.add_stream_start(metadata);
+            println!("  ➕ Added StreamStart");
         }
 
         // Process content delta
         if let Some(content) = self.extract_content(&event) {
             builder = builder
-                .add_content_delta(content, Some(self.extract_choice_index(&event) as usize));
+                .add_content_delta(content.clone(), Some(self.extract_choice_index(&event) as usize));
+            println!("  ➕ Added ContentDelta: '{}'", content);
         }
 
         // Process thinking/reasoning content using adapter
+        println!("  🧠 Checking for thinking content...");
         if let Some(thinking) = self.extract_thinking(&event) {
-            builder = builder.add_thinking_delta(thinking);
+            builder = builder.add_thinking_delta(thinking.clone());
+            println!("  ➕ Added ThinkingDelta: '{}'", thinking);
+        } else {
+            println!("  ❌ No thinking content extracted");
         }
 
         // Process tool calls
@@ -178,28 +187,57 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Extract thinking/reasoning content using provider adapter
+    ///
+    /// This follows Cherry Studio's approach of checking multiple reasoning fields
+    /// and prioritizing DeepSeek's reasoning_content field.
     fn extract_thinking(&self, event: &OpenAiCompatibleStreamEvent) -> Option<String> {
         let delta = event.choices.as_ref()?.first()?.delta.as_ref()?;
 
-        // Try multiple thinking fields in priority order
-        if let Some(thinking) = &delta.thinking {
-            if !thinking.is_empty() {
-                return Some(thinking.clone());
-            }
-        }
+        // DEBUG: Log what we're extracting
+        println!("🔍 extract_thinking called:");
+        println!("  reasoning_content: {:?}", delta.reasoning_content);
+        println!("  reasoning: {:?}", delta.reasoning);
+        println!("  thinking: {:?}", delta.thinking);
+
+        // Priority order based on Cherry Studio's implementation:
+        // 1. reasoning_content (DeepSeek reasoning models)
+        // 2. reasoning (alternative reasoning field)
+        // 3. thinking (standard thinking field)
 
         if let Some(reasoning) = &delta.reasoning_content {
             if !reasoning.is_empty() {
+                println!("  ✅ Returning reasoning_content: '{}'", reasoning);
                 return Some(reasoning.clone());
+            } else {
+                println!("  ⚠️  reasoning_content is empty");
             }
+        } else {
+            println!("  ⚠️  reasoning_content is None");
         }
 
         if let Some(reasoning) = &delta.reasoning {
             if !reasoning.is_empty() {
+                println!("  ✅ Returning reasoning: '{}'", reasoning);
                 return Some(reasoning.clone());
+            } else {
+                println!("  ⚠️  reasoning is empty");
             }
+        } else {
+            println!("  ⚠️  reasoning is None");
         }
 
+        if let Some(thinking) = &delta.thinking {
+            if !thinking.is_empty() {
+                println!("  ✅ Returning thinking: '{}'", thinking);
+                return Some(thinking.clone());
+            } else {
+                println!("  ⚠️  thinking is empty");
+            }
+        } else {
+            println!("  ⚠️  thinking is None");
+        }
+
+        println!("  ❌ No thinking content found");
         None
     }
 
@@ -255,14 +293,25 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
+            // DEBUG: Log that we're processing an event
+            println!("🔥 OpenAiCompatibleEventConverter::convert_event called!");
+            println!("   Event data length: {} chars", event.data.len());
+            println!("   Event data preview: {}", &event.data[..event.data.len().min(100)]);
+
             match serde_json::from_str::<OpenAiCompatibleStreamEvent>(&event.data) {
-                Ok(compat_event) => self
-                    .convert_event_async(compat_event)
-                    .await
-                    .into_iter()
-                    .map(Ok)
-                    .collect(),
+                Ok(compat_event) => {
+                    println!("   ✅ Successfully parsed OpenAI-compatible event");
+                    let result: Vec<Result<ChatStreamEvent, LlmError>> = self
+                        .convert_event_async(compat_event)
+                        .await
+                        .into_iter()
+                        .map(Ok)
+                        .collect();
+                    println!("   📤 Returning {} events", result.len());
+                    result
+                }
                 Err(e) => {
+                    println!("   ❌ Failed to parse event: {}", e);
                     vec![Err(LlmError::ParseError(format!(
                         "Failed to parse OpenAI-compatible event: {e}"
                     )))]

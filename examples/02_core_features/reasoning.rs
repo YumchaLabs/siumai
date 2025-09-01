@@ -41,6 +41,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n{}\n", "=".repeat(80));
 
+    // Demo 2.5: Enhanced DeepSeek streaming with better event handling
+    println!("📋 Demo 2.5: Enhanced DeepSeek Streaming (Complete Event Handling)");
+    demo_enhanced_deepseek_streaming().await?;
+
+    println!("\n{}\n", "=".repeat(80));
+
     // Demo 3: Gemini thinking (non-streaming)
     // println!("📋 Demo 3: Gemini Thinking (Non-streaming)");
     // demo_gemini_non_streaming().await?;
@@ -184,6 +190,7 @@ async fn demo_deepseek_streaming() -> Result<(), Box<dyn std::error::Error>> {
             let mut thinking_content = String::new();
             let mut response_content = String::new();
             let mut in_thinking_phase = false;
+            let mut in_content_phase = false;
             let mut thinking_lines = 0;
 
             while let Some(event) = stream.next().await {
@@ -193,37 +200,60 @@ async fn demo_deepseek_streaming() -> Result<(), Box<dyn std::error::Error>> {
                             println!("   🧠 Reasoning Process (streaming):");
                             println!("   {}", "─".repeat(60));
                             in_thinking_phase = true;
+                            in_content_phase = false;
                         }
                         thinking_content.push_str(&delta);
 
-                        // Display reasoning in real-time with line numbers
+                        // Display reasoning in real-time with better formatting
                         for line in delta.lines() {
                             if !line.trim().is_empty() {
                                 thinking_lines += 1;
-                                println!("   {}: {}", thinking_lines, line.trim());
+                                println!("   {:2}: {}", thinking_lines, line.trim());
                             }
+                        }
+
+                        // Also display partial lines (for real-time effect)
+                        if !delta.ends_with('\n') && !delta.trim().is_empty() {
+                            print!("   >> {}", delta.trim());
                         }
                         io::stdout().flush().unwrap();
                     }
                     Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
-                        if in_thinking_phase {
-                            println!("\n   💬 Final Answer (streaming):");
+                        if !in_content_phase {
+                            if in_thinking_phase {
+                                println!("\n");
+                            }
+                            println!("   💬 Final Answer (streaming):");
                             println!("   {}", "─".repeat(60));
+                            print!("   ");
+                            in_content_phase = true;
                             in_thinking_phase = false;
                         }
                         response_content.push_str(&delta);
                         print!("{}", delta);
                         io::stdout().flush().unwrap();
                     }
+                    Ok(ChatStreamEvent::StreamStart { .. }) => {
+                        println!("   🚀 Stream started...");
+                    }
                     Ok(ChatStreamEvent::StreamEnd { .. }) => {
-                        println!("\n   ✅ DeepSeek streaming reasoning completed");
+                        if in_content_phase {
+                            println!();
+                        }
+                        println!("   ✅ DeepSeek streaming reasoning completed");
+                        break;
+                    }
+                    Ok(ChatStreamEvent::Error { error }) => {
+                        println!("\n   ❌ Stream error: {}", error);
                         break;
                     }
                     Err(e) => {
-                        println!("\n   ❌ Stream error: {}", e);
+                        println!("\n   ❌ Stream processing error: {}", e);
                         break;
                     }
-                    _ => {}
+                    _ => {
+                        // Handle other event types if needed
+                    }
                 }
             }
 
@@ -368,6 +398,7 @@ async fn demo_gemini_streaming() -> Result<(), Box<dyn std::error::Error>> {
             let mut thinking_content = String::new();
             let mut response_content = String::new();
             let mut in_thinking_phase = false;
+            let mut in_content_phase = false;
             let mut thinking_sections = 0;
 
             while let Some(event) = stream.next().await {
@@ -377,13 +408,15 @@ async fn demo_gemini_streaming() -> Result<(), Box<dyn std::error::Error>> {
                             println!("   🧠 Thinking Process (streaming):");
                             println!("   {}", "─".repeat(60));
                             in_thinking_phase = true;
+                            in_content_phase = false;
                         }
                         thinking_content.push_str(&delta);
 
                         // Display thinking in real-time with section markers
                         for line in delta.lines() {
                             if !line.trim().is_empty() {
-                                if line.contains("Framework") || line.contains("Consideration") {
+                                if line.contains("Framework") || line.contains("Consideration") ||
+                                   line.contains("Approach") || line.contains("Analysis") {
                                     thinking_sections += 1;
                                     println!(
                                         "   🔍 Section {}: {}",
@@ -395,27 +428,49 @@ async fn demo_gemini_streaming() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
+
+                        // Display partial content for real-time effect
+                        if !delta.ends_with('\n') && !delta.trim().is_empty() {
+                            print!("      >> {}", delta.trim());
+                        }
                         io::stdout().flush().unwrap();
                     }
                     Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
-                        if in_thinking_phase {
-                            println!("\n   💬 Ethical Analysis (streaming):");
+                        if !in_content_phase {
+                            if in_thinking_phase {
+                                println!("\n");
+                            }
+                            println!("   💬 Ethical Analysis (streaming):");
                             println!("   {}", "─".repeat(60));
+                            print!("   ");
+                            in_content_phase = true;
                             in_thinking_phase = false;
                         }
                         response_content.push_str(&delta);
                         print!("{}", delta);
                         io::stdout().flush().unwrap();
                     }
+                    Ok(ChatStreamEvent::StreamStart { .. }) => {
+                        println!("   🚀 Stream started...");
+                    }
                     Ok(ChatStreamEvent::StreamEnd { .. }) => {
-                        println!("\n   ✅ Gemini streaming thinking completed");
+                        if in_content_phase {
+                            println!();
+                        }
+                        println!("   ✅ Gemini streaming thinking completed");
+                        break;
+                    }
+                    Ok(ChatStreamEvent::Error { error }) => {
+                        println!("\n   ❌ Stream error: {}", error);
                         break;
                     }
                     Err(e) => {
-                        println!("\n   ❌ Stream error: {}", e);
+                        println!("\n   ❌ Stream processing error: {}", e);
                         break;
                     }
-                    _ => {}
+                    _ => {
+                        // Handle other event types if needed
+                    }
                 }
             }
 
@@ -577,6 +632,171 @@ async fn demo_cross_provider_comparison() -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+/// Enhanced DeepSeek streaming with complete event handling
+async fn demo_enhanced_deepseek_streaming() -> Result<(), Box<dyn std::error::Error>> {
+    println!("   🤖 Enhanced DeepSeek Streaming with Complete Event Handling");
+
+    let api_key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_else(|_| {
+        println!("   ⚠️  DEEPSEEK_API_KEY not set, using demo key");
+        "demo-key".to_string()
+    });
+
+    // Use enhanced DeepSeek configuration
+    let client = Siumai::builder()
+        .deepseek()  // Use standard DeepSeek adapter
+        .api_key(&api_key)
+        .model("deepseek-reasoner")
+        .temperature(0.6)
+        .max_tokens(4096)
+        .build()
+        .await?;
+
+    let messages = vec![
+        user!("I need to plan a birthday party for 50 people with a budget of $1000. \
+               Think through all the key considerations: venue, food, entertainment, \
+               decorations, and logistics. Provide a detailed breakdown with reasoning \
+               for each decision.")
+    ];
+
+    println!("   📝 Problem: Complex party planning with budget constraints");
+    println!("   🔄 Enhanced streaming with complete event handling...\n");
+
+    match client.chat_stream(messages, None).await {
+        Ok(mut stream) => {
+            let mut thinking_content = String::new();
+            let mut response_content = String::new();
+            let mut thinking_phase_active = false;
+            let mut content_phase_active = false;
+            let mut thinking_steps = 0;
+            let mut content_words = 0;
+            let mut stream_started = false;
+
+            println!("   🎬 Stream Events Log:");
+            println!("   {}", "═".repeat(60));
+
+            while let Some(event) = stream.next().await {
+                match event {
+                    Ok(ChatStreamEvent::StreamStart { .. }) => {
+                        stream_started = true;
+                        println!("   🚀 [EVENT] Stream started");
+                        println!("   ⏱️  Waiting for DeepSeek to begin reasoning...\n");
+                    }
+
+                    Ok(ChatStreamEvent::ThinkingDelta { delta }) => {
+                        if !thinking_phase_active {
+                            println!("   🧠 [PHASE] Reasoning Phase Started");
+                            println!("   {}", "─".repeat(50));
+                            thinking_phase_active = true;
+                            content_phase_active = false;
+                        }
+
+                        thinking_content.push_str(&delta);
+
+                        // Process and display reasoning content with step detection
+                        for line in delta.lines() {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                // Detect reasoning steps
+                                if trimmed.starts_with("Step") ||
+                                   trimmed.starts_with("1.") || trimmed.starts_with("2.") ||
+                                   trimmed.starts_with("3.") || trimmed.starts_with("4.") ||
+                                   trimmed.starts_with("5.") || trimmed.contains("Consider") ||
+                                   trimmed.contains("Analysis") {
+                                    thinking_steps += 1;
+                                    println!("   🔍 Step {}: {}", thinking_steps, trimmed);
+                                } else if trimmed.starts_with("-") || trimmed.starts_with("•") {
+                                    println!("     • {}", trimmed.trim_start_matches('-').trim_start_matches('•').trim());
+                                } else {
+                                    println!("     {}", trimmed);
+                                }
+                            }
+                        }
+
+                        // Handle partial content (real-time streaming effect)
+                        if !delta.ends_with('\n') && !delta.trim().is_empty() {
+                            print!("     >> {}", delta.trim());
+                            io::stdout().flush().unwrap();
+                        }
+                    }
+
+                    Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
+                        if !content_phase_active {
+                            if thinking_phase_active {
+                                println!("\n   ✅ [PHASE] Reasoning Complete");
+                                println!("   📝 [PHASE] Final Answer Started");
+                                println!("   {}", "─".repeat(50));
+                            }
+                            content_phase_active = true;
+                            thinking_phase_active = false;
+                            print!("   💬 ");
+                        }
+
+                        response_content.push_str(&delta);
+                        content_words += delta.split_whitespace().count();
+                        print!("{}", delta);
+                        io::stdout().flush().unwrap();
+                    }
+
+                    Ok(ChatStreamEvent::StreamEnd { .. }) => {
+                        if content_phase_active {
+                            println!();
+                        }
+                        println!("\n   🏁 [EVENT] Stream ended successfully");
+                        break;
+                    }
+
+                    Ok(ChatStreamEvent::Error { error }) => {
+                        println!("\n   ❌ [ERROR] Stream error: {}", error);
+                        break;
+                    }
+
+                    Ok(ChatStreamEvent::ToolCallDelta { .. }) => {
+                        println!("   🔧 [EVENT] Tool call delta received");
+                    }
+
+                    Err(e) => {
+                        println!("\n   ❌ [ERROR] Stream processing error: {}", e);
+                        break;
+                    }
+
+                    _ => {
+                        // Handle any other event types
+                        println!("   ℹ️  [EVENT] Other event received");
+                    }
+                }
+            }
+
+            // Comprehensive summary
+            println!("\n   📊 Enhanced Streaming Summary:");
+            println!("   {}", "═".repeat(50));
+            println!("   🚀 Stream started: {}", if stream_started { "✅" } else { "❌" });
+            println!("   🧠 Reasoning phase: {}", if !thinking_content.is_empty() { "✅" } else { "❌" });
+            println!("   📝 Content phase: {}", if !response_content.is_empty() { "✅" } else { "❌" });
+
+            if !thinking_content.is_empty() {
+                println!("   📏 Reasoning length: {} characters", thinking_content.len());
+                println!("   🔢 Reasoning steps detected: {}", thinking_steps);
+                println!("   📄 Reasoning lines: {}", thinking_content.lines().count());
+            }
+
+            if !response_content.is_empty() {
+                println!("   📏 Answer length: {} characters", response_content.len());
+                println!("   🔤 Answer words: {}", content_words);
+                println!("   📄 Answer lines: {}", response_content.lines().count());
+            }
+
+            println!("   ⚡ Total processing: Real-time streaming with complete event handling");
+            println!("   ✨ Enhanced features: Step detection, phase tracking, error handling");
+        }
+        Err(e) => {
+            println!("   ❌ Enhanced DeepSeek streaming failed: {}", e);
+            println!("   💡 Tip: Make sure DEEPSEEK_API_KEY is set and valid");
+        }
+    }
+
+    Ok(())
+}
+
 /*
 🧠 Unified Reasoning Interface - Key Features:
 
@@ -591,9 +811,15 @@ Provider-Specific Behavior:
 - Anthropic: Structured thinking with clear reasoning chains
 
 Streaming Support:
-- `ChatStreamEvent::ThinkingDelta` - Real-time thinking/reasoning content
-- `ChatStreamEvent::ContentDelta` - Final response content
-- Proper event handling for both thinking and response phases
+- `ChatStreamEvent::StreamStart` - Stream initialization event
+- `ChatStreamEvent::ThinkingDelta { delta }` - Real-time thinking/reasoning content
+- `ChatStreamEvent::ContentDelta { delta, .. }` - Final response content
+- `ChatStreamEvent::StreamEnd` - Stream completion event
+- `ChatStreamEvent::Error { error }` - Stream error handling
+- `ChatStreamEvent::ToolCallDelta` - Tool usage events
+- `ChatStreamEvent::UsageUpdate` - Token usage updates
+- Proper phase detection and transition handling
+- Real-time step detection and formatting
 
 Response Access:
 - `response.thinking` - Access the complete thinking/reasoning content
@@ -603,9 +829,12 @@ Response Access:
 Best Practices:
 1. Set appropriate reasoning budgets (1024-8192 tokens)
 2. Use lower temperatures (0.4-0.7) for logical reasoning
-3. Handle both thinking and content phases in streaming
-4. Provide clear, specific problems for better reasoning
-5. Compare providers to find best fit for your use case
+3. Handle all stream events properly (Start, ThinkingDelta, ContentDelta, End, Error)
+4. Implement phase detection for better UX (thinking → content transition)
+5. Use real-time display with proper formatting and step detection
+6. Provide clear, specific problems for better reasoning
+7. Include comprehensive error handling for robust streaming
+8. Compare providers to find best fit for your use case
 
 Use Cases:
 - Mathematical problem solving with step-by-step work

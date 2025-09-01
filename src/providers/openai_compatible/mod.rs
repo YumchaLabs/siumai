@@ -44,7 +44,9 @@ pub mod providers;
 // New adapter system modules
 pub mod adapter;
 pub mod builder;
+pub mod config_adapter;
 pub mod default_models;
+pub mod enhanced_builder;
 pub mod openai_client;
 pub mod openai_config;
 pub mod streaming;
@@ -54,8 +56,10 @@ pub mod types;
 pub use providers::models::{deepseek, groq, openrouter, siliconflow, xai};
 
 // Re-export new adapter system
-pub use adapter::ProviderAdapter;
+pub use adapter::{ProviderAdapter, ProviderCompatibility};
 pub use builder::OpenAiCompatibleBuilder;
+pub use config_adapter::{ConfigurableAdapter, EnhancedFieldMappings, ParameterTransformRules};
+pub use enhanced_builder::EnhancedOpenAiCompatibleBuilder;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use types::{FieldMappings, ModelConfig, RequestType};

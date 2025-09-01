@@ -112,7 +112,7 @@ impl DeepSeekAdapter {
         if Self::supports_reasoning(model) {
             ModelConfig {
                 supports_thinking: true,
-                max_tokens: Some(8192),
+                // Don't set max_tokens - let DeepSeek use its defaults for reasoning models
                 ..Default::default()
             }
         } else {
@@ -128,27 +128,65 @@ impl ProviderAdapter for DeepSeekAdapter {
 
     fn transform_request_params(
         &self,
-        _params: &mut Value,
+        params: &mut Value,
         model: &str,
         _request_type: RequestType,
     ) -> Result<(), LlmError> {
-        // DeepSeek API is fully OpenAI-compatible, no parameter transformation needed
-        // The reasoning_content field is handled automatically in responses
+        // DeepSeek API is fully OpenAI-compatible, but reasoning models have special requirements
 
-        // For reasoning models, we can optionally add reasoning-related parameters
-        // but DeepSeek handles this automatically based on the model
         if Self::supports_reasoning(model) {
-            // DeepSeek reasoning models handle thinking automatically
-            // No special parameters needed in the request
+            // For reasoning models (deepseek-reasoner):
+            // 1. Clean up messages to remove reasoning_content from context
+            if let Some(messages) = params.get_mut("messages") {
+                if let Some(messages_array) = messages.as_array_mut() {
+                    for message in messages_array.iter_mut() {
+                        if let Some(message_obj) = message.as_object_mut() {
+                            // Remove reasoning_content from assistant messages in context
+                            // as per DeepSeek documentation: "reasoning_content should not be included in next round"
+                            if message_obj.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+                                message_obj.remove("reasoning_content");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Remove parameters that might interfere with reasoning content
+            // Based on testing, DeepSeek reasoning models are sensitive to extra parameters
+            let potentially_interfering_params = [
+                "temperature", "top_p", "presence_penalty", "frequency_penalty",
+                "logprobs", "top_logprobs", "max_tokens"
+            ];
+
+            for param in &potentially_interfering_params {
+                if params.get(param).is_some() {
+                    params.as_object_mut().unwrap().remove(*param);
+                }
+            }
+
+            // 3. Don't set any default parameters for reasoning models
+            // Let DeepSeek use its own defaults to ensure reasoning_content works
+
+            // 4. DeepSeek reasoning models support reasoning_content in streaming mode
+            // No special handling needed - the streaming implementation will handle reasoning_content correctly
         }
 
         Ok(())
     }
 
-    fn get_field_mappings(&self, _model: &str) -> FieldMappings {
+    fn get_field_mappings(&self, model: &str) -> FieldMappings {
         // DeepSeek uses standard OpenAI field names
-        // The reasoning_content field is additional, not a replacement
-        FieldMappings::default()
+        // For reasoning models, reasoning_content is an additional field alongside content
+        if Self::supports_reasoning(model) {
+            FieldMappings {
+                thinking_fields: vec!["reasoning_content", "thinking"],
+                content_field: "content",
+                tool_calls_field: "tool_calls",
+                role_field: "role",
+            }
+        } else {
+            FieldMappings::default()
+        }
     }
 
     fn get_model_config(&self, model: &str) -> ModelConfig {
