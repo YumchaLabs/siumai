@@ -5,6 +5,7 @@
 use super::adapter::ProviderAdapter;
 use crate::error::LlmError;
 use crate::types::{CommonParams, HttpConfig};
+use std::sync::Arc;
 
 /// Configuration for OpenAI-compatible providers
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ pub struct OpenAiCompatibleConfig {
     /// Custom headers for requests
     pub custom_headers: reqwest::header::HeaderMap,
     /// Provider adapter for handling specifics
-    pub adapter: Box<dyn ProviderAdapter>,
+    pub adapter: Arc<dyn ProviderAdapter>,
 }
 
 impl OpenAiCompatibleConfig {
@@ -33,7 +34,7 @@ impl OpenAiCompatibleConfig {
         provider_id: &str,
         api_key: &str,
         base_url: &str,
-        adapter: Box<dyn ProviderAdapter>,
+        adapter: Arc<dyn ProviderAdapter>,
     ) -> Self {
         Self {
             provider_id: provider_id.to_string(),
@@ -118,7 +119,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         );
 
         assert_eq!(config.provider_id, "test");
@@ -132,7 +133,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         )
         .with_model("test-model");
 
@@ -146,7 +147,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_ok());
 
@@ -155,7 +156,7 @@ mod tests {
             "",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_err());
 
@@ -164,7 +165,7 @@ mod tests {
             "test",
             "",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_err());
 
@@ -173,7 +174,7 @@ mod tests {
             "test",
             "test-key",
             "invalid-url",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         );
         assert!(config.validate().is_err());
     }
@@ -184,7 +185,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         )
         .with_header("X-Custom", "test-value")
         .unwrap();

@@ -461,7 +461,7 @@ impl SiliconFlowBuilder {
             adapter.provider_id(),
             &self.api_key,
             &base_url,
-            Box::new(adapter),
+            std::sync::Arc::new(adapter),
         );
 
         let config = if let Some(model) = self.model {

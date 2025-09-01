@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use crate::LlmBuilder;
 use crate::error::LlmError;
 use crate::types::HttpConfig;
 
@@ -241,6 +242,137 @@ impl Default for GroqBuilder {
     }
 }
 
+/// Wrapper for Groq builder that supports HTTP client inheritance
+#[cfg(feature = "groq")]
+pub struct GroqBuilderWrapper {
+    pub(crate) base: LlmBuilder,
+    groq_builder: crate::providers::groq::GroqBuilder,
+}
+
+#[cfg(feature = "groq")]
+impl GroqBuilderWrapper {
+    pub fn new(base: LlmBuilder) -> Self {
+        Self {
+            base,
+            groq_builder: crate::providers::groq::GroqBuilder::new(),
+        }
+    }
+
+    /// Set the API key
+    pub fn api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+        self.groq_builder = self.groq_builder.api_key(api_key);
+        self
+    }
+
+    /// Set the base URL
+    pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.groq_builder = self.groq_builder.base_url(base_url);
+        self
+    }
+
+    /// Set the model
+    pub fn model<S: Into<String>>(mut self, model: S) -> Self {
+        self.groq_builder = self.groq_builder.model(model);
+        self
+    }
+
+    /// Set the temperature
+    pub fn temperature(mut self, temperature: f32) -> Self {
+        self.groq_builder = self.groq_builder.temperature(temperature);
+        self
+    }
+
+    /// Set the maximum number of tokens
+    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
+        self.groq_builder = self.groq_builder.max_tokens(max_tokens);
+        self
+    }
+
+    /// Set the top-p value
+    pub fn top_p(mut self, top_p: f32) -> Self {
+        self.groq_builder = self.groq_builder.top_p(top_p);
+        self
+    }
+
+    /// Set the stop sequences
+    pub fn stop_sequences(mut self, sequences: Vec<String>) -> Self {
+        self.groq_builder = self.groq_builder.stop_sequences(sequences);
+        self
+    }
+
+    /// Set the random seed
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.groq_builder = self.groq_builder.seed(seed);
+        self
+    }
+
+    /// Add a built-in tool
+    pub fn tool(mut self, tool: crate::types::Tool) -> Self {
+        self.groq_builder = self.groq_builder.tool(tool);
+        self
+    }
+
+    /// Add multiple built-in tools
+    pub fn tools(mut self, tools: Vec<crate::types::Tool>) -> Self {
+        self.groq_builder = self.groq_builder.tools(tools);
+        self
+    }
+
+    /// Enable tracing
+    pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
+        self.groq_builder = self.groq_builder.tracing(config);
+        self
+    }
+
+    /// Enable debug tracing
+    pub fn debug_tracing(mut self) -> Self {
+        self.groq_builder = self.groq_builder.debug_tracing();
+        self
+    }
+
+    /// Enable minimal tracing
+    pub fn minimal_tracing(mut self) -> Self {
+        self.groq_builder = self.groq_builder.minimal_tracing();
+        self
+    }
+
+    /// Enable JSON tracing
+    pub fn json_tracing(mut self) -> Self {
+        self.groq_builder = self.groq_builder.json_tracing();
+        self
+    }
+
+    /// Build the Groq client
+    pub async fn build(self) -> Result<crate::providers::groq::GroqClient, LlmError> {
+        // Apply all HTTP configuration from base LlmBuilder to Groq builder
+        let mut groq_builder = self.groq_builder;
+
+        // Apply timeout settings
+        if let Some(timeout) = self.base.timeout {
+            groq_builder = groq_builder.timeout(timeout);
+        }
+        if let Some(connect_timeout) = self.base.connect_timeout {
+            groq_builder = groq_builder.connect_timeout(connect_timeout);
+        }
+
+        // Apply proxy settings
+        if let Some(proxy) = &self.base.proxy {
+            groq_builder = groq_builder.proxy(proxy);
+        }
+
+        // Apply user agent
+        if let Some(user_agent) = &self.base.user_agent {
+            groq_builder = groq_builder.user_agent(user_agent);
+        }
+
+        // Apply default headers
+        for (key, value) in &self.base.default_headers {
+            groq_builder = groq_builder.header(key, value);
+        }
+
+        groq_builder.build().await
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

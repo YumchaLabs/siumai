@@ -137,7 +137,7 @@ cargo test --test mock/mock_streaming_provider
 Some tests require environment variables:
 - `OPENAI_API_KEY` - For OpenAI integration tests
 - `ANTHROPIC_API_KEY` - For Anthropic integration tests
-- `GOOGLE_API_KEY` - For Google/Gemini integration tests
+- `GEMINI_API_KEY` - For Google/Gemini integration tests
 
 ## Mock Testing
 

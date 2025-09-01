@@ -45,11 +45,13 @@ pub mod streaming;
 pub mod types;
 
 // Feature modules
+pub mod builder;
 pub mod code_execution;
 
 // Re-export main types for convenience
+pub use builder::GeminiBuilder;
 pub use chat::GeminiChatCapability;
-pub use client::{GeminiBuilder, GeminiClient};
+pub use client::GeminiClient;
 pub use embeddings::GeminiEmbeddings;
 pub use files::GeminiFiles;
 pub use models::GeminiModels;

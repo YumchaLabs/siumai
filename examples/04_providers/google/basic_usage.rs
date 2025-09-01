@@ -9,7 +9,7 @@
 //!
 //! Before running, set your API key:
 //! ```bash
-//! export GOOGLE_API_KEY="your-google-api-key"
+//! export GEMINI_API_KEY="your-google-api-key"
 //! ```
 //!
 //! Usage:
@@ -25,8 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 Google Gemini Basic Usage Demo\n");
 
     // Get API key
-    let api_key = std::env::var("GOOGLE_API_KEY").unwrap_or_else(|_| {
-        println!("⚠️  GOOGLE_API_KEY not set, using demo key");
+    let api_key = std::env::var("GEMINI_API_KEY").unwrap_or_else(|_| {
+        println!("⚠️  GEMINI_API_KEY not set, using demo key");
         "demo-key".to_string()
     });
 

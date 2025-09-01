@@ -54,7 +54,7 @@ cargo run --example google_embedding_task_types
    - Create an API key
    - Set the environment variable:
    ```bash
-   export GOOGLE_API_KEY="your-google-api-key"
+   export GEMINI_API_KEY="your-google-api-key"
    ```
 
 2. **Install dependencies:**
@@ -71,7 +71,7 @@ use siumai::prelude::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ai = LlmBuilder::new()
         .google()
-        .api_key(&std::env::var("GOOGLE_API_KEY")?)
+        .api_key(&std::env::var("GEMINI_API_KEY")?)
         .model("gemini-1.5-flash")
         .temperature(0.7)
         .build()

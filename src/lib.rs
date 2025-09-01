@@ -135,15 +135,15 @@ pub use types::{
 };
 
 // Builders
-#[cfg(feature = "anthropic")]
-pub use builder::AnthropicBuilder;
-#[cfg(feature = "google")]
-pub use builder::GeminiBuilder;
 pub use builder::LlmBuilder;
+#[cfg(feature = "anthropic")]
+pub use providers::anthropic::AnthropicBuilder;
+#[cfg(feature = "google")]
+pub use providers::gemini::GeminiBuilder;
 #[cfg(feature = "ollama")]
-pub use builder::OllamaBuilder;
+pub use providers::ollama::OllamaBuilder;
 #[cfg(feature = "openai")]
-pub use builder::OpenAiBuilder;
+pub use providers::openai::OpenAiBuilder;
 
 // Streaming
 pub use stream::{ChatStream, ChatStreamEvent};
@@ -242,25 +242,25 @@ pub struct Provider;
 impl Provider {
     /// Create an `OpenAI` client builder
     #[cfg(feature = "openai")]
-    pub fn openai() -> crate::builder::OpenAiBuilder {
+    pub fn openai() -> providers::openai::OpenAiBuilder {
         crate::builder::LlmBuilder::new().openai()
     }
 
     /// Create an Anthropic client builder
     #[cfg(feature = "anthropic")]
-    pub fn anthropic() -> crate::builder::AnthropicBuilder {
+    pub fn anthropic() -> providers::anthropic::AnthropicBuilder {
         crate::builder::LlmBuilder::new().anthropic()
     }
 
     /// Create a Gemini client builder
     #[cfg(feature = "google")]
-    pub fn gemini() -> crate::builder::GeminiBuilder {
+    pub fn gemini() -> providers::gemini::GeminiBuilder {
         crate::builder::LlmBuilder::new().gemini()
     }
 
     /// Create an Ollama client builder
     #[cfg(feature = "ollama")]
-    pub fn ollama() -> crate::builder::OllamaBuilder {
+    pub fn ollama() -> providers::ollama::OllamaBuilder {
         crate::builder::LlmBuilder::new().ollama()
     }
 
@@ -278,19 +278,19 @@ impl Provider {
 
     /// Create an `OpenRouter` client builder (OpenAI-compatible with adapter)
     #[cfg(feature = "openai")]
-    pub fn openrouter() -> crate::builder::OpenAiCompatibleBuilder {
+    pub fn openrouter() -> providers::openai_compatible::OpenAiCompatibleBuilder {
         crate::builder::LlmBuilder::new().openrouter()
     }
 
     /// Create a `DeepSeek` client builder (OpenAI-compatible with adapter)
     #[cfg(feature = "openai")]
-    pub fn deepseek() -> crate::builder::OpenAiCompatibleBuilder {
+    pub fn deepseek() -> providers::openai_compatible::OpenAiCompatibleBuilder {
         crate::builder::LlmBuilder::new().deepseek()
     }
 
     /// Create a SiliconFlow client builder (OpenAI-compatible with adapter)
     #[cfg(feature = "openai")]
-    pub fn siliconflow() -> crate::builder::OpenAiCompatibleBuilder {
+    pub fn siliconflow() -> providers::openai_compatible::OpenAiCompatibleBuilder {
         crate::builder::LlmBuilder::new().siliconflow()
     }
 }

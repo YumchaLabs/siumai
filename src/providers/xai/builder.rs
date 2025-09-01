@@ -2,6 +2,7 @@
 //!
 //! Provides a builder pattern for creating `xAI` clients.
 
+use crate::LlmBuilder;
 use crate::error::LlmError;
 use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
 
@@ -202,6 +203,104 @@ impl XaiBuilder {
         client.set_tracing_config(self.tracing_config);
 
         Ok(client)
+    }
+}
+
+/// Wrapper for xAI builder that supports HTTP client inheritance
+#[cfg(feature = "xai")]
+pub struct XaiBuilderWrapper {
+    pub(crate) base: LlmBuilder,
+    xai_builder: crate::providers::xai::XaiBuilder,
+}
+
+#[cfg(feature = "xai")]
+impl XaiBuilderWrapper {
+    pub fn new(base: LlmBuilder) -> Self {
+        Self {
+            base,
+            xai_builder: crate::providers::xai::XaiBuilder::new(),
+        }
+    }
+
+    /// Set the API key
+    pub fn api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+        self.xai_builder = self.xai_builder.api_key(api_key);
+        self
+    }
+
+    /// Set the base URL
+    pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.xai_builder = self.xai_builder.base_url(base_url);
+        self
+    }
+
+    /// Set the model
+    pub fn model<S: Into<String>>(mut self, model: S) -> Self {
+        self.xai_builder = self.xai_builder.model(model);
+        self
+    }
+
+    /// Set the temperature
+    pub fn temperature(mut self, temperature: f32) -> Self {
+        self.xai_builder = self.xai_builder.temperature(temperature);
+        self
+    }
+
+    /// Set the maximum number of tokens
+    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
+        self.xai_builder = self.xai_builder.max_tokens(max_tokens);
+        self
+    }
+
+    /// Set the top-p value
+    pub fn top_p(mut self, top_p: f32) -> Self {
+        self.xai_builder = self.xai_builder.top_p(top_p);
+        self
+    }
+
+    /// Set the stop sequences
+    pub fn stop_sequences(mut self, sequences: Vec<String>) -> Self {
+        self.xai_builder = self.xai_builder.stop_sequences(sequences);
+        self
+    }
+
+    /// Set the random seed
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.xai_builder = self.xai_builder.seed(seed);
+        self
+    }
+
+    /// Enable tracing
+    pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
+        self.xai_builder = self.xai_builder.tracing(config);
+        self
+    }
+
+    /// Enable debug tracing
+    pub fn debug_tracing(mut self) -> Self {
+        self.xai_builder = self.xai_builder.debug_tracing();
+        self
+    }
+
+    /// Enable minimal tracing
+    pub fn minimal_tracing(mut self) -> Self {
+        self.xai_builder = self.xai_builder.minimal_tracing();
+        self
+    }
+
+    /// Enable JSON tracing
+    pub fn json_tracing(mut self) -> Self {
+        self.xai_builder = self.xai_builder.json_tracing();
+        self
+    }
+
+    /// Build the xAI client
+    pub async fn build(self) -> Result<crate::providers::xai::XaiClient, LlmError> {
+        // Build HTTP client from base configuration
+        let http_client = self.base.build_http_client()?;
+
+        // Use the build_with_client method to pass the custom HTTP client
+        self.xai_builder.build_with_client(http_client).await
     }
 }
 

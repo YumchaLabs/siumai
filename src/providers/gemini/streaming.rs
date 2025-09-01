@@ -144,10 +144,28 @@ impl GeminiEventConverter {
     }
 
     /// Extract thinking content from Gemini response
-    fn extract_thinking(&self, _response: &GeminiStreamResponse) -> Option<String> {
-        // Gemini may have thinking in different fields - implement based on actual API
-        // For now, return None as Gemini thinking support is still evolving
-        None
+    fn extract_thinking(&self, response: &GeminiStreamResponse) -> Option<String> {
+        // Extract thinking content from parts marked with thought: true
+        response
+            .candidates
+            .as_ref()?
+            .first()?
+            .content
+            .as_ref()?
+            .parts
+            .as_ref()?
+            .iter()
+            .find_map(|part| {
+                if let Some(text) = &part.text {
+                    if part.thought.unwrap_or(false) {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
     }
 
     /// Extract completion information

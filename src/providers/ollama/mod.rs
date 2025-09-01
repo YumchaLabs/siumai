@@ -47,6 +47,7 @@ pub mod types;
 pub mod utils;
 
 // Capability modules
+pub mod builder;
 pub mod chat;
 pub mod completion;
 pub mod embeddings;
@@ -54,6 +55,7 @@ pub mod models;
 pub mod streaming;
 
 // Re-export main types
+pub use builder::OllamaBuilder;
 pub use client::OllamaClient;
 pub use config::{OllamaConfig, OllamaConfigBuilder};
 pub use types::*;

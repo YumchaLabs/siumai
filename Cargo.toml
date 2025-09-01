@@ -27,17 +27,13 @@ validator = { version = "0.20", features = ["derive"] }
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
-reqwest-eventsource = "0.6"
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"
-async-stream = "0.3"
 
 # Streaming
 futures-util = "0.3"
-pin-project-lite = "0.2"
-bytes = "1.0"
 eventsource-stream = "0.2"
 
 # Time handling
@@ -143,14 +139,6 @@ name = "embedding"
 path = "examples/02_core_features/embedding.rs"
 
 [[example]]
-name = "thinking_models"
-path = "examples/03_advanced_features/thinking_models.rs"
-
-[[example]]
-name = "thinking_content_processing"
-path = "examples/03_advanced_features/thinking_content_processing.rs"
-
-[[example]]
 name = "batch_processing"
 path = "examples/03_advanced_features/batch_processing.rs"
 
@@ -191,16 +179,16 @@ name = "anthropic_basic_chat"
 path = "examples/04_providers/anthropic/basic_chat.rs"
 
 [[example]]
-name = "anthropic_thinking_showcase"
-path = "examples/04_providers/anthropic/thinking_showcase.rs"
-
-[[example]]
 name = "google_basic_usage"
 path = "examples/04_providers/google/basic_usage.rs"
 
 [[example]]
 name = "google_embedding_task_types"
 path = "examples/04_providers/google/embedding_with_task_types.rs"
+
+[[example]]
+name = "gemini_thinking_showcase"
+path = "examples/04_providers/google/thinking_showcase.rs"
 
 [[example]]
 name = "ollama_basic_setup"
@@ -239,8 +227,8 @@ name = "content_generator"
 path = "examples/05_use_cases/content_generator.rs"
 
 [[example]]
-name = "response_cache"
-path = "examples/02_core_features/response_cache.rs"
+name = "reasoning"
+path = "examples/02_core_features/reasoning.rs"
 
 [[example]]
 name = "http_mcp_client"

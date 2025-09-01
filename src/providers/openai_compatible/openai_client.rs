@@ -403,13 +403,25 @@ impl ChatCapability for OpenAiCompatibleClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        let _ = (messages, tools);
+        // Create a ChatRequest from the parameters
+        let request = crate::types::ChatRequest {
+            messages,
+            tools,
+            common_params: self.config.common_params.clone(),
+            provider_params: None,
+            http_config: Some(self.config.http_config.clone()),
+            web_search: None,
+            stream: true,
+        };
 
-        // For now, return an error indicating streaming is not yet implemented
-        // This will be implemented in the streaming module
-        Err(LlmError::UnsupportedOperation(
-            "Streaming support will be implemented in the streaming module".to_string(),
-        ))
+        // Create streaming client
+        let streaming_client = super::streaming::OpenAiCompatibleStreaming::new(
+            self.config.clone(),
+            self.config.adapter.clone(),
+            self.http_client.clone(),
+        );
+
+        streaming_client.create_chat_stream(request).await
     }
 }
 
@@ -769,6 +781,7 @@ impl LlmClient for OpenAiCompatibleClient {
 mod tests {
     use super::*;
     use crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_client_creation() {
@@ -776,7 +789,7 @@ mod tests {
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         )
         .with_model("test-model");
 
@@ -792,7 +805,7 @@ mod tests {
             "",
             "test-key",
             "https://api.test.com/v1",
-            Box::new(SiliconFlowAdapter::new()),
+            Arc::new(SiliconFlowAdapter::new()),
         );
 
         assert!(OpenAiCompatibleClient::new(config).await.is_err());

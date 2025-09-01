@@ -166,11 +166,6 @@ impl OpenAiClient {
         self._tracing_guard = guard;
     }
 
-    /// Set the tracing configuration
-    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
-        self.tracing_config = config;
-    }
-
     /// Creates a new `OpenAI` client with configuration (for OpenAI-compatible providers)
     pub fn new_with_config(config: super::OpenAiConfig) -> Self {
         let http_client = reqwest::Client::new();

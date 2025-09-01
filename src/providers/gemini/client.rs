@@ -407,6 +407,19 @@ impl GeminiClient {
     pub fn gemini_params_mut(&mut self) -> &mut crate::params::gemini::GeminiParams {
         &mut self.gemini_params
     }
+
+    /// Set the tracing guard to keep tracing system active
+    pub(crate) fn set_tracing_guard(
+        &mut self,
+        guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+    ) {
+        self._tracing_guard = guard;
+    }
+
+    /// Set the tracing configuration
+    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
+        self.tracing_config = config;
+    }
 }
 
 #[async_trait]
@@ -525,102 +538,5 @@ impl LlmClient for GeminiClient {
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         Some(self)
-    }
-}
-
-/// Builder for creating Gemini clients
-#[derive(Debug, Clone)]
-pub struct GeminiBuilder {
-    config: GeminiConfig,
-}
-
-impl GeminiBuilder {
-    /// Create a new Gemini builder
-    pub fn new() -> Self {
-        Self {
-            config: GeminiConfig::default(),
-        }
-    }
-
-    /// Set the API key
-    pub fn api_key(mut self, api_key: String) -> Self {
-        self.config.api_key = api_key;
-        self
-    }
-
-    /// Set the model
-    pub fn model(mut self, model: String) -> Self {
-        self.config.model = model;
-        self
-    }
-
-    /// Set the base URL
-    pub fn base_url(mut self, base_url: String) -> Self {
-        self.config.base_url = base_url;
-        self
-    }
-
-    /// Set temperature
-    pub fn temperature(mut self, temperature: f32) -> Self {
-        let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.temperature = Some(temperature);
-        self.config.generation_config = Some(generation_config);
-        self
-    }
-
-    /// Set max tokens
-    pub fn max_tokens(mut self, max_tokens: i32) -> Self {
-        let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.max_output_tokens = Some(max_tokens);
-        self.config.generation_config = Some(generation_config);
-        self
-    }
-
-    /// Set top-p
-    pub fn top_p(mut self, top_p: f32) -> Self {
-        let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.top_p = Some(top_p);
-        self.config.generation_config = Some(generation_config);
-        self
-    }
-
-    /// Set top-k
-    pub fn top_k(mut self, top_k: i32) -> Self {
-        let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.top_k = Some(top_k);
-        self.config.generation_config = Some(generation_config);
-        self
-    }
-
-    /// Build the Gemini client
-    pub fn build(self) -> Result<GeminiClient, LlmError> {
-        if self.config.api_key.is_empty() {
-            return Err(LlmError::ConfigurationError(
-                "API key is required".to_string(),
-            ));
-        }
-
-        GeminiClient::new(self.config)
-    }
-}
-
-impl GeminiClient {
-    /// Set the tracing guard to keep tracing system active
-    pub(crate) fn set_tracing_guard(
-        &mut self,
-        guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
-    ) {
-        self._tracing_guard = guard;
-    }
-
-    /// Set the tracing configuration
-    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
-        self.tracing_config = config;
-    }
-}
-
-impl Default for GeminiBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
