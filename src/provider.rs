@@ -1063,26 +1063,36 @@ impl SiumaiBuilder {
                 match name.as_str() {
                     #[cfg(feature = "openai")]
                     "deepseek" => {
-                        // Use OpenAI-compatible client for DeepSeek
-                        let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
-                            .with_base_url(
-                                base_url.unwrap_or_else(|| "https://api.deepseek.com".to_string()),
-                            )
-                            .with_model(common_params.model.clone());
+                        // Use OpenAI-compatible client for DeepSeek with proper adapter
+                        let adapter = std::sync::Arc::new(
+                            crate::providers::openai_compatible::providers::deepseek::DeepSeekAdapter::new()
+                        );
 
-                        // Use validated common parameters
+                        let base_url =
+                            base_url.unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
+
+                        let mut config =
+                            crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                                "deepseek", &api_key, &base_url, adapter,
+                            );
+
+                        // Set model
+                        config = config.with_model(&common_params.model);
+
+                        // Set common parameters through common_params field
                         if let Some(temp) = common_params.temperature {
-                            config = config.with_temperature(temp);
+                            config.common_params.temperature = Some(temp);
                         }
                         if let Some(max_tokens) = common_params.max_tokens {
-                            config = config.with_max_tokens(max_tokens);
+                            config.common_params.max_tokens = Some(max_tokens);
                         }
 
-                        let http_client = reqwest::Client::new();
-                        Box::new(crate::providers::openai::OpenAiClient::new(
-                            config,
-                            http_client,
-                        ))
+                        let client =
+                            crate::providers::openai_compatible::OpenAiCompatibleClient::new(
+                                config,
+                            )
+                            .await?;
+                        Box::new(client)
                     }
                     #[cfg(feature = "openai")]
                     "siliconflow" => {

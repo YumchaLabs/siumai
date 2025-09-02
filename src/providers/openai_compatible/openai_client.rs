@@ -5,7 +5,7 @@
 use super::{openai_config::OpenAiCompatibleConfig, types::RequestType};
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::providers::openai::{types::OpenAiChatResponse, utils::convert_messages};
+use crate::providers::openai::utils::convert_messages;
 use crate::stream::ChatStream;
 use crate::traits::{
     ChatCapability, EmbeddingCapability, ImageGenerationCapability, ModelListingCapability,
@@ -13,7 +13,64 @@ use crate::traits::{
 };
 use crate::types::*;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// OpenAI Compatible Chat Response with provider-specific fields
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OpenAiCompatibleChatResponse {
+    pub id: String,
+    pub object: String,
+    pub created: u64,
+    pub model: String,
+    pub choices: Vec<OpenAiCompatibleChoice>,
+    pub usage: Option<OpenAiCompatibleUsage>,
+}
+
+/// OpenAI Compatible Choice with provider-specific fields
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OpenAiCompatibleChoice {
+    pub index: u32,
+    pub message: OpenAiCompatibleMessage,
+    pub finish_reason: Option<String>,
+}
+
+/// OpenAI Compatible Message with provider-specific fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiCompatibleMessage {
+    pub role: String,
+    pub content: Option<serde_json::Value>,
+    pub tool_calls: Option<Vec<OpenAiCompatibleToolCall>>,
+    pub tool_call_id: Option<String>,
+
+    // Provider-specific thinking/reasoning fields
+    pub thinking: Option<String>,          // Standard thinking field
+    pub reasoning_content: Option<String>, // DeepSeek reasoning field
+    pub reasoning: Option<String>,         // Alternative reasoning field
+}
+
+/// OpenAI Compatible Tool Call
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiCompatibleToolCall {
+    pub id: String,
+    pub r#type: String,
+    pub function: Option<OpenAiCompatibleFunction>,
+}
+
+/// OpenAI Compatible Function
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiCompatibleFunction {
+    pub name: String,
+    pub arguments: String,
+}
+
+/// OpenAI Compatible Usage
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OpenAiCompatibleUsage {
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+}
 
 /// OpenAI compatible client
 ///
@@ -175,27 +232,22 @@ impl OpenAiCompatibleClient {
         Ok(params)
     }
 
-    /// Convert OpenAI response to ChatResponse (based on OpenAI's parse_chat_response)
-    fn parse_chat_response(&self, response: OpenAiChatResponse) -> Result<ChatResponse, LlmError> {
+    /// Convert OpenAI Compatible response to ChatResponse (based on OpenAI's parse_chat_response)
+    fn parse_chat_response(
+        &self,
+        response: OpenAiCompatibleChatResponse,
+    ) -> Result<ChatResponse, LlmError> {
         // Extract thinking content from multiple possible fields first (before consuming choices)
         let mut thinking_content: Option<String> = None;
 
-        // Check for thinking content in provider-specific fields first
-        if let Some(raw_choice) = response.choices.first()
-            && let Ok(choice_value) = serde_json::to_value(&raw_choice.message)
-        {
-            // Try multiple field names in priority order (like Cherry Studio)
-            let thinking_fields = ["reasoning_content", "reasoning", "thinking"];
+        // Use dynamic field accessor for thinking content extraction
+        let field_mappings = self.config.adapter.get_field_mappings(&self.config.model);
+        let field_accessor = self.config.adapter.get_field_accessor();
 
-            for field_name in thinking_fields.iter() {
-                if let Some(field_value) = choice_value.get(field_name)
-                    && let Some(thinking_text) = field_value.as_str()
-                    && !thinking_text.trim().is_empty()
-                {
-                    thinking_content = Some(thinking_text.to_string());
-                    break;
-                }
-            }
+        // Convert response to JSON for dynamic field access
+        if let Ok(response_json) = serde_json::to_value(&response) {
+            thinking_content =
+                field_accessor.extract_thinking_content(&response_json, &field_mappings);
         }
 
         // Now extract the choice (consuming the vector)
@@ -388,9 +440,11 @@ impl ChatCapability for OpenAiCompatibleClient {
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
 
-        // Parse as OpenAI response first
-        let openai_response: OpenAiChatResponse = serde_json::from_str(&response_text)
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse OpenAI response: {}", e)))?;
+        // Parse as OpenAI Compatible response first
+        let openai_response: OpenAiCompatibleChatResponse = serde_json::from_str(&response_text)
+            .map_err(|e| {
+                LlmError::ParseError(format!("Failed to parse OpenAI Compatible response: {}", e))
+            })?;
 
         // Convert to our ChatResponse format using the same logic as OpenAI
         let chat_response = self.parse_chat_response(openai_response)?;

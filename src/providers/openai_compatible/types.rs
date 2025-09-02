@@ -27,6 +27,26 @@ pub struct FieldMappings {
     pub role_field: &'static str,
 }
 
+/// Dynamic field accessor for flexible response parsing
+///
+/// This provides a more configurable approach similar to Cherry Studio's
+/// response transformation system.
+pub trait FieldAccessor {
+    /// Extract a field value from a JSON object using a field path
+    fn get_field_value(&self, json: &serde_json::Value, field_path: &str) -> Option<String>;
+
+    /// Extract thinking content using configured field mappings
+    fn extract_thinking_content(
+        &self,
+        json: &serde_json::Value,
+        mappings: &FieldMappings,
+    ) -> Option<String>;
+
+    /// Extract regular content
+    fn extract_content(&self, json: &serde_json::Value, mappings: &FieldMappings)
+    -> Option<String>;
+}
+
 impl Default for FieldMappings {
     fn default() -> Self {
         Self {
@@ -35,6 +55,113 @@ impl Default for FieldMappings {
             tool_calls_field: "tool_calls",
             role_field: "role",
         }
+    }
+}
+
+/// Advanced field accessor with full JSON path support
+#[derive(Debug, Clone, Default)]
+pub struct JsonFieldAccessor;
+
+impl JsonFieldAccessor {
+    /// Get nested field value with support for complex paths
+    fn get_nested_value<'a>(
+        &self,
+        json: &'a serde_json::Value,
+        path: &str,
+    ) -> Option<&'a serde_json::Value> {
+        let parts: Vec<&str> = path.split('.').collect();
+        let mut current = json;
+
+        for part in parts {
+            if part.is_empty() {
+                continue;
+            }
+
+            // Handle array indices like [0] or just 0
+            if let Ok(index) = part.parse::<usize>() {
+                current = current.get(index)?;
+            } else if part.starts_with('[') && part.ends_with(']') {
+                let index_str = &part[1..part.len() - 1];
+                let index = index_str.parse::<usize>().ok()?;
+                current = current.get(index)?;
+            } else {
+                current = current.get(part)?;
+            }
+        }
+
+        Some(current)
+    }
+
+    /// Extract string value from various JSON types
+    fn extract_string_value(&self, value: &serde_json::Value) -> Option<String> {
+        match value {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            serde_json::Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        }
+    }
+}
+
+impl FieldAccessor for JsonFieldAccessor {
+    fn get_field_value(&self, json: &serde_json::Value, field_path: &str) -> Option<String> {
+        self.get_nested_value(json, field_path)
+            .and_then(|v| self.extract_string_value(v))
+    }
+
+    fn extract_thinking_content(
+        &self,
+        json: &serde_json::Value,
+        mappings: &FieldMappings,
+    ) -> Option<String> {
+        // Try each thinking field in priority order
+        for field_name in &mappings.thinking_fields {
+            // Define possible paths for thinking content
+            let paths = vec![
+                format!("choices.0.delta.{}", field_name),
+                format!("choices.0.message.{}", field_name),
+                format!("delta.{}", field_name),
+                format!("message.{}", field_name),
+                field_name.to_string(), // Direct field access
+            ];
+
+            for path in paths {
+                if let Some(value) = self.get_field_value(json, &path) {
+                    if !value.trim().is_empty() {
+                        return Some(value);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn extract_content(
+        &self,
+        json: &serde_json::Value,
+        mappings: &FieldMappings,
+    ) -> Option<String> {
+        let content_field = mappings.content_field;
+
+        // Define possible paths for content
+        let paths = vec![
+            format!("choices.0.delta.{}", content_field),
+            format!("choices.0.message.{}", content_field),
+            format!("delta.{}", content_field),
+            format!("message.{}", content_field),
+            content_field.to_string(), // Direct field access
+        ];
+
+        for path in paths {
+            if let Some(value) = self.get_field_value(json, &path) {
+                if !value.trim().is_empty() {
+                    return Some(value);
+                }
+            }
+        }
+
+        None
     }
 }
 

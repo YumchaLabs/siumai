@@ -187,10 +187,6 @@ name = "google_embedding_task_types"
 path = "examples/04_providers/google/embedding_with_task_types.rs"
 
 [[example]]
-name = "gemini_thinking_showcase"
-path = "examples/04_providers/google/thinking_showcase.rs"
-
-[[example]]
 name = "ollama_basic_setup"
 path = "examples/04_providers/ollama/basic_setup.rs"
 

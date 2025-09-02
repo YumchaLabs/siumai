@@ -11,7 +11,7 @@ use crate::types::{
 };
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -23,7 +23,7 @@ use super::openai_config::OpenAiCompatibleConfig;
 use super::types::RequestType;
 
 /// OpenAI-compatible stream event structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct OpenAiCompatibleStreamEvent {
     pub id: Option<String>,
     pub object: Option<String>,
@@ -34,7 +34,7 @@ pub struct OpenAiCompatibleStreamEvent {
 }
 
 /// Stream choice structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StreamChoice {
     pub index: Option<u32>,
     pub delta: Option<StreamDelta>,
@@ -42,7 +42,7 @@ pub struct StreamChoice {
 }
 
 /// Stream delta structure with provider-specific fields
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StreamDelta {
     pub role: Option<String>,
     pub content: Option<String>,
@@ -55,7 +55,7 @@ pub struct StreamDelta {
 }
 
 /// Stream usage structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StreamUsage {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
@@ -64,12 +64,12 @@ pub struct StreamUsage {
     pub completion_tokens_details: Option<CompletionTokensDetails>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PromptTokensDetails {
     pub cached_tokens: Option<u32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CompletionTokensDetails {
     pub reasoning_tokens: Option<u32>,
 }
@@ -99,32 +99,25 @@ impl OpenAiCompatibleEventConverter {
     ) -> Vec<ChatStreamEvent> {
         use crate::utils::streaming::EventBuilder;
 
-        // DEBUG: Log the incoming event
-        println!("🔄 convert_event_async called with event ID: {:?}", event.id);
-
         let mut builder = EventBuilder::new();
 
         // Check if we need to emit StreamStart first
         if self.needs_stream_start().await {
             let metadata = self.create_stream_start_metadata(&event);
             builder = builder.add_stream_start(metadata);
-            println!("  ➕ Added StreamStart");
         }
 
         // Process content delta
         if let Some(content) = self.extract_content(&event) {
-            builder = builder
-                .add_content_delta(content.clone(), Some(self.extract_choice_index(&event) as usize));
-            println!("  ➕ Added ContentDelta: '{}'", content);
+            builder = builder.add_content_delta(
+                content.clone(),
+                Some(self.extract_choice_index(&event) as usize),
+            );
         }
 
         // Process thinking/reasoning content using adapter
-        println!("  🧠 Checking for thinking content...");
         if let Some(thinking) = self.extract_thinking(&event) {
             builder = builder.add_thinking_delta(thinking.clone());
-            println!("  ➕ Added ThinkingDelta: '{}'", thinking);
-        } else {
-            println!("  ❌ No thinking content extracted");
         }
 
         // Process tool calls
@@ -172,73 +165,35 @@ impl OpenAiCompatibleEventConverter {
         }
     }
 
-    /// Extract content from stream event
+    /// Extract content from stream event using dynamic field accessor
     fn extract_content(&self, event: &OpenAiCompatibleStreamEvent) -> Option<String> {
-        event
-            .choices
-            .as_ref()?
-            .first()?
-            .delta
-            .as_ref()?
-            .content
-            .as_ref()
-            .filter(|content| !content.is_empty())
-            .cloned()
+        let model = &self.config.model;
+        let field_mappings = self.adapter.get_field_mappings(model);
+        let field_accessor = self.adapter.get_field_accessor();
+
+        // Convert event to JSON for dynamic field access
+        if let Ok(json) = serde_json::to_value(event) {
+            field_accessor.extract_content(&json, &field_mappings)
+        } else {
+            None
+        }
     }
 
-    /// Extract thinking/reasoning content using provider adapter
+    /// Extract thinking/reasoning content using dynamic field accessor
     ///
-    /// This follows Cherry Studio's approach of checking multiple reasoning fields
-    /// and prioritizing DeepSeek's reasoning_content field.
+    /// This uses the adapter's configurable field accessor to dynamically extract
+    /// thinking content from any field structure, completely eliminating hardcoded field names.
     fn extract_thinking(&self, event: &OpenAiCompatibleStreamEvent) -> Option<String> {
-        let delta = event.choices.as_ref()?.first()?.delta.as_ref()?;
+        let model = &self.config.model;
+        let field_mappings = self.adapter.get_field_mappings(model);
+        let field_accessor = self.adapter.get_field_accessor();
 
-        // DEBUG: Log what we're extracting
-        println!("🔍 extract_thinking called:");
-        println!("  reasoning_content: {:?}", delta.reasoning_content);
-        println!("  reasoning: {:?}", delta.reasoning);
-        println!("  thinking: {:?}", delta.thinking);
-
-        // Priority order based on Cherry Studio's implementation:
-        // 1. reasoning_content (DeepSeek reasoning models)
-        // 2. reasoning (alternative reasoning field)
-        // 3. thinking (standard thinking field)
-
-        if let Some(reasoning) = &delta.reasoning_content {
-            if !reasoning.is_empty() {
-                println!("  ✅ Returning reasoning_content: '{}'", reasoning);
-                return Some(reasoning.clone());
-            } else {
-                println!("  ⚠️  reasoning_content is empty");
-            }
+        // Convert event to JSON for dynamic field access
+        if let Ok(json) = serde_json::to_value(event) {
+            field_accessor.extract_thinking_content(&json, &field_mappings)
         } else {
-            println!("  ⚠️  reasoning_content is None");
+            None
         }
-
-        if let Some(reasoning) = &delta.reasoning {
-            if !reasoning.is_empty() {
-                println!("  ✅ Returning reasoning: '{}'", reasoning);
-                return Some(reasoning.clone());
-            } else {
-                println!("  ⚠️  reasoning is empty");
-            }
-        } else {
-            println!("  ⚠️  reasoning is None");
-        }
-
-        if let Some(thinking) = &delta.thinking {
-            if !thinking.is_empty() {
-                println!("  ✅ Returning thinking: '{}'", thinking);
-                return Some(thinking.clone());
-            } else {
-                println!("  ⚠️  thinking is empty");
-            }
-        } else {
-            println!("  ⚠️  thinking is None");
-        }
-
-        println!("  ❌ No thinking content found");
-        None
     }
 
     /// Extract tool call information
@@ -293,25 +248,17 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
-            // DEBUG: Log that we're processing an event
-            println!("🔥 OpenAiCompatibleEventConverter::convert_event called!");
-            println!("   Event data length: {} chars", event.data.len());
-            println!("   Event data preview: {}", &event.data[..event.data.len().min(100)]);
-
             match serde_json::from_str::<OpenAiCompatibleStreamEvent>(&event.data) {
                 Ok(compat_event) => {
-                    println!("   ✅ Successfully parsed OpenAI-compatible event");
                     let result: Vec<Result<ChatStreamEvent, LlmError>> = self
                         .convert_event_async(compat_event)
                         .await
                         .into_iter()
                         .map(Ok)
                         .collect();
-                    println!("   📤 Returning {} events", result.len());
                     result
                 }
                 Err(e) => {
-                    println!("   ❌ Failed to parse event: {}", e);
                     vec![Err(LlmError::ParseError(format!(
                         "Failed to parse OpenAI-compatible event: {e}"
                     )))]
@@ -382,13 +329,14 @@ impl OpenAiCompatibleStreaming {
         StreamFactory::create_eventsource_stream(request_builder, converter).await
     }
 
-    /// Build request body (simplified version of the non-streaming logic)
+    /// Build request body (using proper message conversion)
     fn build_request_body(&self, request: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        // This is a simplified version - in practice, you'd want to reuse
-        // the existing request building logic from the non-streaming client
+        // Convert ChatMessage to OpenAI format using the existing utility
+        let openai_messages = crate::providers::openai::utils::convert_messages(&request.messages)?;
+
         let mut body = serde_json::json!({
             "model": self.config.model,
-            "messages": request.messages,
+            "messages": openai_messages,
             "stream": true,
         });
 

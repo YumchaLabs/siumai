@@ -415,8 +415,11 @@ async fn demo_gemini_streaming() -> Result<(), Box<dyn std::error::Error>> {
                         // Display thinking in real-time with section markers
                         for line in delta.lines() {
                             if !line.trim().is_empty() {
-                                if line.contains("Framework") || line.contains("Consideration") ||
-                                   line.contains("Approach") || line.contains("Analysis") {
+                                if line.contains("Framework")
+                                    || line.contains("Consideration")
+                                    || line.contains("Approach")
+                                    || line.contains("Analysis")
+                                {
                                     thinking_sections += 1;
                                     println!(
                                         "   🔍 Section {}: {}",
@@ -643,7 +646,7 @@ async fn demo_enhanced_deepseek_streaming() -> Result<(), Box<dyn std::error::Er
 
     // Use enhanced DeepSeek configuration
     let client = Siumai::builder()
-        .deepseek()  // Use standard DeepSeek adapter
+        .deepseek() // Use standard DeepSeek adapter
         .api_key(&api_key)
         .model("deepseek-reasoner")
         .temperature(0.6)
@@ -651,12 +654,12 @@ async fn demo_enhanced_deepseek_streaming() -> Result<(), Box<dyn std::error::Er
         .build()
         .await?;
 
-    let messages = vec![
-        user!("I need to plan a birthday party for 50 people with a budget of $1000. \
+    let messages = vec![user!(
+        "I need to plan a birthday party for 50 people with a budget of $1000. \
                Think through all the key considerations: venue, food, entertainment, \
                decorations, and logistics. Provide a detailed breakdown with reasoning \
-               for each decision.")
-    ];
+               for each decision."
+    )];
 
     println!("   📝 Problem: Complex party planning with budget constraints");
     println!("   🔄 Enhanced streaming with complete event handling...\n");
@@ -697,15 +700,25 @@ async fn demo_enhanced_deepseek_streaming() -> Result<(), Box<dyn std::error::Er
                             let trimmed = line.trim();
                             if !trimmed.is_empty() {
                                 // Detect reasoning steps
-                                if trimmed.starts_with("Step") ||
-                                   trimmed.starts_with("1.") || trimmed.starts_with("2.") ||
-                                   trimmed.starts_with("3.") || trimmed.starts_with("4.") ||
-                                   trimmed.starts_with("5.") || trimmed.contains("Consider") ||
-                                   trimmed.contains("Analysis") {
+                                if trimmed.starts_with("Step")
+                                    || trimmed.starts_with("1.")
+                                    || trimmed.starts_with("2.")
+                                    || trimmed.starts_with("3.")
+                                    || trimmed.starts_with("4.")
+                                    || trimmed.starts_with("5.")
+                                    || trimmed.contains("Consider")
+                                    || trimmed.contains("Analysis")
+                                {
                                     thinking_steps += 1;
                                     println!("   🔍 Step {}: {}", thinking_steps, trimmed);
                                 } else if trimmed.starts_with("-") || trimmed.starts_with("•") {
-                                    println!("     • {}", trimmed.trim_start_matches('-').trim_start_matches('•').trim());
+                                    println!(
+                                        "     • {}",
+                                        trimmed
+                                            .trim_start_matches('-')
+                                            .trim_start_matches('•')
+                                            .trim()
+                                    );
                                 } else {
                                     println!("     {}", trimmed);
                                 }
@@ -769,14 +782,37 @@ async fn demo_enhanced_deepseek_streaming() -> Result<(), Box<dyn std::error::Er
             // Comprehensive summary
             println!("\n   📊 Enhanced Streaming Summary:");
             println!("   {}", "═".repeat(50));
-            println!("   🚀 Stream started: {}", if stream_started { "✅" } else { "❌" });
-            println!("   🧠 Reasoning phase: {}", if !thinking_content.is_empty() { "✅" } else { "❌" });
-            println!("   📝 Content phase: {}", if !response_content.is_empty() { "✅" } else { "❌" });
+            println!(
+                "   🚀 Stream started: {}",
+                if stream_started { "✅" } else { "❌" }
+            );
+            println!(
+                "   🧠 Reasoning phase: {}",
+                if !thinking_content.is_empty() {
+                    "✅"
+                } else {
+                    "❌"
+                }
+            );
+            println!(
+                "   📝 Content phase: {}",
+                if !response_content.is_empty() {
+                    "✅"
+                } else {
+                    "❌"
+                }
+            );
 
             if !thinking_content.is_empty() {
-                println!("   📏 Reasoning length: {} characters", thinking_content.len());
+                println!(
+                    "   📏 Reasoning length: {} characters",
+                    thinking_content.len()
+                );
                 println!("   🔢 Reasoning steps detected: {}", thinking_steps);
-                println!("   📄 Reasoning lines: {}", thinking_content.lines().count());
+                println!(
+                    "   📄 Reasoning lines: {}",
+                    thinking_content.lines().count()
+                );
             }
 
             if !response_content.is_empty() {

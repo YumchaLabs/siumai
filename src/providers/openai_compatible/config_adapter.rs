@@ -74,7 +74,10 @@ pub enum MappingCondition {
     /// Parameter exists in request
     ParameterExists { parameter: String },
     /// Parameter equals value
-    ParameterEquals { parameter: String, value: serde_json::Value },
+    ParameterEquals {
+        parameter: String,
+        value: serde_json::Value,
+    },
 }
 
 /// Parameter transformation rules
@@ -106,9 +109,15 @@ pub enum ParameterTransformation {
     /// Rename a parameter
     Rename { from: String, to: String },
     /// Transform parameter value
-    Transform { parameter: String, transformer: ValueTransformer },
+    Transform {
+        parameter: String,
+        transformer: ValueTransformer,
+    },
     /// Add a parameter with fixed value
-    Add { key: String, value: serde_json::Value },
+    Add {
+        key: String,
+        value: serde_json::Value,
+    },
     /// Remove a parameter
     Remove { parameter: String },
 }
@@ -205,23 +214,26 @@ impl ConfigurableAdapter {
 
     /// Load adapter configuration from JSON file
     pub fn from_json_file(path: &std::path::Path) -> Result<Self, LlmError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| LlmError::ConfigurationError(format!("Failed to read config file: {}", e)))?;
-        
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            LlmError::ConfigurationError(format!("Failed to read config file: {}", e))
+        })?;
+
         let adapter: Self = serde_json::from_str(&content)
             .map_err(|e| LlmError::ConfigurationError(format!("Failed to parse config: {}", e)))?;
-        
+
         Ok(adapter)
     }
 
     /// Save adapter configuration to JSON file
     pub fn to_json_file(&self, path: &std::path::Path) -> Result<(), LlmError> {
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| LlmError::ConfigurationError(format!("Failed to serialize config: {}", e)))?;
-        
-        std::fs::write(path, content)
-            .map_err(|e| LlmError::ConfigurationError(format!("Failed to write config file: {}", e)))?;
-        
+        let content = serde_json::to_string_pretty(self).map_err(|e| {
+            LlmError::ConfigurationError(format!("Failed to serialize config: {}", e))
+        })?;
+
+        std::fs::write(path, content).map_err(|e| {
+            LlmError::ConfigurationError(format!("Failed to write config file: {}", e))
+        })?;
+
         Ok(())
     }
 
@@ -230,7 +242,8 @@ impl ConfigurableAdapter {
         let mut adapter = Self::new("deepseek", "DeepSeek", "https://api.deepseek.com/v1");
 
         adapter.compatibility = ProviderCompatibility::deepseek();
-        adapter.field_mappings.thinking_fields = vec!["reasoning_content".to_string(), "thinking".to_string()];
+        adapter.field_mappings.thinking_fields =
+            vec!["reasoning_content".to_string(), "thinking".to_string()];
 
         // Add conditional transformations for reasoning models
         let reasoner_condition = MappingCondition::ModelContains {
@@ -238,24 +251,31 @@ impl ConfigurableAdapter {
         };
 
         // Clean up messages to remove reasoning_content from context
-        adapter.parameter_rules.conditional_transformations.push(ConditionalTransformation {
-            condition: reasoner_condition.clone(),
-            transformations: vec![
-                // Remove unsupported parameters for reasoning models
-                ParameterTransformation::Remove { parameter: "logprobs".to_string() },
-                ParameterTransformation::Remove { parameter: "top_logprobs".to_string() },
-                // Set default max_tokens for reasoning models
-                ParameterTransformation::Add {
-                    key: "max_tokens".to_string(),
-                    value: serde_json::Value::Number(serde_json::Number::from(32768))
-                },
-                // Force streaming for reasoning models
-                ParameterTransformation::Add {
-                    key: "stream".to_string(),
-                    value: serde_json::Value::Bool(true)
-                },
-            ],
-        });
+        adapter
+            .parameter_rules
+            .conditional_transformations
+            .push(ConditionalTransformation {
+                condition: reasoner_condition.clone(),
+                transformations: vec![
+                    // Remove unsupported parameters for reasoning models
+                    ParameterTransformation::Remove {
+                        parameter: "logprobs".to_string(),
+                    },
+                    ParameterTransformation::Remove {
+                        parameter: "top_logprobs".to_string(),
+                    },
+                    // Set default max_tokens for reasoning models
+                    ParameterTransformation::Add {
+                        key: "max_tokens".to_string(),
+                        value: serde_json::Value::Number(serde_json::Number::from(32768)),
+                    },
+                    // Force streaming for reasoning models
+                    ParameterTransformation::Add {
+                        key: "stream".to_string(),
+                        value: serde_json::Value::Bool(true),
+                    },
+                ],
+            });
 
         adapter
     }
@@ -263,41 +283,50 @@ impl ConfigurableAdapter {
     /// Create a SiliconFlow configuration
     pub fn siliconflow() -> Self {
         let mut adapter = Self::new("siliconflow", "SiliconFlow", "https://api.siliconflow.cn");
-        
+
         // SiliconFlow has mixed compatibility depending on the model
         adapter.compatibility.supports_array_content = true;
         adapter.compatibility.supports_stream_options = true;
-        
+
         // For DeepSeek models on SiliconFlow, use reasoning_content
         let deepseek_condition = MappingCondition::ModelContains {
             value: "deepseek".to_string(),
         };
-        
-        adapter.field_mappings.conditional_mappings.push(ConditionalMapping {
-            condition: deepseek_condition.clone(),
-            mappings: {
-                let mut mappings = HashMap::new();
-                mappings.insert("thinking".to_string(), "reasoning_content".to_string());
-                mappings
-            },
-        });
-        
+
+        adapter
+            .field_mappings
+            .conditional_mappings
+            .push(ConditionalMapping {
+                condition: deepseek_condition.clone(),
+                mappings: {
+                    let mut mappings = HashMap::new();
+                    mappings.insert("thinking".to_string(), "reasoning_content".to_string());
+                    mappings
+                },
+            });
+
         // Parameter transformation for DeepSeek models
-        adapter.parameter_rules.conditional_transformations.push(ConditionalTransformation {
-            condition: deepseek_condition,
-            transformations: vec![
-                ParameterTransformation::Rename {
+        adapter
+            .parameter_rules
+            .conditional_transformations
+            .push(ConditionalTransformation {
+                condition: deepseek_condition,
+                transformations: vec![ParameterTransformation::Rename {
                     from: "thinking_budget".to_string(),
                     to: "reasoning_effort".to_string(),
-                },
-            ],
-        });
-        
+                }],
+            });
+
         adapter
     }
 
     /// Check if a condition is met
-    fn check_condition(&self, condition: &MappingCondition, model: &str, params: &serde_json::Value) -> bool {
+    fn check_condition(
+        &self,
+        condition: &MappingCondition,
+        model: &str,
+        params: &serde_json::Value,
+    ) -> bool {
         match condition {
             MappingCondition::ModelContains { value } => model.contains(value),
             MappingCondition::ModelEquals { value } => model == value,
@@ -310,7 +339,11 @@ impl ConfigurableAdapter {
     }
 
     /// Apply parameter transformations
-    fn apply_parameter_transformations(&self, params: &mut serde_json::Value, model: &str) -> Result<(), LlmError> {
+    fn apply_parameter_transformations(
+        &self,
+        params: &mut serde_json::Value,
+        model: &str,
+    ) -> Result<(), LlmError> {
         // Apply simple mappings
         for (from, to) in &self.parameter_rules.simple_mappings {
             if let Some(value) = params.get(from).cloned() {
@@ -344,7 +377,11 @@ impl ConfigurableAdapter {
     }
 
     /// Apply a single parameter transformation
-    fn apply_transformation(&self, params: &mut serde_json::Value, transformation: &ParameterTransformation) -> Result<(), LlmError> {
+    fn apply_transformation(
+        &self,
+        params: &mut serde_json::Value,
+        transformation: &ParameterTransformation,
+    ) -> Result<(), LlmError> {
         match transformation {
             ParameterTransformation::Rename { from, to } => {
                 if let Some(value) = params.get(from).cloned() {
@@ -352,7 +389,10 @@ impl ConfigurableAdapter {
                     params[to] = value;
                 }
             }
-            ParameterTransformation::Transform { parameter, transformer } => {
+            ParameterTransformation::Transform {
+                parameter,
+                transformer,
+            } => {
                 if let Some(value) = params.get_mut(parameter) {
                     *value = self.apply_value_transformer(value, transformer)?;
                 }
@@ -368,45 +408,54 @@ impl ConfigurableAdapter {
     }
 
     /// Apply value transformer
-    fn apply_value_transformer(&self, value: &serde_json::Value, transformer: &ValueTransformer) -> Result<serde_json::Value, LlmError> {
+    fn apply_value_transformer(
+        &self,
+        value: &serde_json::Value,
+        transformer: &ValueTransformer,
+    ) -> Result<serde_json::Value, LlmError> {
         match transformer {
             ValueTransformer::Multiply { factor } => {
                 if let Some(num) = value.as_f64() {
-                    Ok(serde_json::Value::Number(serde_json::Number::from_f64(num * factor).unwrap()))
+                    Ok(serde_json::Value::Number(
+                        serde_json::Number::from_f64(num * factor).unwrap(),
+                    ))
                 } else {
-                    Err(LlmError::ConfigurationError("Cannot multiply non-numeric value".to_string()))
+                    Err(LlmError::ConfigurationError(
+                        "Cannot multiply non-numeric value".to_string(),
+                    ))
                 }
             }
             ValueTransformer::StringMap { mappings } => {
                 if let Some(str_val) = value.as_str() {
                     Ok(serde_json::Value::String(
-                        mappings.get(str_val).cloned().unwrap_or_else(|| str_val.to_string())
+                        mappings
+                            .get(str_val)
+                            .cloned()
+                            .unwrap_or_else(|| str_val.to_string()),
                     ))
                 } else {
                     Ok(value.clone())
                 }
             }
-            ValueTransformer::ToBoolean => {
-                Ok(serde_json::Value::Bool(match value {
-                    serde_json::Value::Bool(b) => *b,
-                    serde_json::Value::String(s) => s.to_lowercase() == "true",
-                    serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0) != 0.0,
-                    _ => false,
-                }))
-            }
-            ValueTransformer::ToString => {
-                Ok(serde_json::Value::String(match value {
-                    serde_json::Value::String(s) => s.clone(),
-                    _ => value.to_string(),
-                }))
-            }
+            ValueTransformer::ToBoolean => Ok(serde_json::Value::Bool(match value {
+                serde_json::Value::Bool(b) => *b,
+                serde_json::Value::String(s) => s.to_lowercase() == "true",
+                serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0) != 0.0,
+                _ => false,
+            })),
+            ValueTransformer::ToString => Ok(serde_json::Value::String(match value {
+                serde_json::Value::String(s) => s.clone(),
+                _ => value.to_string(),
+            })),
         }
     }
 
     /// Get effective field mappings for a model
     fn get_effective_field_mappings(&self, model: &str) -> FieldMappings {
         // Convert to owned strings to avoid lifetime issues
-        let thinking_fields: Vec<&'static str> = self.field_mappings.thinking_fields
+        let thinking_fields: Vec<&'static str> = self
+            .field_mappings
+            .thinking_fields
             .iter()
             .map(|s| Box::leak(s.clone().into_boxed_str()) as &'static str)
             .collect();
@@ -414,7 +463,12 @@ impl ConfigurableAdapter {
         let mut mappings = FieldMappings {
             thinking_fields,
             content_field: Box::leak(self.field_mappings.content_field.clone().into_boxed_str()),
-            tool_calls_field: Box::leak(self.field_mappings.tool_calls_field.clone().into_boxed_str()),
+            tool_calls_field: Box::leak(
+                self.field_mappings
+                    .tool_calls_field
+                    .clone()
+                    .into_boxed_str(),
+            ),
             role_field: Box::leak(self.field_mappings.role_field.clone().into_boxed_str()),
         };
 
@@ -428,8 +482,12 @@ impl ConfigurableAdapter {
                             // Replace thinking fields with the mapped value
                             mappings.thinking_fields = vec![Box::leak(to.clone().into_boxed_str())];
                         }
-                        "content" => mappings.content_field = Box::leak(to.clone().into_boxed_str()),
-                        "tool_calls" => mappings.tool_calls_field = Box::leak(to.clone().into_boxed_str()),
+                        "content" => {
+                            mappings.content_field = Box::leak(to.clone().into_boxed_str())
+                        }
+                        "tool_calls" => {
+                            mappings.tool_calls_field = Box::leak(to.clone().into_boxed_str())
+                        }
                         "role" => mappings.role_field = Box::leak(to.clone().into_boxed_str()),
                         _ => {} // Custom mappings handled elsewhere
                     }
@@ -492,7 +550,10 @@ impl ProviderAdapter for ConfigurableAdapter {
             .with_custom_feature("array_content", self.compatibility.supports_array_content)
             .with_custom_feature("stream_options", self.compatibility.supports_stream_options)
             .with_custom_feature("developer_role", self.compatibility.supports_developer_role)
-            .with_custom_feature("enable_thinking", self.compatibility.supports_enable_thinking)
+            .with_custom_feature(
+                "enable_thinking",
+                self.compatibility.supports_enable_thinking,
+            )
             .with_custom_feature("service_tier", self.compatibility.supports_service_tier)
     }
 
@@ -504,7 +565,8 @@ impl ProviderAdapter for ConfigurableAdapter {
         // Apply HTTP overrides
         if let Some(additional_timeout) = self.http_overrides.additional_timeout_secs {
             if let Some(current_timeout) = http_config.timeout {
-                http_config.timeout = Some(current_timeout + std::time::Duration::from_secs(additional_timeout));
+                http_config.timeout =
+                    Some(current_timeout + std::time::Duration::from_secs(additional_timeout));
             }
         }
 

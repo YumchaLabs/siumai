@@ -37,7 +37,9 @@
 
 use crate::error::LlmError;
 use crate::providers::openai_compatible::adapter::ProviderAdapter;
-use crate::providers::openai_compatible::types::{FieldMappings, ModelConfig, RequestType};
+use crate::providers::openai_compatible::types::{
+    FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig, RequestType,
+};
 use crate::traits::ProviderCapabilities;
 use serde_json::Value;
 
@@ -143,7 +145,8 @@ impl ProviderAdapter for DeepSeekAdapter {
                         if let Some(message_obj) = message.as_object_mut() {
                             // Remove reasoning_content from assistant messages in context
                             // as per DeepSeek documentation: "reasoning_content should not be included in next round"
-                            if message_obj.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+                            if message_obj.get("role").and_then(|r| r.as_str()) == Some("assistant")
+                            {
                                 message_obj.remove("reasoning_content");
                             }
                         }
@@ -154,8 +157,13 @@ impl ProviderAdapter for DeepSeekAdapter {
             // 2. Remove parameters that might interfere with reasoning content
             // Based on testing, DeepSeek reasoning models are sensitive to extra parameters
             let potentially_interfering_params = [
-                "temperature", "top_p", "presence_penalty", "frequency_penalty",
-                "logprobs", "top_logprobs", "max_tokens"
+                "temperature",
+                "top_p",
+                "presence_penalty",
+                "frequency_penalty",
+                "logprobs",
+                "top_logprobs",
+                "max_tokens",
             ];
 
             for param in &potentially_interfering_params {
@@ -191,6 +199,10 @@ impl ProviderAdapter for DeepSeekAdapter {
 
     fn get_model_config(&self, model: &str) -> ModelConfig {
         self.get_model_config_for_model(model)
+    }
+
+    fn get_field_accessor(&self) -> Box<dyn FieldAccessor> {
+        Box::new(JsonFieldAccessor::default())
     }
 
     fn capabilities(&self) -> ProviderCapabilities {

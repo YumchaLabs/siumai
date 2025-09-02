@@ -112,9 +112,9 @@ impl EnhancedOpenAiCompatibleBuilder {
 
     /// Build the client with enhanced configuration support
     pub async fn build(self) -> Result<OpenAiCompatibleClient, LlmError> {
-        let api_key = self.api_key.ok_or_else(|| {
-            LlmError::ConfigurationError("API key is required".to_string())
-        })?;
+        let api_key = self
+            .api_key
+            .ok_or_else(|| LlmError::ConfigurationError("API key is required".to_string()))?;
 
         // Load adapter from file if specified
         let adapter = if let Some(config_path) = &self.config_file {
@@ -129,7 +129,7 @@ impl EnhancedOpenAiCompatibleBuilder {
 
         // Get base HTTP configuration from LlmBuilder
         let mut http_config = HttpConfig::default();
-        
+
         // Apply LlmBuilder HTTP settings
         if let Some(timeout) = self.base.timeout {
             http_config.timeout = Some(timeout);
@@ -143,7 +143,7 @@ impl EnhancedOpenAiCompatibleBuilder {
         if let Some(proxy) = &self.base.proxy {
             http_config.proxy = Some(proxy.clone());
         }
-        
+
         // Merge default headers from LlmBuilder
         for (key, value) in &self.base.default_headers {
             http_config.headers.insert(key.clone(), value.clone());
@@ -155,12 +155,8 @@ impl EnhancedOpenAiCompatibleBuilder {
         // Create configuration
         let provider_id = adapter.provider_id.clone();
         let base_url = adapter.base_url.clone();
-        let mut config = OpenAiCompatibleConfig::new(
-            &provider_id,
-            &api_key,
-            &base_url,
-            Arc::new(adapter),
-        );
+        let mut config =
+            OpenAiCompatibleConfig::new(&provider_id, &api_key, &base_url, Arc::new(adapter));
 
         config = config
             .with_common_params(self.common_params)
@@ -228,10 +224,7 @@ mod tests {
             builder.base.proxy,
             Some("http://proxy.example.com:8080".to_string())
         );
-        assert_eq!(
-            builder.base.user_agent,
-            Some("test-agent/1.0".to_string())
-        );
+        assert_eq!(builder.base.user_agent, Some("test-agent/1.0".to_string()));
         assert!(builder.base.default_headers.contains_key("X-Test-Header"));
         assert_eq!(builder.common_params.temperature, Some(0.7));
     }
@@ -244,10 +237,9 @@ mod tests {
                 adapter.provider_id = "custom-provider".to_string();
                 adapter.base_url = "https://api.custom.com".to_string();
                 adapter.compatibility.supports_array_content = false;
-                adapter.custom_headers.insert(
-                    "X-Custom-Header".to_string(),
-                    "custom-value".to_string(),
-                );
+                adapter
+                    .custom_headers
+                    .insert("X-Custom-Header".to_string(), "custom-value".to_string());
                 adapter
             })
             .api_key("test-key")

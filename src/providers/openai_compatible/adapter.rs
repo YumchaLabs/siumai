@@ -4,7 +4,7 @@
 //! It's inspired by Cherry Studio's RequestTransformer and ResponseChunkTransformer patterns
 //! and fully integrates with our existing traits and HTTP configuration system.
 
-use super::types::{FieldMappings, ModelConfig, RequestType};
+use super::types::{FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig, RequestType};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::types::HttpConfig;
@@ -123,6 +123,17 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// Field mappings that specify which fields to look for in responses
     fn get_field_mappings(&self, model: &str) -> FieldMappings;
 
+    /// Get field accessor for dynamic field extraction
+    ///
+    /// This provides a configurable way to extract fields from JSON responses,
+    /// similar to Cherry Studio's response transformation system.
+    ///
+    /// # Returns
+    /// A field accessor that can extract values from JSON using field paths
+    fn get_field_accessor(&self) -> Box<dyn FieldAccessor> {
+        Box::new(JsonFieldAccessor::default())
+    }
+
     /// Get model-specific configuration
     ///
     /// This handles model-specific behaviors like Cherry Studio's model checks
@@ -180,8 +191,6 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
         // Providers can override to add custom headers, timeouts, etc.
         http_config
     }
-
-
 
     /// Validate model compatibility
     ///
