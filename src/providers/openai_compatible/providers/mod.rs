@@ -1,14 +1,8 @@
-//! OpenAI-Compatible Provider Models and Adapters
+//! OpenAI-Compatible Provider Models
 //!
-//! This module contains model constants and adapters for various OpenAI-compatible providers.
+//! This module contains model constants for various OpenAI-compatible providers.
+//! Provider adapters are now handled by the configurable registry system.
 
-pub mod deepseek;
 pub mod models;
-pub mod openrouter;
-pub mod siliconflow;
 
 pub use models::*;
-// Re-export new adapter system
-pub use deepseek::{DeepSeekAdapter, DeepSeekBuilder};
-pub use openrouter::{OpenRouterAdapter, OpenRouterBuilder};
-pub use siliconflow::{SiliconFlowAdapter, SiliconFlowBuilder};

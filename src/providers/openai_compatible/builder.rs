@@ -1,3 +1,4 @@
+use super::registry::get_provider_adapter;
 use crate::{LlmBuilder, LlmError};
 
 /// OpenAI-compatible builder for configuring OpenAI-compatible providers.
@@ -298,83 +299,8 @@ impl OpenAiCompatibleBuilder {
             LlmError::ConfigurationError(format!("API key is required for {}", self.provider_id))
         })?;
 
-        // Create adapter based on provider
-        let adapter: std::sync::Arc<
-            dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
-        > = match self.provider_id.as_str() {
-            "siliconflow" => {
-                // Create SiliconFlow adapter with thinking configuration if provided
-                let enable_thinking = self
-                    .provider_specific_config
-                    .get("enable_thinking")
-                    .and_then(|v| v.as_bool());
-                let thinking_budget = self
-                    .provider_specific_config
-                    .get("thinking_budget")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u32);
-
-                let adapter = if let Some(enable) = enable_thinking {
-                    if enable {
-                        crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::with_thinking_enabled(thinking_budget)
-                    } else {
-                        crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::with_thinking_disabled()
-                    }
-                } else if let Some(budget) = thinking_budget {
-                    // If only budget is specified, enable thinking with that budget
-                    crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::with_thinking_enabled(Some(budget))
-                } else {
-                    crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter::new()
-                };
-
-                std::sync::Arc::new(adapter)
-            }
-            "deepseek" => {
-                // Create DeepSeek adapter with reasoning configuration if provided
-                let enable_reasoning = self
-                    .provider_specific_config
-                    .get("enable_reasoning")
-                    .and_then(|v| v.as_bool());
-
-                let adapter = if let Some(enable) = enable_reasoning {
-                    if enable {
-                        crate::providers::openai_compatible::providers::deepseek::DeepSeekAdapter::with_reasoning_enabled()
-                    } else {
-                        crate::providers::openai_compatible::providers::deepseek::DeepSeekAdapter::with_reasoning_disabled()
-                    }
-                } else {
-                    crate::providers::openai_compatible::providers::deepseek::DeepSeekAdapter::new()
-                };
-
-                std::sync::Arc::new(adapter)
-            }
-            "openrouter" => {
-                // Create OpenRouter adapter with reasoning configuration if provided
-                let enable_reasoning = self
-                    .provider_specific_config
-                    .get("enable_reasoning")
-                    .and_then(|v| v.as_bool());
-
-                let adapter = if let Some(enable) = enable_reasoning {
-                    if enable {
-                        crate::providers::openai_compatible::providers::openrouter::OpenRouterAdapter::with_reasoning_enabled()
-                    } else {
-                        crate::providers::openai_compatible::providers::openrouter::OpenRouterAdapter::with_reasoning_disabled()
-                    }
-                } else {
-                    crate::providers::openai_compatible::providers::openrouter::OpenRouterAdapter::new()
-                };
-
-                std::sync::Arc::new(adapter)
-            }
-            // Add more providers here as needed
-            _ => {
-                return Err(LlmError::ConfigurationError(format!(
-                    "Unsupported provider: {}",
-                    self.provider_id
-                )));
-            }
-        };
+        // Create adapter using the registry (much simpler!)
+        let adapter = get_provider_adapter(&self.provider_id)?;
 
         // Get base URL before moving adapter
         let base_url = adapter.base_url().to_string();

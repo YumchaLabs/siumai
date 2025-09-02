@@ -21,6 +21,7 @@ async-trait = "0.1"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+lazy_static = "1.4"
 
 # Validation
 validator = { version = "0.20", features = ["derive"] }

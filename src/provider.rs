@@ -1063,10 +1063,9 @@ impl SiumaiBuilder {
                 match name.as_str() {
                     #[cfg(feature = "openai")]
                     "deepseek" => {
-                        // Use OpenAI-compatible client for DeepSeek with proper adapter
-                        let adapter = std::sync::Arc::new(
-                            crate::providers::openai_compatible::providers::deepseek::DeepSeekAdapter::new()
-                        );
+                        // Use OpenAI-compatible client for DeepSeek with registry adapter
+                        let adapter =
+                            crate::providers::openai_compatible::get_provider_adapter("deepseek")?;
 
                         let base_url =
                             base_url.unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
