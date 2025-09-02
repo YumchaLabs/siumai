@@ -106,7 +106,7 @@ impl ProviderAdapter for ConfigurableAdapter {
     }
 
     fn get_field_accessor(&self) -> Box<dyn FieldAccessor> {
-        Box::new(JsonFieldAccessor::default())
+        Box::new(JsonFieldAccessor)
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -117,6 +117,9 @@ impl ProviderAdapter for ConfigurableAdapter {
         }
         if self.config.capabilities.contains(&"vision".to_string()) {
             caps = caps.with_vision();
+        }
+        if self.config.capabilities.contains(&"embedding".to_string()) {
+            caps = caps.with_embedding();
         }
         if self.config.supports_reasoning {
             caps = caps.with_custom_feature("reasoning", true);
@@ -131,6 +134,51 @@ impl ProviderAdapter for ConfigurableAdapter {
 
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
         Box::new(self.clone())
+    }
+
+    /// Check if provider supports image generation
+    fn supports_image_generation(&self) -> bool {
+        self.config
+            .capabilities
+            .contains(&"image_generation".to_string())
+    }
+
+    /// Transform image generation request parameters
+    fn transform_image_request(
+        &self,
+        _request: &mut crate::types::ImageGenerationRequest,
+    ) -> Result<(), LlmError> {
+        // Most OpenAI-compatible providers use standard format
+        Ok(())
+    }
+
+    /// Get supported image sizes
+    fn get_supported_image_sizes(&self) -> Vec<String> {
+        // Standard sizes supported by most providers
+        vec![
+            "256x256".to_string(),
+            "512x512".to_string(),
+            "1024x1024".to_string(),
+            "1024x1792".to_string(),
+            "1792x1024".to_string(),
+        ]
+    }
+
+    /// Get supported image formats
+    fn get_supported_image_formats(&self) -> Vec<String> {
+        vec!["url".to_string(), "b64_json".to_string()]
+    }
+
+    /// Check if provider supports image editing
+    fn supports_image_editing(&self) -> bool {
+        // Most OpenAI-compatible providers support basic image editing
+        self.supports_image_generation()
+    }
+
+    /// Check if provider supports image variations
+    fn supports_image_variations(&self) -> bool {
+        // Most OpenAI-compatible providers support image variations
+        self.supports_image_generation()
     }
 }
 
@@ -153,55 +201,13 @@ impl ProviderRegistry {
 
     /// Register built-in providers (inspired by Cherry Studio's config)
     fn register_builtin_providers(&mut self) {
-        // DeepSeek
-        self.providers.insert(
-            "deepseek".to_string(),
-            ProviderConfig {
-                id: "deepseek".to_string(),
-                name: "DeepSeek".to_string(),
-                base_url: "https://api.deepseek.com/v1".to_string(),
-                field_mappings: ProviderFieldMappings {
-                    thinking_fields: vec!["reasoning_content".to_string(), "thinking".to_string()],
-                    ..Default::default()
-                },
-                capabilities: vec!["tools".to_string(), "vision".to_string()],
-                default_model: Some("deepseek-chat".to_string()),
-                supports_reasoning: true,
-            },
-        );
+        // Load all providers from the centralized config
+        let builtin_providers =
+            crate::providers::openai_compatible::config::get_builtin_providers();
 
-        // SiliconFlow
-        self.providers.insert(
-            "siliconflow".to_string(),
-            ProviderConfig {
-                id: "siliconflow".to_string(),
-                name: "SiliconFlow".to_string(),
-                base_url: "https://api.siliconflow.cn/v1".to_string(),
-                field_mappings: ProviderFieldMappings {
-                    thinking_fields: vec!["reasoning_content".to_string(), "thinking".to_string()],
-                    ..Default::default()
-                },
-                capabilities: vec!["tools".to_string(), "vision".to_string()],
-                default_model: Some("deepseek-chat".to_string()),
-                supports_reasoning: true,
-            },
-        );
-
-        // OpenRouter
-        self.providers.insert(
-            "openrouter".to_string(),
-            ProviderConfig {
-                id: "openrouter".to_string(),
-                name: "OpenRouter".to_string(),
-                base_url: "https://openrouter.ai/api/v1".to_string(),
-                field_mappings: ProviderFieldMappings::default(),
-                capabilities: vec!["tools".to_string(), "vision".to_string()],
-                default_model: None,
-                supports_reasoning: false,
-            },
-        );
-
-        // Add more providers here...
+        for (id, config) in builtin_providers {
+            self.providers.insert(id, config);
+        }
     }
 
     /// Get provider configuration by ID

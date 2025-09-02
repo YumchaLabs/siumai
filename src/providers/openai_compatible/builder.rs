@@ -95,6 +95,54 @@ impl OpenAiCompatibleBuilder {
         self
     }
 
+    /// Set request timeout
+    pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set connection timeout
+    pub fn connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Set user agent
+    pub fn user_agent<S: Into<String>>(mut self, user_agent: S) -> Self {
+        self.http_config.user_agent = Some(user_agent.into());
+        self
+    }
+
+    /// Set proxy URL
+    pub fn proxy<S: Into<String>>(mut self, proxy: S) -> Self {
+        self.http_config.proxy = Some(proxy.into());
+        self
+    }
+
+    /// Set custom headers
+    pub fn custom_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
+        self.http_config.headers = headers;
+        self
+    }
+
+    /// Add a custom header
+    pub fn header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.http_config.headers.insert(key.into(), value.into());
+        self
+    }
+
+    /// Set stop sequences
+    pub fn stop<S: Into<String>>(mut self, stop: Vec<S>) -> Self {
+        self.common_params.stop_sequences = Some(stop.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Set seed for deterministic outputs
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.common_params.seed = Some(seed);
+        self
+    }
+
     /// Set HTTP configuration
     pub fn with_http_config(mut self, config: crate::types::HttpConfig) -> Self {
         self.http_config = config;

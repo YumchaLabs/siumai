@@ -441,8 +441,8 @@ impl LlmClient for Siumai {
 /// This design allows users to switch providers with minimal code changes
 /// while maintaining access to provider-specific features when needed.
 pub struct SiumaiBuilder {
-    provider_type: Option<ProviderType>,
-    provider_name: Option<String>,
+    pub(crate) provider_type: Option<ProviderType>,
+    pub(crate) provider_name: Option<String>,
     api_key: Option<String>,
     base_url: Option<String>,
     capabilities: Vec<String>,
@@ -503,79 +503,7 @@ impl SiumaiBuilder {
         self
     }
 
-    // Convenience methods for specific providers (llm_dart style)
-
-    /// Create an `OpenAI` provider (convenience method)
-    #[cfg(feature = "openai")]
-    pub fn openai(mut self) -> Self {
-        self.provider_type = Some(ProviderType::OpenAi);
-        self.provider_name = Some("openai".to_string());
-        self
-    }
-
-    /// Create an Anthropic provider (convenience method)
-    #[cfg(feature = "anthropic")]
-    pub fn anthropic(mut self) -> Self {
-        self.provider_type = Some(ProviderType::Anthropic);
-        self.provider_name = Some("anthropic".to_string());
-        self
-    }
-
-    /// Create a Gemini provider (convenience method)
-    #[cfg(feature = "google")]
-    pub fn gemini(mut self) -> Self {
-        self.provider_type = Some(ProviderType::Gemini);
-        self.provider_name = Some("gemini".to_string());
-        self
-    }
-
-    /// Create an Ollama provider (convenience method)
-    #[cfg(feature = "ollama")]
-    pub fn ollama(mut self) -> Self {
-        self.provider_type = Some(ProviderType::Ollama);
-        self.provider_name = Some("ollama".to_string());
-        self
-    }
-
-    /// Create a `SiliconFlow` provider (convenience method)
-    #[cfg(feature = "openai")]
-    pub fn siliconflow(mut self) -> Self {
-        self.provider_type = Some(ProviderType::Custom("siliconflow".to_string()));
-        self.provider_name = Some("siliconflow".to_string());
-        self
-    }
-
-    /// Create a `DeepSeek` provider (convenience method)
-    #[cfg(feature = "openai")]
-    pub fn deepseek(mut self) -> Self {
-        self.provider_type = Some(ProviderType::Custom("deepseek".to_string()));
-        self.provider_name = Some("deepseek".to_string());
-        self
-    }
-
-    /// Create an `OpenRouter` provider (convenience method)
-    #[cfg(feature = "openai")]
-    pub fn openrouter(mut self) -> Self {
-        self.provider_type = Some(ProviderType::Custom("openrouter".to_string()));
-        self.provider_name = Some("openrouter".to_string());
-        self
-    }
-
-    /// Create a Groq provider (convenience method)
-    #[cfg(feature = "groq")]
-    pub fn groq(mut self) -> Self {
-        self.provider_type = Some(ProviderType::Groq);
-        self.provider_name = Some("groq".to_string());
-        self
-    }
-
-    /// Create an xAI provider (convenience method)
-    #[cfg(feature = "xai")]
-    pub fn xai(mut self) -> Self {
-        self.provider_type = Some(ProviderType::XAI);
-        self.provider_name = Some("xai".to_string());
-        self
-    }
+    // Provider convenience methods are now defined in src/provider_builders.rs
 
     /// Set the API key
     pub fn api_key<S: Into<String>>(mut self, api_key: S) -> Self {

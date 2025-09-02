@@ -88,19 +88,7 @@ use std::time::Duration;
 
 use crate::error::LlmError;
 
-// Import parameter types - these will be moved to providers modules later
-#[cfg(feature = "anthropic")]
-#[cfg(feature = "openai")]
-#[cfg(feature = "ollama")]
-#[cfg(any(
-    feature = "openai",
-    feature = "anthropic",
-    feature = "google",
-    feature = "ollama",
-    feature = "xai",
-    feature = "groq"
-))]
-use crate::providers::*;
+// Note: Removed unused import crate::providers::* to fix warning
 
 /// Quick `OpenAI` client creation with minimal configuration.
 ///
@@ -419,143 +407,8 @@ impl LlmBuilder {
 
     // Provider-specific builders
 
-    /// Create an `OpenAI` client builder.
-    ///
-    /// # Returns
-    /// OpenAI-specific builder for further configuration
-    #[cfg(feature = "openai")]
-    pub fn openai(self) -> openai::OpenAiBuilder {
-        openai::OpenAiBuilder::new(self)
-    }
-
-    /// Create an Anthropic client builder.
-    ///
-    /// # Returns
-    /// Anthropic-specific builder for further configuration
-    #[cfg(feature = "anthropic")]
-    pub fn anthropic(self) -> anthropic::AnthropicBuilder {
-        anthropic::AnthropicBuilder::new(self)
-    }
-
-    /// Create a Google client builder.
-    ///
-    /// # Returns
-    /// Gemini-specific builder for further configuration
-    #[cfg(feature = "google")]
-    pub const fn gemini(self) -> gemini::GeminiBuilder {
-        gemini::GeminiBuilder::new(self)
-    }
-
-    /// Create an Ollama client builder.
-    ///
-    /// # Returns
-    /// Ollama-specific builder for further configuration
-    #[cfg(feature = "ollama")]
-    pub fn ollama(self) -> ollama::OllamaBuilder {
-        ollama::OllamaBuilder::new(self)
-    }
-
-    /// Create an xAI client builder.
-    ///
-    /// # Returns
-    /// xAI-specific builder for further configuration
-    #[cfg(feature = "xai")]
-    pub fn xai(self) -> xai::XaiBuilderWrapper {
-        xai::XaiBuilderWrapper::new(self)
-    }
-
-    /// Create a Groq client builder.
-    ///
-    /// # Returns
-    /// Groq-specific builder for further configuration
-    #[cfg(feature = "groq")]
-    pub fn groq(self) -> groq::GroqBuilderWrapper {
-        groq::GroqBuilderWrapper::new(self)
-    }
-
-    // OpenAI-Compatible Providers
-
-    /// Create a `SiliconFlow` client builder (OpenAI-compatible).
-    ///
-    /// `SiliconFlow` provides access to various AI models including chat, embeddings,
-    /// reranking, and image generation capabilities.
-    /// Uses the unified OpenAI-compatible system with proper adapter handling.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::builder::LlmBuilder;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client = LlmBuilder::new()
-    ///         .siliconflow()
-    ///         .api_key("your-siliconflow-api-key")
-    ///         .model("deepseek-chat")
-    ///         .temperature(0.7)
-    ///         .build()
-    ///         .await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    #[cfg(feature = "openai")]
-    pub fn siliconflow(self) -> openai_compatible::OpenAiCompatibleBuilder {
-        openai_compatible::OpenAiCompatibleBuilder::new(self, "siliconflow")
-    }
-
-    /// Create a `DeepSeek` client builder (OpenAI-compatible).
-    ///
-    /// `DeepSeek` provides access to DeepSeek models with reasoning capabilities.
-    /// Uses the unified OpenAI-compatible system with proper adapter handling.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::builder::LlmBuilder;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client = LlmBuilder::new()
-    ///         .deepseek()
-    ///         .api_key("your-deepseek-api-key")
-    ///         .model("deepseek-chat")
-    ///         .temperature(0.7)
-    ///         .build()
-    ///         .await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    #[cfg(feature = "openai")]
-    pub fn deepseek(self) -> openai_compatible::OpenAiCompatibleBuilder {
-        openai_compatible::OpenAiCompatibleBuilder::new(self, "deepseek")
-    }
-
-    /// Create an `OpenRouter` client builder (OpenAI-compatible).
-    ///
-    /// `OpenRouter` provides access to multiple AI models through a unified API.
-    /// Uses the unified OpenAI-compatible system with proper adapter handling.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::builder::LlmBuilder;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client = LlmBuilder::new()
-    ///         .openrouter()
-    ///         .api_key("your-openrouter-api-key")
-    ///         .model("openai/gpt-4")
-    ///         .temperature(0.7)
-    ///         .build()
-    ///         .await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    #[cfg(feature = "openai")]
-    pub fn openrouter(self) -> openai_compatible::OpenAiCompatibleBuilder {
-        openai_compatible::OpenAiCompatibleBuilder::new(self, "openrouter")
-    }
+    // Provider builder methods are now defined in src/providers/builders.rs
+    // This keeps the main builder clean and organized
 
     /// Build the HTTP client with the configured settings.
     ///

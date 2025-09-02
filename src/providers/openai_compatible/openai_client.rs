@@ -501,14 +501,9 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
 
-        // For now, create a simple response - proper parsing will be implemented later
-        let embedding_response = EmbeddingResponse::new(
-            vec![vec![0.0; 1536]], // Placeholder embedding
-            self.config.model.clone(),
-        );
-
-        // TODO: Parse actual response when EmbeddingResponse implements Deserialize
-        let _ = response_text; // Suppress unused variable warning
+        // Parse the embedding response
+        let embedding_response =
+            parse_embedding_response(&response_text, &self.config.provider_id)?;
 
         Ok(embedding_response)
     }
@@ -834,16 +829,27 @@ impl LlmClient for OpenAiCompatibleClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter;
+    use crate::providers::openai_compatible::registry::ConfigurableAdapter;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn test_client_creation() {
+        let provider_config = crate::providers::openai_compatible::registry::ProviderConfig {
+            id: "test".to_string(),
+            name: "Test Provider".to_string(),
+            base_url: "https://api.test.com/v1".to_string(),
+            field_mappings:
+                crate::providers::openai_compatible::registry::ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string()],
+            default_model: Some("test-model".to_string()),
+            supports_reasoning: false,
+        };
+
         let config = OpenAiCompatibleConfig::new(
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(provider_config)),
         )
         .with_model("test-model");
 
@@ -854,12 +860,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_validation() {
+        let provider_config = crate::providers::openai_compatible::registry::ProviderConfig {
+            id: "test".to_string(),
+            name: "Test Provider".to_string(),
+            base_url: "https://api.test.com/v1".to_string(),
+            field_mappings:
+                crate::providers::openai_compatible::registry::ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string()],
+            default_model: Some("test-model".to_string()),
+            supports_reasoning: false,
+        };
+
         // Invalid config should fail
         let config = OpenAiCompatibleConfig::new(
             "",
             "test-key",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(provider_config)),
         );
 
         assert!(OpenAiCompatibleClient::new(config).await.is_err());
@@ -910,4 +927,42 @@ fn parse_rerank_response(
             serde_json::from_str::<RerankResponse>(response_text).unwrap_err()
         )))
     }
+}
+
+/// OpenAI-compatible embedding response structure
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct OpenAiCompatibleEmbeddingResponse {
+    pub object: String,
+    pub data: Vec<OpenAiCompatibleEmbeddingData>,
+    pub model: String,
+    pub usage: Option<EmbeddingUsage>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct OpenAiCompatibleEmbeddingData {
+    pub object: String,
+    pub embedding: Vec<f32>,
+    pub index: usize,
+}
+
+/// Parse embedding response based on provider
+fn parse_embedding_response(
+    response_text: &str,
+    _provider_id: &str,
+) -> Result<EmbeddingResponse, LlmError> {
+    // Try to parse as OpenAI-compatible format
+    let openai_response: OpenAiCompatibleEmbeddingResponse = serde_json::from_str(response_text)
+        .map_err(|e| LlmError::ParseError(format!("Failed to parse embedding response: {e}")))?;
+
+    // Convert to standard format
+    let embeddings = openai_response
+        .data
+        .into_iter()
+        .map(|data| data.embedding)
+        .collect();
+
+    let mut response = EmbeddingResponse::new(embeddings, openai_response.model);
+    response.usage = openai_response.usage;
+
+    Ok(response)
 }

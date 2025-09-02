@@ -126,10 +126,10 @@ impl FieldAccessor for JsonFieldAccessor {
             ];
 
             for path in paths {
-                if let Some(value) = self.get_field_value(json, &path) {
-                    if !value.trim().is_empty() {
-                        return Some(value);
-                    }
+                if let Some(value) = self.get_field_value(json, &path)
+                    && !value.trim().is_empty()
+                {
+                    return Some(value);
                 }
             }
         }
@@ -154,10 +154,10 @@ impl FieldAccessor for JsonFieldAccessor {
         ];
 
         for path in paths {
-            if let Some(value) = self.get_field_value(json, &path) {
-                if !value.trim().is_empty() {
-                    return Some(value);
-                }
+            if let Some(value) = self.get_field_value(json, &path)
+                && !value.trim().is_empty()
+            {
+                return Some(value);
             }
         }
 

@@ -37,7 +37,7 @@ Add Siumai to your `Cargo.toml`:
 ```toml
 [dependencies]
 # By default, all providers are included
-siumai = "0.9.1"
+siumai = "0.10"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -48,16 +48,16 @@ Siumai allows you to include only the providers you need, reducing compilation t
 ```toml
 [dependencies]
 # Only OpenAI
-siumai = { version = "0.9.1", features = ["openai"] }
+siumai = { version = "0.10", features = ["openai"] }
 
 # Multiple specific providers
-siumai = { version = "0.9.1", features = ["openai", "anthropic", "google"] }
+siumai = { version = "0.10", features = ["openai", "anthropic", "google"] }
 
 # All providers (same as default)
-siumai = { version = "0.9.1", features = ["all-providers"] }
+siumai = { version = "0.10", features = ["all-providers"] }
 
 # Only local AI (Ollama)
-siumai = { version = "0.9.1", features = ["ollama"] }
+siumai = { version = "0.10", features = ["ollama"] }
 ```
 
 #### Available Features
@@ -77,7 +77,7 @@ siumai = { version = "0.9.1", features = ["ollama"] }
 Use `Provider` when you need access to provider-specific features:
 
 ```rust
-// Cargo.toml: siumai = { version = "0.9.1", features = ["openai"] }
+// Cargo.toml: siumai = { version = "0.10", features = ["openai"] }
 use siumai::models;
 use siumai::prelude::*;
 
@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Use `Siumai::builder()` when you want provider-agnostic code:
 
 ```rust
-// Cargo.toml: siumai = { version = "0.9.1", features = ["anthropic"] }
+// Cargo.toml: siumai = { version = "0.10", features = ["anthropic"] }
 use siumai::models;
 use siumai::prelude::*;
 

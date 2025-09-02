@@ -139,7 +139,7 @@ pub enum EmbeddingFormat {
 }
 
 /// Embedding response containing vectors and metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingResponse {
     /// Embedding vectors (one per input text)
     pub embeddings: Vec<Vec<f32>>,
@@ -148,6 +148,7 @@ pub struct EmbeddingResponse {
     /// Token usage information
     pub usage: Option<EmbeddingUsage>,
     /// Provider-specific metadata
+    #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
 }
 

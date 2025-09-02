@@ -131,7 +131,7 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// # Returns
     /// A field accessor that can extract values from JSON using field paths
     fn get_field_accessor(&self) -> Box<dyn FieldAccessor> {
-        Box::new(JsonFieldAccessor::default())
+        Box::new(JsonFieldAccessor)
     }
 
     /// Get model-specific configuration

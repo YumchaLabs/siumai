@@ -17,6 +17,10 @@ pub mod openai_compatible;
 #[cfg(feature = "xai")]
 pub mod xai;
 
+// Provider builder methods and convenience functions
+pub mod builders;
+pub mod convenience;
+
 // Re-export main types
 #[cfg(feature = "anthropic")]
 pub use anthropic::AnthropicClient;

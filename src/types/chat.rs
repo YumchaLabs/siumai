@@ -92,12 +92,16 @@ pub enum CacheControl {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MessageMetadata {
     /// Message ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// Timestamp
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<chrono::DateTime<chrono::Utc>>,
     /// Cache control (Anthropic-specific)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     /// Custom metadata
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub custom: HashMap<String, serde_json::Value>,
 }
 
@@ -109,6 +113,7 @@ pub struct ChatMessage {
     /// Content
     pub content: MessageContent,
     /// Message metadata
+    #[serde(default)]
     pub metadata: MessageMetadata,
     /// Tool calls
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -199,6 +204,24 @@ impl ChatMessage {
                 })
                 .sum(),
         }
+    }
+
+    /// Get message metadata (always available due to default)
+    pub fn metadata(&self) -> &MessageMetadata {
+        &self.metadata
+    }
+
+    /// Get mutable reference to metadata
+    pub fn metadata_mut(&mut self) -> &mut MessageMetadata {
+        &mut self.metadata
+    }
+
+    /// Check if message has any metadata set
+    pub fn has_metadata(&self) -> bool {
+        self.metadata.id.is_some()
+            || self.metadata.timestamp.is_some()
+            || self.metadata.cache_control.is_some()
+            || !self.metadata.custom.is_empty()
     }
 }
 

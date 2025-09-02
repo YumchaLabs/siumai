@@ -111,15 +111,26 @@ impl OpenAiCompatibleConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::openai_compatible::providers::siliconflow::SiliconFlowAdapter;
+    use crate::providers::openai_compatible::registry::ConfigurableAdapter;
 
     #[test]
     fn test_config_creation() {
+        let provider_config = crate::providers::openai_compatible::registry::ProviderConfig {
+            id: "test".to_string(),
+            name: "Test Provider".to_string(),
+            base_url: "https://api.test.com/v1".to_string(),
+            field_mappings:
+                crate::providers::openai_compatible::registry::ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string()],
+            default_model: Some("test-model".to_string()),
+            supports_reasoning: false,
+        };
+
         let config = OpenAiCompatibleConfig::new(
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(provider_config)),
         );
 
         assert_eq!(config.provider_id, "test");
@@ -129,11 +140,22 @@ mod tests {
 
     #[test]
     fn test_config_with_model() {
+        let provider_config = crate::providers::openai_compatible::registry::ProviderConfig {
+            id: "test".to_string(),
+            name: "Test Provider".to_string(),
+            base_url: "https://api.test.com/v1".to_string(),
+            field_mappings:
+                crate::providers::openai_compatible::registry::ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string()],
+            default_model: Some("test-model".to_string()),
+            supports_reasoning: false,
+        };
+
         let config = OpenAiCompatibleConfig::new(
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(provider_config)),
         )
         .with_model("test-model");
 
@@ -142,12 +164,25 @@ mod tests {
 
     #[test]
     fn test_config_validation() {
+        // Helper function to create test provider config
+        let create_provider_config =
+            || crate::providers::openai_compatible::registry::ProviderConfig {
+                id: "test".to_string(),
+                name: "Test Provider".to_string(),
+                base_url: "https://api.test.com/v1".to_string(),
+                field_mappings:
+                    crate::providers::openai_compatible::registry::ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string()],
+                default_model: Some("test-model".to_string()),
+                supports_reasoning: false,
+            };
+
         // Valid config
         let config = OpenAiCompatibleConfig::new(
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(create_provider_config())),
         );
         assert!(config.validate().is_ok());
 
@@ -156,7 +191,7 @@ mod tests {
             "",
             "test-key",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(create_provider_config())),
         );
         assert!(config.validate().is_err());
 
@@ -165,7 +200,7 @@ mod tests {
             "test",
             "",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(create_provider_config())),
         );
         assert!(config.validate().is_err());
 
@@ -174,18 +209,29 @@ mod tests {
             "test",
             "test-key",
             "invalid-url",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(create_provider_config())),
         );
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_config_with_header() {
+        let provider_config = crate::providers::openai_compatible::registry::ProviderConfig {
+            id: "test".to_string(),
+            name: "Test Provider".to_string(),
+            base_url: "https://api.test.com/v1".to_string(),
+            field_mappings:
+                crate::providers::openai_compatible::registry::ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string()],
+            default_model: Some("test-model".to_string()),
+            supports_reasoning: false,
+        };
+
         let config = OpenAiCompatibleConfig::new(
             "test",
             "test-key",
             "https://api.test.com/v1",
-            Arc::new(SiliconFlowAdapter::new()),
+            Arc::new(ConfigurableAdapter::new(provider_config)),
         )
         .with_header("X-Custom", "test-value")
         .unwrap();

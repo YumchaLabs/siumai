@@ -92,6 +92,7 @@ pub mod multimodal;
 pub mod params;
 pub mod performance;
 pub mod provider;
+pub mod provider_builders;
 pub mod provider_features;
 #[cfg(any(
     feature = "openai",
@@ -276,23 +277,8 @@ impl Provider {
         crate::providers::groq::GroqBuilder::new()
     }
 
-    /// Create an `OpenRouter` client builder (OpenAI-compatible with adapter)
-    #[cfg(feature = "openai")]
-    pub fn openrouter() -> providers::openai_compatible::OpenAiCompatibleBuilder {
-        crate::builder::LlmBuilder::new().openrouter()
-    }
-
-    /// Create a `DeepSeek` client builder (OpenAI-compatible with adapter)
-    #[cfg(feature = "openai")]
-    pub fn deepseek() -> providers::openai_compatible::OpenAiCompatibleBuilder {
-        crate::builder::LlmBuilder::new().deepseek()
-    }
-
-    /// Create a SiliconFlow client builder (OpenAI-compatible with adapter)
-    #[cfg(feature = "openai")]
-    pub fn siliconflow() -> providers::openai_compatible::OpenAiCompatibleBuilder {
-        crate::builder::LlmBuilder::new().siliconflow()
-    }
+    // Provider convenience functions are now organized in providers::convenience module
+    // This keeps the main lib.rs clean and organized
 }
 
 /// Siumai unified interface entry point
@@ -552,6 +538,24 @@ macro_rules! quick_chat {
         vec![$crate::system!($system), $crate::user!($msg)]
     };
 }
+
+// Re-export provider convenience functions for easy access
+#[cfg(feature = "anthropic")]
+pub use providers::convenience::core::anthropic;
+#[cfg(feature = "google")]
+pub use providers::convenience::core::gemini;
+#[cfg(feature = "groq")]
+pub use providers::convenience::core::groq;
+#[cfg(feature = "ollama")]
+pub use providers::convenience::core::ollama;
+#[cfg(feature = "openai")]
+pub use providers::convenience::core::openai;
+#[cfg(feature = "xai")]
+pub use providers::convenience::core::xai;
+
+// Re-export all OpenAI-compatible provider functions
+#[cfg(feature = "openai")]
+pub use providers::convenience::openai_compatible::*;
 
 #[cfg(test)]
 mod tests {

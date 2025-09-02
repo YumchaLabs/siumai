@@ -44,6 +44,7 @@ pub mod providers;
 // New adapter system modules
 pub mod adapter;
 pub mod builder;
+pub mod config;
 pub mod default_models;
 pub mod openai_client;
 pub mod openai_config;
@@ -57,6 +58,9 @@ pub use providers::models::{deepseek, groq, openrouter, siliconflow, xai};
 // Re-export new adapter system
 pub use adapter::{ProviderAdapter, ProviderCompatibility};
 pub use builder::OpenAiCompatibleBuilder;
+pub use config::{
+    get_builtin_providers, get_provider_config, list_provider_ids, provider_supports_capability,
+};
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use registry::{ConfigurableAdapter, ProviderConfig, ProviderRegistry, get_provider_adapter};

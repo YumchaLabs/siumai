@@ -48,14 +48,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n{}\n", "=".repeat(80));
 
     // Demo 3: Gemini thinking (non-streaming)
-    // println!("📋 Demo 3: Gemini Thinking (Non-streaming)");
-    // demo_gemini_non_streaming().await?;
+    println!("📋 Demo 3: Gemini Thinking (Non-streaming)");
+    demo_gemini_non_streaming().await?;
 
-    // println!("\n{}\n", "=".repeat(80));
+    println!("\n{}\n", "=".repeat(80));
 
-    // // Demo 4: Gemini thinking (streaming)
-    // println!("📋 Demo 4: Gemini Thinking (Streaming)");
-    // demo_gemini_streaming().await?;
+    // Demo 4: Gemini thinking (streaming)
+    println!("📋 Demo 4: Gemini Thinking (Streaming)");
+    demo_gemini_streaming().await?;
 
     println!("\n{}\n", "=".repeat(80));
 
@@ -191,7 +191,7 @@ async fn demo_deepseek_streaming() -> Result<(), Box<dyn std::error::Error>> {
             let mut response_content = String::new();
             let mut in_thinking_phase = false;
             let mut in_content_phase = false;
-            let mut thinking_lines = 0;
+            let thinking_lines = 0;
 
             while let Some(event) = stream.next().await {
                 match event {
@@ -199,23 +199,14 @@ async fn demo_deepseek_streaming() -> Result<(), Box<dyn std::error::Error>> {
                         if !in_thinking_phase {
                             println!("   🧠 Reasoning Process (streaming):");
                             println!("   {}", "─".repeat(60));
+                            print!("   ");
                             in_thinking_phase = true;
                             in_content_phase = false;
                         }
                         thinking_content.push_str(&delta);
 
-                        // Display reasoning in real-time with better formatting
-                        for line in delta.lines() {
-                            if !line.trim().is_empty() {
-                                thinking_lines += 1;
-                                println!("   {:2}: {}", thinking_lines, line.trim());
-                            }
-                        }
-
-                        // Also display partial lines (for real-time effect)
-                        if !delta.ends_with('\n') && !delta.trim().is_empty() {
-                            print!("   >> {}", delta.trim());
-                        }
+                        // Display reasoning content naturally (like normal text)
+                        print!("{}", delta);
                         io::stdout().flush().unwrap();
                     }
                     Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
@@ -407,36 +398,21 @@ async fn demo_gemini_streaming() -> Result<(), Box<dyn std::error::Error>> {
                         if !in_thinking_phase {
                             println!("   🧠 Thinking Process (streaming):");
                             println!("   {}", "─".repeat(60));
+                            print!("   ");
                             in_thinking_phase = true;
                             in_content_phase = false;
                         }
                         thinking_content.push_str(&delta);
 
-                        // Display thinking in real-time with section markers
-                        for line in delta.lines() {
-                            if !line.trim().is_empty() {
-                                if line.contains("Framework")
-                                    || line.contains("Consideration")
-                                    || line.contains("Approach")
-                                    || line.contains("Analysis")
-                                {
-                                    thinking_sections += 1;
-                                    println!(
-                                        "   🔍 Section {}: {}",
-                                        thinking_sections,
-                                        line.trim()
-                                    );
-                                } else {
-                                    println!("      {}", line.trim());
-                                }
-                            }
-                        }
-
-                        // Display partial content for real-time effect
-                        if !delta.ends_with('\n') && !delta.trim().is_empty() {
-                            print!("      >> {}", delta.trim());
-                        }
+                        // Display thinking content naturally (like normal text)
+                        print!("{}", delta);
                         io::stdout().flush().unwrap();
+
+                        // Count sections for statistics
+                        thinking_sections += delta.matches("Framework").count()
+                            + delta.matches("Consideration").count()
+                            + delta.matches("Approach").count()
+                            + delta.matches("Analysis").count();
                     }
                     Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
                         if !in_content_phase {
@@ -695,41 +671,15 @@ async fn demo_enhanced_deepseek_streaming() -> Result<(), Box<dyn std::error::Er
 
                         thinking_content.push_str(&delta);
 
-                        // Process and display reasoning content with step detection
-                        for line in delta.lines() {
-                            let trimmed = line.trim();
-                            if !trimmed.is_empty() {
-                                // Detect reasoning steps
-                                if trimmed.starts_with("Step")
-                                    || trimmed.starts_with("1.")
-                                    || trimmed.starts_with("2.")
-                                    || trimmed.starts_with("3.")
-                                    || trimmed.starts_with("4.")
-                                    || trimmed.starts_with("5.")
-                                    || trimmed.contains("Consider")
-                                    || trimmed.contains("Analysis")
-                                {
-                                    thinking_steps += 1;
-                                    println!("   🔍 Step {}: {}", thinking_steps, trimmed);
-                                } else if trimmed.starts_with("-") || trimmed.starts_with("•") {
-                                    println!(
-                                        "     • {}",
-                                        trimmed
-                                            .trim_start_matches('-')
-                                            .trim_start_matches('•')
-                                            .trim()
-                                    );
-                                } else {
-                                    println!("     {}", trimmed);
-                                }
-                            }
-                        }
+                        // Display reasoning content naturally (like normal text)
+                        print!("{}", delta);
+                        io::stdout().flush().unwrap();
 
-                        // Handle partial content (real-time streaming effect)
-                        if !delta.ends_with('\n') && !delta.trim().is_empty() {
-                            print!("     >> {}", delta.trim());
-                            io::stdout().flush().unwrap();
-                        }
+                        // Count steps for statistics
+                        thinking_steps += delta.matches("Step").count()
+                            + delta.matches("1.").count()
+                            + delta.matches("Consider").count()
+                            + delta.matches("Analysis").count();
                     }
 
                     Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
