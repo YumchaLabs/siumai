@@ -76,7 +76,7 @@ pub struct OpenAiCompatibleUsage {
 ///
 /// This is a separate client implementation that uses the adapter system
 /// to handle provider-specific differences without modifying the core OpenAI client.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OpenAiCompatibleClient {
     config: OpenAiCompatibleConfig,
     http_client: reqwest::Client,

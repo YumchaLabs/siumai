@@ -35,13 +35,64 @@ struct OpenAiStreamChoice {
 }
 
 /// OpenAI stream delta
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct OpenAiStreamDelta {
     role: Option<String>,
     content: Option<String>,
     tool_calls: Option<Vec<OpenAiToolCallDelta>>,
     thinking: Option<String>,
+}
+
+impl<'de> serde::Deserialize<'de> for OpenAiStreamDelta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value: serde_json::Value = serde_json::Value::deserialize(deserializer)?;
+
+        // Extract thinking content using priority order: reasoning_content > thinking > reasoning
+        let thinking = extract_thinking_from_multiple_fields(&value);
+
+        // Extract other fields normally
+        let role = value.get("role").and_then(|v| v.as_str()).map(String::from);
+
+        let content = value
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let tool_calls = value
+            .get("tool_calls")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+        Ok(OpenAiStreamDelta {
+            role,
+            content,
+            tool_calls,
+            thinking,
+        })
+    }
+}
+
+/// Extract thinking content from multiple possible field names with priority order
+///
+/// Priority order: reasoning_content > thinking > reasoning
+/// This matches the OpenAI-compatible adapter's field priority logic
+pub(crate) fn extract_thinking_from_multiple_fields(value: &serde_json::Value) -> Option<String> {
+    // Field names in priority order (same as OpenAI-compatible adapter)
+    let field_names = ["reasoning_content", "thinking", "reasoning"];
+
+    for field_name in &field_names {
+        if let Some(thinking_value) = value
+            .get(field_name)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+        {
+            return Some(thinking_value.to_string());
+        }
+    }
+    None
 }
 
 /// OpenAI tool call delta

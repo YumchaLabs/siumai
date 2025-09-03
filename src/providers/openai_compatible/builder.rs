@@ -34,6 +34,8 @@ pub struct OpenAiCompatibleBuilder {
     provider_id: String,
     /// API key for the provider
     api_key: Option<String>,
+    /// Custom base URL (overrides provider default)
+    base_url: Option<String>,
     /// Model to use
     model: Option<String>,
     /// Common parameters
@@ -58,6 +60,7 @@ impl OpenAiCompatibleBuilder {
             base,
             provider_id: provider_id.to_string(),
             api_key: None,
+            base_url: None,
             model: default_model,
             common_params: crate::types::CommonParams::default(),
             http_config: crate::types::HttpConfig::default(),
@@ -68,6 +71,46 @@ impl OpenAiCompatibleBuilder {
     /// Set the API key
     pub fn api_key<S: Into<String>>(mut self, api_key: S) -> Self {
         self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// Set a custom base URL
+    ///
+    /// This allows you to override the default provider base URL, which is useful for:
+    /// - Self-deployed OpenAI-compatible servers
+    /// - Providers with multiple service endpoints
+    /// - Custom proxy or gateway configurations
+    ///
+    /// # Arguments
+    /// * `base_url` - The custom base URL to use (e.g., "https://my-server.com/v1")
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::prelude::*;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     // Use a self-deployed OpenAI-compatible server
+    ///     let client = LlmBuilder::new()
+    ///         .deepseek()
+    ///         .api_key("your-api-key")
+    ///         .base_url("https://my-deepseek-server.com/v1")
+    ///         .model("deepseek-chat")
+    ///         .build()
+    ///         .await?;
+    ///
+    ///     // Use an alternative endpoint for a provider
+    ///     let client2 = LlmBuilder::new()
+    ///         .openrouter()
+    ///         .api_key("your-api-key")
+    ///         .base_url("https://openrouter.ai/api/v1")
+    ///         .model("openai/gpt-4")
+    ///         .build()
+    ///         .await?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.base_url = Some(base_url.into());
         self
     }
 
@@ -350,8 +393,10 @@ impl OpenAiCompatibleBuilder {
         // Create adapter using the registry (much simpler!)
         let adapter = get_provider_adapter(&self.provider_id)?;
 
-        // Get base URL before moving adapter
-        let base_url = adapter.base_url().to_string();
+        // Use custom base URL if provided, otherwise use adapter's default
+        let base_url = self
+            .base_url
+            .unwrap_or_else(|| adapter.base_url().to_string());
 
         // Create configuration
         let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(

@@ -65,3 +65,9 @@ pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use registry::{ConfigurableAdapter, ProviderConfig, ProviderRegistry, get_provider_adapter};
 pub use types::{FieldMappings, ModelConfig, RequestType};
+
+// Test modules
+#[cfg(test)]
+mod tests {
+    pub mod base_url_tests;
+}

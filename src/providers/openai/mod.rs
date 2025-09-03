@@ -97,3 +97,9 @@ pub use responses::{
 
 // Re-export parameter enums for convenience
 pub use crate::params::openai::{IncludableItem, SortOrder, TruncationStrategy};
+
+// Test modules
+#[cfg(test)]
+mod tests {
+    pub mod thinking_priority_tests;
+}
