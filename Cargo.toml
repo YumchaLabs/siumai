@@ -1,6 +1,6 @@
 [package]
 name = "siumai"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
 description = "A unified LLM interface library for Rust"
