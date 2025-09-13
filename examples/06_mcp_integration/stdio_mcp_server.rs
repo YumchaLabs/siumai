@@ -129,6 +129,7 @@ impl ServerHandler for StdioMcpServer {
             server_info: Implementation {
                 name: "siumai-stdio-mcp-server".into(),
                 version: "1.0.0".into(),
+                ..Default::default()
             },
             instructions: Some("Stdio MCP Server providing simple tools like add and get_time for siumai LLM integration examples.".to_string()),
         }

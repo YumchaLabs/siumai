@@ -114,6 +114,7 @@ impl ServerHandler for McpServer {
             server_info: Implementation {
                 name: "siumai-http-mcp-server".into(),
                 version: "1.0.0".into(),
+                ..Default::default()
             },
             instructions: Some("HTTP MCP Server providing simple tools like add and get_time for siumai LLM integration examples.".to_string()),
         }
