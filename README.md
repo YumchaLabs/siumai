@@ -885,6 +885,24 @@ let sf_request = ImageGenerationRequest {
 let sf_response = siliconflow_client.generate_images(sf_request).await?;
 ```
 
+### Provider Matrix (Features/Env Vars)
+
+The table below summarizes feature flags, default base URLs, and environment variables. Capabilities depend on models and may vary; use examples and tests to verify.
+
+| Provider | Feature flag | Default base URL | Env var |
+|---------|---------------|------------------|---------|
+| OpenAI | `openai` | https://api.openai.com/v1 | `OPENAI_API_KEY` |
+| Anthropic | `anthropic` | https://api.anthropic.com | `ANTHROPIC_API_KEY` |
+| Google (Gemini) | `google` | https://generativeai.googleapis.com | `GEMINI_API_KEY` |
+| Groq | `groq` | https://api.groq.com/openai/v1 | `GROQ_API_KEY` |
+| xAI | `xai` | https://api.x.ai/v1 | `XAI_API_KEY` |
+| Ollama (local) | `ollama` | http://localhost:11434 | (none) |
+| OpenAI‑Compatible (DeepSeek/OpenRouter/SiliconFlow) | `openai` | provider specific | varies (e.g., `DEEPSEEK_API_KEY`) |
+
+Notes:
+- Enable providers via Cargo features (selective compile) or use default `all-providers`.
+- Capabilities (chat, streaming, embeddings, vision, images, tools, rerank) depend on provider and model.
+
 ## 🧪 Testing
 
 ### Unit and Mock Tests
@@ -973,7 +991,7 @@ See [tests/README.md](tests/README.md) for detailed instructions.
 Run examples:
 
 ```bash
-cargo run --example basic_usage
+cargo run --example quick_start
 ```
 
 ## 📖 Documentation

@@ -72,6 +72,15 @@ impl GeminiClient {
                 LlmError::ConfigurationError(format!("Failed to create HTTP client: {e}"))
             })?;
 
+        Self::with_http_client(config, http_client)
+    }
+
+    /// Create a new Gemini client with a custom HTTP client
+    pub fn with_http_client(
+        config: GeminiConfig,
+        http_client: HttpClient,
+    ) -> Result<Self, LlmError> {
+        // Build capability implementations with provided client
         let chat_capability = GeminiChatCapability::new(config.clone(), http_client.clone());
 
         let embedding_capability = GeminiEmbeddings::new(config.clone(), http_client.clone());

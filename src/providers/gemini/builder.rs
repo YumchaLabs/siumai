@@ -387,7 +387,11 @@ impl GeminiBuilder {
             config = config.with_timeout(timeout.as_secs());
         }
 
-        let mut client = crate::providers::gemini::GeminiClient::new(config)?;
+        // Build HTTP client from base builder to inherit unified HTTP config
+        let http_client = self.base.build_http_client()?;
+
+        let mut client =
+            crate::providers::gemini::GeminiClient::with_http_client(config, http_client)?;
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
 

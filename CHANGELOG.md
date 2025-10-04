@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.10.2] - 2025-10-04
+
+- Unified HTTP client across providers, exposed fine-grained HTTP options on SiumaiBuilder, added with_http_client for Gemini/Custom, and updated docs/examples.
+
 ## [0.10.1] - 2025-09-14
 
 ### Fixed

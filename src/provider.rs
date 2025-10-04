@@ -11,6 +11,7 @@ use crate::traits::*;
 use crate::types::*;
 use std::any::Any;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// The main siumai LLM provider that can dynamically dispatch to different capabilities
 ///
@@ -623,6 +624,44 @@ impl SiumaiBuilder {
         self.with_capability("image_generation")
     }
 
+    // === HTTP configuration (fine-grained) ===
+
+    /// Set HTTP request timeout
+    pub fn http_timeout(mut self, timeout: Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set HTTP connect timeout
+    pub fn http_connect_timeout(mut self, timeout: Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Set HTTP user agent
+    pub fn http_user_agent<S: Into<String>>(mut self, user_agent: S) -> Self {
+        self.http_config.user_agent = Some(user_agent.into());
+        self
+    }
+
+    /// Set HTTP proxy URL
+    pub fn http_proxy<S: Into<String>>(mut self, proxy_url: S) -> Self {
+        self.http_config.proxy = Some(proxy_url.into());
+        self
+    }
+
+    /// Add a default HTTP header
+    pub fn http_header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.http_config.headers.insert(key.into(), value.into());
+        self
+    }
+
+    /// Merge multiple default HTTP headers
+    pub fn http_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.http_config.headers.extend(headers);
+        self
+    }
+
     // === Tracing Configuration ===
 
     /// Set custom tracing configuration
@@ -681,6 +720,46 @@ impl SiumaiBuilder {
 
     /// Build the siumai provider
     pub async fn build(self) -> Result<Siumai, LlmError> {
+        // Helper: build an HTTP client from HttpConfig
+        fn build_http_client_from_config(cfg: &HttpConfig) -> Result<reqwest::Client, LlmError> {
+            let mut builder = reqwest::Client::builder();
+
+            if let Some(timeout) = cfg.timeout {
+                builder = builder.timeout(timeout);
+            }
+            if let Some(connect_timeout) = cfg.connect_timeout {
+                builder = builder.connect_timeout(connect_timeout);
+            }
+            if let Some(proxy_url) = &cfg.proxy {
+                let proxy = reqwest::Proxy::all(proxy_url)
+                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
+                builder = builder.proxy(proxy);
+            }
+            if let Some(user_agent) = &cfg.user_agent {
+                builder = builder.user_agent(user_agent);
+            }
+
+            // Default headers
+            if !cfg.headers.is_empty() {
+                let mut headers = reqwest::header::HeaderMap::new();
+                for (k, v) in &cfg.headers {
+                    let name =
+                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
+                            LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
+                        })?;
+                    let value = reqwest::header::HeaderValue::from_str(v).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Invalid header value for '{k}': {e}"))
+                    })?;
+                    headers.insert(name, value);
+                }
+                builder = builder.default_headers(headers);
+            }
+
+            builder.build().map_err(|e| {
+                LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}"))
+            })
+        }
+
         // Extract all needed values first to avoid borrow checker issues
         let provider_type = self.provider_type.clone().ok_or_else(|| {
             LlmError::ConfigurationError("Provider type not specified".to_string())
@@ -708,6 +787,8 @@ impl SiumaiBuilder {
         let reasoning_enabled = self.reasoning_enabled;
         let reasoning_budget = self.reasoning_budget;
         let http_config = self.http_config.clone();
+        // Build one HTTP client for this builder, reuse across providers when possible
+        let built_http_client = build_http_client_from_config(&http_config)?;
 
         // Prepare common parameters with the correct model
         let mut common_params = self.common_params.clone();
@@ -856,11 +937,16 @@ impl SiumaiBuilder {
                     config = config.with_project(proj);
                 }
 
-                let http_client = reqwest::Client::new();
-                Box::new(crate::providers::openai::OpenAiClient::new(
-                    config,
-                    http_client,
-                ))
+                let mut client =
+                    crate::providers::openai::OpenAiClient::new(config, built_http_client.clone());
+                // Initialize tracing if configured
+                if let Some(tc) = self.tracing_config.clone() {
+                    let guard = crate::tracing::init_tracing(tc).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
+                    })?;
+                    client.set_tracing_guard(Some(guard));
+                }
+                Box::new(client)
             }
             #[cfg(feature = "anthropic")]
             ProviderType::Anthropic => {
@@ -875,21 +961,46 @@ impl SiumaiBuilder {
                     anthropic_params.thinking_budget = Some(budget);
                 }
 
-                let http_client = reqwest::Client::new();
-                Box::new(crate::providers::anthropic::AnthropicClient::new(
+                let mut client = crate::providers::anthropic::AnthropicClient::new(
                     api_key,
                     anthropic_base_url,
-                    http_client,
+                    built_http_client.clone(),
                     common_params.clone(),
                     anthropic_params,
-                    http_config,
-                ))
+                    http_config.clone(),
+                );
+                if let Some(tc) = self.tracing_config.clone() {
+                    let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
+                    })?;
+                    client.set_tracing_guard(Some(guard));
+                    client.set_tracing_config(self.tracing_config.clone());
+                }
+                Box::new(client)
             }
             #[cfg(feature = "google")]
             ProviderType::Gemini => {
                 // Create Gemini client using the provider-specific builder
                 // Parameters have already been validated by RequestBuilder
-                let mut builder = crate::builder::LlmBuilder::new()
+                // Map HttpConfig into LlmBuilder to inherit timeouts/UA/proxy where supported
+                let mut base_builder = crate::builder::LlmBuilder::new();
+                if let Some(t) = http_config.timeout {
+                    base_builder = base_builder.with_timeout(t);
+                }
+                if let Some(ct) = http_config.connect_timeout {
+                    base_builder = base_builder.with_connect_timeout(ct);
+                }
+                if let Some(ref ua) = http_config.user_agent {
+                    base_builder = base_builder.with_user_agent(ua);
+                }
+                if let Some(ref proxy) = http_config.proxy {
+                    base_builder = base_builder.with_proxy(proxy.clone());
+                }
+                for (k, v) in &http_config.headers {
+                    base_builder = base_builder.with_header(k.clone(), v.clone());
+                }
+
+                let mut builder = base_builder
                     .gemini()
                     .api_key(api_key)
                     .model(&common_params.model);
@@ -912,6 +1023,11 @@ impl SiumaiBuilder {
                     builder = builder.thinking_budget(budget as i32);
                 }
 
+                // Apply tracing
+                if let Some(tc) = self.tracing_config.clone() {
+                    builder = builder.tracing(tc);
+                }
+
                 Box::new(builder.build().await.map_err(|e| {
                     LlmError::ConfigurationError(format!("Failed to build Gemini client: {e}"))
                 })?)
@@ -920,7 +1036,24 @@ impl SiumaiBuilder {
             ProviderType::XAI => {
                 // Create xAI client using the provider-specific builder
                 // Parameters have already been validated by RequestBuilder
-                let mut builder = crate::builder::LlmBuilder::new()
+                let mut base_builder = crate::builder::LlmBuilder::new();
+                if let Some(t) = http_config.timeout {
+                    base_builder = base_builder.with_timeout(t);
+                }
+                if let Some(ct) = http_config.connect_timeout {
+                    base_builder = base_builder.with_connect_timeout(ct);
+                }
+                if let Some(ref ua) = http_config.user_agent {
+                    base_builder = base_builder.with_user_agent(ua);
+                }
+                if let Some(ref proxy) = http_config.proxy {
+                    base_builder = base_builder.with_proxy(proxy.clone());
+                }
+                for (k, v) in &http_config.headers {
+                    base_builder = base_builder.with_header(k.clone(), v.clone());
+                }
+
+                let mut builder = base_builder
                     .xai()
                     .api_key(api_key)
                     .model(&common_params.model);
@@ -934,6 +1067,10 @@ impl SiumaiBuilder {
                 }
                 if let Some(top_p) = common_params.top_p {
                     builder = builder.top_p(top_p);
+                }
+
+                if let Some(tc) = self.tracing_config.clone() {
+                    builder = builder.tracing(tc);
                 }
 
                 Box::new(builder.build().await.map_err(|e| {
@@ -961,11 +1098,16 @@ impl SiumaiBuilder {
                     http_config,
                 };
 
-                let http_client = reqwest::Client::new();
-                Box::new(crate::providers::ollama::OllamaClient::new(
-                    config,
-                    http_client,
-                ))
+                let mut client =
+                    crate::providers::ollama::OllamaClient::new(config, built_http_client.clone());
+                if let Some(tc) = self.tracing_config.clone() {
+                    let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
+                    })?;
+                    client.set_tracing_guard(Some(guard));
+                    client.set_tracing_config(self.tracing_config.clone());
+                }
+                Box::new(client)
             }
             #[cfg(feature = "groq")]
             ProviderType::Groq => {
@@ -984,8 +1126,16 @@ impl SiumaiBuilder {
                     config = config.with_max_tokens(max_tokens);
                 }
 
-                let http_client = reqwest::Client::new();
-                Box::new(crate::providers::groq::GroqClient::new(config, http_client))
+                let mut client =
+                    crate::providers::groq::GroqClient::new(config, built_http_client.clone());
+                if let Some(tc) = self.tracing_config.clone() {
+                    let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
+                    })?;
+                    client.set_tracing_guard(Some(guard));
+                    client.set_tracing_config(self.tracing_config.clone());
+                }
+                Box::new(client)
             }
             ProviderType::Custom(name) => {
                 match name.as_str() {
@@ -1014,11 +1164,13 @@ impl SiumaiBuilder {
                             config.common_params.max_tokens = Some(max_tokens);
                         }
 
-                        let client =
-                            crate::providers::openai_compatible::OpenAiCompatibleClient::new(
-                                config,
-                            )
-                            .await?;
+                        // Propagate HTTP config
+                        let config = config.with_http_config(http_config.clone());
+                        let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+                            config,
+                            built_http_client.clone(),
+                        )
+                        .await?;
                         Box::new(client)
                     }
                     #[cfg(feature = "openai")]
@@ -1039,11 +1191,17 @@ impl SiumaiBuilder {
                             config = config.with_max_tokens(max_tokens);
                         }
 
-                        let http_client = reqwest::Client::new();
-                        Box::new(crate::providers::openai::OpenAiClient::new(
+                        let mut client = crate::providers::openai::OpenAiClient::new(
                             config,
-                            http_client,
-                        ))
+                            built_http_client.clone(),
+                        );
+                        if let Some(tc) = self.tracing_config.clone() {
+                            let guard = crate::tracing::init_tracing(tc).map_err(|e| {
+                                LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
+                            })?;
+                            client.set_tracing_guard(Some(guard));
+                        }
+                        Box::new(client)
                     }
                     #[cfg(feature = "openai")]
                     "openrouter" => {
@@ -1063,11 +1221,17 @@ impl SiumaiBuilder {
                             config = config.with_max_tokens(max_tokens);
                         }
 
-                        let http_client = reqwest::Client::new();
-                        Box::new(crate::providers::openai::OpenAiClient::new(
+                        let mut client = crate::providers::openai::OpenAiClient::new(
                             config,
-                            http_client,
-                        ))
+                            built_http_client.clone(),
+                        );
+                        if let Some(tc) = self.tracing_config.clone() {
+                            let guard = crate::tracing::init_tracing(tc).map_err(|e| {
+                                LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
+                            })?;
+                            client.set_tracing_guard(Some(guard));
+                        }
+                        Box::new(client)
                     }
 
                     _ => {

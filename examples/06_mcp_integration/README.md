@@ -2,13 +2,15 @@
 
 This directory contains examples demonstrating how to integrate Model Context Protocol (MCP) with siumai for LLM tool calling functionality.
 
-## ⚠️ rmcp Version Compatibility
+## rmcp Version Compatibility
 
-These examples have been updated to work with **rmcp 0.6.0**. The main API changes from rmcp 0.5.0 to 0.6.0 include:
+These examples are compatible with **rmcp 0.8.0**.
 
-- `CallToolResult.content` field type changed from `Option<Vec<Annotated<RawContent>>>` to `Vec<Content>` (where `Content` is `Annotated<RawContent>`)
-- Content is no longer optional and is always a vector
-- Updated content extraction logic to work with the new structure
+Notes:
+- `CallToolResult.content` remains a `Vec<Content>` (changed since 0.6.0); examples already use this structure
+- Stdio transport uses `TokioChildProcess` (feature: `transport-child-process`)
+- HTTP JSON-RPC client/server examples are included in this folder (`http_mcp_client.rs`, `http_mcp_server.rs`)
+- SSE/streamable HTTP client examples are not included; to add them, refer to rmcp 0.8.0 docs and enable `transport-sse-client-reqwest` or `transport-streamable-http-client-reqwest`
 
 ## File Overview
 
@@ -51,6 +53,28 @@ export OPENAI_API_KEY=your-api-key
 
 # Run the client
 cargo run --example http_mcp_client
+```
+
+### SSE Client Example
+
+Requires an SSE-capable MCP server (endpoint like `http://127.0.0.1:3000/sse`).
+
+```bash
+# Optional: set endpoint
+export MCP_SSE_ENDPOINT="http://127.0.0.1:3000/sse"
+
+cargo run --example sse_mcp_client
+```
+
+### Streamable HTTP Client Example
+
+Requires a streamable-HTTP-capable MCP server (endpoint like `http://127.0.0.1:3000/mcp`).
+
+```bash
+# Optional: set endpoint
+export MCP_HTTP_ENDPOINT="http://127.0.0.1:3000/mcp"
+
+cargo run --example streamable_http_mcp_client
 ```
 
 ### Stdio Transport Examples

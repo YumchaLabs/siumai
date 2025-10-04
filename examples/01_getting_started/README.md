@@ -34,13 +34,13 @@ cargo run --example provider_comparison
 - Cost considerations
 - Use case recommendations
 
-### [basic_usage.rs](basic_usage.rs)
+### [chat_basics.rs](../02_core_features/chat_basics.rs)
 **Core concepts and message types**
 
 Deep dive into the fundamental concepts of the library.
 
 ```bash
-cargo run --example basic_usage
+cargo run --example chat_basics
 ```
 
 **What you'll learn:**
@@ -89,7 +89,7 @@ ollama pull llama3.2
    - Learn which provider to choose
    - Understand cost implications
 
-3. **Learn the basics**: [basic_usage.rs](basic_usage.rs)
+3. **Learn the basics**: [chat_basics.rs](../02_core_features/chat_basics.rs)
    - Master message types
    - Understand configuration options
 

@@ -1,6 +1,6 @@
 [package]
 name = "siumai"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
 description = "A unified LLM interface library for Rust"
@@ -95,9 +95,15 @@ wiremock = "0.6"
 tracing-test = "0.2"
 tempfile = "3.0"
 futures-util = "0.3"
-rmcp = { version = "0.6.1", features = [
+tokio-util = "0.7"
+rmcp = { version = "0.8.0", features = [
     "transport-io",
     "transport-child-process",
+    "transport-sse-client-reqwest",
+    "transport-sse-server",
+    "transport-streamable-http-client-reqwest",
+    "transport-streamable-http-server",
+    "transport-streamable-http-server-session",
     "macros",
     "server",
     "client",
@@ -220,6 +226,14 @@ name = "code_assistant"
 path = "examples/05_use_cases/code_assistant.rs"
 
 [[example]]
+name = "sse_mcp_client"
+path = "examples/06_mcp_integration/sse_mcp_client.rs"
+
+[[example]]
+name = "streamable_http_mcp_client"
+path = "examples/06_mcp_integration/streamable_http_mcp_client.rs"
+
+[[example]]
 name = "content_generator"
 path = "examples/05_use_cases/content_generator.rs"
 
@@ -242,6 +256,14 @@ path = "examples/06_mcp_integration/stdio_mcp_client.rs"
 [[example]]
 name = "stdio_mcp_server"
 path = "examples/06_mcp_integration/stdio_mcp_server.rs"
+
+[[example]]
+name = "sse_mcp_server"
+path = "examples/06_mcp_integration/sse_mcp_server.rs"
+
+[[example]]
+name = "streamable_http_mcp_server"
+path = "examples/06_mcp_integration/streamable_http_mcp_server.rs"
 
 [[example]]
 name = "image_generation_showcase"

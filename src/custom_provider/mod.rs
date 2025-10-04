@@ -269,16 +269,26 @@ impl CustomProviderClient {
         // Validate configuration
         provider.validate_config(&config)?;
 
-        // Create HTTP client with custom configuration
+        // Build default HTTP client with custom configuration
         let mut client_builder = reqwest::Client::builder();
-
         if let Some(timeout) = config.timeout {
             client_builder = client_builder.timeout(std::time::Duration::from_secs(timeout));
         }
-
         let http_client = client_builder.build().map_err(|e| {
             LlmError::ConfigurationError(format!("Failed to create HTTP client: {e}"))
         })?;
+
+        Self::with_http_client(provider, config, http_client)
+    }
+
+    /// Create a new custom provider client with a custom HTTP client
+    pub fn with_http_client(
+        provider: Box<dyn CustomProvider>,
+        config: CustomProviderConfig,
+        http_client: reqwest::Client,
+    ) -> Result<Self, LlmError> {
+        // Validate configuration
+        provider.validate_config(&config)?;
 
         Ok(Self {
             provider,

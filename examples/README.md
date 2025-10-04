@@ -12,7 +12,7 @@ Comprehensive examples for the Siumai Rust library, organized by difficulty and 
 | **Use streaming** | [streaming_chat.rs](02_core_features/streaming_chat.rs) | Intermediate |
 | **Handle errors** | [error_handling.rs](02_core_features/error_handling.rs) | Intermediate |
 | **Build a chatbot** | [simple_chatbot.rs](05_use_cases/simple_chatbot.rs) | Intermediate |
-| **Use advanced features** | [thinking_models.rs](03_advanced_features/thinking_models.rs) | Advanced |
+| **Use advanced features** | [batch_processing.rs](03_advanced_features/batch_processing.rs) | Advanced |
 | **Build production apps** | [api_integration.rs](05_use_cases/api_integration.rs) | Advanced |
 
 ## 📁 Directory Structure
@@ -22,7 +22,7 @@ Perfect for newcomers to Siumai and LLM development.
 
 - **[quick_start.rs](01_getting_started/quick_start.rs)** - 5-minute introduction with multiple providers
 - **[provider_comparison.rs](01_getting_started/provider_comparison.rs)** - Compare OpenAI, Anthropic, and Ollama
-- **[basic_usage.rs](01_getting_started/basic_usage.rs)** - Core concepts and message types
+- **[embedding.rs](02_core_features/embedding.rs)** - Generate text embeddings
 - **[convenience_methods.rs](01_getting_started/convenience_methods.rs)** - Simplified APIs and helpers
 
 ### ⚙️ [02_core_features](02_core_features/) - *Essential Skills*
@@ -33,13 +33,12 @@ Master the fundamental capabilities every developer needs.
 - **[unified_interface.rs](02_core_features/unified_interface.rs)** - Provider-agnostic programming
 - **[error_handling.rs](02_core_features/error_handling.rs)** - Production-ready error management
 - **[capability_detection.rs](02_core_features/capability_detection.rs)** - Feature detection and fallbacks
-- **[response_cache.rs](02_core_features/response_cache.rs)** - Performance optimization with caching
 
 ### 🚀 [03_advanced_features](03_advanced_features/) - *Specialized Capabilities*
 Advanced patterns for sophisticated applications.
 
-- **[thinking_models.rs](03_advanced_features/thinking_models.rs)** - AI reasoning and thinking processes
-- **[thinking_content_processing.rs](03_advanced_features/thinking_content_processing.rs)** - Process thinking content
+- **[custom_provider.rs](03_advanced_features/custom_provider.rs)** - Add a custom provider
+- **[multimodal_processing.rs](03_advanced_features/multimodal_processing.rs)** - Multimodal inputs and outputs
 - **[batch_processing.rs](03_advanced_features/batch_processing.rs)** - High-volume concurrent processing
 
 ### 🔌 [04_providers](04_providers/) - *Provider-Specific Features*
@@ -121,7 +120,7 @@ Choose your path based on your experience and goals:
 
 ### 🚀 **Advanced Path** (Specialized Features)
 
-1. [thinking_models.rs](03_advanced_features/thinking_models.rs) - AI reasoning processes
+1. [multimodal_processing.rs](03_advanced_features/multimodal_processing.rs) - Multimodal processing
 2. [batch_processing.rs](03_advanced_features/batch_processing.rs) - High-volume processing
 3. [Provider-specific examples](04_providers/) - Leverage unique capabilities
 4. [MCP integration](06_mcp_integration/) - External tool integration
