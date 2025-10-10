@@ -9,7 +9,7 @@
 //!
 //! Example
 //! ```rust,no_run
-//! use siumai::retry_api::{retry, retry_for_provider, RetryOptions, RetryBackend};
+//! use siumai::retry_api::{retry, retry_for_provider, retry_with, RetryOptions, RetryBackend};
 //! use siumai::types::ProviderType;
 //!
 //! # async fn do_work() -> Result<String, siumai::LlmError> { Ok("ok".into()) }
@@ -22,7 +22,7 @@
 //!
 //! // Explicit backend selection (policy-based)
 //! let options = RetryOptions::policy_default().with_max_attempts(5);
-//! let result = retry_api::retry_with(|| do_work(), options).await?;
+//! let result = retry_with(|| do_work(), options).await?;
 //! # Ok(())
 //! # }
 //! ```
