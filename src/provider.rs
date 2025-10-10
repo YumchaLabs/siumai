@@ -6,10 +6,10 @@
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::*;
 use crate::types::*;
-use std::any::Any;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -20,11 +20,10 @@ use std::time::Duration;
 pub struct Siumai {
     /// The underlying provider client
     client: Box<dyn LlmClient>,
-    /// Capability registry for dynamic dispatch
-    #[allow(dead_code)]
-    capabilities: HashMap<String, Box<dyn Any + Send + Sync>>,
     /// Provider-specific metadata
     metadata: ProviderMetadata,
+    /// Optional retry options for chat calls
+    retry_options: Option<RetryOptions>,
 }
 
 impl Clone for Siumai {
@@ -34,8 +33,8 @@ impl Clone for Siumai {
 
         Self {
             client,
-            capabilities: HashMap::new(), // Don't clone capabilities as they're not used
             metadata: self.metadata.clone(),
+            retry_options: self.retry_options.clone(),
         }
     }
 }
@@ -67,15 +66,7 @@ impl Siumai {
     /// Create a new siumai provider
     pub fn new(client: Box<dyn LlmClient>) -> Self {
         let metadata = ProviderMetadata {
-            provider_type: match client.provider_name() {
-                "openai" => ProviderType::OpenAi,
-                "anthropic" => ProviderType::Anthropic,
-                "gemini" => ProviderType::Gemini,
-                "ollama" => ProviderType::Ollama,
-                "xai" => ProviderType::XAI,
-                "groq" => ProviderType::Groq,
-                name => ProviderType::Custom(name.to_string()),
-            },
+            provider_type: client.provider_type(),
             provider_name: client.provider_name().to_string(),
             supported_models: client.supported_models(),
             capabilities: client.capabilities(),
@@ -83,9 +74,15 @@ impl Siumai {
 
         Self {
             client,
-            capabilities: HashMap::new(),
             metadata,
+            retry_options: None,
         }
+    }
+
+    /// Attach retry options (builder-style)
+    pub fn with_retry_options(mut self, options: Option<RetryOptions>) -> Self {
+        self.retry_options = options;
+        self
     }
 
     /// Check if a capability is supported
@@ -167,7 +164,19 @@ impl ChatCapability for Siumai {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        self.client.chat_with_tools(messages, tools).await
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let m = messages.clone();
+                    let t = tools.clone();
+                    async move { self.client.chat_with_tools(m, t).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.client.chat_with_tools(messages, tools).await
+        }
     }
 
     async fn chat_stream(
@@ -455,6 +464,8 @@ pub struct SiumaiBuilder {
     // Unified reasoning configuration
     reasoning_enabled: Option<bool>,
     reasoning_budget: Option<i32>,
+    // Unified retry configuration
+    retry_options: Option<RetryOptions>,
 }
 
 impl SiumaiBuilder {
@@ -473,6 +484,7 @@ impl SiumaiBuilder {
             tracing_config: None,
             reasoning_enabled: None,
             reasoning_budget: None,
+            retry_options: None,
         }
     }
 
@@ -718,6 +730,12 @@ impl SiumaiBuilder {
         self.tracing(crate::tracing::TracingConfig::disabled())
     }
 
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
+        self
+    }
+
     /// Build the siumai provider
     pub async fn build(self) -> Result<Siumai, LlmError> {
         // Helper: build an HTTP client from HttpConfig
@@ -944,7 +962,7 @@ impl SiumaiBuilder {
                     let guard = crate::tracing::init_tracing(tc).map_err(|e| {
                         LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
                     })?;
-                    client.set_tracing_guard(Some(guard));
+                    client.set_tracing_guard(guard);
                 }
                 Box::new(client)
             }
@@ -973,7 +991,7 @@ impl SiumaiBuilder {
                     let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
                         LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
                     })?;
-                    client.set_tracing_guard(Some(guard));
+                    client.set_tracing_guard(guard);
                     client.set_tracing_config(self.tracing_config.clone());
                 }
                 Box::new(client)
@@ -1104,7 +1122,7 @@ impl SiumaiBuilder {
                     let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
                         LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
                     })?;
-                    client.set_tracing_guard(Some(guard));
+                    client.set_tracing_guard(guard);
                     client.set_tracing_config(self.tracing_config.clone());
                 }
                 Box::new(client)
@@ -1132,7 +1150,7 @@ impl SiumaiBuilder {
                     let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
                         LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
                     })?;
-                    client.set_tracing_guard(Some(guard));
+                    client.set_tracing_guard(guard);
                     client.set_tracing_config(self.tracing_config.clone());
                 }
                 Box::new(client)
@@ -1175,62 +1193,70 @@ impl SiumaiBuilder {
                     }
                     #[cfg(feature = "openai")]
                     "siliconflow" => {
-                        // Use OpenAI-compatible client for SiliconFlow
-                        let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
-                            .with_base_url(
-                                base_url
-                                    .unwrap_or_else(|| "https://api.siliconflow.cn/v1".to_string()),
-                            )
-                            .with_model(common_params.model.clone());
+                        // Use OpenAI-compatible client for SiliconFlow (adapter-based)
+                        let adapter = crate::providers::openai_compatible::get_provider_adapter(
+                            "siliconflow",
+                        )?;
+                        let base_url =
+                            base_url.unwrap_or_else(|| "https://api.siliconflow.cn/v1".to_string());
 
-                        // Use validated common parameters
+                        let mut config =
+                            crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                                "siliconflow",
+                                &api_key,
+                                &base_url,
+                                adapter,
+                            );
+                        // Set model
+                        config = config.with_model(&common_params.model);
+                        // Set common parameters
                         if let Some(temp) = common_params.temperature {
-                            config = config.with_temperature(temp);
+                            config.common_params.temperature = Some(temp);
                         }
                         if let Some(max_tokens) = common_params.max_tokens {
-                            config = config.with_max_tokens(max_tokens);
+                            config.common_params.max_tokens = Some(max_tokens);
                         }
-
-                        let mut client = crate::providers::openai::OpenAiClient::new(
+                        // Propagate HTTP config
+                        let config = config.with_http_config(http_config.clone());
+                        let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
                             config,
                             built_http_client.clone(),
-                        );
-                        if let Some(tc) = self.tracing_config.clone() {
-                            let guard = crate::tracing::init_tracing(tc).map_err(|e| {
-                                LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
-                            })?;
-                            client.set_tracing_guard(Some(guard));
-                        }
+                        )
+                        .await?;
                         Box::new(client)
                     }
                     #[cfg(feature = "openai")]
                     "openrouter" => {
-                        // Use OpenAI-compatible client for OpenRouter
-                        let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
-                            .with_base_url(
-                                base_url
-                                    .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
-                            )
-                            .with_model(common_params.model.clone());
+                        // Use OpenAI-compatible client for OpenRouter (adapter-based)
+                        let adapter = crate::providers::openai_compatible::get_provider_adapter(
+                            "openrouter",
+                        )?;
+                        let base_url =
+                            base_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
 
-                        // Use validated common parameters
+                        let mut config =
+                            crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                                "openrouter",
+                                &api_key,
+                                &base_url,
+                                adapter,
+                            );
+                        // Set model
+                        config = config.with_model(&common_params.model);
+                        // Set common parameters
                         if let Some(temp) = common_params.temperature {
-                            config = config.with_temperature(temp);
+                            config.common_params.temperature = Some(temp);
                         }
                         if let Some(max_tokens) = common_params.max_tokens {
-                            config = config.with_max_tokens(max_tokens);
+                            config.common_params.max_tokens = Some(max_tokens);
                         }
-
-                        let mut client = crate::providers::openai::OpenAiClient::new(
+                        // Propagate HTTP config
+                        let config = config.with_http_config(http_config.clone());
+                        let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
                             config,
                             built_http_client.clone(),
-                        );
-                        if let Some(tc) = self.tracing_config.clone() {
-                            let guard = crate::tracing::init_tracing(tc).map_err(|e| {
-                                LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
-                            })?;
-                            client.set_tracing_guard(Some(guard));
-                        }
+                        )
+                        .await?;
                         Box::new(client)
                     }
 
@@ -1281,7 +1307,8 @@ impl SiumaiBuilder {
             }
         };
 
-        Ok(Siumai::new(client))
+        let siumai = Siumai::new(client).with_retry_options(self.retry_options.clone());
+        Ok(siumai)
     }
 }
 

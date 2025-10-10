@@ -6,6 +6,7 @@
 use crate::builder::LlmBuilder;
 use crate::error::LlmError;
 use crate::params::{OpenAiParams, ResponseFormat, ToolChoice};
+use crate::retry_api::RetryOptions;
 use crate::types::*;
 
 use super::OpenAiClient;
@@ -14,6 +15,9 @@ use super::OpenAiClient;
 ///
 /// This builder provides OpenAI-specific configuration options while
 /// inheriting common HTTP and timeout settings from the base `LlmBuilder`.
+///
+/// Retry: call `.with_retry(RetryOptions::backoff())` to enable automatic retries
+/// for chat operations via the unified retry facade.
 ///
 /// # Example
 /// ```rust,no_run
@@ -44,6 +48,7 @@ pub struct OpenAiBuilder {
     openai_params: OpenAiParams,
     http_config: HttpConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
 }
 
 #[cfg(feature = "openai")]
@@ -60,6 +65,7 @@ impl OpenAiBuilder {
             openai_params: OpenAiParams::default(),
             http_config: HttpConfig::default(),
             tracing_config: None,
+            retry_options: None,
         }
     }
 
@@ -273,6 +279,12 @@ impl OpenAiBuilder {
         self
     }
 
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
+        self
+    }
+
     /// Builds the `OpenAI` client
     pub async fn build(self) -> Result<OpenAiClient, LlmError> {
         let api_key = self
@@ -288,7 +300,7 @@ impl OpenAiBuilder {
 
         // Initialize tracing if configured
         let _tracing_guard = if let Some(tracing_config) = self.tracing_config {
-            Some(crate::tracing::init_tracing(tracing_config)?)
+            crate::tracing::init_tracing(tracing_config)?
         } else {
             None
         };
@@ -320,6 +332,9 @@ impl OpenAiBuilder {
 
         // Set tracing guard to keep tracing system active
         client.set_tracing_guard(_tracing_guard);
+
+        // Apply retry options if provided
+        client.set_retry_options(self.retry_options.clone());
 
         Ok(client)
     }

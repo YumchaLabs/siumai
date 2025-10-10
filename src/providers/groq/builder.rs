@@ -6,16 +6,21 @@ use std::time::Duration;
 
 use crate::LlmBuilder;
 use crate::error::LlmError;
+use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 
 use super::client::GroqClient;
 use super::config::GroqConfig;
 
 /// `Groq` client builder
+///
+/// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
+/// for chat operations.
 #[derive(Debug, Clone)]
 pub struct GroqBuilder {
     config: GroqConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
 }
 
 impl GroqBuilder {
@@ -24,6 +29,7 @@ impl GroqBuilder {
         Self {
             config: GroqConfig::default(),
             tracing_config: None,
+            retry_options: None,
         }
     }
 
@@ -165,6 +171,12 @@ impl GroqBuilder {
         self
     }
 
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
+        self
+    }
+
     /// Build the `Groq` client
     pub async fn build(mut self) -> Result<GroqClient, LlmError> {
         // Try to get API key from environment if not set
@@ -179,7 +191,7 @@ impl GroqBuilder {
 
         // Initialize tracing if configured
         let _tracing_guard = if let Some(ref tracing_config) = self.tracing_config {
-            Some(crate::tracing::init_tracing(tracing_config.clone())?)
+            crate::tracing::init_tracing(tracing_config.clone())?
         } else {
             None
         };
@@ -214,6 +226,7 @@ impl GroqBuilder {
         let mut client = GroqClient::new(self.config, http_client);
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
+        client.set_retry_options(self.retry_options.clone());
 
         Ok(client)
     }

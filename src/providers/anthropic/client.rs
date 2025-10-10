@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::params::AnthropicParams;
+use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::*;
 use crate::types::*;
@@ -32,7 +33,9 @@ pub struct AnthropicClient {
     /// Tracing configuration
     tracing_config: Option<crate::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active
-    _tracing_guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+    _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    /// Unified retry options for chat
+    retry_options: Option<RetryOptions>,
 }
 
 impl Clone for AnthropicClient {
@@ -45,6 +48,7 @@ impl Clone for AnthropicClient {
             specific_params: self.specific_params.clone(),
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
+            retry_options: self.retry_options.clone(),
         }
     }
 }
@@ -112,6 +116,7 @@ impl AnthropicClient {
             specific_params,
             tracing_config: None,
             _tracing_guard: None,
+            retry_options: None,
         }
     }
 
@@ -133,7 +138,7 @@ impl AnthropicClient {
     /// Set the tracing guard to keep tracing system active
     pub(crate) fn set_tracing_guard(
         &mut self,
-        guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+        guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     ) {
         self._tracing_guard = guard;
     }
@@ -141,6 +146,11 @@ impl AnthropicClient {
     /// Set the tracing configuration
     pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
         self.tracing_config = config;
+    }
+
+    /// Set unified retry options
+    pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
+        self.retry_options = options;
     }
 
     /// Update Anthropic-specific parameters
@@ -193,9 +203,8 @@ impl AnthropicClient {
     }
 }
 
-#[async_trait]
-impl ChatCapability for AnthropicClient {
-    async fn chat_with_tools(
+impl AnthropicClient {
+    async fn chat_with_tools_inner(
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
@@ -242,6 +251,29 @@ impl ChatCapability for AnthropicClient {
 
         let anthropic_response: super::types::AnthropicChatResponse = response.json().await?;
         self.chat_capability.parse_chat_response(anthropic_response)
+    }
+}
+
+#[async_trait]
+impl ChatCapability for AnthropicClient {
+    async fn chat_with_tools(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let m = messages.clone();
+                    let t = tools.clone();
+                    async move { self.chat_with_tools_inner(m, t).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.chat_with_tools_inner(messages, tools).await
+        }
     }
 
     async fn chat_stream(

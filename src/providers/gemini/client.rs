@@ -17,6 +17,7 @@ use super::embeddings::GeminiEmbeddings;
 use super::files::GeminiFiles;
 use super::models::GeminiModels;
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
+use crate::retry_api::RetryOptions;
 
 /// Gemini client that implements the `LlmClient` trait
 #[derive(Debug)]
@@ -40,7 +41,9 @@ pub struct GeminiClient {
     /// Tracing configuration
     tracing_config: Option<crate::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active
-    _tracing_guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+    _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    /// Unified retry options for chat
+    retry_options: Option<RetryOptions>,
 }
 
 impl Clone for GeminiClient {
@@ -56,6 +59,7 @@ impl Clone for GeminiClient {
             files_capability: self.files_capability.clone(),
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
+            retry_options: self.retry_options.clone(),
         }
     }
 }
@@ -137,6 +141,7 @@ impl GeminiClient {
             files_capability,
             tracing_config: None,
             _tracing_guard: None,
+            retry_options: None,
         })
     }
 
@@ -420,7 +425,7 @@ impl GeminiClient {
     /// Set the tracing guard to keep tracing system active
     pub(crate) fn set_tracing_guard(
         &mut self,
-        guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+        guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     ) {
         self._tracing_guard = guard;
     }
@@ -428,6 +433,21 @@ impl GeminiClient {
     /// Set the tracing configuration
     pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
         self.tracing_config = config;
+    }
+
+    /// Set unified retry options
+    pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
+        self.retry_options = options;
+    }
+}
+
+impl GeminiClient {
+    async fn chat_with_tools_inner(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
+        self.chat_capability.chat_with_tools(messages, tools).await
     }
 }
 
@@ -438,7 +458,19 @@ impl ChatCapability for GeminiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        self.chat_capability.chat_with_tools(messages, tools).await
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let m = messages.clone();
+                    let t = tools.clone();
+                    async move { self.chat_with_tools_inner(m, t).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.chat_with_tools_inner(messages, tools).await
+        }
     }
 
     async fn chat_stream(

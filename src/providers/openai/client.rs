@@ -18,6 +18,7 @@ use super::rerank::OpenAiRerank;
 use super::responses::OpenAiResponses;
 use super::types::OpenAiSpecificParams;
 use super::utils::get_default_models;
+use crate::retry_api::RetryOptions;
 
 /// `OpenAI` Client
 #[allow(dead_code)]
@@ -42,7 +43,7 @@ pub struct OpenAiClient {
     tracing_config: Option<crate::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active (not cloned)
     #[allow(dead_code)]
-    _tracing_guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+    _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     /// Responses API toggle
     use_responses_api: bool,
     /// Previous response id for chaining
@@ -51,6 +52,8 @@ pub struct OpenAiClient {
     built_in_tools: Vec<crate::types::OpenAiBuiltInTool>,
     /// Web search config
     web_search_config: crate::types::WebSearchConfig,
+    /// Unified retry options for chat
+    retry_options: Option<RetryOptions>,
 }
 
 impl Clone for OpenAiClient {
@@ -70,6 +73,7 @@ impl Clone for OpenAiClient {
             previous_response_id: self.previous_response_id.clone(),
             built_in_tools: self.built_in_tools.clone(),
             web_search_config: self.web_search_config.clone(),
+            retry_options: self.retry_options.clone(),
         }
     }
 }
@@ -155,15 +159,21 @@ impl OpenAiClient {
             previous_response_id: config.previous_response_id,
             built_in_tools: config.built_in_tools,
             web_search_config: config.web_search_config,
+            retry_options: None,
         }
     }
 
     /// Set the tracing guard to keep tracing system active
     pub(crate) fn set_tracing_guard(
         &mut self,
-        guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+        guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     ) {
         self._tracing_guard = guard;
+    }
+
+    /// Set unified retry options
+    pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
+        self.retry_options = options;
     }
 
     /// Creates a new `OpenAI` client with configuration (for OpenAI-compatible providers)
@@ -289,10 +299,8 @@ impl OpenAiClient {
     }
 }
 
-#[async_trait]
-impl ChatCapability for OpenAiClient {
-    /// Chat with tools implementation
-    async fn chat_with_tools(
+impl OpenAiClient {
+    async fn chat_with_tools_inner(
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
@@ -325,6 +333,30 @@ impl ChatCapability for OpenAiClient {
                 stream: false,
             };
             self.chat_capability.chat(request).await
+        }
+    }
+}
+
+#[async_trait]
+impl ChatCapability for OpenAiClient {
+    /// Chat with tools implementation
+    async fn chat_with_tools(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let m = messages.clone();
+                    let t = tools.clone();
+                    async move { self.chat_with_tools_inner(m, t).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.chat_with_tools_inner(messages, tools).await
         }
     }
 

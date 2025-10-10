@@ -4,6 +4,9 @@
 //! Each provider implements web search differently:
 //! - `OpenAI`: Built-in web search tools via Responses API
 //! - Anthropic: `web_search` tool
+//!
+//! Note: OpenAI Responses API `web_search` is currently not implemented in this crate and will
+//! return `UnsupportedOperation`. Track the implementation status in the changelog and README.
 //! - xAI: Live Search with `search_parameters`
 //! - Gemini: Search-augmented generation
 //! - `OpenRouter`: `search_prompt` parameter

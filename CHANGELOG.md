@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.10.3] - 2025-10-10
+
+### Added
+- Unified retry API `retry_api` (`retry`, `retry_for_provider`, `retry_with`).
+- Builder-level retry options: `with_retry(...)` for `Siumai` and provider builders (OpenAI, Gemini, Anthropic, Groq, xAI, Ollama, OpenAI-compatible).
+- Convenience methods: `chat_with_retry`, `ask_with_retry` on `ChatExtensions`.
+- Stream processor: overflow handler now accepts closures.
+
+### Deprecated
+- `retry_strategy` (planned removal in 0.11).
+
+### Changed
+- SiliconFlow and OpenRouter now use the OpenAI-compatible adapter path.
+- Simplified tracing guard type and provider identification; removed an unused `Siumai` field.
+
+### Fixed
+- Responses API `web_search` now returns `UnsupportedOperation` when not implemented.
+
+### Migration
+- Replace `retry_strategy` usage with the unified `retry_api` facade:
+  - Use `retry`, `retry_for_provider`, or `retry_with(RetryOptions::...)`.
+  - Prefer builder-level `with_retry(...)` for chat operations (applies to Siumai and provider builders).
+- `retry_strategy` is deprecated and will be removed in `0.11`.
+
 ## [0.10.2] - 2025-10-04
 
 - Unified HTTP client across providers, exposed fine-grained HTTP options on SiumaiBuilder, added with_http_client for Gemini/Custom, and updated docs/examples.

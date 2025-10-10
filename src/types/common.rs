@@ -31,6 +31,22 @@ impl std::fmt::Display for ProviderType {
     }
 }
 
+impl ProviderType {
+    /// Construct a ProviderType from a provider name string.
+    /// Known names map to concrete variants; others map to Custom(name).
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "openai" => Self::OpenAi,
+            "anthropic" => Self::Anthropic,
+            "gemini" => Self::Gemini,
+            "ollama" => Self::Ollama,
+            "xai" => Self::XAI,
+            "groq" => Self::Groq,
+            other => Self::Custom(other.to_string()),
+        }
+    }
+}
+
 /// Common AI parameters
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
 pub struct CommonParams {

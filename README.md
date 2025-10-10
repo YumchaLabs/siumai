@@ -130,6 +130,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Retry (Unified API)
+
+Siumai provides a unified retry facade for convenience and consistency:
+
+```rust
+use siumai::prelude::*;
+use siumai::retry_api::{retry, retry_for_provider, retry_with, RetryOptions};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Default backoff-based retry
+    let result: String = retry(|| async {
+        // your fallible operation
+        Ok("ok".to_string())
+    }).await?;
+
+    // Provider-aware retry
+    let _ = retry_for_provider(&ProviderType::OpenAi, || async { Ok(()) }).await?;
+
+    // In-chat convenience with retry
+    let client = Provider::openai().api_key("key").model(models::openai::GPT_4O).build().await?;
+    let reply = client.ask_with_retry("Hello".to_string(), RetryOptions::backoff()).await?;
+    Ok(())
+}
+```
+
+Note: the legacy `retry_strategy` module is deprecated and will be removed in `0.11`. Use `retry_api` instead.
+
+### Web Search Status
+
+OpenAI Responses API `web_search` is not implemented yet. Calling it returns `UnsupportedOperation`.
+
+
 > **💡 Feature Tip**: When using specific providers, make sure to enable the corresponding feature in your `Cargo.toml`. If you try to use a provider without its feature enabled, you'll get a compile-time error with a helpful message.
 
 ```rust

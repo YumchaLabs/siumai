@@ -1,5 +1,7 @@
 //! Advanced Retry Strategy and Error Handling
 //!
+//! Deprecated: use `retry_api` facade instead. This module will be removed in 0.11.
+//!
 //! This module provides intelligent retry mechanisms, rate limit handling,
 //! and provider failover capabilities for robust AI service integration.
 

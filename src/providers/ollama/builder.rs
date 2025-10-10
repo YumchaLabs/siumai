@@ -1,7 +1,11 @@
 use crate::providers::ollama::config::OllamaParams;
+use crate::retry_api::RetryOptions;
 use crate::{CommonParams, HttpConfig, LlmBuilder, LlmError};
 
 /// Ollama-specific builder
+///
+/// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
+/// for chat operations.
 pub struct OllamaBuilder {
     pub(crate) base: LlmBuilder,
     base_url: Option<String>,
@@ -10,6 +14,7 @@ pub struct OllamaBuilder {
     ollama_params: OllamaParams,
     http_config: HttpConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
 }
 
 impl OllamaBuilder {
@@ -23,6 +28,7 @@ impl OllamaBuilder {
             ollama_params: OllamaParams::default(),
             http_config: HttpConfig::default(),
             tracing_config: None,
+            retry_options: None,
         }
     }
 
@@ -251,6 +257,12 @@ impl OllamaBuilder {
         self
     }
 
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
+        self
+    }
+
     /// Build the Ollama client
     pub async fn build(self) -> Result<crate::providers::ollama::OllamaClient, LlmError> {
         let base_url = self
@@ -259,7 +271,7 @@ impl OllamaBuilder {
 
         // Initialize tracing if configured
         let _tracing_guard = if let Some(ref tracing_config) = self.tracing_config {
-            Some(crate::tracing::init_tracing(tracing_config.clone())?)
+            crate::tracing::init_tracing(tracing_config.clone())?
         } else {
             None
         };
@@ -280,6 +292,7 @@ impl OllamaBuilder {
         let mut client = crate::providers::ollama::OllamaClient::new(config, http_client);
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
+        client.set_retry_options(self.retry_options.clone());
 
         Ok(client)
     }

@@ -1776,9 +1776,11 @@ impl WebSearchCapability for OpenAiResponses {
         let _request_body =
             self.build_request_body(&messages, None, Some(&built_in_tools), false, false)?;
 
-        // TODO: Implement actual web search request and parse results
-        // For now, return empty results
-        Ok(Vec::new())
+        // Web search via Responses API is not implemented yet.
+        // Return an explicit error instead of a silent success to avoid misleading callers.
+        Err(LlmError::UnsupportedOperation(
+            "OpenAI Responses API web_search not implemented".to_string(),
+        ))
     }
 
     fn supports_web_search(&self) -> bool {

@@ -12,6 +12,11 @@ pub trait LlmClient: ChatCapability + Send + Sync {
     /// Get the provider name
     fn provider_name(&self) -> &'static str;
 
+    /// Get the provider type. Default implementation maps from `provider_name()`.
+    fn provider_type(&self) -> ProviderType {
+        ProviderType::from_name(self.provider_name())
+    }
+
     /// Get the list of supported models
     fn supported_models(&self) -> Vec<String>;
 

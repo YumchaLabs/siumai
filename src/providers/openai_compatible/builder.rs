@@ -1,7 +1,11 @@
 use super::registry::get_provider_adapter;
+use crate::retry_api::RetryOptions;
 use crate::{LlmBuilder, LlmError};
 
 /// OpenAI-compatible builder for configuring OpenAI-compatible providers.
+///
+/// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
+/// for chat operations across OpenAI-compatible providers.
 ///
 /// This unified builder supports all OpenAI-compatible providers (SiliconFlow, DeepSeek,
 /// OpenRouter, etc.) using the adapter system for proper parameter handling and field mapping.
@@ -44,6 +48,8 @@ pub struct OpenAiCompatibleBuilder {
     http_config: crate::types::HttpConfig,
     /// Provider-specific configuration
     provider_specific_config: std::collections::HashMap<String, serde_json::Value>,
+    /// Unified retry options
+    retry_options: Option<RetryOptions>,
 }
 
 impl OpenAiCompatibleBuilder {
@@ -65,6 +71,7 @@ impl OpenAiCompatibleBuilder {
             common_params: crate::types::CommonParams::default(),
             http_config: crate::types::HttpConfig::default(),
             provider_specific_config: std::collections::HashMap::new(),
+            retry_options: None,
         }
     }
 
@@ -171,6 +178,12 @@ impl OpenAiCompatibleBuilder {
     /// Add a custom header
     pub fn header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
         self.http_config.headers.insert(key.into(), value.into());
+        self
+    }
+
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
         self
     }
 
@@ -439,14 +452,17 @@ impl OpenAiCompatibleBuilder {
         config = config.with_http_config(final_http_config);
 
         // Create client with or without custom HTTP client
-        if let Some(http_client) = self.base.http_client {
+        let mut client = if let Some(http_client) = self.base.http_client {
             crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
                 config,
                 http_client,
             )
-            .await
+            .await?
         } else {
-            crate::providers::openai_compatible::OpenAiCompatibleClient::new(config).await
-        }
+            crate::providers::openai_compatible::OpenAiCompatibleClient::new(config).await?
+        };
+
+        client.set_retry_options(self.retry_options.clone());
+        Ok(client)
     }
 }

@@ -71,6 +71,32 @@ pub trait ChatCapability: Send + Sync {
 /// It follows the interface segregation principle by separating optional features.
 #[async_trait]
 pub trait ChatExtensions: ChatCapability {
+    /// Send a chat request with retry using the unified retry facade.
+    ///
+    /// This wraps `chat_with_tools` with `retry_api::retry_with` for convenient retries.
+    async fn chat_with_retry(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+        options: crate::retry_api::RetryOptions,
+    ) -> Result<ChatResponse, LlmError> {
+        use crate::retry_api;
+
+        // Capture clones for retry closure
+        let msgs = messages;
+        let tls = tools;
+
+        retry_api::retry_with(
+            || {
+                let m = msgs.clone();
+                let t = tls.clone();
+                async move { self.chat_with_tools(m, t).await }
+            },
+            options,
+        )
+        .await
+    }
+
     /// Get current memory contents if provider supports memory.
     ///
     /// # Returns
@@ -127,6 +153,20 @@ pub trait ChatExtensions: ChatCapability {
     async fn ask(&self, prompt: String) -> Result<String, LlmError> {
         let message = ChatMessage::user(prompt).build();
         let response = self.chat(vec![message]).await?;
+        response
+            .content_text()
+            .ok_or_else(|| LlmError::InternalError("No text in response".to_string()))
+            .map(std::string::ToString::to_string)
+    }
+
+    /// Simple text completion with retry.
+    async fn ask_with_retry(
+        &self,
+        prompt: String,
+        options: crate::retry_api::RetryOptions,
+    ) -> Result<String, LlmError> {
+        let message = ChatMessage::user(prompt).build();
+        let response = self.chat_with_retry(vec![message], None, options).await?;
         response
             .content_text()
             .ok_or_else(|| LlmError::InternalError("No text in response".to_string()))

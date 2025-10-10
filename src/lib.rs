@@ -105,7 +105,12 @@ pub mod provider_features;
 pub mod providers;
 pub mod request_factory;
 pub mod retry;
+pub mod retry_api;
 pub mod retry_backoff;
+#[deprecated(
+    since = "0.10.2",
+    note = "Use retry_api facade instead; scheduled for removal in 0.11"
+)]
 pub mod retry_strategy;
 pub mod stream;
 pub mod tracing;
@@ -155,8 +160,15 @@ pub use types::{WebSearchConfig, WebSearchResult};
 // Performance monitoring
 pub use performance::{PerformanceMetrics, PerformanceMonitor};
 
-// Retry strategy
+// Retry strategy (deprecated). Use retry_api facade instead.
+#[allow(deprecated)]
+#[deprecated(
+    since = "0.10.2",
+    note = "Use retry_api::RetryOptions/RetryBackend; will be removed in 0.11"
+)]
 pub use retry_strategy::RetryStrategy;
+// Unified retry facade
+pub use retry_api::{RetryBackend, RetryOptions, retry, retry_for_provider, retry_with};
 
 // Benchmarks
 pub use benchmarks::{BenchmarkConfig, BenchmarkResults, BenchmarkRunner};
@@ -188,6 +200,10 @@ pub mod prelude {
     pub use crate::provider::Siumai;
     pub use crate::provider::*;
     pub use crate::provider_features::*;
+    // Deprecated: prefer retry_api::*
+    pub use crate::retry_api::*;
+    #[allow(deprecated)]
+    #[deprecated(since = "0.10.2", note = "Use retry_api::*; will be removed in 0.11")]
     pub use crate::retry_strategy::*;
     pub use crate::stream::*;
     pub use crate::tracing::*;

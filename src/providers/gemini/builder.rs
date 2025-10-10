@@ -1,9 +1,13 @@
+use crate::retry_api::RetryOptions;
 use crate::{LlmBuilder, LlmError};
 
 /// Gemini-specific builder for configuring Gemini clients.
 ///
 /// This builder provides Gemini-specific configuration options while
 /// inheriting common HTTP and timeout settings from the base `LlmBuilder`.
+///
+/// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
+/// for chat operations.
 ///
 /// # Example
 /// ```rust,no_run
@@ -53,6 +57,8 @@ pub struct GeminiBuilder {
     thinking_config: Option<crate::providers::gemini::ThinkingConfig>,
     /// Tracing configuration
     tracing_config: Option<crate::tracing::TracingConfig>,
+    /// Unified retry options
+    retry_options: Option<RetryOptions>,
 }
 
 impl GeminiBuilder {
@@ -73,6 +79,7 @@ impl GeminiBuilder {
             json_schema: None,
             thinking_config: None,
             tracing_config: None,
+            retry_options: None,
         }
     }
 
@@ -306,6 +313,12 @@ impl GeminiBuilder {
         self
     }
 
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
+        self
+    }
+
     /// Build the Gemini client
     pub async fn build(self) -> Result<crate::providers::gemini::GeminiClient, LlmError> {
         let api_key = self.api_key.ok_or_else(|| {
@@ -314,7 +327,7 @@ impl GeminiBuilder {
 
         // Initialize tracing if configured
         let _tracing_guard = if let Some(ref tracing_config) = self.tracing_config {
-            Some(crate::tracing::init_tracing(tracing_config.clone())?)
+            crate::tracing::init_tracing(tracing_config.clone())?
         } else {
             None
         };
@@ -394,6 +407,7 @@ impl GeminiBuilder {
             crate::providers::gemini::GeminiClient::with_http_client(config, http_client)?;
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
+        client.set_retry_options(self.retry_options.clone());
 
         Ok(client)
     }

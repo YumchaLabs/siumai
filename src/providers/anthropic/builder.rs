@@ -1,10 +1,14 @@
 use crate::params::AnthropicParams;
 use crate::providers::AnthropicClient;
+use crate::retry_api::RetryOptions;
 use crate::{CommonParams, HttpConfig, LlmBuilder, LlmError};
 use std::collections::HashMap;
 use std::time::Duration;
 
 /// Anthropic-specific builder
+///
+/// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
+/// for chat operations.
 pub struct AnthropicBuilder {
     pub(crate) base: LlmBuilder,
     api_key: Option<String>,
@@ -14,6 +18,7 @@ pub struct AnthropicBuilder {
     anthropic_params: AnthropicParams,
     http_config: HttpConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
 }
 
 impl AnthropicBuilder {
@@ -27,6 +32,7 @@ impl AnthropicBuilder {
             anthropic_params: AnthropicParams::default(),
             http_config: HttpConfig::default(),
             tracing_config: None,
+            retry_options: None,
         }
     }
 
@@ -143,6 +149,12 @@ impl AnthropicBuilder {
         self
     }
 
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
+        self
+    }
+
     /// Adds metadata
     pub fn metadata<K, V>(mut self, key: K, value: V) -> Self
     where
@@ -175,7 +187,7 @@ impl AnthropicBuilder {
 
         // Initialize tracing if configured
         let _tracing_guard = if let Some(ref tracing_config) = self.tracing_config {
-            Some(crate::tracing::init_tracing(tracing_config.clone())?)
+            crate::tracing::init_tracing(tracing_config.clone())?
         } else {
             None
         };
@@ -224,6 +236,7 @@ impl AnthropicBuilder {
         client = client.with_specific_params(specific_params);
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
+        client.set_retry_options(self.retry_options.clone());
 
         Ok(client)
     }

@@ -6,6 +6,7 @@ use super::{openai_config::OpenAiCompatibleConfig, types::RequestType};
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::providers::openai::utils::convert_messages;
+use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::{
     ChatCapability, EmbeddingCapability, ImageGenerationCapability, ModelListingCapability,
@@ -80,6 +81,7 @@ pub struct OpenAiCompatibleUsage {
 pub struct OpenAiCompatibleClient {
     config: OpenAiCompatibleConfig,
     http_client: reqwest::Client,
+    retry_options: Option<RetryOptions>,
 }
 
 impl OpenAiCompatibleClient {
@@ -99,6 +101,7 @@ impl OpenAiCompatibleClient {
         Ok(Self {
             config,
             http_client,
+            retry_options: None,
         })
     }
 
@@ -118,6 +121,7 @@ impl OpenAiCompatibleClient {
         Ok(Self {
             config,
             http_client,
+            retry_options: None,
         })
     }
 
@@ -165,6 +169,11 @@ impl OpenAiCompatibleClient {
         }
 
         Ok(headers)
+    }
+
+    /// Set unified retry options
+    pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
+        self.retry_options = options;
     }
 
     /// Build HTTP client with configuration
@@ -418,9 +427,8 @@ impl OpenAiCompatibleClient {
     }
 }
 
-#[async_trait]
-impl ChatCapability for OpenAiCompatibleClient {
-    async fn chat_with_tools(
+impl OpenAiCompatibleClient {
+    async fn chat_with_tools_inner(
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
@@ -450,6 +458,29 @@ impl ChatCapability for OpenAiCompatibleClient {
         let chat_response = self.parse_chat_response(openai_response)?;
 
         Ok(chat_response)
+    }
+}
+
+#[async_trait]
+impl ChatCapability for OpenAiCompatibleClient {
+    async fn chat_with_tools(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let m = messages.clone();
+                    let t = tools.clone();
+                    async move { self.chat_with_tools_inner(m, t).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.chat_with_tools_inner(messages, tools).await
+        }
     }
 
     async fn chat_stream(

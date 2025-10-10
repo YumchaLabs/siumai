@@ -4,16 +4,21 @@
 
 use crate::LlmBuilder;
 use crate::error::LlmError;
+use crate::retry_api::RetryOptions;
 use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
 
 use super::client::XaiClient;
 use super::config::XaiConfig;
 
 /// `xAI` Client Builder
+///
+/// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
+/// for chat operations.
 #[derive(Debug, Clone)]
 pub struct XaiBuilder {
     config: XaiConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
 }
 
 impl XaiBuilder {
@@ -22,6 +27,7 @@ impl XaiBuilder {
         Self {
             config: XaiConfig::default(),
             tracing_config: None,
+            retry_options: None,
         }
     }
 
@@ -148,6 +154,12 @@ impl XaiBuilder {
         self
     }
 
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.retry_options = Some(options);
+        self
+    }
+
     /// Build the `xAI` client
     pub async fn build(self) -> Result<XaiClient, LlmError> {
         // Validate configuration
@@ -157,7 +169,7 @@ impl XaiBuilder {
 
         // Initialize tracing if configured
         let _tracing_guard = if let Some(ref tracing_config) = self.tracing_config {
-            Some(crate::tracing::init_tracing(tracing_config.clone())?)
+            crate::tracing::init_tracing(tracing_config.clone())?
         } else {
             None
         };
@@ -171,6 +183,7 @@ impl XaiBuilder {
         let mut client = XaiClient::new(config).await?;
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
+        client.set_retry_options(self.retry_options.clone());
 
         Ok(client)
     }
@@ -187,7 +200,7 @@ impl XaiBuilder {
 
         // Initialize tracing if configured
         let _tracing_guard = if let Some(ref tracing_config) = self.tracing_config {
-            Some(crate::tracing::init_tracing(tracing_config.clone())?)
+            crate::tracing::init_tracing(tracing_config.clone())?
         } else {
             None
         };
@@ -201,6 +214,7 @@ impl XaiBuilder {
         let mut client = XaiClient::with_http_client(config, http_client).await?;
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
+        client.set_retry_options(self.retry_options.clone());
 
         Ok(client)
     }

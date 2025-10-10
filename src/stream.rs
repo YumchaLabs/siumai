@@ -37,7 +37,7 @@ pub struct FunctionCallDelta {
 }
 
 /// Stream Processor configuration
-#[derive(Debug, Clone)]
+pub type OverflowHandler = Box<dyn Fn(&str, usize) + Send + Sync>;
 pub struct StreamProcessorConfig {
     /// Maximum size for content buffer (in bytes)
     pub max_content_buffer_size: Option<usize>,
@@ -46,7 +46,25 @@ pub struct StreamProcessorConfig {
     /// Maximum number of tool calls to track
     pub max_tool_calls: Option<usize>,
     /// Handler for buffer overflow
-    pub overflow_handler: Option<fn(&str, usize)>,
+    pub overflow_handler: Option<OverflowHandler>,
+}
+
+impl std::fmt::Debug for StreamProcessorConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamProcessorConfig")
+            .field("max_content_buffer_size", &self.max_content_buffer_size)
+            .field("max_thinking_buffer_size", &self.max_thinking_buffer_size)
+            .field("max_tool_calls", &self.max_tool_calls)
+            .field(
+                "has_overflow_handler",
+                &self
+                    .overflow_handler
+                    .as_ref()
+                    .map(|_| true)
+                    .unwrap_or(false),
+            )
+            .finish()
+    }
 }
 
 impl Default for StreamProcessorConfig {
@@ -96,8 +114,8 @@ impl StreamProcessor {
                     let new_size = self.buffer.len() + delta.len();
                     if new_size > max_size {
                         // Call overflow handler if provided
-                        if let Some(handler) = self.config.overflow_handler {
-                            handler("content_buffer", new_size);
+                        if let Some(handler) = &self.config.overflow_handler {
+                            (handler)("content_buffer", new_size);
                         }
                         // Truncate buffer to keep within limits
                         let available = max_size.saturating_sub(self.buffer.len());
@@ -154,8 +172,8 @@ impl StreamProcessor {
                     && self.tool_calls.len() >= max_tool_calls
                 {
                     // Too many tool calls, skip this one
-                    if let Some(handler) = self.config.overflow_handler {
-                        handler("tool_calls", self.tool_calls.len() + 1);
+                    if let Some(handler) = &self.config.overflow_handler {
+                        (handler)("tool_calls", self.tool_calls.len() + 1);
                     }
                     return ProcessedEvent::ToolCallUpdate {
                         id: tool_id,
@@ -205,8 +223,8 @@ impl StreamProcessor {
                     let new_size = self.thinking_buffer.len() + delta.len();
                     if new_size > max_size {
                         // Call overflow handler if provided
-                        if let Some(handler) = self.config.overflow_handler {
-                            handler("thinking_buffer", new_size);
+                        if let Some(handler) = &self.config.overflow_handler {
+                            (handler)("thinking_buffer", new_size);
                         }
                         // Truncate buffer to keep within limits
                         let available = max_size.saturating_sub(self.thinking_buffer.len());

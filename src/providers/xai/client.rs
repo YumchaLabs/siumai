@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
 use crate::types::*;
@@ -33,7 +34,9 @@ pub struct XaiClient {
     /// Tracing configuration
     tracing_config: Option<crate::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active
-    _tracing_guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+    _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    /// Unified retry options for chat
+    retry_options: Option<RetryOptions>,
 }
 
 impl Clone for XaiClient {
@@ -45,6 +48,7 @@ impl Clone for XaiClient {
             http_client: self.http_client.clone(),
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
+            retry_options: self.retry_options.clone(),
         }
     }
 }
@@ -105,6 +109,7 @@ impl XaiClient {
             http_client,
             tracing_config: None,
             _tracing_guard: None,
+            retry_options: None,
         })
     }
 
@@ -177,10 +182,8 @@ impl LlmClient for XaiClient {
     }
 }
 
-#[async_trait]
-impl ChatCapability for XaiClient {
-    /// Chat with tools implementation
-    async fn chat_with_tools(
+impl XaiClient {
+    async fn chat_with_tools_inner(
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
@@ -196,6 +199,30 @@ impl ChatCapability for XaiClient {
             stream: false,
         };
         self.chat_capability.chat(request).await
+    }
+}
+
+#[async_trait]
+impl ChatCapability for XaiClient {
+    /// Chat with tools implementation
+    async fn chat_with_tools(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let m = messages.clone();
+                    let t = tools.clone();
+                    async move { self.chat_with_tools_inner(m, t).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.chat_with_tools_inner(messages, tools).await
+        }
     }
 
     /// Chat stream implementation
@@ -313,7 +340,7 @@ impl XaiClient {
     /// Set the tracing guard to keep tracing system active
     pub(crate) fn set_tracing_guard(
         &mut self,
-        guard: Option<Option<tracing_appender::non_blocking::WorkerGuard>>,
+        guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     ) {
         self._tracing_guard = guard;
     }
@@ -321,6 +348,11 @@ impl XaiClient {
     /// Set the tracing configuration
     pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
         self.tracing_config = config;
+    }
+
+    /// Set unified retry options
+    pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
+        self.retry_options = options;
     }
 }
 
