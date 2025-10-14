@@ -1,8 +1,8 @@
-//! Transformers layer (Phase 0 scaffolding)
+//! Transformers Layer
 //!
-//! This module defines traits for request/response/stream transformation.
-//! They are introduced behind the `new-transformers` feature and will be
-//! gradually adopted by providers/executors during the refactor.
+//! Stable, provider-agnostic traits for transforming requests, responses,
+//! and streaming chunks across providers. Forms the core of the unified
+//! execution pipeline together with the Executors layer.
 
 pub mod audio;
 pub mod files;

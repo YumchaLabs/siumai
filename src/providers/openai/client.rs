@@ -110,6 +110,22 @@ impl std::fmt::Debug for OpenAiClient {
 }
 
 impl OpenAiClient {
+    /// Build standard OpenAI JSON headers with optional org/project and tracing
+    fn build_openai_headers(
+        api_key: &secrecy::SecretString,
+        organization: &Option<String>,
+        project: &Option<String>,
+        custom_headers: &std::collections::HashMap<String, String>,
+    ) -> Result<reqwest::header::HeaderMap, LlmError> {
+        let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+            api_key.expose_secret(),
+            organization.as_deref(),
+            project.as_deref(),
+            custom_headers,
+        )?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
+        Ok(headers)
+    }
     /// Creates a new `OpenAI` client with configuration and HTTP client
     pub fn new(config: super::OpenAiConfig, http_client: reqwest::Client) -> Self {
         let specific_params = OpenAiSpecificParams {
@@ -133,6 +149,7 @@ impl OpenAiClient {
             http_client.clone(),
             config.organization.clone(),
             config.project.clone(),
+            config.http_config.clone(),
         );
 
         Self {
@@ -315,41 +332,9 @@ impl OpenAiClient {
             let proj = self.project.clone();
             let req_tx = super::transformers::OpenAiResponsesRequestTransformer;
             let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
-            let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                headers.insert(
-                    reqwest::header::CONTENT_TYPE,
-                    reqwest::header::HeaderValue::from_static("application/json"),
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            };
+            let extra_headers = self.http_config.headers.clone();
+            let headers_builder =
+                move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
             let exec = HttpChatExecutor {
                 provider_id: "openai_responses".to_string(),
                 http_client: http,
@@ -379,41 +364,9 @@ impl OpenAiClient {
             let proj = self.project.clone();
             let req_tx = super::transformers::OpenAiRequestTransformer;
             let resp_tx = super::transformers::OpenAiResponseTransformer;
-            let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                headers.insert(
-                    reqwest::header::CONTENT_TYPE,
-                    reqwest::header::HeaderValue::from_static("application/json"),
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            };
+            let extra_headers = self.http_config.headers.clone();
+            let headers_builder =
+                move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
             let exec = HttpChatExecutor {
                 provider_id: "openai".to_string(),
                 http_client: http,
@@ -482,41 +435,9 @@ impl ChatCapability for OpenAiClient {
                 provider_id: "openai_responses".to_string(),
                 inner: converter,
             };
-            let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                headers.insert(
-                    reqwest::header::CONTENT_TYPE,
-                    reqwest::header::HeaderValue::from_static("application/json"),
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            };
+            let extra_headers = self.http_config.headers.clone();
+            let headers_builder =
+                move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
             let exec = HttpChatExecutor {
                 provider_id: "openai_responses".to_string(),
                 http_client: http,
@@ -548,56 +469,10 @@ impl ChatCapability for OpenAiClient {
             let req_tx = super::transformers::OpenAiRequestTransformer;
             let resp_tx = super::transformers::OpenAiResponseTransformer;
 
-            // Build compat-based event converter
-            use crate::providers::openai_compatible::adapter::{
-                ProviderAdapter, ProviderCompatibility,
-            };
-            use crate::providers::openai_compatible::types::FieldMappings;
-            use crate::traits::ProviderCapabilities;
-            #[derive(Debug, Clone)]
-            struct OpenAiStandardAdapter {
-                base_url: String,
-            }
-            impl ProviderAdapter for OpenAiStandardAdapter {
-                fn provider_id(&self) -> &'static str {
-                    "openai"
-                }
-                fn transform_request_params(
-                    &self,
-                    _params: &mut serde_json::Value,
-                    _model: &str,
-                    _ty: crate::providers::openai_compatible::types::RequestType,
-                ) -> Result<(), LlmError> {
-                    Ok(())
-                }
-                fn get_field_mappings(&self, _model: &str) -> FieldMappings {
-                    FieldMappings::standard()
-                }
-                fn get_model_config(
-                    &self,
-                    _model: &str,
-                ) -> crate::providers::openai_compatible::types::ModelConfig {
-                    crate::providers::openai_compatible::types::ModelConfig::default()
-                }
-                fn capabilities(&self) -> ProviderCapabilities {
-                    ProviderCapabilities::new()
-                        .with_chat()
-                        .with_streaming()
-                        .with_tools()
-                }
-                fn compatibility(&self) -> ProviderCompatibility {
-                    ProviderCompatibility::openai_standard()
-                }
-                fn base_url(&self) -> &str {
-                    &self.base_url
-                }
-                fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
-                    Box::new(self.clone())
-                }
-            }
+            // Build compat-based event converter via shared OpenAI adapter
             let adapter: std::sync::Arc<
                 dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
-            > = std::sync::Arc::new(OpenAiStandardAdapter {
+            > = std::sync::Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
                 base_url: base.clone(),
             });
             let compat_cfg =
@@ -617,41 +492,9 @@ impl ChatCapability for OpenAiClient {
                 inner,
             };
 
-            let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                headers.insert(
-                    reqwest::header::CONTENT_TYPE,
-                    reqwest::header::HeaderValue::from_static("application/json"),
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            };
+            let extra_headers = self.http_config.headers.clone();
+            let headers_builder =
+                move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
             let exec = HttpChatExecutor {
                 provider_id: "openai".to_string(),
                 http_client: http,
@@ -699,40 +542,9 @@ impl EmbeddingCapability for OpenAiClient {
                     async move {
                         let req_tx = super::transformers::OpenAiRequestTransformer;
                         let resp_tx = super::transformers::OpenAiResponseTransformer;
+                        let extra_headers = self.http_config.headers.clone();
                         let headers_builder = move || {
-                            let mut headers = reqwest::header::HeaderMap::new();
-                            headers.insert(
-                                reqwest::header::AUTHORIZATION,
-                                reqwest::header::HeaderValue::from_str(&format!(
-                                    "Bearer {}",
-                                    api_key.expose_secret()
-                                ))
-                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                            );
-                            headers.insert(
-                                reqwest::header::CONTENT_TYPE,
-                                reqwest::header::HeaderValue::from_static("application/json"),
-                            );
-                            if let Some(org) = &org
-                                && !org.is_empty()
-                            {
-                                headers.insert(
-                                    "OpenAI-Organization",
-                                    reqwest::header::HeaderValue::from_str(org)
-                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                                );
-                            }
-                            if let Some(proj) = &proj
-                                && !proj.is_empty()
-                            {
-                                headers.insert(
-                                    "OpenAI-Project",
-                                    reqwest::header::HeaderValue::from_str(proj)
-                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                                );
-                            }
-                            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                            Ok(headers)
+                            Self::build_openai_headers(&api_key, &org, &proj, &extra_headers)
                         };
                         let exec = HttpEmbeddingExecutor {
                             provider_id: "openai".to_string(),
@@ -756,41 +568,9 @@ impl EmbeddingCapability for OpenAiClient {
             let proj = self.project.clone();
             let req_tx = super::transformers::OpenAiRequestTransformer;
             let resp_tx = super::transformers::OpenAiResponseTransformer;
-            let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                headers.insert(
-                    reqwest::header::CONTENT_TYPE,
-                    reqwest::header::HeaderValue::from_static("application/json"),
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            };
+            let extra_headers = self.http_config.headers.clone();
+            let headers_builder =
+                move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
             let exec = HttpEmbeddingExecutor {
                 provider_id: "openai".to_string(),
                 http_client: http,
@@ -858,41 +638,9 @@ impl EmbeddingExtensions for OpenAiClient {
                     async move {
                         let req_tx = super::transformers::OpenAiRequestTransformer;
                         let resp_tx = super::transformers::OpenAiResponseTransformer;
+                        let extra_headers = self.http_config.headers.clone();
                         let headers_builder = move || {
-                            let mut headers = reqwest::header::HeaderMap::new();
-                            headers.insert(
-                                reqwest::header::AUTHORIZATION,
-                                reqwest::header::HeaderValue::from_str(&format!(
-                                    "Bearer {}",
-                                    api_key.expose_secret()
-                                ))
-                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                            );
-                            headers.insert(
-                                reqwest::header::CONTENT_TYPE,
-                                reqwest::header::HeaderValue::from_static("application/json"),
-                            );
-                            if let Some(org) = &org
-                                && !org.is_empty()
-                            {
-                                headers.insert(
-                                    "OpenAI-Organization",
-                                    reqwest::header::HeaderValue::from_str(org)
-                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                                );
-                            }
-                            if let Some(proj) = &proj
-                                && !proj.is_empty()
-                            {
-                                headers.insert(
-                                    "OpenAI-Project",
-                                    reqwest::header::HeaderValue::from_str(proj)
-                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                                );
-                            }
-                            // Unified tracing headers injection
-                            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                            Ok(headers)
+                            Self::build_openai_headers(&api_key, &org, &proj, &extra_headers)
                         };
                         let exec = HttpEmbeddingExecutor {
                             provider_id: "openai".to_string(),
@@ -916,42 +664,9 @@ impl EmbeddingExtensions for OpenAiClient {
             let proj = self.project.clone();
             let req_tx = super::transformers::OpenAiRequestTransformer;
             let resp_tx = super::transformers::OpenAiResponseTransformer;
-            let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                headers.insert(
-                    reqwest::header::CONTENT_TYPE,
-                    reqwest::header::HeaderValue::from_static("application/json"),
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                // Unified tracing headers injection
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            };
+            let extra_headers = self.http_config.headers.clone();
+            let headers_builder =
+                move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
             let exec = HttpEmbeddingExecutor {
                 provider_id: "openai".to_string(),
                 http_client: http,
@@ -1064,36 +779,9 @@ impl AudioCapability for OpenAiClient {
                     let org = org.clone();
                     let proj = proj.clone();
                     async move {
+                        let extra_headers = self.http_config.headers.clone();
                         let headers_builder = move || {
-                            let mut headers = reqwest::header::HeaderMap::new();
-                            headers.insert(
-                                reqwest::header::AUTHORIZATION,
-                                reqwest::header::HeaderValue::from_str(&format!(
-                                    "Bearer {}",
-                                    api_key.expose_secret()
-                                ))
-                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                            );
-                            if let Some(org) = &org
-                                && !org.is_empty()
-                            {
-                                headers.insert(
-                                    "OpenAI-Organization",
-                                    reqwest::header::HeaderValue::from_str(org)
-                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                                );
-                            }
-                            if let Some(proj) = &proj
-                                && !proj.is_empty()
-                            {
-                                headers.insert(
-                                    "OpenAI-Project",
-                                    reqwest::header::HeaderValue::from_str(proj)
-                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                                );
-                            }
-                            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                            Ok(headers)
+                            Self::build_openai_headers(&api_key, &org, &proj, &extra_headers)
                         };
                         let exec = HttpAudioExecutor {
                             provider_id: "openai".to_string(),
@@ -1109,37 +797,9 @@ impl AudioCapability for OpenAiClient {
             )
             .await?
         } else {
-            let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            };
+            let extra_headers = self.http_config.headers.clone();
+            let headers_builder =
+                move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
             let exec = HttpAudioExecutor {
                 provider_id: "openai".to_string(),
                 http_client: http,
@@ -1274,34 +934,15 @@ impl AudioCapability for OpenAiClient {
             )
             .await?
         } else {
+            let extra_headers = self.http_config.headers.clone();
             let headers_builder = move || {
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    reqwest::header::HeaderValue::from_str(&format!(
-                        "Bearer {}",
-                        api_key.expose_secret()
-                    ))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                );
-                if let Some(org) = &org
-                    && !org.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Organization",
-                        reqwest::header::HeaderValue::from_str(org)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
-                if let Some(proj) = &proj
-                    && !proj.is_empty()
-                {
-                    headers.insert(
-                        "OpenAI-Project",
-                        reqwest::header::HeaderValue::from_str(proj)
-                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-                    );
-                }
+                let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+                    api_key.expose_secret(),
+                    org.as_deref(),
+                    proj.as_deref(),
+                    &extra_headers,
+                )?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
                 Ok(headers)
             };
             let exec = HttpAudioExecutor {

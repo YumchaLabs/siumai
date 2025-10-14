@@ -43,6 +43,7 @@
 //! ```
 
 // Core modules
+pub mod adapter;
 pub mod builder;
 pub mod client;
 pub mod config;

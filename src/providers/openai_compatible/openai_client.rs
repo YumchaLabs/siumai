@@ -20,6 +20,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 // removed: HashMap import not needed after legacy removal
+use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
 
 /// OpenAI Compatible Chat Response with provider-specific fields
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -136,6 +137,26 @@ impl OpenAiCompatibleClient {
         self.retry_options = options;
     }
 
+    /// Build unified JSON headers for OpenAI-compatible providers
+    fn build_json_headers(
+        api_key: &str,
+        http_extra: &std::collections::HashMap<String, String>,
+        config_headers: &reqwest::header::HeaderMap,
+        adapter_headers: &reqwest::header::HeaderMap,
+    ) -> Result<reqwest::header::HeaderMap, LlmError> {
+        let mut headers = ProviderHeaders::openai(api_key, None, None, http_extra)?;
+        // Merge config.custom_headers
+        for (k, v) in config_headers.iter() {
+            headers.insert(k, v.clone());
+        }
+        // Merge adapter.custom_headers
+        for (k, v) in adapter_headers.iter() {
+            headers.insert(k, v.clone());
+        }
+        inject_tracing_headers(&mut headers);
+        Ok(headers)
+    }
+
     /// Build HTTP client with configuration
     fn build_http_client(config: &OpenAiCompatibleConfig) -> Result<reqwest::Client, LlmError> {
         let mut builder = reqwest::Client::builder();
@@ -187,43 +208,14 @@ impl OpenAiCompatibleClient {
         params: serde_json::Value,
         endpoint: &str,
     ) -> Result<reqwest::Response, LlmError> {
-        let mut headers = reqwest::header::HeaderMap::new();
-
-        // Add authorization header
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.config.api_key))
-                .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {}", e)))?,
-        );
-
-        // Add content type
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            reqwest::header::HeaderValue::from_static("application/json"),
-        );
-
-        // Add headers from HTTP config
-        for (key, value) in &self.config.http_config.headers {
-            let header_name =
-                reqwest::header::HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
-                    LlmError::ConfigurationError(format!("Invalid header name '{}': {}", key, e))
-                })?;
-            let header_value = reqwest::header::HeaderValue::from_str(value).map_err(|e| {
-                LlmError::ConfigurationError(format!("Invalid header value '{}': {}", value, e))
-            })?;
-            headers.insert(header_name, header_value);
-        }
-
-        // Add custom headers from config
-        for (key, value) in &self.config.custom_headers {
-            headers.insert(key, value.clone());
-        }
-
-        // Add adapter custom headers
+        // Unified header building
         let adapter_headers = self.config.adapter.custom_headers();
-        for (key, value) in adapter_headers.iter() {
-            headers.insert(key, value.clone());
-        }
+        let headers = Self::build_json_headers(
+            &self.config.api_key,
+            &self.config.http_config.headers,
+            &self.config.custom_headers,
+            &adapter_headers,
+        )?;
 
         let url = format!(
             "{}/{}",
@@ -289,24 +281,11 @@ impl ChatCapability for OpenAiCompatibleClient {
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
         let api_key = self.config.api_key.clone();
-        let adapter = self.config.adapter.clone();
+        let adapter_headers_map = self.config.adapter.custom_headers();
+        let http_extra = self.config.http_config.headers.clone();
+        let cfg_custom = self.config.custom_headers.clone();
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
-                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {e}")))?,
-            );
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            );
-            // Adapter custom headers
-            for (k, v) in adapter.custom_headers().iter() {
-                headers.insert(k, v.clone());
-            }
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
         };
         let exec = std::sync::Arc::new(HttpChatExecutor {
             provider_id: provider_id.clone(),
@@ -354,7 +333,9 @@ impl ChatCapability for OpenAiCompatibleClient {
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
         let api_key = self.config.api_key.clone();
-        let adapter = self.config.adapter.clone();
+        let adapter_headers_map = self.config.adapter.custom_headers();
+        let http_extra = self.config.http_config.headers.clone();
+        let cfg_custom = self.config.custom_headers.clone();
         let request_tx = super::transformers::CompatRequestTransformer {
             config: self.config.clone(),
             adapter: self.config.adapter.clone(),
@@ -368,21 +349,7 @@ impl ChatCapability for OpenAiCompatibleClient {
             inner: std_adapter,
         };
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
-                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {e}")))?,
-            );
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            );
-            for (k, v) in adapter.custom_headers().iter() {
-                headers.insert(k, v.clone());
-            }
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
         };
         let exec = std::sync::Arc::new(HttpChatExecutor {
             provider_id: provider_id.clone(),
@@ -407,29 +374,19 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
         let api_key = self.config.api_key.clone();
-        let adapter = self.config.adapter.clone();
+        let adapter_headers_map = self.config.adapter.custom_headers();
+        let http_extra = self.config.http_config.headers.clone();
+        let cfg_custom = self.config.custom_headers.clone();
         let req_tx = super::transformers::CompatRequestTransformer {
             config: self.config.clone(),
-            adapter: adapter.clone(),
+            adapter: self.config.adapter.clone(),
         };
         let resp_tx = super::transformers::CompatResponseTransformer {
             config: self.config.clone(),
-            adapter,
+            adapter: self.config.adapter.clone(),
         };
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-            );
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            );
-            // Unified tracing headers injection
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
         };
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -515,34 +472,13 @@ impl OpenAiCompatibleClient {
     /// List available models from the provider
     async fn list_models_internal(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let url = format!("{}/models", self.config.base_url.trim_end_matches('/'));
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.config.api_key))
-                .map_err(|e| LlmError::InvalidInput(format!("Invalid API key: {}", e)))?,
-        );
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            reqwest::header::HeaderValue::from_static("application/json"),
-        );
-
-        // Add headers from HTTP config
-        for (key, value) in &self.config.http_config.headers {
-            let header_name =
-                reqwest::header::HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
-                    LlmError::ConfigurationError(format!("Invalid header name '{}': {}", key, e))
-                })?;
-            let header_value = reqwest::header::HeaderValue::from_str(value).map_err(|e| {
-                LlmError::ConfigurationError(format!("Invalid header value '{}': {}", value, e))
-            })?;
-            headers.insert(header_name, header_value);
-        }
-
-        // Add custom headers from config
-        for (key, value) in &self.config.custom_headers {
-            headers.insert(key, value.clone());
-        }
+        let adapter_headers = self.config.adapter.custom_headers();
+        let headers = Self::build_json_headers(
+            &self.config.api_key,
+            &self.config.http_config.headers,
+            &self.config.custom_headers,
+            &adapter_headers,
+        )?;
 
         let response = self.http_client.get(&url).headers(headers).send().await?;
 
@@ -681,28 +617,19 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
         let base = self.config.base_url.clone();
         let api_key = self.config.api_key.clone();
         let adapter = self.config.adapter.clone();
+        let adapter_headers_map = adapter.custom_headers();
+        let http_extra = self.config.http_config.headers.clone();
+        let cfg_custom = self.config.custom_headers.clone();
         let req_tx = super::transformers::CompatRequestTransformer {
             config: self.config.clone(),
-            adapter: adapter.clone(),
+            adapter: self.config.adapter.clone(),
         };
         let resp_tx = super::transformers::CompatResponseTransformer {
             config: self.config.clone(),
-            adapter,
+            adapter: self.config.adapter.clone(),
         };
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-            );
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            );
-            // Unified tracing headers injection
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
         };
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(

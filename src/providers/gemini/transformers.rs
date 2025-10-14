@@ -644,6 +644,7 @@ mod files_tests {
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
+            http_config: Some(crate::types::HttpConfig::default()),
         }
     }
 
@@ -728,6 +729,7 @@ mod images_tests {
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
+            http_config: Some(crate::types::HttpConfig::default()),
         }
     }
 
@@ -782,6 +784,7 @@ mod embeddings_tests {
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
+            http_config: Some(crate::types::HttpConfig::default()),
         }
     }
 

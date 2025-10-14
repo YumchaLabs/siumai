@@ -1,4 +1,4 @@
-//! Embedding executor traits (Phase 0 scaffolding)
+//! Embedding executor traits
 
 use crate::error::LlmError;
 use crate::transformers::{request::RequestTransformer, response::ResponseTransformer};

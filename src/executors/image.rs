@@ -1,4 +1,4 @@
-//! Image generation executor traits (Phase 0 scaffolding)
+//! Image generation executor traits
 
 use crate::error::LlmError;
 use crate::transformers::{

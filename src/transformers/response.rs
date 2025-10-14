@@ -1,4 +1,4 @@
-//! Response transformation traits (Phase 0 scaffolding)
+//! Response transformation traits
 //!
 //! Converts provider responses into unified response types.
 //! This mirrors Cherry Studio's response transformer idea.

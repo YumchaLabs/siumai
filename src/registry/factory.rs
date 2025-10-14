@@ -56,6 +56,79 @@ pub async fn build_openai_client(
     Ok(Box::new(client))
 }
 
+#[cfg(feature = "openai")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_openai_compatible_client(
+    provider_id: String,
+    api_key: String,
+    base_url: Option<String>,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    http_config: HttpConfig,
+    _provider_params: Option<ProviderParams>,
+    tracing_config: Option<crate::tracing::TracingConfig>,
+) -> Result<Box<dyn LlmClient>, LlmError> {
+    // Resolve provider adapter and base URL via registry v2
+    let registry = crate::registry::global_registry();
+    let (resolved_id, adapter, resolved_base) = {
+        let mut guard = registry
+            .lock()
+            .map_err(|_| LlmError::InternalError("Registry lock poisoned".to_string()))?;
+        // Ensure provider is registered
+        let _ = guard.register_openai_compatible(&provider_id);
+        let rec = guard.resolve(&provider_id).cloned().ok_or_else(|| {
+            LlmError::ConfigurationError(format!(
+                "Unknown OpenAI-compatible provider: {}",
+                provider_id
+            ))
+        })?;
+        let adapter = rec.adapter.ok_or_else(|| {
+            LlmError::ConfigurationError(format!(
+                "Adapter missing for OpenAI-compatible provider: {}",
+                rec.id
+            ))
+        })?;
+        let base = base_url
+            .clone()
+            .or(rec.base_url)
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+        (rec.id, adapter, base)
+    };
+
+    // Build config
+    let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+        &resolved_id,
+        &api_key,
+        &resolved_base,
+        adapter,
+    )
+    .with_model(&common_params.model)
+    .with_http_config(http_config.clone());
+
+    // Apply common params we support directly
+    if let Some(temp) = common_params.temperature {
+        config.common_params.temperature = Some(temp);
+    }
+    if let Some(max_tokens) = common_params.max_tokens {
+        config.common_params.max_tokens = Some(max_tokens);
+    }
+
+    // Create client via provided HTTP client
+    let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+        config,
+        http_client,
+    )
+    .await?;
+
+    // Apply tracing if configured (no-op if client ignores)
+    if let Some(tc) = tracing_config {
+        // OpenAI-compatible client doesn’t currently expose tracing guard; keep placeholder for symmetry
+        let _ = tc; // avoid unused warning
+    }
+
+    Ok(Box::new(client))
+}
+
 #[cfg(feature = "anthropic")]
 pub async fn build_anthropic_client(
     api_key: String,
@@ -97,7 +170,7 @@ pub async fn build_gemini_client(
     base_url: String,
     http_client: reqwest::Client,
     common_params: CommonParams,
-    _http_config: HttpConfig,
+    http_config: HttpConfig,
     provider_params: Option<ProviderParams>,
     tracing_config: Option<crate::tracing::TracingConfig>,
 ) -> Result<Box<dyn LlmClient>, LlmError> {
@@ -119,10 +192,12 @@ pub async fn build_gemini_client(
         gcfg = gcfg.with_stop_sequences(stop);
     }
 
-    let config = GeminiConfig::new(api_key)
+    let mut config = GeminiConfig::new(api_key)
         .with_base_url(base_url)
         .with_model(common_params.model.clone())
         .with_generation_config(gcfg);
+    // Pass through HTTP config if present in builder path
+    config = config.with_http_config(http_config.clone());
 
     // Create client with provided HTTP client
     let mut client = GeminiClient::with_http_client(config, http_client)?;

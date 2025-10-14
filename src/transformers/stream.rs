@@ -1,4 +1,4 @@
-//! Stream chunk transformation traits (Phase 0 scaffolding)
+//! Stream chunk transformation traits
 //!
 //! Converts provider-specific SSE/streaming chunks into unified ChatStreamEvent sequences.
 //! This is similar to Cherry Studio's ResponseChunkTransformer.

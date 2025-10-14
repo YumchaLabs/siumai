@@ -12,6 +12,7 @@ use crate::traits::ModerationCapability;
 use crate::types::{ModerationRequest, ModerationResponse, ModerationResult};
 
 use super::config::OpenAiConfig;
+use secrecy::ExposeSecret;
 
 /// `OpenAI` moderation API request structure
 #[derive(Debug, Clone, Serialize)]
@@ -253,16 +254,14 @@ impl OpenAiModeration {
     /// Make HTTP request with proper headers.
     async fn make_request(&self) -> Result<reqwest::RequestBuilder, LlmError> {
         let url = format!("{}/moderations", self.config.base_url);
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        for (key, value) in self.config.get_headers() {
-            let header_name = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                .map_err(|e| LlmError::HttpError(format!("Invalid header name: {e}")))?;
-            let header_value = reqwest::header::HeaderValue::from_str(&value)
-                .map_err(|e| LlmError::HttpError(format!("Invalid header value: {e}")))?;
-            headers.insert(header_name, header_value);
-        }
-
+        // Build headers via ProviderHeaders to ensure consistency and support custom headers
+        let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+            self.config.api_key.expose_secret(),
+            self.config.organization.as_deref(),
+            self.config.project.as_deref(),
+            &self.config.http_config.headers,
+        )?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
         Ok(self.http_client.post(&url).headers(headers))
     }
 

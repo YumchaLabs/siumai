@@ -1,7 +1,7 @@
-//! Executors layer (Phase 0 scaffolding)
+//! Executors Layer
 //!
-//! Executors orchestrate transformers and HTTP to perform capability-specific
-//! operations (chat/embedding/image/audio). Introduced behind `new-exec`.
+//! Stable HTTP orchestration that wires transformers with provider endpoints
+//! to perform capability-specific operations (chat, embedding, image, audio, files).
 
 pub mod audio;
 pub mod chat;

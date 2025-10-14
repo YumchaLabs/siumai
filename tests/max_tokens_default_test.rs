@@ -122,6 +122,7 @@ fn test_gemini_max_tokens_optional() {
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
+            http_config: Some(siumai::types::HttpConfig::default()),
         },
     };
 

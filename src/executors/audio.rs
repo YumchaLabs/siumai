@@ -1,4 +1,4 @@
-//! Audio executor traits (Phase 0 scaffolding)
+//! Audio executor traits
 
 use crate::error::LlmError;
 use crate::transformers::audio::{AudioHttpBody, AudioTransformer};

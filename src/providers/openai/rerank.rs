@@ -12,7 +12,8 @@ use serde_json::json;
 use crate::error::LlmError;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::traits::RerankCapability;
-use crate::types::{RerankRequest, RerankResponse, RerankResult, RerankTokenUsage};
+use crate::types::{HttpConfig, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage};
+use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
 
 /// OpenAI-compatible rerank capability implementation
 #[derive(Debug, Clone)]
@@ -27,6 +28,8 @@ pub struct OpenAiRerank {
     pub organization: Option<String>,
     /// Optional project ID
     pub project: Option<String>,
+    /// HTTP configuration for custom headers/proxy/user-agent
+    pub http_config: HttpConfig,
 }
 
 impl OpenAiRerank {
@@ -37,6 +40,7 @@ impl OpenAiRerank {
         http_client: Client,
         organization: Option<String>,
         project: Option<String>,
+        http_config: HttpConfig,
     ) -> Self {
         Self {
             api_key,
@@ -44,6 +48,7 @@ impl OpenAiRerank {
             http_client,
             organization,
             project,
+            http_config,
         }
     }
 
@@ -55,6 +60,7 @@ impl OpenAiRerank {
             http_client,
             config.organization.clone(),
             config.project.clone(),
+            config.http_config.clone(),
         )
     }
 
@@ -65,43 +71,13 @@ impl OpenAiRerank {
 
     /// Build request headers
     fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let mut headers = reqwest::header::HeaderMap::new();
-
-        // Authorization header
-        let auth_value = format!("Bearer {}", self.api_key.expose_secret());
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&auth_value).map_err(|e| {
-                LlmError::provider_error("siliconflow", format!("Invalid API key: {e}"))
-            })?,
-        );
-
-        // Content-Type header
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            reqwest::header::HeaderValue::from_static("application/json"),
-        );
-
-        // Organization header (if provided)
-        if let Some(org) = &self.organization {
-            headers.insert(
-                "OpenAI-Organization",
-                reqwest::header::HeaderValue::from_str(org).map_err(|e| {
-                    LlmError::provider_error("siliconflow", format!("Invalid organization: {e}"))
-                })?,
-            );
-        }
-
-        // Project header (if provided)
-        if let Some(project) = &self.project {
-            headers.insert(
-                "OpenAI-Project",
-                reqwest::header::HeaderValue::from_str(project).map_err(|e| {
-                    LlmError::provider_error("siliconflow", format!("Invalid project: {e}"))
-                })?,
-            );
-        }
-
+        let mut headers = ProviderHeaders::openai(
+            self.api_key.expose_secret(),
+            self.organization.as_deref(),
+            self.project.as_deref(),
+            &self.http_config.headers,
+        )?;
+        inject_tracing_headers(&mut headers);
         Ok(headers)
     }
 
@@ -210,6 +186,7 @@ mod tests {
             Client::new(),
             None,
             None,
+            crate::types::HttpConfig::default(),
         );
 
         assert_eq!(rerank.build_url(), "https://api.siliconflow.cn/v1/rerank");
@@ -223,6 +200,7 @@ mod tests {
             Client::new(),
             None,
             None,
+            crate::types::HttpConfig::default(),
         );
 
         assert_eq!(rerank.build_url(), "https://api.siliconflow.cn/v1/rerank");
@@ -236,6 +214,7 @@ mod tests {
             Client::new(),
             None,
             None,
+            crate::types::HttpConfig::default(),
         );
 
         let request = RerankRequest::new(
@@ -262,6 +241,7 @@ mod tests {
             Client::new(),
             None,
             None,
+            crate::types::HttpConfig::default(),
         );
 
         let models = rerank.supported_models();
@@ -277,6 +257,7 @@ mod tests {
             Client::new(),
             None,
             None,
+            crate::types::HttpConfig::default(),
         );
 
         assert_eq!(rerank.max_documents(), Some(1000));

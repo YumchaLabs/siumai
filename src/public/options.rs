@@ -1,8 +1,8 @@
-//! Typed ProviderOptions (Phase 0 scaffolding)
+//! Typed ProviderOptions (optional)
 //!
-//! Optional typed options that can be converted into ProviderParams
-//! for use with the existing unified API. This mirrors Cherry Studio's
-//! options factory pattern without forcing typed accessors at the top-level.
+//! Optional typed options that convert into `ProviderParams` for use with the
+//! unified API. Mirrors an options-factory pattern without forcing typed
+//! accessors at the top level.
 
 use crate::types::ProviderParams;
 

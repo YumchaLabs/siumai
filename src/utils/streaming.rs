@@ -1,8 +1,7 @@
 //! Common Streaming Utilities
 //!
-//! This module provides common utilities for handling streaming responses
-//! across different providers, including line buffering, UTF-8 handling,
-//! and unified SSE processing using eventsource-stream.
+//! Utilities for handling streaming responses across providers, including
+//! UTF-8 safe processing and unified SSE handling using `eventsource-stream`.
 
 use crate::error::LlmError;
 use crate::stream::{ChatStream, ChatStreamEvent};
@@ -260,66 +259,6 @@ impl Default for EventBuilder {
     }
 }
 
-/// Helper macro to create SSE event converters
-#[macro_export]
-macro_rules! impl_sse_converter {
-    ($converter_type:ty, $event_type:ty, $convert_fn:ident) => {
-        impl $crate::utils::streaming::SseEventConverter for $converter_type {
-            fn convert_event(
-                &self,
-                event: eventsource_stream::Event,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Option<
-                                Result<$crate::stream::ChatStreamEvent, $crate::error::LlmError>,
-                            >,
-                        > + Send
-                        + Sync
-                        + '_,
-                >,
-            > {
-                Box::pin(async move {
-                    match serde_json::from_str::<$event_type>(&event.data) {
-                        Ok(parsed_event) => Some(Ok(self.$convert_fn(parsed_event))),
-                        Err(e) => Some(Err($crate::error::LlmError::ParseError(format!(
-                            "Failed to parse event: {e}"
-                        )))),
-                    }
-                })
-            }
-        }
-    };
-}
-
-/// Helper macro to create JSON event converters
-#[macro_export]
-macro_rules! impl_json_converter {
-    ($converter_type:ty, $event_type:ty, $convert_fn:ident) => {
-        impl $crate::utils::streaming::JsonEventConverter for $converter_type {
-            fn convert_json<'a>(
-                &'a self,
-                json_data: &'a str,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Option<
-                                Result<$crate::stream::ChatStreamEvent, $crate::error::LlmError>,
-                            >,
-                        > + Send
-                        + Sync
-                        + 'a,
-                >,
-            > {
-                Box::pin(async move {
-                    match serde_json::from_str::<$event_type>(json_data) {
-                        Ok(parsed_event) => Some(Ok(self.$convert_fn(parsed_event))),
-                        Err(e) => Some(Err($crate::error::LlmError::ParseError(format!(
-                            "Failed to parse JSON: {e}"
-                        )))),
-                    }
-                })
-            }
-        }
-    };
-}
+// Note: legacy helper macros for single-event conversion were removed to avoid
+// signature drift. Converters should implement the traits directly and emit
+// zero or more events per provider chunk using the multi-event signatures.

@@ -192,6 +192,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Siumai 的 Provider Registry 保持“代码驱动、可预测”的初始化策略：默认不从 env/JSON 自动加载配置。若需要自定义别名或 `base_url`，建议在应用层通过已有构造器/注册接口以代码方式注入，保持可读性与可测试性。
 
+## Developer Docs
+
+- Architecture Overview: docs/developer/architecture.md
+- Provider Integration Guide: docs/developer/provider_integration_guide.md
+
 ## 🚀 Quick Start
 
 Add Siumai to your `Cargo.toml`:

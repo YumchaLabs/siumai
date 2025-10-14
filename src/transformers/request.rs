@@ -1,4 +1,4 @@
-//! Request transformation traits (Phase 0 scaffolding)
+//! Request transformation traits
 //!
 //! Converts unified request structs into provider-specific JSON bodies or structs.
 //! This matches Cherry Studio's RequestTransformer concept. For now this is an

@@ -631,7 +631,7 @@ pub mod model_constants {
     pub mod groq {
         use crate::providers::groq::models as c;
 
-        // Production models (stable)
+        // Production models
         pub const LLAMA_3_1_8B_INSTANT: &str = c::production::LLAMA_3_1_8B_INSTANT;
         pub const LLAMA_3_3_70B_VERSATILE: &str = c::production::LLAMA_3_3_70B_VERSATILE;
         pub const LLAMA_GUARD_4_12B: &str = c::production::LLAMA_GUARD_4_12B;

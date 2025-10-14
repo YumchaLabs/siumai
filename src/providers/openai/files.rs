@@ -4,6 +4,7 @@
 //! including file upload, listing, retrieval, and deletion operations.
 
 use async_trait::async_trait;
+use secrecy::ExposeSecret;
 // no extra imports
 
 use crate::error::LlmError;
@@ -148,17 +149,18 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let headers_kv = self.config.get_headers();
         let transformer = super::transformers::OpenAiFilesTransformer;
+        let api_key = self.config.api_key.clone();
+        let org = self.config.organization.clone();
+        let proj = self.config.project.clone();
+        let extra_headers = self.config.http_config.headers.clone();
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            for (k, v) in &headers_kv {
-                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                let val = reqwest::header::HeaderValue::from_str(v)
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                headers.insert(name, val);
-            }
+            let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+                api_key.expose_secret(),
+                org.as_deref(),
+                proj.as_deref(),
+                &extra_headers,
+            )?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             Ok(headers)
         };
@@ -177,17 +179,18 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let headers_kv = self.config.get_headers();
         let transformer = super::transformers::OpenAiFilesTransformer;
+        let api_key = self.config.api_key.clone();
+        let org = self.config.organization.clone();
+        let proj = self.config.project.clone();
+        let extra_headers = self.config.http_config.headers.clone();
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            for (k, v) in &headers_kv {
-                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                let val = reqwest::header::HeaderValue::from_str(v)
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                headers.insert(name, val);
-            }
+            let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+                api_key.expose_secret(),
+                org.as_deref(),
+                proj.as_deref(),
+                &extra_headers,
+            )?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             Ok(headers)
         };
@@ -206,17 +209,18 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let headers_kv = self.config.get_headers();
         let transformer = super::transformers::OpenAiFilesTransformer;
+        let api_key = self.config.api_key.clone();
+        let org = self.config.organization.clone();
+        let proj = self.config.project.clone();
+        let extra_headers = self.config.http_config.headers.clone();
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            for (k, v) in &headers_kv {
-                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                let val = reqwest::header::HeaderValue::from_str(v)
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                headers.insert(name, val);
-            }
+            let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+                api_key.expose_secret(),
+                org.as_deref(),
+                proj.as_deref(),
+                &extra_headers,
+            )?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             Ok(headers)
         };
@@ -235,17 +239,18 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let headers_kv = self.config.get_headers();
         let transformer = super::transformers::OpenAiFilesTransformer;
+        let api_key = self.config.api_key.clone();
+        let org = self.config.organization.clone();
+        let proj = self.config.project.clone();
+        let extra_headers = self.config.http_config.headers.clone();
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            for (k, v) in &headers_kv {
-                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                let val = reqwest::header::HeaderValue::from_str(v)
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                headers.insert(name, val);
-            }
+            let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+                api_key.expose_secret(),
+                org.as_deref(),
+                proj.as_deref(),
+                &extra_headers,
+            )?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             Ok(headers)
         };
@@ -264,17 +269,18 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let headers_kv = self.config.get_headers();
         let transformer = super::transformers::OpenAiFilesTransformer;
+        let api_key = self.config.api_key.clone();
+        let org = self.config.organization.clone();
+        let proj = self.config.project.clone();
+        let extra_headers = self.config.http_config.headers.clone();
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            for (k, v) in &headers_kv {
-                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                let val = reqwest::header::HeaderValue::from_str(v)
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
-                headers.insert(name, val);
-            }
+            let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+                api_key.expose_secret(),
+                org.as_deref(),
+                proj.as_deref(),
+                &extra_headers,
+            )?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             Ok(headers)
         };

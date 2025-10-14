@@ -1,5 +1,6 @@
 use crate::retry_api::RetryOptions;
 use crate::{LlmBuilder, LlmError};
+use validator::Validate;
 
 /// Gemini-specific builder for configuring Gemini clients.
 ///

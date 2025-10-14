@@ -1,4 +1,4 @@
-//! Chat executor traits (Phase 0 scaffolding)
+//! Chat executor traits
 //!
 //! Defines the abstraction that will drive chat operations using transformers
 //! and HTTP. For now this is an interface stub for the refactor.

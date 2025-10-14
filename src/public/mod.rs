@@ -1,4 +1,4 @@
-//! Public-facing helpers (Phase 0 scaffolding)
-//! Includes typed ProviderOptions proposal (opt-in via `provider-options`).
+//! Public-facing helpers
+//! Includes typed ProviderOptions (opt-in) that integrate with ProviderParams.
 
 pub mod options;
