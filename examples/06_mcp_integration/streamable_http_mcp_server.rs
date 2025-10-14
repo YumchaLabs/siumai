@@ -94,6 +94,12 @@ impl StreamableHttpMcpServer {
     }
 }
 
+impl Default for StreamableHttpMcpServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[tool_handler]
 impl ServerHandler for StreamableHttpMcpServer {
     fn get_info(&self) -> ServerInfo {

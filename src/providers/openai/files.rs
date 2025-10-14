@@ -4,8 +4,7 @@
 //! including file upload, listing, retrieval, and deletion operations.
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+// no extra imports
 
 use crate::error::LlmError;
 use crate::traits::FileManagementCapability;
@@ -15,58 +14,7 @@ use crate::types::{
 
 use super::config::OpenAiConfig;
 
-/// `OpenAI` file upload API request structure
-#[derive(Debug, Clone, Serialize)]
-#[allow(dead_code)]
-struct OpenAiFileUploadForm {
-    /// File purpose (e.g., "assistants", "fine-tune", "batch")
-    purpose: String,
-}
-
-/// `OpenAI` file API response structure
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAiFileResponse {
-    /// File ID
-    id: String,
-    /// Object type (should be "file")
-    object: String,
-    /// File size in bytes
-    bytes: u64,
-    /// Creation timestamp
-    created_at: u64,
-    /// Original filename
-    filename: String,
-    /// File purpose
-    purpose: String,
-    /// File status
-    status: String,
-    /// Status details (if any)
-    status_details: Option<String>,
-}
-
-/// `OpenAI` file list API response structure
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAiFileListResponse {
-    /// Object type (should be "list")
-    #[allow(dead_code)]
-    object: String,
-    /// List of files
-    data: Vec<OpenAiFileResponse>,
-    /// Whether there are more results
-    has_more: Option<bool>,
-}
-
-/// `OpenAI` file deletion API response structure
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAiFileDeleteResponse {
-    /// File ID that was deleted
-    id: String,
-    /// Object type (should be "file")
-    #[allow(dead_code)]
-    object: String,
-    /// Whether deletion was successful
-    deleted: bool,
-}
+// Legacy typed response structs removed; transformer handles JSON parsing.
 
 /// `OpenAI` file management capability implementation.
 ///
@@ -187,76 +135,7 @@ impl OpenAiFiles {
         Ok(())
     }
 
-    /// Convert `OpenAI` file response to our standard format.
-    fn convert_file_response(&self, openai_file: OpenAiFileResponse) -> FileObject {
-        let mut metadata = HashMap::new();
-        metadata.insert(
-            "object".to_string(),
-            serde_json::Value::String(openai_file.object),
-        );
-        metadata.insert(
-            "status".to_string(),
-            serde_json::Value::String(openai_file.status),
-        );
-
-        if let Some(status_details) = openai_file.status_details {
-            metadata.insert(
-                "status_details".to_string(),
-                serde_json::Value::String(status_details),
-            );
-        }
-
-        FileObject {
-            id: openai_file.id,
-            filename: openai_file.filename,
-            bytes: openai_file.bytes,
-            created_at: openai_file.created_at,
-            purpose: openai_file.purpose,
-            status: "uploaded".to_string(), // Simplified status
-            mime_type: None,                // OpenAI doesn't provide MIME type in response
-            metadata,
-        }
-    }
-
-    /// Make HTTP request with proper headers.
-    async fn make_request(
-        &self,
-        method: reqwest::Method,
-        endpoint: &str,
-    ) -> Result<reqwest::RequestBuilder, LlmError> {
-        let url = format!("{}/{}", self.config.base_url, endpoint);
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        for (key, value) in self.config.get_headers() {
-            let header_name = reqwest::header::HeaderName::from_bytes(key.as_bytes())
-                .map_err(|e| LlmError::HttpError(format!("Invalid header name: {e}")))?;
-            let header_value = reqwest::header::HeaderValue::from_str(&value)
-                .map_err(|e| LlmError::HttpError(format!("Invalid header value: {e}")))?;
-            headers.insert(header_name, header_value);
-        }
-
-        Ok(self.http_client.request(method, &url).headers(headers))
-    }
-
-    /// Handle API response errors.
-    async fn handle_response_error(&self, response: reqwest::Response) -> LlmError {
-        let status = response.status();
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-
-        match status.as_u16() {
-            404 => LlmError::NotFound(format!("File not found: {error_text}")),
-            413 => LlmError::InvalidInput("File too large".to_string()),
-            415 => LlmError::InvalidInput("Unsupported file type".to_string()),
-            _ => LlmError::ApiError {
-                code: status.as_u16(),
-                message: format!("OpenAI Files API error {status}: {error_text}"),
-                details: None,
-            },
-        }
-    }
+    // Legacy direct HTTP helpers removed; requests are delegated to HttpFilesExecutor.
 }
 
 #[async_trait]
@@ -266,164 +145,146 @@ impl FileManagementCapability for OpenAiFiles {
         // Validate request
         self.validate_upload_request(&request)?;
 
-        // Create multipart form
-        let form = reqwest::multipart::Form::new()
-            .text("purpose", request.purpose.clone())
-            .part(
-                "file",
-                reqwest::multipart::Part::bytes(request.content)
-                    .file_name(request.filename.clone())
-                    .mime_str(
-                        request
-                            .mime_type
-                            .as_deref()
-                            .unwrap_or("application/octet-stream"),
-                    )
-                    .map_err(|e| LlmError::HttpError(format!("Invalid MIME type: {e}")))?,
-            );
-
-        let request_builder = self.make_request(reqwest::Method::POST, "files").await?;
-        let response = request_builder
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let openai_response: OpenAiFileResponse = response
-            .json()
-            .await
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse response: {e}")))?;
-
-        Ok(self.convert_file_response(openai_response))
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let headers_kv = self.config.get_headers();
+        let transformer = super::transformers::OpenAiFilesTransformer;
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            for (k, v) in &headers_kv {
+                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                let val = reqwest::header::HeaderValue::from_str(v)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                headers.insert(name, val);
+            }
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "openai".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.upload(request).await
     }
 
     /// List files with optional filtering.
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
-        let mut endpoint = "files".to_string();
-
-        // Build query parameters
-        if let Some(q) = query {
-            let mut params = Vec::new();
-
-            if let Some(purpose) = q.purpose {
-                params.push(format!("purpose={}", urlencoding::encode(&purpose)));
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let headers_kv = self.config.get_headers();
+        let transformer = super::transformers::OpenAiFilesTransformer;
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            for (k, v) in &headers_kv {
+                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                let val = reqwest::header::HeaderValue::from_str(v)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                headers.insert(name, val);
             }
-            if let Some(limit) = q.limit {
-                params.push(format!("limit={limit}"));
-            }
-            if let Some(after) = q.after {
-                params.push(format!("after={}", urlencoding::encode(&after)));
-            }
-            if let Some(order) = q.order {
-                params.push(format!("order={}", urlencoding::encode(&order)));
-            }
-
-            if !params.is_empty() {
-                endpoint.push('?');
-                endpoint.push_str(&params.join("&"));
-            }
-        }
-
-        let request_builder = self.make_request(reqwest::Method::GET, &endpoint).await?;
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let openai_response: OpenAiFileListResponse = response
-            .json()
-            .await
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse response: {e}")))?;
-
-        let files: Vec<FileObject> = openai_response
-            .data
-            .into_iter()
-            .map(|f| self.convert_file_response(f))
-            .collect();
-
-        Ok(FileListResponse {
-            files,
-            has_more: openai_response.has_more.unwrap_or(false),
-            next_cursor: None, // OpenAI uses different pagination
-        })
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "openai".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.list(query).await
     }
 
     /// Retrieve file metadata.
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
-        let endpoint = format!("files/{file_id}");
-
-        let request_builder = self.make_request(reqwest::Method::GET, &endpoint).await?;
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let openai_response: OpenAiFileResponse = response
-            .json()
-            .await
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse response: {e}")))?;
-
-        Ok(self.convert_file_response(openai_response))
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let headers_kv = self.config.get_headers();
+        let transformer = super::transformers::OpenAiFilesTransformer;
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            for (k, v) in &headers_kv {
+                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                let val = reqwest::header::HeaderValue::from_str(v)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                headers.insert(name, val);
+            }
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "openai".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.retrieve(file_id).await
     }
 
     /// Delete a file permanently.
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
-        let endpoint = format!("files/{file_id}");
-
-        let request_builder = self
-            .make_request(reqwest::Method::DELETE, &endpoint)
-            .await?;
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let openai_response: OpenAiFileDeleteResponse = response
-            .json()
-            .await
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse response: {e}")))?;
-
-        Ok(FileDeleteResponse {
-            id: openai_response.id,
-            deleted: openai_response.deleted,
-        })
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let headers_kv = self.config.get_headers();
+        let transformer = super::transformers::OpenAiFilesTransformer;
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            for (k, v) in &headers_kv {
+                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                let val = reqwest::header::HeaderValue::from_str(v)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                headers.insert(name, val);
+            }
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "openai".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.delete(file_id).await
     }
 
     /// Get file content as bytes.
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
-        let endpoint = format!("files/{file_id}/content");
-
-        let request_builder = self.make_request(reqwest::Method::GET, &endpoint).await?;
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let content = response
-            .bytes()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Failed to read response body: {e}")))?;
-
-        Ok(content.to_vec())
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let headers_kv = self.config.get_headers();
+        let transformer = super::transformers::OpenAiFilesTransformer;
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            for (k, v) in &headers_kv {
+                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                let val = reqwest::header::HeaderValue::from_str(v)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?;
+                headers.insert(name, val);
+            }
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "openai".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.get_content(file_id).await
     }
 }

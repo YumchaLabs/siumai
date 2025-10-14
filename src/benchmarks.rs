@@ -527,14 +527,16 @@ impl BenchmarkRunner {
 
 /// Individual request result
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 struct RequestResult {
+    #[allow(dead_code)] // retained for per-worker analysis reports
     worker_id: usize,
+    #[allow(dead_code)] // retained for per-request diagnostics
     request_id: usize,
     scenario_name: String,
     success: bool,
     duration: Duration,
     error: Option<String>,
+    #[allow(dead_code)] // reserved for payload-size based validations
     response_length: Option<usize>,
     validation: ValidationResults,
 }

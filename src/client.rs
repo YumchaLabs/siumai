@@ -60,6 +60,14 @@ pub trait LlmClient: ChatCapability + Send + Sync {
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
         None
     }
+
+    /// Get as file management capability if supported
+    ///
+    /// Returns None by default. Providers that support files
+    /// should override this method to return Some(self).
+    fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {
+        None
+    }
 }
 
 /// Client Wrapper - provides dynamic dispatch for different provider clients

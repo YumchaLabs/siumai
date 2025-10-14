@@ -8,15 +8,74 @@ use siumai::providers::anthropic::streaming::AnthropicEventConverter;
 use siumai::providers::gemini::streaming::GeminiEventConverter;
 use siumai::providers::groq::streaming::GroqEventConverter;
 use siumai::providers::ollama::streaming::OllamaEventConverter;
-use siumai::providers::openai::streaming::OpenAiEventConverter;
+use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
+use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
+use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
+use siumai::providers::openai_compatible::types::FieldMappings;
+use siumai::traits::ProviderCapabilities;
+use std::sync::Arc;
+
+fn make_openai_converter() -> OpenAiCompatibleEventConverter {
+    #[derive(Debug, Clone)]
+    struct OpenAiStandardAdapter {
+        base_url: String,
+    }
+    impl ProviderAdapter for OpenAiStandardAdapter {
+        fn provider_id(&self) -> &'static str {
+            "openai"
+        }
+        fn transform_request_params(
+            &self,
+            _params: &mut serde_json::Value,
+            _model: &str,
+            _ty: siumai::providers::openai_compatible::types::RequestType,
+        ) -> Result<(), siumai::error::LlmError> {
+            Ok(())
+        }
+        fn get_field_mappings(&self, _model: &str) -> FieldMappings {
+            FieldMappings::standard()
+        }
+        fn get_model_config(
+            &self,
+            _model: &str,
+        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+            Default::default()
+        }
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools()
+        }
+        fn compatibility(&self) -> ProviderCompatibility {
+            ProviderCompatibility::openai_standard()
+        }
+        fn base_url(&self) -> &str {
+            &self.base_url
+        }
+        fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+            Box::new(self.clone())
+        }
+    }
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(OpenAiStandardAdapter {
+        base_url: "https://api.openai.com/v1".to_string(),
+    });
+    let cfg = OpenAiCompatibleConfig::new(
+        "openai",
+        "test",
+        "https://api.openai.com/v1",
+        adapter.clone(),
+    )
+    .with_model("gpt-4");
+    OpenAiCompatibleEventConverter::new(cfg, adapter)
+}
 use siumai::providers::xai::streaming::XaiEventConverter;
 use siumai::stream::ChatStreamEvent;
 use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_openai_stream_start_event() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Test that first event with metadata generates StreamStart
     let event = Event {
@@ -105,8 +164,7 @@ async fn test_gemini_stream_start_event() {
 
 #[tokio::test]
 async fn test_groq_stream_start_event() {
-    let config = siumai::providers::groq::config::GroqConfig::default();
-    let converter = GroqEventConverter::new(config);
+    let converter = GroqEventConverter::new();
 
     // Test that first event with metadata generates StreamStart
     let event = Event {
@@ -134,8 +192,7 @@ async fn test_groq_stream_start_event() {
 
 #[tokio::test]
 async fn test_xai_stream_start_event() {
-    let config = siumai::providers::xai::config::XaiConfig::default();
-    let converter = XaiEventConverter::new(config);
+    let converter = XaiEventConverter::new();
 
     // Test that first event with metadata generates StreamStart
     let event = Event {
@@ -186,8 +243,7 @@ async fn test_ollama_stream_start_event() {
 
 #[tokio::test]
 async fn test_stream_start_only_emitted_once() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // First event should generate StreamStart
     let event1 = Event {

@@ -3,18 +3,15 @@
 //! Implements the `ChatCapability` trait for `Groq`.
 
 use async_trait::async_trait;
-use std::collections::HashMap;
-use std::time::Instant;
+// use std::time::Instant; // replaced by executor path
 
 use crate::error::LlmError;
-use crate::params::{OpenAiParameterMapper, ParameterMapper};
 use crate::stream::ChatStream;
-use crate::tracing::ProviderTracer;
 use crate::traits::ChatCapability;
 use crate::types::*;
 
-use super::types::*;
-use super::utils::*;
+// use super::types::*;
+// use super::utils::*;
 
 /// `Groq` Chat Capability Implementation
 #[derive(Clone)]
@@ -23,7 +20,6 @@ pub struct GroqChatCapability {
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
-    pub parameter_mapper: OpenAiParameterMapper,
     pub common_params: CommonParams,
 }
 
@@ -41,114 +37,8 @@ impl GroqChatCapability {
             base_url,
             http_client,
             http_config,
-            parameter_mapper: OpenAiParameterMapper,
             common_params,
         }
-    }
-
-    /// Build the chat request body
-    pub fn build_chat_request_body(
-        &self,
-        request: &ChatRequest,
-    ) -> Result<serde_json::Value, LlmError> {
-        // Map common parameters using OpenAI-compatible format
-        let mut body = self
-            .parameter_mapper
-            .map_common_params(&request.common_params);
-
-        // Merge provider-specific parameters
-        if let Some(ref provider_params) = request.provider_params {
-            body = self
-                .parameter_mapper
-                .merge_provider_params(body, provider_params);
-        }
-
-        // Validate parameters with Groq-specific validation
-        validate_groq_params(&body)?;
-
-        // Convert message format
-        let messages = convert_messages(&request.messages)?;
-        body["messages"] = serde_json::to_value(messages)?;
-
-        // Add tools if provided
-        if let Some(ref tools) = request.tools
-            && !tools.is_empty()
-        {
-            body["tools"] = serde_json::to_value(tools)?;
-        }
-
-        // Set stream parameter
-        body["stream"] = serde_json::Value::Bool(request.stream);
-
-        Ok(body)
-    }
-
-    /// Parse the `Groq` response
-    fn parse_chat_response(&self, response: GroqChatResponse) -> Result<ChatResponse, LlmError> {
-        let choice = response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| LlmError::ApiError {
-                code: 500,
-                message: "No choices in response".to_string(),
-                details: None,
-            })?;
-
-        let content = if let Some(content) = choice.message.content {
-            match content {
-                serde_json::Value::String(text) => MessageContent::Text(text),
-                serde_json::Value::Array(parts) => {
-                    let mut content_parts = Vec::new();
-                    for part in parts {
-                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                            content_parts.push(ContentPart::Text {
-                                text: text.to_string(),
-                            });
-                        }
-                    }
-                    MessageContent::MultiModal(content_parts)
-                }
-                _ => MessageContent::Text(String::new()),
-            }
-        } else {
-            MessageContent::Text(String::new())
-        };
-
-        let tool_calls = choice.message.tool_calls.map(|calls| {
-            calls
-                .into_iter()
-                .map(|call| ToolCall {
-                    id: call.id,
-                    r#type: call.r#type,
-                    function: call.function.map(|f| FunctionCall {
-                        name: f.name,
-                        arguments: f.arguments,
-                    }),
-                })
-                .collect()
-        });
-
-        let finish_reason = parse_finish_reason(choice.finish_reason.as_deref());
-
-        let usage = response.usage.map(|u| Usage {
-            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-            completion_tokens: u.completion_tokens.unwrap_or(0),
-            total_tokens: u.total_tokens.unwrap_or(0),
-            reasoning_tokens: None, // Groq doesn't provide reasoning tokens
-            cached_tokens: None,
-        });
-
-        Ok(ChatResponse {
-            id: Some(response.id),
-            content,
-            model: Some(response.model),
-            usage,
-            finish_reason: Some(finish_reason),
-            tool_calls,
-            thinking: None, // Groq doesn't support thinking content like OpenAI o1
-            metadata: HashMap::new(),
-        })
     }
 }
 
@@ -159,8 +49,6 @@ impl ChatCapability for GroqChatCapability {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let start_time = Instant::now();
-
         // Create a ChatRequest from messages and tools
         let request = ChatRequest {
             messages,
@@ -171,52 +59,24 @@ impl ChatCapability for GroqChatCapability {
             web_search: None,
             stream: false,
         };
-
-        // Extract model name for tracing
-        let model = request.common_params.model.clone();
-        let tracer = ProviderTracer::new("groq").with_model(model);
-
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
-        let body = self.build_chat_request_body(&request)?;
-        let url = format!("{}/chat/completions", self.base_url);
-
-        tracer.trace_request_start("POST", &url);
-        tracer.trace_request_details(&headers, &body);
-
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            let error_message = extract_error_message(&error_text);
-
-            tracer.trace_request_error(status.as_u16(), &error_text, start_time);
-
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: format!("Groq API error: {error_message}"),
-                details: serde_json::from_str(&error_text).ok(),
-            });
-        }
-
-        tracer.trace_response_success(response.status().as_u16(), start_time, response.headers());
-
-        // Get response body as text first for logging
-        let response_text = response.text().await?;
-        tracer.trace_response_body(&response_text);
-
-        let groq_response: GroqChatResponse = serde_json::from_str(&response_text)?;
-        let chat_response = self.parse_chat_response(groq_response)?;
-
-        tracer.trace_request_complete(start_time, chat_response.content.all_text().len());
-
-        Ok(chat_response)
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let custom_headers = self.http_config.headers.clone();
+        let req_tx = super::transformers::GroqRequestTransformer;
+        let resp_tx = super::transformers::GroqResponseTransformer;
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpChatExecutor {
+            provider_id: "groq".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: None,
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.execute(request).await
     }
 
     async fn chat_stream(
@@ -235,67 +95,30 @@ impl ChatCapability for GroqChatCapability {
             stream: true,
         };
 
-        // Create streaming client
-        let config = super::config::GroqConfig {
-            api_key: self.api_key.clone(),
-            base_url: self.base_url.clone(),
-            common_params: self.common_params.clone(),
-            http_config: self.http_config.clone(),
-            web_search_config: WebSearchConfig::default(),
-            built_in_tools: Vec::new(),
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let custom_headers = self.http_config.clone().headers;
+        let req_tx = super::transformers::GroqRequestTransformer;
+        let resp_tx = super::transformers::GroqResponseTransformer;
+        let inner = super::streaming::GroqEventConverter::new();
+        let stream_tx = super::transformers::GroqStreamChunkTransformer {
+            provider_id: "groq".to_string(),
+            inner,
         };
-
-        let streaming = super::streaming::GroqStreaming::new(config, self.http_client.clone());
-        streaming.create_chat_stream(request).await
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpChatExecutor {
+            provider_id: "groq".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.execute_stream(request).await
     }
 }
 
-/// Legacy implementation for backward compatibility
-impl GroqChatCapability {
-    /// Chat with a `ChatRequest` (legacy method)
-    pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
-
-        let body = self.build_chat_request_body(&request)?;
-        let url = format!("{}/chat/completions", self.base_url);
-
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            let error_message = extract_error_message(&error_text);
-
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: format!("Groq API error: {error_message}"),
-                details: serde_json::from_str(&error_text).ok(),
-            });
-        }
-
-        let groq_response: GroqChatResponse = response.json().await?;
-        self.parse_chat_response(groq_response)
-    }
-
-    /// Chat stream with a `ChatRequest` (legacy method)
-    pub async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        // Create streaming client with the request's configuration
-        let config = super::config::GroqConfig {
-            api_key: self.api_key.clone(),
-            base_url: self.base_url.clone(),
-            common_params: request.common_params.clone(),
-            http_config: self.http_config.clone(),
-            web_search_config: WebSearchConfig::default(),
-            built_in_tools: Vec::new(),
-        };
-
-        let streaming = super::streaming::GroqStreaming::new(config, self.http_client.clone());
-        streaming.create_chat_stream(request).await
-    }
-}
+// Legacy direct methods removed; Chat goes through Executors consistently.

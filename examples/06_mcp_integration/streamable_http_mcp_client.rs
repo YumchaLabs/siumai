@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Calling first tool: {}", first_tool.name);
         let result = client
             .call_tool(CallToolRequestParam {
-                name: first_tool.name.clone().into(),
+                name: first_tool.name.clone(),
                 arguments: None,
             })
             .await?;

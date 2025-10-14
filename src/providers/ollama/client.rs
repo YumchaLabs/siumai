@@ -22,7 +22,6 @@ use super::models::OllamaModelsCapability;
 use super::streaming::OllamaStreaming;
 
 /// Ollama Client
-#[allow(dead_code)]
 pub struct OllamaClient {
     /// Chat capability implementation
     chat_capability: OllamaChatCapability,
@@ -44,7 +43,8 @@ pub struct OllamaClient {
     base_url: String,
     /// Tracing configuration
     tracing_config: Option<crate::tracing::TracingConfig>,
-    /// Tracing guard to keep tracing system active
+    /// Tracing guard to keep tracing system active (retained but not read)
+    #[allow(dead_code)]
     _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
@@ -385,7 +385,20 @@ impl ChatCapability for OllamaClient {
 #[async_trait]
 impl EmbeddingCapability for OllamaClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        self.embedding_capability.embed(texts).await
+        if let Some(opts) = &self.retry_options {
+            let cap = self.embedding_capability.clone();
+            crate::retry_api::retry_with(
+                || {
+                    let texts = texts.clone();
+                    let cap = cap.clone();
+                    async move { cap.embed(texts).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.embedding_capability.embed(texts).await
+        }
     }
 
     fn embedding_dimension(&self) -> usize {

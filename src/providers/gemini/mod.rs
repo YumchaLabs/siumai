@@ -10,7 +10,7 @@
 //! - `files.rs` - File management capability implementation
 //! - `code_execution.rs` - Code execution feature implementation
 //! - `streaming.rs` - Streaming functionality with JSON buffering
-//! - `embeddings.rs` - Text embedding capability implementation
+//! - Embeddings 统一通过 Executors + Transformers（不再有独立 HTTP 实现模块）
 //!
 //! # Example Usage
 //! ```rust,no_run
@@ -36,12 +36,12 @@
 // Core modules
 pub mod chat;
 pub mod client;
-pub mod embeddings;
+pub mod convert;
 pub mod files;
 pub mod model_constants;
 pub mod models;
-pub mod request;
 pub mod streaming;
+pub mod transformers;
 pub mod types;
 
 // Feature modules
@@ -52,7 +52,6 @@ pub mod code_execution;
 pub use builder::GeminiBuilder;
 pub use chat::GeminiChatCapability;
 pub use client::GeminiClient;
-pub use embeddings::GeminiEmbeddings;
 pub use files::GeminiFiles;
 pub use models::GeminiModels;
 pub use types::*;

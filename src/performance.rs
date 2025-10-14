@@ -212,13 +212,13 @@ impl ProviderMetrics {
 
 /// Performance monitor
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct PerformanceMonitor {
     /// Metrics storage
     metrics: Arc<RwLock<PerformanceMetrics>>,
     /// Request timing storage
     request_timings: Arc<RwLock<Vec<Duration>>>,
-    /// Configuration
+    /// Configuration (used by extended reporting; kept for future hooks)
+    #[allow(dead_code)]
     config: MonitorConfig,
 }
 
@@ -293,7 +293,7 @@ impl PerformanceMonitor {
         metrics.clone()
     }
 
-    /// Update latency metrics
+    /// Update latency metrics (currently used by extended reporting; keep for future hook)
     #[allow(dead_code)]
     async fn update_latency_metrics(&self) {
         let timings = self.request_timings.read().await;
@@ -324,9 +324,9 @@ impl PerformanceMonitor {
 }
 
 /// Request timer for measuring individual request performance
-#[allow(dead_code)]
 pub struct RequestTimer {
     start_time: Instant,
+    #[allow(dead_code)] // reserved for live updates in extended reporting
     metrics: Arc<RwLock<PerformanceMetrics>>,
     timings: Arc<RwLock<Vec<Duration>>>,
 }

@@ -11,8 +11,8 @@
 //! - `config.rs` - Configuration structures and validation
 //! - `builder.rs` - Builder pattern implementation for client creation
 //! - `chat.rs` - Chat completion capability implementation
-//! - `audio.rs` - Audio processing (TTS/STT) capability implementation
-//! - `files.rs` - File management capability implementation
+//! - Audio processing (TTS/STT) via Executors + Transformers
+//! - (removed) File management capability implementation
 //! - `models.rs` - Model listing capability implementation
 //! - `types.rs` - Groq-specific type definitions
 //! - `utils.rs` - Utility functions and helpers
@@ -51,11 +51,10 @@ pub mod utils;
 
 // Capability modules
 pub mod api;
-pub mod audio;
 pub mod chat;
-pub mod files;
 pub mod models;
 pub mod streaming;
+pub mod transformers;
 
 // Re-export main types for convenience
 pub use builder::{GroqBuilder, GroqBuilderWrapper};
@@ -65,9 +64,7 @@ pub use types::*;
 
 // Re-export capability implementations
 pub use api::GroqModels;
-pub use audio::GroqAudio;
 pub use chat::GroqChatCapability;
-pub use files::GroqFiles;
 
 // Tests module
 #[cfg(test)]

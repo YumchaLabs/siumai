@@ -7,14 +7,73 @@ use eventsource_stream::Event;
 use siumai::providers::anthropic::streaming::AnthropicEventConverter;
 use siumai::providers::gemini::streaming::GeminiEventConverter;
 use siumai::providers::ollama::streaming::OllamaEventConverter;
-use siumai::providers::openai::streaming::OpenAiEventConverter;
+use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
+use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
+use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
+use siumai::providers::openai_compatible::types::FieldMappings;
+use siumai::traits::ProviderCapabilities;
+use std::sync::Arc;
+
+fn make_openai_converter() -> OpenAiCompatibleEventConverter {
+    #[derive(Debug, Clone)]
+    struct OpenAiStandardAdapter {
+        base_url: String,
+    }
+    impl ProviderAdapter for OpenAiStandardAdapter {
+        fn provider_id(&self) -> &'static str {
+            "openai"
+        }
+        fn transform_request_params(
+            &self,
+            _params: &mut serde_json::Value,
+            _model: &str,
+            _ty: siumai::providers::openai_compatible::types::RequestType,
+        ) -> Result<(), siumai::error::LlmError> {
+            Ok(())
+        }
+        fn get_field_mappings(&self, _model: &str) -> FieldMappings {
+            FieldMappings::standard()
+        }
+        fn get_model_config(
+            &self,
+            _model: &str,
+        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+            Default::default()
+        }
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools()
+        }
+        fn compatibility(&self) -> ProviderCompatibility {
+            ProviderCompatibility::openai_standard()
+        }
+        fn base_url(&self) -> &str {
+            &self.base_url
+        }
+        fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+            Box::new(self.clone())
+        }
+    }
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(OpenAiStandardAdapter {
+        base_url: "https://api.openai.com/v1".to_string(),
+    });
+    let cfg = OpenAiCompatibleConfig::new(
+        "openai",
+        "test",
+        "https://api.openai.com/v1",
+        adapter.clone(),
+    )
+    .with_model("gpt-4");
+    OpenAiCompatibleEventConverter::new(cfg, adapter)
+}
 use siumai::stream::ChatStreamEvent;
 use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_openai_event_conversion() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Test content delta
     let event = Event {
@@ -118,8 +177,7 @@ async fn test_ollama_json_conversion() {
 
 #[tokio::test]
 async fn test_openai_thinking_conversion() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Test thinking delta
     let event = Event {
@@ -145,8 +203,7 @@ async fn test_openai_thinking_conversion() {
 
 #[tokio::test]
 async fn test_openai_usage_conversion() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Test usage update
     let event = Event {
@@ -175,8 +232,7 @@ async fn test_openai_usage_conversion() {
 
 #[tokio::test]
 async fn test_openai_content_prioritized_over_usage() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Test event with both content and usage - content should be prioritized
     let event = Event {
@@ -196,7 +252,7 @@ async fn test_openai_content_prioritized_over_usage() {
 
     if let Some(Ok(ChatStreamEvent::ContentDelta { delta, index })) = content_event {
         assert_eq!(delta, "` and");
-        assert_eq!(*index, Some(0));
+        assert_eq!(index, &Some(0));
     } else {
         panic!("Expected ContentDelta event, not UsageUpdate");
     }
@@ -204,11 +260,9 @@ async fn test_openai_content_prioritized_over_usage() {
 
 #[tokio::test]
 async fn test_xai_content_prioritized_over_usage() {
-    use siumai::providers::xai::config::XaiConfig;
     use siumai::providers::xai::streaming::XaiEventConverter;
 
-    let config = XaiConfig::default();
-    let converter = XaiEventConverter::new(config);
+    let converter = XaiEventConverter::new();
 
     // Test event with both content and usage - content should be prioritized
     let event = Event {
@@ -228,7 +282,7 @@ async fn test_xai_content_prioritized_over_usage() {
 
     if let Some(Ok(ChatStreamEvent::ContentDelta { delta, index })) = content_event {
         assert_eq!(delta, "Hello world");
-        assert_eq!(*index, Some(0));
+        assert_eq!(index, &Some(0));
     } else {
         panic!("Expected ContentDelta event, not UsageUpdate");
     }
@@ -236,55 +290,55 @@ async fn test_xai_content_prioritized_over_usage() {
 
 #[tokio::test]
 async fn test_openai_image_generation_capability() {
-    use siumai::providers::openai::{OpenAiConfig, OpenAiImages};
+    use siumai::providers::openai::OpenAiClient;
     use siumai::traits::ImageGenerationCapability;
 
-    let config = OpenAiConfig::new("test-key");
-    let images = OpenAiImages::new(config, reqwest::Client::new());
+    let config = siumai::providers::openai::OpenAiConfig::new("test-key");
+    let client = OpenAiClient::new(config, reqwest::Client::new());
 
     // Test supported sizes
-    let sizes = images.get_supported_sizes();
+    let sizes = client.get_supported_sizes();
     assert!(!sizes.is_empty());
     assert!(sizes.contains(&"1024x1024".to_string()));
 
     // Test supported formats
-    let formats = images.get_supported_formats();
+    let formats = client.get_supported_formats();
     assert!(!formats.is_empty());
     assert!(formats.contains(&"url".to_string()));
 
     // Test capabilities
-    assert!(images.supports_image_editing());
-    assert!(images.supports_image_variations());
+    assert!(client.supports_image_editing());
+    assert!(client.supports_image_variations());
 }
 
 #[tokio::test]
 async fn test_siliconflow_image_generation_capability() {
-    use siumai::providers::openai::{OpenAiConfig, OpenAiImages};
+    use siumai::providers::openai::OpenAiClient;
     use siumai::traits::ImageGenerationCapability;
 
-    // Create a SiliconFlow-like config
-    let config = OpenAiConfig::new("test-key").with_base_url("https://api.siliconflow.cn/v1");
-    let images = OpenAiImages::new(config, reqwest::Client::new());
+    // Create a SiliconFlow-like client
+    let config = siumai::providers::openai::OpenAiConfig::new("test-key")
+        .with_base_url("https://api.siliconflow.cn/v1");
+    let client = OpenAiClient::new(config, reqwest::Client::new());
 
     // Test supported sizes for SiliconFlow
-    let sizes = images.get_supported_sizes();
+    let sizes = client.get_supported_sizes();
     assert!(!sizes.is_empty());
     assert!(sizes.contains(&"1024x1024".to_string()));
     assert!(sizes.contains(&"960x1280".to_string()));
 
     // Test supported formats for SiliconFlow
-    let formats = images.get_supported_formats();
+    let formats = client.get_supported_formats();
     assert_eq!(formats, vec!["url".to_string()]);
 
     // Test capabilities for SiliconFlow
-    assert!(!images.supports_image_editing()); // SiliconFlow doesn't support editing
-    assert!(!images.supports_image_variations()); // SiliconFlow doesn't support variations
+    assert!(!client.supports_image_editing()); // SiliconFlow doesn't support editing
+    assert!(!client.supports_image_variations()); // SiliconFlow doesn't support variations
 }
 
 #[tokio::test]
 async fn test_openai_finish_reason_conversion() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Test finish reason
     let event = Event {
@@ -403,8 +457,7 @@ async fn test_anthropic_stream_end() {
 
 #[tokio::test]
 async fn test_error_handling() {
-    let config = siumai::providers::openai::config::OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Test invalid JSON
     let event = Event {

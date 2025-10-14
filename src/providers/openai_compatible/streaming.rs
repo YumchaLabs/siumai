@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 
 use super::adapter::ProviderAdapter;
 use super::openai_config::OpenAiCompatibleConfig;
-use super::types::RequestType;
+use crate::transformers::request::RequestTransformer;
 
 /// OpenAI-compatible stream event structure
 #[derive(Debug, Deserialize, Serialize)]
@@ -329,30 +329,13 @@ impl OpenAiCompatibleStreaming {
         StreamFactory::create_eventsource_stream(request_builder, converter).await
     }
 
-    /// Build request body (using proper message conversion)
+    /// Build request body via unified transformer
     fn build_request_body(&self, request: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        // Convert ChatMessage to OpenAI format using the existing utility
-        let openai_messages = crate::providers::openai::utils::convert_messages(&request.messages)?;
-
-        let mut body = serde_json::json!({
-            "model": self.config.model,
-            "messages": openai_messages,
-            "stream": true,
-        });
-
-        // Add common parameters
-        if let Some(temp) = request.common_params.temperature {
-            body["temperature"] = serde_json::Value::from(temp);
-        }
-        if let Some(max_tokens) = request.common_params.max_tokens {
-            body["max_tokens"] = serde_json::Value::from(max_tokens);
-        }
-
-        // Let adapter transform the request
-        self.adapter
-            .transform_request_params(&mut body, &self.config.model, RequestType::Chat)?;
-
-        Ok(body)
+        let transformer = super::transformers::CompatRequestTransformer {
+            config: self.config.clone(),
+            adapter: self.adapter.clone(),
+        };
+        transformer.transform_chat(request)
     }
 
     /// Build HTTP headers

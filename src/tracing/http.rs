@@ -269,7 +269,7 @@ impl HttpTracer {
     }
 
     /// Truncate body content if it exceeds max size
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used by optional debug/pretty print paths
     fn truncate_body(&self, body: &str) -> String {
         if body.len() <= self.max_body_size {
             body.to_string()
@@ -283,7 +283,7 @@ impl HttpTracer {
     }
 
     /// Try to format body as pretty JSON if possible
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used by optional debug/pretty print paths
     fn format_body(&self, body: &str, content_type: Option<&str>) -> String {
         if let Some(ct) = content_type
             && ct.contains("application/json")

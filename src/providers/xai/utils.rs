@@ -14,7 +14,10 @@ pub fn build_headers(
     api_key: &str,
     additional_headers: &HashMap<String, String>,
 ) -> Result<HeaderMap, LlmError> {
-    ProviderHeaders::xai(api_key, additional_headers)
+    let mut headers = ProviderHeaders::xai(api_key, additional_headers)?;
+    // Unified tracing headers injection
+    crate::utils::http_headers::inject_tracing_headers(&mut headers);
+    Ok(headers)
 }
 
 /// Convert internal message format to `xAI` format

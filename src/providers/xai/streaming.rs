@@ -16,20 +16,18 @@ use tokio::sync::Mutex;
 use super::config::XaiConfig;
 use super::types::*;
 use super::utils::*;
+use crate::transformers::request::RequestTransformer;
 
 /// `xAI` event converter
 #[derive(Clone)]
 pub struct XaiEventConverter {
-    #[allow(dead_code)]
-    config: XaiConfig,
     /// Track if StreamStart has been emitted
     stream_started: Arc<Mutex<bool>>,
 }
 
 impl XaiEventConverter {
-    pub fn new(config: XaiConfig) -> Self {
+    pub fn new() -> Self {
         Self {
-            config,
             stream_started: Arc::new(Mutex::new(false)),
         }
     }
@@ -114,6 +112,12 @@ impl XaiEventConverter {
     }
 }
 
+impl Default for XaiEventConverter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SseEventConverter for XaiEventConverter {
     fn convert_event(
         &self,
@@ -173,16 +177,9 @@ impl XaiStreaming {
     pub async fn create_chat_stream(self, request: ChatRequest) -> Result<ChatStream, LlmError> {
         let url = format!("{}/chat/completions", self.config.base_url);
 
-        // Use the same request building logic as non-streaming
-        let chat_capability = super::chat::XaiChatCapability::new(
-            self.config.api_key.clone(),
-            self.config.base_url.clone(),
-            self.http_client.clone(),
-            self.config.http_config.clone(),
-            self.config.common_params.clone(),
-        );
-
-        let mut request_body = chat_capability.build_chat_request_body(&request)?;
+        // Build request body via transformer
+        let transformer = super::transformers::XaiRequestTransformer;
+        let mut request_body = transformer.transform_chat(&request)?;
 
         // Override with streaming-specific settings
         request_body["stream"] = serde_json::Value::Bool(true);
@@ -197,7 +194,7 @@ impl XaiStreaming {
             .headers(headers)
             .json(&request_body);
 
-        let converter = XaiEventConverter::new(self.config);
+        let converter = XaiEventConverter::new();
         StreamFactory::create_eventsource_stream(request_builder, converter).await
     }
 }

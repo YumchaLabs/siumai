@@ -13,7 +13,6 @@ use crate::traits::*;
 use crate::types::*;
 
 use super::chat::GeminiChatCapability;
-use super::embeddings::GeminiEmbeddings;
 use super::files::GeminiFiles;
 use super::models::GeminiModels;
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
@@ -32,8 +31,6 @@ pub struct GeminiClient {
     pub gemini_params: crate::params::gemini::GeminiParams,
     /// Chat capability implementation
     pub chat_capability: GeminiChatCapability,
-    /// Embedding capability implementation
-    pub embedding_capability: GeminiEmbeddings,
     /// Models capability implementation
     pub models_capability: GeminiModels,
     /// Files capability implementation
@@ -54,7 +51,6 @@ impl Clone for GeminiClient {
             common_params: self.common_params.clone(),
             gemini_params: self.gemini_params.clone(),
             chat_capability: self.chat_capability.clone(),
-            embedding_capability: self.embedding_capability.clone(),
             models_capability: self.models_capability.clone(),
             files_capability: self.files_capability.clone(),
             tracing_config: self.tracing_config.clone(),
@@ -86,8 +82,6 @@ impl GeminiClient {
     ) -> Result<Self, LlmError> {
         // Build capability implementations with provided client
         let chat_capability = GeminiChatCapability::new(config.clone(), http_client.clone());
-
-        let embedding_capability = GeminiEmbeddings::new(config.clone(), http_client.clone());
 
         let models_capability = GeminiModels::new(config.clone(), http_client.clone());
 
@@ -125,8 +119,8 @@ impl GeminiClient {
                 .as_ref()
                 .and_then(|gc| gc.candidate_count)
                 .map(|t| t as u32),
-            safety_settings: None, // TODO: Convert from provider types to param types
-            generation_config: None, // TODO: Convert from provider types to param types
+            safety_settings: None, // Note: Conversion handled by Transformers layer
+            generation_config: None, // Note: Populated by Transformers from Common/Provider params
             stream: None,
         };
 
@@ -136,7 +130,6 @@ impl GeminiClient {
             common_params,
             gemini_params,
             chat_capability,
-            embedding_capability,
             models_capability,
             files_capability,
             tracing_config: None,
@@ -485,22 +478,172 @@ impl ChatCapability for GeminiClient {
 #[async_trait]
 impl EmbeddingCapability for GeminiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        self.embedding_capability.embed(texts).await
+        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let model = self.config.model.clone();
+        let api_key = self.config.api_key.clone();
+        let req_tx = super::transformers::GeminiRequestTransformer {
+            config: self.config.clone(),
+        };
+        let resp_tx = super::transformers::GeminiResponseTransformer {
+            config: self.config.clone(),
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "Content-Type",
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let build_url = move |r: &EmbeddingRequest| {
+            if r.input.len() == 1 {
+                crate::utils::url::join_url(&base, &format!("models/{}:embedContent", model))
+            } else {
+                crate::utils::url::join_url(&base, &format!("models/{}:batchEmbedContents", model))
+            }
+        };
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rq = req.clone();
+                    let http = http.clone();
+                    let build_url = build_url.clone();
+                    let req_tx = super::transformers::GeminiRequestTransformer {
+                        config: self.config.clone(),
+                    };
+                    let resp_tx = super::transformers::GeminiResponseTransformer {
+                        config: self.config.clone(),
+                    };
+                    let headers_builder = headers_builder.clone();
+                    async move {
+                        let exec = HttpEmbeddingExecutor {
+                            provider_id: "gemini".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(build_url),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        EmbeddingExecutor::execute(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let exec = HttpEmbeddingExecutor {
+                provider_id: "gemini".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(build_url),
+                build_headers: Box::new(headers_builder),
+            };
+            EmbeddingExecutor::execute(&exec, req).await
+        }
     }
 
     fn embedding_dimension(&self) -> usize {
-        self.embedding_capability.embedding_dimension()
+        3072
     }
 
     fn max_tokens_per_embedding(&self) -> usize {
-        self.embedding_capability.max_tokens_per_embedding()
+        2048
     }
 
     fn supported_embedding_models(&self) -> Vec<String> {
-        self.embedding_capability.supported_embedding_models()
+        vec!["gemini-embedding-001".to_string()]
     }
 }
 
+#[async_trait]
+impl EmbeddingExtensions for GeminiClient {
+    async fn embed_with_config(
+        &self,
+        request: EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, LlmError> {
+        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let model = self.config.model.clone();
+        let api_key = self.config.api_key.clone();
+        let req_tx = super::transformers::GeminiRequestTransformer {
+            config: self.config.clone(),
+        };
+        let resp_tx = super::transformers::GeminiResponseTransformer {
+            config: self.config.clone(),
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "Content-Type",
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let build_url = move |r: &EmbeddingRequest| {
+            if r.input.len() == 1 {
+                crate::utils::url::join_url(&base, &format!("models/{}:embedContent", model))
+            } else {
+                crate::utils::url::join_url(&base, &format!("models/{}:batchEmbedContents", model))
+            }
+        };
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http.clone();
+                    let build_url = build_url.clone();
+                    let req_tx = super::transformers::GeminiRequestTransformer {
+                        config: self.config.clone(),
+                    };
+                    let resp_tx = super::transformers::GeminiResponseTransformer {
+                        config: self.config.clone(),
+                    };
+                    let headers_builder = headers_builder.clone();
+                    async move {
+                        let exec = HttpEmbeddingExecutor {
+                            provider_id: "gemini".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(build_url),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        EmbeddingExecutor::execute(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let exec = HttpEmbeddingExecutor {
+                provider_id: "gemini".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(build_url),
+                build_headers: Box::new(headers_builder),
+            };
+            EmbeddingExecutor::execute(&exec, request).await
+        }
+    }
+}
 #[async_trait]
 impl ModelListingCapability for GeminiClient {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
@@ -509,6 +652,119 @@ impl ModelListingCapability for GeminiClient {
 
     async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
         self.models_capability.get_model(model_id).await
+    }
+}
+
+#[async_trait]
+impl crate::traits::ImageGenerationCapability for GeminiClient {
+    async fn generate_images(
+        &self,
+        request: crate::types::ImageGenerationRequest,
+    ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
+        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let model = self.config.model.clone();
+        let api_key = self.config.api_key.clone();
+        let req_tx = super::transformers::GeminiRequestTransformer {
+            config: self.config.clone(),
+        };
+        let resp_tx = super::transformers::GeminiResponseTransformer {
+            config: self.config.clone(),
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "Content-Type",
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let base_clone_for_url = base.clone();
+        let model_clone_for_url = model.clone();
+        let build_url = move || {
+            crate::utils::url::join_url(
+                &base_clone_for_url,
+                &format!("models/{}:generateContent", model_clone_for_url),
+            )
+        };
+        if let Some(opts) = &self.retry_options {
+            let http0 = http.clone();
+            let req_tx0 = super::transformers::GeminiRequestTransformer {
+                config: self.config.clone(),
+            };
+            let resp_tx0 = super::transformers::GeminiResponseTransformer {
+                config: self.config.clone(),
+            };
+            let headers_builder0 = headers_builder.clone();
+            let base0 = base.clone();
+            let model0 = model.clone();
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http0.clone();
+                    let req_tx = req_tx0.clone();
+                    let resp_tx = resp_tx0.clone();
+                    let headers_builder = headers_builder0.clone();
+                    let base_inner = base0.clone();
+                    let model_inner = model0.clone();
+                    let url_fn = move || {
+                        crate::utils::url::join_url(
+                            &base_inner,
+                            &format!("models/{}:generateContent", model_inner),
+                        )
+                    };
+                    async move {
+                        let exec = HttpImageExecutor {
+                            provider_id: "gemini".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(url_fn),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        ImageExecutor::execute(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let exec = HttpImageExecutor {
+                provider_id: "gemini".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(build_url),
+                build_headers: Box::new(headers_builder),
+            };
+            ImageExecutor::execute(&exec, request).await
+        }
+    }
+
+    fn get_supported_sizes(&self) -> Vec<String> {
+        vec![
+            "1024x1024".to_string(),
+            "768x768".to_string(),
+            "512x512".to_string(),
+        ]
+    }
+
+    fn get_supported_formats(&self) -> Vec<String> {
+        vec!["url".to_string(), "b64_json".to_string()]
+    }
+
+    fn supports_image_editing(&self) -> bool {
+        false
+    }
+    fn supports_image_variations(&self) -> bool {
+        false
     }
 }
 
@@ -578,6 +834,12 @@ impl LlmClient for GeminiClient {
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+        Some(self)
+    }
+
+    fn as_file_management_capability(
+        &self,
+    ) -> Option<&dyn crate::traits::FileManagementCapability> {
         Some(self)
     }
 }

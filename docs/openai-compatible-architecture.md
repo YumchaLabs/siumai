@@ -6,7 +6,7 @@ This note explains how Siumai supports providers that expose an OpenAI‑like RE
 
 - Unified Interface: `Siumai::builder()` exposes provider‑agnostic chat/streaming/embedding APIs
 - Client Configuration: `LlmBuilder` builds HTTP clients, timeouts, proxies, headers
-- Parameter Layer: `RequestBuilderFactory` validates and maps common params to provider formats
+- Parameter Layer: Transformers validate and map common params to provider formats
 - Provider Implementations:
   - Native: `providers/openai`, `providers/anthropic`, `providers/gemini`, etc.
   - OpenAI‑Compatible: `providers/openai_compatible/*` (adapters + registry)
@@ -33,6 +33,5 @@ This note explains how Siumai supports providers that expose an OpenAI‑like RE
 ## References
 
 - Source: `src/providers/openai_compatible/`
-- Parameter layer: `src/request_factory.rs`
+- Parameter layer: unified in `src/transformers/*`
 - Stream normalization: `src/stream.rs`
-

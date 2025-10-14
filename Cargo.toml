@@ -35,6 +35,7 @@ futures = "0.3"
 
 # Streaming
 futures-util = "0.3"
+async-stream = "0.3"
 eventsource-stream = "0.2"
 
 # Time handling
@@ -66,6 +67,8 @@ rand = "0.8"
 # URL encoding
 urlencoding = "2.1"
 regex = "1.11.1"
+mime_guess = "2"
+infer = "0.8"
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }

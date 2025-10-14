@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use crate::error::LlmError;
 use crate::stream::ChatStream;
+use crate::stream::ChatStreamHandle;
 use crate::types::*;
 
 /// Core chat capability trait - the most fundamental LLM capability.
@@ -62,6 +63,25 @@ pub trait ChatCapability: Send + Sync {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError>;
+
+    /// Sends a streaming chat request and returns a first-class cancellation handle
+    /// together with the stream. Calling `cancel()` will stop the underlying HTTP
+    /// stream immediately so providers stop generating tokens.
+    ///
+    /// Default implementation wraps `chat_stream` with a cancellable adapter without
+    /// requiring providers to change their implementations.
+    async fn chat_stream_with_cancel(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let stream = self.chat_stream(messages, tools).await?;
+        let (cancellable, cancel) = crate::utils::cancel::make_cancellable_stream(stream);
+        Ok(ChatStreamHandle {
+            stream: cancellable,
+            cancel,
+        })
+    }
 }
 
 /// Extended chat capabilities providing convenience methods and advanced features.
@@ -71,6 +91,32 @@ pub trait ChatCapability: Send + Sync {
 /// It follows the interface segregation principle by separating optional features.
 #[async_trait]
 pub trait ChatExtensions: ChatCapability {
+    /// Send a chat request using a unified `ChatRequest` container.
+    ///
+    /// This default implementation forwards to `chat_with_tools(messages, tools)` and
+    /// ignores advanced per-request options (e.g., provider_params/http_config) at this layer.
+    /// Use provider-specific clients for full control when needed.
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        self.chat_with_tools(request.messages, request.tools).await
+    }
+
+    /// Send a streaming chat request using a unified `ChatRequest` container.
+    ///
+    /// This default implementation forwards to `chat_stream(messages, tools)` and
+    /// ignores advanced per-request options (e.g., provider_params/http_config) at this layer.
+    /// Use provider-specific clients for full control when needed.
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        self.chat_stream(request.messages, request.tools).await
+    }
+
+    /// Send a streaming chat request and get a cancellation handle.
+    async fn chat_stream_request_with_cancel(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        self.chat_stream_with_cancel(request.messages, request.tools)
+            .await
+    }
     /// Send a chat request with retry using the unified retry facade.
     ///
     /// This wraps `chat_with_tools` with `retry_api::retry_with` for convenient retries.
@@ -258,7 +304,7 @@ pub trait ChatExtensions: ChatCapability {
     ///
     /// # Arguments
     /// * `text` - Text to translate
-    /// * `target_language` - Target language (e.g., "French", "Spanish", "中文")
+    /// * `target_language` - Target language (e.g., "French", "Spanish", "Chinese")
     ///
     /// # Returns
     /// Translated text
@@ -367,6 +413,16 @@ pub trait AudioCapability: Send + Sync {
     async fn speech_to_text(&self, _request: SttRequest) -> Result<SttResponse, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "Speech-to-text not supported by this provider".to_string(),
+        ))
+    }
+
+    /// Convert speech to text with streaming output (optional).
+    ///
+    /// Default implementation returns `UnsupportedOperation`. Providers that
+    /// support streaming STT can override this method.
+    async fn speech_to_text_stream(&self, _request: SttRequest) -> Result<AudioStream, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Streaming speech-to-text not supported by this provider".to_string(),
         ))
     }
 

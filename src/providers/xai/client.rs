@@ -188,17 +188,8 @@ impl XaiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        // Create a ChatRequest from messages and tools, using client's configuration
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            provider_params: None,
-            http_config: None,
-            web_search: None,
-            stream: false,
-        };
-        self.chat_capability.chat(request).await
+        // Delegate to capability's trait method (no provider params)
+        self.chat_capability.chat_with_tools(messages, tools).await
     }
 }
 
@@ -262,7 +253,7 @@ impl XaiClient {
             stream: false,
         };
 
-        self.chat_capability.chat(request).await
+        self.chat_capability.chat_request(request).await
     }
 
     /// Create a deferred completion
@@ -287,7 +278,7 @@ impl XaiClient {
 
         // This would return a request_id instead of a full response
         // Implementation would need to handle the deferred response format
-        let _response = self.chat_capability.chat(request).await?;
+        let _response = self.chat_capability.chat_request(request).await?;
 
         // For now, return a placeholder - this would need proper implementation
         // to handle xAI's deferred completion API response format

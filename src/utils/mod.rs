@@ -2,8 +2,10 @@
 //!
 //! This module contains various utility functions and types used throughout the library.
 
+pub mod cancel;
 pub mod error_handling;
 pub mod http_headers;
+pub mod mime;
 pub mod sse_stream;
 pub mod streaming;
 pub mod url;

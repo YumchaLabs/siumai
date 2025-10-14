@@ -3,6 +3,7 @@
 //! Main client structure that aggregates all `OpenAI` capabilities.
 
 use async_trait::async_trait;
+use secrecy::ExposeSecret;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
@@ -11,26 +12,25 @@ use crate::stream::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 
-use super::chat::OpenAiChatCapability;
-use super::images::OpenAiImages;
 use super::models::OpenAiModels;
 use super::rerank::OpenAiRerank;
-use super::responses::OpenAiResponses;
 use super::types::OpenAiSpecificParams;
 use super::utils::get_default_models;
+use crate::executors::chat::ChatExecutor;
 use crate::retry_api::RetryOptions;
 
 /// `OpenAI` Client
-#[allow(dead_code)]
 pub struct OpenAiClient {
-    /// Chat capability implementation
-    chat_capability: OpenAiChatCapability,
+    /// API key and endpoint configuration
+    api_key: secrecy::SecretString,
+    base_url: String,
+    organization: Option<String>,
+    project: Option<String>,
+    http_config: HttpConfig,
     /// Models capability implementation
     models_capability: OpenAiModels,
     /// Rerank capability implementation
     rerank_capability: OpenAiRerank,
-    /// Image generation capability implementation
-    images_capability: OpenAiImages,
     /// Common parameters
     common_params: CommonParams,
     /// OpenAI-specific parameters
@@ -59,10 +59,13 @@ pub struct OpenAiClient {
 impl Clone for OpenAiClient {
     fn clone(&self) -> Self {
         Self {
-            chat_capability: self.chat_capability.clone(),
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            http_config: self.http_config.clone(),
             models_capability: self.models_capability.clone(),
             rerank_capability: self.rerank_capability.clone(),
-            images_capability: self.images_capability.clone(),
             common_params: self.common_params.clone(),
             openai_params: self.openai_params.clone(),
             specific_params: self.specific_params.clone(),
@@ -85,7 +88,7 @@ impl std::fmt::Debug for OpenAiClient {
         debug_struct
             .field("provider_name", &"openai")
             .field("model", &self.common_params.model)
-            .field("base_url", &self.chat_capability.base_url)
+            .field("base_url", &self.base_url)
             .field("temperature", &self.common_params.temperature)
             .field("max_tokens", &self.common_params.max_tokens)
             .field("top_p", &self.common_params.top_p)
@@ -115,16 +118,6 @@ impl OpenAiClient {
             ..Default::default()
         };
 
-        let chat_capability = OpenAiChatCapability::new(
-            config.api_key.clone(),
-            config.base_url.clone(),
-            http_client.clone(),
-            config.organization.clone(),
-            config.project.clone(),
-            config.http_config.clone(),
-            config.common_params.clone(),
-        );
-
         let models_capability = OpenAiModels::new(
             config.api_key.clone(),
             config.base_url.clone(),
@@ -142,13 +135,14 @@ impl OpenAiClient {
             config.project.clone(),
         );
 
-        let images_capability = OpenAiImages::new(config.clone(), http_client.clone());
-
         Self {
-            chat_capability,
+            api_key: config.api_key,
+            base_url: config.base_url,
+            organization: config.organization,
+            project: config.project,
+            http_config: config.http_config,
             models_capability,
             rerank_capability,
-            images_capability,
             common_params: config.common_params,
             openai_params: config.openai_params,
             specific_params,
@@ -184,13 +178,13 @@ impl OpenAiClient {
     /// Decide whether to use Responses API for current client config (auto routes gpt-5*)
     pub(crate) fn should_use_responses(&self) -> bool {
         let cfg = super::config::OpenAiConfig {
-            api_key: self.chat_capability.api_key.clone(),
-            base_url: self.chat_capability.base_url.clone(),
-            organization: self.chat_capability.organization.clone(),
-            project: self.chat_capability.project.clone(),
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
             common_params: self.common_params.clone(),
             openai_params: self.openai_params.clone(),
-            http_config: self.chat_capability.http_config.clone(),
+            http_config: self.http_config.clone(),
             web_search_config: self.web_search_config.clone(),
             use_responses_api: self.use_responses_api,
             previous_response_id: self.previous_response_id.clone(),
@@ -238,10 +232,7 @@ impl OpenAiClient {
         &self.common_params
     }
 
-    /// Get chat capability (for testing and debugging)
-    pub const fn chat_capability(&self) -> &OpenAiChatCapability {
-        &self.chat_capability
-    }
+    // chat_capability removed after executors migration
 
     /// Update OpenAI-specific parameters
     pub fn with_specific_params(mut self, params: OpenAiSpecificParams) -> Self {
@@ -306,23 +297,8 @@ impl OpenAiClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
         if self.should_use_responses() {
-            let config = super::config::OpenAiConfig {
-                api_key: self.chat_capability.api_key.clone(),
-                base_url: self.chat_capability.base_url.clone(),
-                organization: self.chat_capability.organization.clone(),
-                project: self.chat_capability.project.clone(),
-                common_params: self.common_params.clone(),
-                openai_params: self.openai_params.clone(),
-                http_config: self.chat_capability.http_config.clone(),
-                web_search_config: self.web_search_config.clone(),
-                use_responses_api: true,
-                previous_response_id: self.previous_response_id.clone(),
-                built_in_tools: self.built_in_tools.clone(),
-            };
-            let responses = OpenAiResponses::new(self.http_client.clone(), config);
-            responses.chat_with_tools(messages, tools).await
-        } else {
-            // Create a ChatRequest from messages and tools, using client's configuration
+            // Unified executors path for OpenAI Responses API
+            use crate::executors::chat::HttpChatExecutor;
             let request = ChatRequest {
                 messages,
                 tools,
@@ -332,7 +308,122 @@ impl OpenAiClient {
                 web_search: None,
                 stream: false,
             };
-            self.chat_capability.chat(request).await
+            let http = self.http_client.clone();
+            let base = self.base_url.clone();
+            let api_key = self.api_key.clone();
+            let org = self.organization.clone();
+            let proj = self.project.clone();
+            let req_tx = super::transformers::OpenAiResponsesRequestTransformer;
+            let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            };
+            let exec = HttpChatExecutor {
+                provider_id: "openai_responses".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                stream_transformer: None,
+                build_url: Box::new(move |_stream| format!("{}/responses", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute(request).await
+        } else {
+            // Unified executors path for non-streaming chat
+            use crate::executors::chat::HttpChatExecutor;
+            let request = ChatRequest {
+                messages,
+                tools,
+                common_params: self.common_params.clone(),
+                provider_params: Some(ProviderParams::from_openai(self.openai_params.clone())),
+                http_config: None,
+                web_search: None,
+                stream: false,
+            };
+            let http = self.http_client.clone();
+            let base = self.base_url.clone();
+            let api_key = self.api_key.clone();
+            let org = self.organization.clone();
+            let proj = self.project.clone();
+            let req_tx = super::transformers::OpenAiRequestTransformer;
+            let resp_tx = super::transformers::OpenAiResponseTransformer;
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            };
+            let exec = HttpChatExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                stream_transformer: None,
+                build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute(request).await
         }
     }
 }
@@ -367,24 +458,210 @@ impl ChatCapability for OpenAiClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
         if self.should_use_responses() {
-            let config = super::config::OpenAiConfig {
-                api_key: self.chat_capability.api_key.clone(),
-                base_url: self.chat_capability.base_url.clone(),
-                organization: self.chat_capability.organization.clone(),
-                project: self.chat_capability.project.clone(),
+            use crate::executors::chat::HttpChatExecutor;
+            let request = ChatRequest {
+                messages,
+                tools,
                 common_params: self.common_params.clone(),
-                openai_params: self.openai_params.clone(),
-                http_config: self.chat_capability.http_config.clone(),
-                web_search_config: self.web_search_config.clone(),
-                use_responses_api: true,
-                previous_response_id: self.previous_response_id.clone(),
-                built_in_tools: self.built_in_tools.clone(),
+                provider_params: Some(ProviderParams::from_openai(self.openai_params.clone())),
+                http_config: None,
+                web_search: None,
+                stream: true,
             };
-            let responses = OpenAiResponses::new(self.http_client.clone(), config);
-            responses.chat_stream(messages, tools).await
+            let http = self.http_client.clone();
+            let base = self.base_url.clone();
+            let api_key = self.api_key.clone();
+            let org = self.organization.clone();
+            let proj = self.project.clone();
+            let req_tx = super::transformers::OpenAiResponsesRequestTransformer;
+            let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
+            let converter = crate::providers::openai::responses::OpenAiResponsesEventConverter::new(
+                self.common_params.model.clone(),
+            );
+            let stream_tx = super::transformers::OpenAiResponsesStreamChunkTransformer {
+                provider_id: "openai_responses".to_string(),
+                inner: converter,
+            };
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            };
+            let exec = HttpChatExecutor {
+                provider_id: "openai_responses".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+                build_url: Box::new(move |_stream| format!("{}/responses", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute_stream(request).await
         } else {
-            // Now that OpenAiChatCapability has the correct common_params, we can use the trait method directly
-            self.chat_capability.chat_stream(messages, tools).await
+            // Streaming via HttpChatExecutor and OpenAI stream transformer
+            use crate::executors::chat::HttpChatExecutor;
+            let request = ChatRequest {
+                messages,
+                tools,
+                common_params: self.common_params.clone(),
+                provider_params: Some(ProviderParams::from_openai(self.openai_params.clone())),
+                http_config: None,
+                web_search: None,
+                stream: true,
+            };
+
+            let http = self.http_client.clone();
+            let base = self.base_url.clone();
+            let api_key = self.api_key.clone();
+            let org = self.organization.clone();
+            let proj = self.project.clone();
+            let req_tx = super::transformers::OpenAiRequestTransformer;
+            let resp_tx = super::transformers::OpenAiResponseTransformer;
+
+            // Build compat-based event converter
+            use crate::providers::openai_compatible::adapter::{
+                ProviderAdapter, ProviderCompatibility,
+            };
+            use crate::providers::openai_compatible::types::FieldMappings;
+            use crate::traits::ProviderCapabilities;
+            #[derive(Debug, Clone)]
+            struct OpenAiStandardAdapter {
+                base_url: String,
+            }
+            impl ProviderAdapter for OpenAiStandardAdapter {
+                fn provider_id(&self) -> &'static str {
+                    "openai"
+                }
+                fn transform_request_params(
+                    &self,
+                    _params: &mut serde_json::Value,
+                    _model: &str,
+                    _ty: crate::providers::openai_compatible::types::RequestType,
+                ) -> Result<(), LlmError> {
+                    Ok(())
+                }
+                fn get_field_mappings(&self, _model: &str) -> FieldMappings {
+                    FieldMappings::standard()
+                }
+                fn get_model_config(
+                    &self,
+                    _model: &str,
+                ) -> crate::providers::openai_compatible::types::ModelConfig {
+                    crate::providers::openai_compatible::types::ModelConfig::default()
+                }
+                fn capabilities(&self) -> ProviderCapabilities {
+                    ProviderCapabilities::new()
+                        .with_chat()
+                        .with_streaming()
+                        .with_tools()
+                }
+                fn compatibility(&self) -> ProviderCompatibility {
+                    ProviderCompatibility::openai_standard()
+                }
+                fn base_url(&self) -> &str {
+                    &self.base_url
+                }
+                fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+                    Box::new(self.clone())
+                }
+            }
+            let adapter: std::sync::Arc<
+                dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
+            > = std::sync::Arc::new(OpenAiStandardAdapter {
+                base_url: base.clone(),
+            });
+            let compat_cfg =
+                crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig::new(
+                    "openai",
+                    api_key.expose_secret(),
+                    &base,
+                    adapter.clone(),
+                )
+                .with_model(&self.common_params.model);
+            let inner =
+                crate::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter::new(
+                    compat_cfg, adapter,
+                );
+            let stream_tx = super::transformers::OpenAiStreamChunkTransformer {
+                provider_id: "openai".to_string(),
+                inner,
+            };
+
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            };
+            let exec = HttpChatExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+                build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute_stream(request).await
         }
     }
 }
@@ -403,23 +680,127 @@ impl ModelListingCapability for OpenAiClient {
 #[async_trait]
 impl EmbeddingCapability for OpenAiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        // Create an OpenAiEmbeddings instance using the client's configuration
-        let config = super::config::OpenAiConfig {
-            api_key: self.chat_capability.api_key.clone(),
-            base_url: self.chat_capability.base_url.clone(),
-            organization: self.chat_capability.organization.clone(),
-            project: self.chat_capability.project.clone(),
-            common_params: self.common_params.clone(),
-            openai_params: self.openai_params.clone(),
-            http_config: self.chat_capability.http_config.clone(),
-            web_search_config: crate::types::WebSearchConfig::default(),
-            use_responses_api: false,
-            previous_response_id: None,
-            built_in_tools: Vec::new(),
-        };
-
-        let embeddings = super::embeddings::OpenAiEmbeddings::new(config, self.http_client.clone());
-        embeddings.embed(texts).await
+        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        let req0 = EmbeddingRequest::new(texts).with_model(self.common_params.model.clone());
+        if let Some(opts) = &self.retry_options {
+            let http0 = self.http_client.clone();
+            let base0 = self.base_url.clone();
+            let api_key0 = self.api_key.clone();
+            let org0 = self.organization.clone();
+            let proj0 = self.project.clone();
+            crate::retry_api::retry_with(
+                || {
+                    let req = req0.clone();
+                    let http = http0.clone();
+                    let base = base0.clone();
+                    let api_key = api_key0.clone();
+                    let org = org0.clone();
+                    let proj = proj0.clone();
+                    async move {
+                        let req_tx = super::transformers::OpenAiRequestTransformer;
+                        let resp_tx = super::transformers::OpenAiResponseTransformer;
+                        let headers_builder = move || {
+                            let mut headers = reqwest::header::HeaderMap::new();
+                            headers.insert(
+                                reqwest::header::AUTHORIZATION,
+                                reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {}",
+                                    api_key.expose_secret()
+                                ))
+                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                            );
+                            headers.insert(
+                                reqwest::header::CONTENT_TYPE,
+                                reqwest::header::HeaderValue::from_static("application/json"),
+                            );
+                            if let Some(org) = &org
+                                && !org.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Organization",
+                                    reqwest::header::HeaderValue::from_str(org)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            if let Some(proj) = &proj
+                                && !proj.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Project",
+                                    reqwest::header::HeaderValue::from_str(proj)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                            Ok(headers)
+                        };
+                        let exec = HttpEmbeddingExecutor {
+                            provider_id: "openai".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(move |_r| format!("{}/embeddings", base)),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        EmbeddingExecutor::execute(&exec, req).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let http = self.http_client.clone();
+            let base = self.base_url.clone();
+            let api_key = self.api_key.clone();
+            let org = self.organization.clone();
+            let proj = self.project.clone();
+            let req_tx = super::transformers::OpenAiRequestTransformer;
+            let resp_tx = super::transformers::OpenAiResponseTransformer;
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            };
+            let exec = HttpEmbeddingExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(move |_r| format!("{}/embeddings", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute(req0).await
+        }
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -448,6 +829,498 @@ impl EmbeddingCapability for OpenAiClient {
             "text-embedding-3-large".to_string(),
             "text-embedding-ada-002".to_string(),
         ]
+    }
+}
+
+// Provide extended embedding APIs that accept EmbeddingRequest directly
+#[async_trait]
+impl EmbeddingExtensions for OpenAiClient {
+    async fn embed_with_config(
+        &self,
+        request: EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, LlmError> {
+        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+
+        if let Some(opts) = &self.retry_options {
+            let http0 = self.http_client.clone();
+            let base0 = self.base_url.clone();
+            let api_key0 = self.api_key.clone();
+            let org0 = self.organization.clone();
+            let proj0 = self.project.clone();
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http0.clone();
+                    let base = base0.clone();
+                    let api_key = api_key0.clone();
+                    let org = org0.clone();
+                    let proj = proj0.clone();
+                    async move {
+                        let req_tx = super::transformers::OpenAiRequestTransformer;
+                        let resp_tx = super::transformers::OpenAiResponseTransformer;
+                        let headers_builder = move || {
+                            let mut headers = reqwest::header::HeaderMap::new();
+                            headers.insert(
+                                reqwest::header::AUTHORIZATION,
+                                reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {}",
+                                    api_key.expose_secret()
+                                ))
+                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                            );
+                            headers.insert(
+                                reqwest::header::CONTENT_TYPE,
+                                reqwest::header::HeaderValue::from_static("application/json"),
+                            );
+                            if let Some(org) = &org
+                                && !org.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Organization",
+                                    reqwest::header::HeaderValue::from_str(org)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            if let Some(proj) = &proj
+                                && !proj.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Project",
+                                    reqwest::header::HeaderValue::from_str(proj)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            // Unified tracing headers injection
+                            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                            Ok(headers)
+                        };
+                        let exec = HttpEmbeddingExecutor {
+                            provider_id: "openai".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(move |_r| format!("{}/embeddings", base)),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        EmbeddingExecutor::execute(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let http = self.http_client.clone();
+            let base = self.base_url.clone();
+            let api_key = self.api_key.clone();
+            let org = self.organization.clone();
+            let proj = self.project.clone();
+            let req_tx = super::transformers::OpenAiRequestTransformer;
+            let resp_tx = super::transformers::OpenAiResponseTransformer;
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                // Unified tracing headers injection
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            };
+            let exec = HttpEmbeddingExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(move |_r| format!("{}/embeddings", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute(request).await
+        }
+    }
+}
+
+#[async_trait]
+impl AudioCapability for OpenAiClient {
+    fn supported_features(&self) -> &[crate::types::AudioFeature] {
+        use crate::types::AudioFeature::*;
+        const FEATURES: &[crate::types::AudioFeature] = &[TextToSpeech, SpeechToText];
+        FEATURES
+    }
+
+    async fn text_to_speech(
+        &self,
+        request: crate::types::TtsRequest,
+    ) -> Result<crate::types::TtsResponse, LlmError> {
+        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let org = self.organization.clone();
+        let proj = self.project.clone();
+        #[derive(Clone)]
+        struct OpenAiAudioTransformer;
+        impl crate::transformers::audio::AudioTransformer for OpenAiAudioTransformer {
+            fn provider_id(&self) -> &str {
+                "openai"
+            }
+            fn build_tts_body(
+                &self,
+                req: &crate::types::TtsRequest,
+            ) -> Result<crate::transformers::audio::AudioHttpBody, LlmError> {
+                let model = req.model.clone().unwrap_or_else(|| "tts-1".to_string());
+                let voice = req.voice.clone().unwrap_or_else(|| "alloy".to_string());
+                let format = req.format.clone().unwrap_or_else(|| "mp3".to_string());
+                let mut json = serde_json::json!({
+                    "model": model,
+                    "input": req.text,
+                    "voice": voice,
+                    "response_format": format,
+                });
+                if let Some(s) = req.speed {
+                    json["speed"] = serde_json::json!(s);
+                }
+                if let Some(instr) = req
+                    .extra_params
+                    .get("instructions")
+                    .and_then(|v| v.as_str())
+                {
+                    json["instructions"] = serde_json::json!(instr);
+                }
+                Ok(crate::transformers::audio::AudioHttpBody::Json(json))
+            }
+            fn build_stt_body(
+                &self,
+                req: &crate::types::SttRequest,
+            ) -> Result<crate::transformers::audio::AudioHttpBody, LlmError> {
+                let model = req.model.clone().unwrap_or_else(|| "whisper-1".to_string());
+                let audio = req.audio_data.clone().ok_or_else(|| {
+                    LlmError::InvalidInput("audio_data required for STT".to_string())
+                })?;
+                let mut form = reqwest::multipart::Form::new()
+                    .part(
+                        "file",
+                        reqwest::multipart::Part::bytes(audio).file_name("audio.mp3"),
+                    )
+                    .text("model", model)
+                    .text("response_format", "json");
+                if let Some(lang) = &req.language {
+                    form = form.text("language", lang.clone());
+                }
+                if let Some(grans) = &req.timestamp_granularities {
+                    for g in grans {
+                        form = form.text("timestamp_granularities[]", g.clone());
+                    }
+                }
+                Ok(crate::transformers::audio::AudioHttpBody::Multipart(form))
+            }
+            fn tts_endpoint(&self) -> &str {
+                "/audio/speech"
+            }
+            fn stt_endpoint(&self) -> &str {
+                "/audio/transcriptions"
+            }
+            fn parse_stt_response(&self, json: &serde_json::Value) -> Result<String, LlmError> {
+                let text = json
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| LlmError::ParseError("missing 'text' field".to_string()))?;
+                Ok(text.to_string())
+            }
+        }
+        let base_clone = base.clone();
+        let result_bytes = if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http.clone();
+                    let base = base_clone.clone();
+                    let api_key = api_key.clone();
+                    let org = org.clone();
+                    let proj = proj.clone();
+                    async move {
+                        let headers_builder = move || {
+                            let mut headers = reqwest::header::HeaderMap::new();
+                            headers.insert(
+                                reqwest::header::AUTHORIZATION,
+                                reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {}",
+                                    api_key.expose_secret()
+                                ))
+                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                            );
+                            if let Some(org) = &org
+                                && !org.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Organization",
+                                    reqwest::header::HeaderValue::from_str(org)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            if let Some(proj) = &proj
+                                && !proj.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Project",
+                                    reqwest::header::HeaderValue::from_str(proj)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                            Ok(headers)
+                        };
+                        let exec = HttpAudioExecutor {
+                            provider_id: "openai".to_string(),
+                            http_client: http,
+                            transformer: std::sync::Arc::new(OpenAiAudioTransformer),
+                            build_base_url: Box::new(move || base.clone()),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        AudioExecutor::tts(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await?
+        } else {
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            };
+            let exec = HttpAudioExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                transformer: std::sync::Arc::new(OpenAiAudioTransformer),
+                build_base_url: Box::new(move || base.clone()),
+                build_headers: Box::new(headers_builder),
+            };
+            AudioExecutor::tts(&exec, request.clone()).await?
+        };
+        Ok(crate::types::TtsResponse {
+            audio_data: result_bytes,
+            format: request.format.unwrap_or_else(|| "mp3".to_string()),
+            duration: None,
+            sample_rate: None,
+            metadata: std::collections::HashMap::new(),
+        })
+    }
+
+    async fn speech_to_text(
+        &self,
+        request: crate::types::SttRequest,
+    ) -> Result<crate::types::SttResponse, LlmError> {
+        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let org = self.organization.clone();
+        let proj = self.project.clone();
+        #[derive(Clone)]
+        struct OpenAiAudioTransformer;
+        impl crate::transformers::audio::AudioTransformer for OpenAiAudioTransformer {
+            fn provider_id(&self) -> &str {
+                "openai"
+            }
+            fn build_tts_body(
+                &self,
+                _req: &crate::types::TtsRequest,
+            ) -> Result<crate::transformers::audio::AudioHttpBody, LlmError> {
+                unreachable!()
+            }
+            fn build_stt_body(
+                &self,
+                req: &crate::types::SttRequest,
+            ) -> Result<crate::transformers::audio::AudioHttpBody, LlmError> {
+                let model = req.model.clone().unwrap_or_else(|| "whisper-1".to_string());
+                let audio = req.audio_data.clone().ok_or_else(|| {
+                    LlmError::InvalidInput("audio_data required for STT".to_string())
+                })?;
+                let mut form = reqwest::multipart::Form::new()
+                    .part(
+                        "file",
+                        reqwest::multipart::Part::bytes(audio).file_name("audio.mp3"),
+                    )
+                    .text("model", model)
+                    .text("response_format", "json");
+                if let Some(lang) = &req.language {
+                    form = form.text("language", lang.clone());
+                }
+                if let Some(grans) = &req.timestamp_granularities {
+                    for g in grans {
+                        form = form.text("timestamp_granularities[]", g.clone());
+                    }
+                }
+                Ok(crate::transformers::audio::AudioHttpBody::Multipart(form))
+            }
+            fn tts_endpoint(&self) -> &str {
+                "/audio/speech"
+            }
+            fn stt_endpoint(&self) -> &str {
+                "/audio/transcriptions"
+            }
+            fn parse_stt_response(&self, json: &serde_json::Value) -> Result<String, LlmError> {
+                let text = json
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| LlmError::ParseError("missing 'text' field".to_string()))?;
+                Ok(text.to_string())
+            }
+        }
+        let base_clone = base.clone();
+        let text = if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http.clone();
+                    let base = base_clone.clone();
+                    let api_key = api_key.clone();
+                    let org = org.clone();
+                    let proj = proj.clone();
+                    async move {
+                        let headers_builder = move || {
+                            let mut headers = reqwest::header::HeaderMap::new();
+                            headers.insert(
+                                reqwest::header::AUTHORIZATION,
+                                reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {}",
+                                    api_key.expose_secret()
+                                ))
+                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                            );
+                            if let Some(org) = &org
+                                && !org.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Organization",
+                                    reqwest::header::HeaderValue::from_str(org)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            if let Some(proj) = &proj
+                                && !proj.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Project",
+                                    reqwest::header::HeaderValue::from_str(proj)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            Ok(headers)
+                        };
+                        let exec = HttpAudioExecutor {
+                            provider_id: "openai".to_string(),
+                            http_client: http,
+                            transformer: std::sync::Arc::new(OpenAiAudioTransformer),
+                            build_base_url: Box::new(move || base.clone()),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        AudioExecutor::stt(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await?
+        } else {
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                Ok(headers)
+            };
+            let exec = HttpAudioExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                transformer: std::sync::Arc::new(OpenAiAudioTransformer),
+                build_base_url: Box::new(move || base.clone()),
+                build_headers: Box::new(headers_builder),
+            };
+            AudioExecutor::stt(&exec, request).await?
+        };
+        Ok(crate::types::SttResponse {
+            text,
+            language: None,
+            confidence: None,
+            words: None,
+            duration: None,
+            metadata: std::collections::HashMap::new(),
+        })
     }
 }
 
@@ -504,13 +1377,18 @@ impl LlmClient for OpenAiClient {
     }
 
     fn as_audio_capability(&self) -> Option<&dyn AudioCapability> {
-        // OpenAI client doesn't directly implement AudioCapability
-        // Audio is handled through separate OpenAiAudio struct
-        None
+        // Provide audio via executor-backed implementation
+        Some(self)
     }
 
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
         // Return the image generation capability
+        Some(self)
+    }
+
+    fn as_file_management_capability(
+        &self,
+    ) -> Option<&dyn crate::traits::FileManagementCapability> {
         Some(self)
     }
 }
@@ -540,7 +1418,124 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        self.images_capability.generate_images(request).await
+        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+        if let Some(opts) = &self.retry_options {
+            let http0 = self.http_client.clone();
+            let base0 = self.base_url.clone();
+            let api_key0 = self.api_key.clone();
+            let org0 = self.organization.clone();
+            let proj0 = self.project.clone();
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http0.clone();
+                    let base = base0.clone();
+                    let api_key = api_key0.clone();
+                    let org = org0.clone();
+                    let proj = proj0.clone();
+                    async move {
+                        let req_tx = super::transformers::OpenAiRequestTransformer;
+                        let resp_tx = super::transformers::OpenAiResponseTransformer;
+                        let headers_builder = move || {
+                            let mut headers = reqwest::header::HeaderMap::new();
+                            headers.insert(
+                                reqwest::header::AUTHORIZATION,
+                                reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {}",
+                                    api_key.expose_secret()
+                                ))
+                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                            );
+                            headers.insert(
+                                reqwest::header::CONTENT_TYPE,
+                                reqwest::header::HeaderValue::from_static("application/json"),
+                            );
+                            if let Some(org) = &org
+                                && !org.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Organization",
+                                    reqwest::header::HeaderValue::from_str(org)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            if let Some(proj) = &proj
+                                && !proj.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Project",
+                                    reqwest::header::HeaderValue::from_str(proj)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            Ok(headers)
+                        };
+                        let exec = HttpImageExecutor {
+                            provider_id: "openai".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(move || format!("{}/images/generations", base)),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        ImageExecutor::execute(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let http = self.http_client.clone();
+            let base = self.base_url.clone();
+            let api_key = self.api_key.clone();
+            let org = self.organization.clone();
+            let proj = self.project.clone();
+            let req_tx = super::transformers::OpenAiRequestTransformer;
+            let resp_tx = super::transformers::OpenAiResponseTransformer;
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                headers.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    reqwest::header::HeaderValue::from_static("application/json"),
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                Ok(headers)
+            };
+            let exec = HttpImageExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(move || format!("{}/images/generations", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute(request).await
+        }
     }
 
     /// Edit an existing image with a text prompt.
@@ -548,7 +1543,112 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        self.images_capability.edit_image(request).await
+        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+        let http = self.http_client.clone();
+        let base = format!("{}/images/edits", self.base_url);
+        let api_key = self.api_key.clone();
+        let org = self.organization.clone();
+        let proj = self.project.clone();
+        let req_tx = super::transformers::OpenAiRequestTransformer;
+        let resp_tx = super::transformers::OpenAiResponseTransformer;
+        let base_clone = base.clone();
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http.clone();
+                    let base = base_clone.clone();
+                    let api_key = api_key.clone();
+                    let org = org.clone();
+                    let proj = proj.clone();
+                    async move {
+                        let req_tx = super::transformers::OpenAiRequestTransformer;
+                        let resp_tx = super::transformers::OpenAiResponseTransformer;
+                        let headers_builder = move || {
+                            let mut headers = reqwest::header::HeaderMap::new();
+                            headers.insert(
+                                reqwest::header::AUTHORIZATION,
+                                reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {}",
+                                    api_key.expose_secret()
+                                ))
+                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                            );
+                            if let Some(org) = &org
+                                && !org.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Organization",
+                                    reqwest::header::HeaderValue::from_str(org)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            if let Some(proj) = &proj
+                                && !proj.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Project",
+                                    reqwest::header::HeaderValue::from_str(proj)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            Ok(headers)
+                        };
+                        let exec = HttpImageExecutor {
+                            provider_id: "openai".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(move || base.clone()),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        ImageExecutor::execute_edit(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                Ok(headers)
+            };
+            let exec = HttpImageExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(move || base.clone()),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute_edit(request).await
+        }
     }
 
     /// Create variations of an existing image.
@@ -556,27 +1656,259 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        self.images_capability.create_variation(request).await
+        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+        let http = self.http_client.clone();
+        let base = format!("{}/images/variations", self.base_url);
+        let api_key = self.api_key.clone();
+        let org = self.organization.clone();
+        let proj = self.project.clone();
+        let req_tx = super::transformers::OpenAiRequestTransformer;
+        let resp_tx = super::transformers::OpenAiResponseTransformer;
+        let base_clone = base.clone();
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let http = http.clone();
+                    let base = base_clone.clone();
+                    let api_key = api_key.clone();
+                    let org = org.clone();
+                    let proj = proj.clone();
+                    async move {
+                        let req_tx = super::transformers::OpenAiRequestTransformer;
+                        let resp_tx = super::transformers::OpenAiResponseTransformer;
+                        let headers_builder = move || {
+                            let mut headers = reqwest::header::HeaderMap::new();
+                            headers.insert(
+                                reqwest::header::AUTHORIZATION,
+                                reqwest::header::HeaderValue::from_str(&format!(
+                                    "Bearer {}",
+                                    api_key.expose_secret()
+                                ))
+                                .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                            );
+                            if let Some(org) = &org
+                                && !org.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Organization",
+                                    reqwest::header::HeaderValue::from_str(org)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            if let Some(proj) = &proj
+                                && !proj.is_empty()
+                            {
+                                headers.insert(
+                                    "OpenAI-Project",
+                                    reqwest::header::HeaderValue::from_str(proj)
+                                        .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                                );
+                            }
+                            Ok(headers)
+                        };
+                        let exec = HttpImageExecutor {
+                            provider_id: "openai".to_string(),
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(move || base.clone()),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        ImageExecutor::execute_variation(&exec, rq).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let headers_builder = move || {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    reqwest::header::HeaderValue::from_str(&format!(
+                        "Bearer {}",
+                        api_key.expose_secret()
+                    ))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                );
+                if let Some(org) = &org
+                    && !org.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Organization",
+                        reqwest::header::HeaderValue::from_str(org)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                if let Some(proj) = &proj
+                    && !proj.is_empty()
+                {
+                    headers.insert(
+                        "OpenAI-Project",
+                        reqwest::header::HeaderValue::from_str(proj)
+                            .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+                    );
+                }
+                Ok(headers)
+            };
+            let exec = HttpImageExecutor {
+                provider_id: "openai".to_string(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(move || base.clone()),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute_variation(request).await
+        }
     }
 
     /// Get supported image sizes for this provider.
     fn get_supported_sizes(&self) -> Vec<String> {
-        self.images_capability.get_supported_sizes()
+        // SiliconFlow supports additional sizes
+        if self.base_url.contains("siliconflow.cn") {
+            vec![
+                "1024x1024".to_string(),
+                "960x1280".to_string(),
+                "768x1024".to_string(),
+                "720x1440".to_string(),
+                "720x1280".to_string(),
+            ]
+        } else {
+            // OpenAI supported sizes
+            vec![
+                "256x256".to_string(),
+                "512x512".to_string(),
+                "1024x1024".to_string(),
+                "1792x1024".to_string(),
+                "1024x1792".to_string(),
+                "2048x2048".to_string(),
+            ]
+        }
     }
 
     /// Get supported response formats for this provider.
     fn get_supported_formats(&self) -> Vec<String> {
-        self.images_capability.get_supported_formats()
+        if self.base_url.contains("siliconflow.cn") {
+            vec!["url".to_string()]
+        } else {
+            vec!["url".to_string(), "b64_json".to_string()]
+        }
     }
 
     /// Check if the provider supports image editing.
     fn supports_image_editing(&self) -> bool {
-        self.images_capability.supports_image_editing()
+        // SiliconFlow doesn't support editing/variations via OpenAI-compatible paths
+        !self.base_url.contains("siliconflow.cn")
     }
 
     /// Check if the provider supports image variations.
     fn supports_image_variations(&self) -> bool {
-        self.images_capability.supports_image_variations()
+        // SiliconFlow doesn't support editing/variations via OpenAI-compatible paths
+        !self.base_url.contains("siliconflow.cn")
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::traits::FileManagementCapability for OpenAiClient {
+    async fn upload_file(
+        &self,
+        request: crate::types::FileUploadRequest,
+    ) -> Result<crate::types::FileObject, LlmError> {
+        let cfg = super::OpenAiConfig {
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            common_params: self.common_params.clone(),
+            openai_params: self.openai_params.clone(),
+            http_config: self.http_config.clone(),
+            web_search_config: self.web_search_config.clone(),
+            use_responses_api: self.use_responses_api,
+            previous_response_id: self.previous_response_id.clone(),
+            built_in_tools: self.built_in_tools.clone(),
+        };
+        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        files.upload_file(request).await
+    }
+
+    async fn list_files(
+        &self,
+        query: Option<crate::types::FileListQuery>,
+    ) -> Result<crate::types::FileListResponse, LlmError> {
+        let cfg = super::OpenAiConfig {
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            common_params: self.common_params.clone(),
+            openai_params: self.openai_params.clone(),
+            http_config: self.http_config.clone(),
+            web_search_config: self.web_search_config.clone(),
+            use_responses_api: self.use_responses_api,
+            previous_response_id: self.previous_response_id.clone(),
+            built_in_tools: self.built_in_tools.clone(),
+        };
+        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        files.list_files(query).await
+    }
+
+    async fn retrieve_file(&self, file_id: String) -> Result<crate::types::FileObject, LlmError> {
+        let cfg = super::OpenAiConfig {
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            common_params: self.common_params.clone(),
+            openai_params: self.openai_params.clone(),
+            http_config: self.http_config.clone(),
+            web_search_config: self.web_search_config.clone(),
+            use_responses_api: self.use_responses_api,
+            previous_response_id: self.previous_response_id.clone(),
+            built_in_tools: self.built_in_tools.clone(),
+        };
+        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        files.retrieve_file(file_id).await
+    }
+
+    async fn delete_file(
+        &self,
+        file_id: String,
+    ) -> Result<crate::types::FileDeleteResponse, LlmError> {
+        let cfg = super::OpenAiConfig {
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            common_params: self.common_params.clone(),
+            openai_params: self.openai_params.clone(),
+            http_config: self.http_config.clone(),
+            web_search_config: self.web_search_config.clone(),
+            use_responses_api: self.use_responses_api,
+            previous_response_id: self.previous_response_id.clone(),
+            built_in_tools: self.built_in_tools.clone(),
+        };
+        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        files.delete_file(file_id).await
+    }
+
+    async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
+        let cfg = super::OpenAiConfig {
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            common_params: self.common_params.clone(),
+            openai_params: self.openai_params.clone(),
+            http_config: self.http_config.clone(),
+            web_search_config: self.web_search_config.clone(),
+            use_responses_api: self.use_responses_api,
+            previous_response_id: self.previous_response_id.clone(),
+            built_in_tools: self.built_in_tools.clone(),
+        };
+        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        files.get_file_content(file_id).await
     }
 }
 
@@ -584,6 +1916,8 @@ impl ImageGenerationCapability for OpenAiClient {
 mod tests {
     use super::*;
     use crate::providers::openai::OpenAiConfig;
+    use crate::providers::openai::transformers;
+    use crate::transformers::request::RequestTransformer;
 
     #[test]
     fn test_openai_client_creation() {
@@ -668,11 +2002,9 @@ mod tests {
             stream: false,
         };
 
-        // Test that the request body includes the correct model
-        let body = client
-            .chat_capability
-            .build_chat_request_body(&request)
-            .unwrap();
+        // Test that the request body includes the correct model (via transformers)
+        let tx = transformers::OpenAiRequestTransformer;
+        let body = tx.transform_chat(&request).unwrap();
         assert_eq!(body["model"], "gpt-4-test");
     }
 }

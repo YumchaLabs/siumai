@@ -6,6 +6,7 @@
 use crate::error::LlmError;
 use crate::providers::gemini::types::GeminiConfig;
 use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use serde::Deserialize;
@@ -19,7 +20,6 @@ use tokio::sync::Mutex;
 struct GeminiStreamResponse {
     candidates: Option<Vec<GeminiCandidate>>,
     #[serde(rename = "usageMetadata")]
-    #[allow(dead_code)]
     usage_metadata: Option<GeminiUsageMetadata>,
 }
 
@@ -33,9 +33,10 @@ struct GeminiCandidate {
 
 /// Gemini content structure
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct GeminiContent {
     parts: Option<Vec<GeminiPart>>,
+    #[allow(dead_code)]
+    // Role appears in some responses but is not required by our unified event model
     role: Option<String>,
 }
 
@@ -45,7 +46,6 @@ struct GeminiPart {
     text: Option<String>,
     /// Optional. Whether this is a thought summary (for thinking models)
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[allow(dead_code)]
     thought: Option<bool>,
 }
 
@@ -53,17 +53,13 @@ struct GeminiPart {
 #[derive(Debug, Clone, Deserialize)]
 struct GeminiUsageMetadata {
     #[serde(rename = "promptTokenCount")]
-    #[allow(dead_code)]
     prompt_token_count: Option<u32>,
     #[serde(rename = "candidatesTokenCount")]
-    #[allow(dead_code)]
     candidates_token_count: Option<u32>,
     #[serde(rename = "totalTokenCount")]
-    #[allow(dead_code)]
     total_token_count: Option<u32>,
     /// Number of tokens used for thinking (only for thinking models)
     #[serde(rename = "thoughtsTokenCount")]
-    #[allow(dead_code)]
     thoughts_token_count: Option<u32>,
 }
 
@@ -105,6 +101,11 @@ impl GeminiEventConverter {
         // Process thinking content (if supported)
         if let Some(thinking) = self.extract_thinking(&response) {
             builder = builder.add_thinking_delta(thinking);
+        }
+
+        // Process usage update if available
+        if let Some(usage) = self.extract_usage(&response) {
+            builder = builder.add_usage_update(usage);
         }
 
         // Handle completion/finish reason
@@ -198,6 +199,22 @@ impl GeminiEventConverter {
         }
     }
 
+    /// Extract usage information
+    fn extract_usage(&self, response: &GeminiStreamResponse) -> Option<Usage> {
+        if let Some(meta) = &response.usage_metadata {
+            return Some(Usage {
+                prompt_tokens: meta.prompt_token_count.unwrap_or(0),
+                completion_tokens: meta.candidates_token_count.unwrap_or(0),
+                total_tokens: meta.total_token_count.unwrap_or(
+                    meta.prompt_token_count.unwrap_or(0) + meta.candidates_token_count.unwrap_or(0),
+                ),
+                cached_tokens: None,
+                reasoning_tokens: meta.thoughts_token_count,
+            });
+        }
+        None
+    }
+
     /// Create StreamStart metadata
     fn create_stream_start_metadata(&self) -> ResponseMetadata {
         ResponseMetadata {
@@ -217,8 +234,8 @@ impl SseEventConverter for GeminiEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
-            // Skip empty events
-            if event.data.trim().is_empty() {
+            // Skip done marker or empty events
+            if event.data.trim() == "[DONE]" || event.data.trim().is_empty() {
                 return vec![];
             }
 
@@ -261,7 +278,7 @@ impl GeminiStreaming {
         self,
         url: String,
         api_key: String,
-        request: crate::providers::gemini::types::GenerateContentRequest,
+        request: serde_json::Value,
     ) -> Result<ChatStream, LlmError> {
         // Make the HTTP request
         let response = self

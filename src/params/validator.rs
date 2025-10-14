@@ -13,7 +13,6 @@
 //! - **Provider delegation**: Lets providers handle all their own specific limits
 //! - **Zero maintenance**: Works with any new models without code changes
 
-use super::mapper::ParameterMapperFactory;
 use crate::error::LlmError;
 use crate::types::{CommonParams, ProviderType};
 
@@ -124,11 +123,8 @@ impl EnhancedParameterValidator {
     ) -> CompatibilityReport {
         let mut report = CompatibilityReport::new(source_provider.clone(), target_provider.clone());
 
-        let source_mapper = ParameterMapperFactory::create_mapper(source_provider);
-        let target_mapper = ParameterMapperFactory::create_mapper(target_provider);
-
-        let _source_constraints = source_mapper.get_param_constraints();
-        let target_constraints = target_mapper.get_param_constraints();
+        // Use simplified, provider-agnostic constraints for compatibility checking
+        let target_constraints = super::mapper::ParameterConstraints::default();
 
         // Check temperature compatibility
         if let Some(temp) = params.temperature
@@ -167,8 +163,8 @@ impl EnhancedParameterValidator {
         provider_type: &ProviderType,
     ) -> OptimizationReport {
         let mut report = OptimizationReport::new(provider_type.clone());
-        let constraints =
-            ParameterMapperFactory::create_mapper(provider_type).get_param_constraints();
+        // Use default constraints for optimization (provider-agnostic)
+        let constraints = super::mapper::ParameterConstraints::default();
 
         // Optimize temperature (only clamp negative values)
         if let Some(temp) = params.temperature

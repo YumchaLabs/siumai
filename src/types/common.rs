@@ -231,6 +231,14 @@ impl ProviderParams {
         }
     }
 
+    /// Merges another ProviderParams into this one.
+    /// Values from `other` override existing keys.
+    pub fn merge(mut self, mut other: ProviderParams) -> Self {
+        for (k, v) in other.params.drain() {
+            self.params.insert(k, v);
+        }
+        self
+    }
     /// Adds a parameter
     pub fn with_param<T: Serialize>(mut self, key: &str, value: T) -> Self {
         self.params

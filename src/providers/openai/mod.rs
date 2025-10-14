@@ -8,10 +8,7 @@
 //! - `client.rs` - Main `OpenAI` client that aggregates all capabilities
 //! - `config.rs` - Configuration structures and validation
 //! - `builder.rs` - Builder pattern implementation for client creation
-//! - `chat.rs` - Chat completion capability implementation
-//! - `audio.rs` - Audio processing (TTS/STT) capability implementation
-//! - `embeddings.rs` - Text embedding capability implementation
-//! - `images.rs` - Image generation capability implementation
+//! - Chat/Embedding/Image/Audio are executed via Executors + Transformers (client.rs)
 //! - `files.rs` - File management capability implementation
 //! - `models.rs` - Model listing capability implementation (future)
 //! - `moderation.rs` - Content moderation capability implementation
@@ -56,18 +53,14 @@ pub mod utils;
 mod thinking_utils_test;
 
 // Capability modules
-pub mod audio;
-pub mod chat;
-pub mod embeddings;
 pub mod files;
-pub mod images;
 pub mod rerank;
-pub mod responses;
-pub mod streaming;
+mod responses; // keep internal (event converter), not re-exported
 pub mod structured_output;
+pub mod transformers;
+// pub mod streaming; // removed after test migration to compat converter
 
-// Request building module
-pub mod request;
+// Request building module (removed; Transformers handle mapping/validation)
 
 // Future capability modules (placeholders)
 pub mod models;
@@ -83,17 +76,11 @@ pub use config::OpenAiConfig;
 pub use types::*;
 
 // Re-export capability implementations
-pub use audio::OpenAiAudio;
-pub use chat::OpenAiChatCapability;
-pub use embeddings::OpenAiEmbeddings;
 pub use files::OpenAiFiles;
-pub use images::OpenAiImages;
 pub use models::OpenAiModels;
 pub use moderation::OpenAiModeration;
 pub use rerank::OpenAiRerank;
-pub use responses::{
-    ListResponsesQuery, OpenAiResponses, ResponseMetadata, ResponseStatus, ResponsesApiCapability,
-};
+// Responses API client/types are no longer re-exported; use unified OpenAiClient
 
 // Re-export parameter enums for convenience
 pub use crate::params::openai::{IncludableItem, SortOrder, TruncationStrategy};

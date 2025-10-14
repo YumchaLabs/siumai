@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 /// Ollama stream response structure
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
+// Ollama may include fields we don't currently surface; keep them to remain parse-compatible
 struct OllamaStreamResponse {
     model: Option<String>,
     message: Option<OllamaMessage>,
@@ -29,6 +30,7 @@ struct OllamaStreamResponse {
 /// Ollama message structure
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
+// Message fields are retained for serde compatibility; converter extracts only the parts we emit
 struct OllamaMessage {
     role: Option<String>,
     content: Option<String>,

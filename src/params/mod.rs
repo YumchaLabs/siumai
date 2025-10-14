@@ -19,12 +19,8 @@ pub mod validator;
 pub use anthropic::*;
 pub use common::*;
 pub use gemini::*;
-pub use mapper::*;
+// pub use mapper::*; // mapper types no longer re-exported; use Transformers instead
 pub use openai::*;
 pub use validator::*;
 
-// Re-export for backward compatibility
-pub use anthropic::AnthropicParameterMapper;
-pub use gemini::GeminiParameterMapper;
-pub use mapper::{ParameterMapper, ParameterMapperFactory};
-pub use openai::OpenAiParameterMapper;
+// Re-export for backward compatibility (mappers removed from public surface)

@@ -31,10 +31,7 @@ pub use groq::GroqClient;
 #[cfg(feature = "ollama")]
 pub use ollama::OllamaClient;
 #[cfg(feature = "openai")]
-pub use openai::{
-    ListResponsesQuery, OpenAiClient, OpenAiResponses, ResponseMetadata, ResponseStatus,
-    ResponsesApiCapability,
-};
+pub use openai::OpenAiClient;
 // Note: OpenAI-compatible providers now use OpenAI client directly
 // Model constants are still available through openai_compatible module
 #[cfg(feature = "xai")]

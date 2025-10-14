@@ -4,13 +4,12 @@
 
 pub mod builder;
 pub mod cache;
-pub mod chat;
 pub mod client;
 pub mod model_constants;
 pub mod models;
-pub mod request;
 pub mod streaming;
 pub mod thinking;
+pub mod transformers;
 pub mod types;
 pub mod utils;
 
@@ -20,5 +19,4 @@ pub use client::AnthropicClient;
 pub use types::*;
 
 // Re-export capability implementations
-pub use chat::AnthropicChatCapability;
 pub use models::AnthropicModels;

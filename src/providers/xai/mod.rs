@@ -46,6 +46,7 @@ pub mod utils;
 // Capability modules
 pub mod chat;
 pub mod streaming;
+pub mod transformers;
 
 // Re-export main types for convenience
 pub use api::XaiModels;

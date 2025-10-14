@@ -13,6 +13,8 @@ use crate::stream::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 
+// Documentation-only guide; exclude from normal builds to reduce compile overhead
+#[cfg(doc)]
 pub mod guide;
 
 /// Custom provider configuration

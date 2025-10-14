@@ -11,7 +11,7 @@
 
 use axum::Router;
 use rmcp::{
-    ServerHandler, ServiceExt,
+    ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
     schemars, tool, tool_handler, tool_router,
@@ -89,6 +89,12 @@ impl SseMcpServer {
             ),
         };
         Ok(CallToolResult::success(vec![Content::text(time_str)]))
+    }
+}
+
+impl Default for SseMcpServer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

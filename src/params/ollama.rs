@@ -3,20 +3,20 @@
 //! Maps common parameters to Ollama-specific format.
 
 use crate::error::LlmError;
-use crate::params::mapper::{ParameterConstraints, ParameterMapper};
-use crate::types::{CommonParams, ProviderParams, ProviderType};
+use crate::types::{CommonParams, ProviderParams};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
 /// Ollama parameter mapper
 pub struct OllamaParameterMapper;
 
-impl ParameterMapper for OllamaParameterMapper {
-    fn provider_type(&self) -> ProviderType {
-        ProviderType::Ollama
+impl OllamaParameterMapper {
+    #[cfg(test)]
+    fn provider_type(&self) -> crate::types::ProviderType {
+        crate::types::ProviderType::Ollama
     }
 
-    fn map_common_params(&self, params: &CommonParams) -> Value {
+    pub fn map_common_params(&self, params: &CommonParams) -> Value {
         let mut ollama_params = json!({});
 
         // Map model
@@ -52,7 +52,11 @@ impl ParameterMapper for OllamaParameterMapper {
         ollama_params
     }
 
-    fn merge_provider_params(&self, mut base: Value, provider_params: &ProviderParams) -> Value {
+    pub fn merge_provider_params(
+        &self,
+        mut base: Value,
+        provider_params: &ProviderParams,
+    ) -> Value {
         // Extract Ollama-specific parameters from the generic ProviderParams
         if let Some(keep_alive) = provider_params.get::<String>("keep_alive") {
             base["keep_alive"] = json!(keep_alive);
@@ -108,7 +112,7 @@ impl ParameterMapper for OllamaParameterMapper {
         base
     }
 
-    fn validate_params(&self, params: &Value) -> Result<(), LlmError> {
+    pub fn validate_params(&self, params: &Value) -> Result<(), LlmError> {
         // Validate temperature
         if let Some(temp) = params
             .get("temperature")
@@ -179,16 +183,7 @@ impl ParameterMapper for OllamaParameterMapper {
         Ok(())
     }
 
-    fn get_param_constraints(&self) -> ParameterConstraints {
-        ParameterConstraints {
-            temperature_min: 0.0,
-            temperature_max: 2.0,
-            max_tokens_min: 1,
-            max_tokens_max: 100_000,
-            top_p_min: 0.0,
-            top_p_max: 1.0,
-        }
-    }
+    // Note: Parameter constraints are validated in Transformers/validator; no per-provider accessor here.
 }
 
 /// Ollama-specific provider parameters
@@ -304,6 +299,7 @@ impl OllamaProviderParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ProviderType;
 
     #[test]
     fn test_ollama_parameter_mapper() {

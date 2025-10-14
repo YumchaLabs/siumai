@@ -16,6 +16,12 @@ pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError
 // Re-export ChatStreamEvent from types module to avoid duplication
 pub use crate::types::ChatStreamEvent;
 
+/// Chat stream with first-class cancellation handle
+pub struct ChatStreamHandle {
+    pub stream: ChatStream,
+    pub cancel: crate::utils::cancel::CancelHandle,
+}
+
 /// Tool Call Delta
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallDelta {

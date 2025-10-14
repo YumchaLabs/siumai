@@ -3,9 +3,9 @@
 //! These tests verify the embedding functionality across different providers.
 //! They are designed to run with actual API keys when available, but skip gracefully when not.
 
-use siumai::providers::gemini::embeddings::GeminiEmbeddings;
+use siumai::providers::gemini::GeminiClient;
 use siumai::providers::ollama::embeddings::OllamaEmbeddings;
-use siumai::providers::openai::embeddings::OpenAiEmbeddings;
+use siumai::providers::openai::OpenAiClient;
 use siumai::traits::{EmbeddingCapability, EmbeddingExtensions};
 use siumai::types::EmbeddingRequest;
 
@@ -26,11 +26,11 @@ mod tests {
 
         let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
-        let embeddings = OpenAiEmbeddings::new(config, http_client);
+        let client = OpenAiClient::new(config, http_client);
 
         // Test basic embedding
         let texts = vec!["Hello, world!".to_string()];
-        let result = embeddings.embed(texts).await;
+        let result = client.embed(texts).await;
 
         match result {
             Ok(response) => {
@@ -59,14 +59,14 @@ mod tests {
 
         let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
-        let embeddings = OpenAiEmbeddings::new(config, http_client);
+        let client = OpenAiClient::new(config, http_client);
 
         // Test custom dimensions
         let request = EmbeddingRequest::new(vec!["Test text".to_string()])
             .with_model("text-embedding-3-large")
             .with_dimensions(1024);
 
-        let result = embeddings.embed_with_config(request).await;
+        let result = <OpenAiClient as EmbeddingExtensions>::embed_with_config(&client, request).await;
 
         match result {
             Ok(response) => {
@@ -98,12 +98,17 @@ mod tests {
             safety_settings: None,
             timeout: Some(30),
         };
-        let http_client = reqwest::Client::new();
-        let embeddings = GeminiEmbeddings::new(config, http_client);
+        let client = match GeminiClient::with_http_client(config, reqwest::Client::new()) {
+            Ok(c) => c,
+            Err(e) => {
+                println!("Skipping Gemini test: client init failed: {e}");
+                return;
+            }
+        };
 
         // Test basic embedding
         let texts = vec!["Hello, world!".to_string()];
-        let result = embeddings.embed(texts).await;
+        let result = client.embed(texts).await;
 
         match result {
             Ok(response) => {
@@ -136,8 +141,13 @@ mod tests {
             safety_settings: None,
             timeout: Some(30),
         };
-        let http_client = reqwest::Client::new();
-        let embeddings = GeminiEmbeddings::new(config, http_client);
+        let client = match GeminiClient::with_http_client(config, reqwest::Client::new()) {
+            Ok(c) => c,
+            Err(e) => {
+                println!("Skipping Gemini task optimization test: client init failed: {e}");
+                return;
+            }
+        };
 
         // Test with task type
         let request = EmbeddingRequest::new(vec!["Search query".to_string()]).with_provider_param(
@@ -145,7 +155,7 @@ mod tests {
             serde_json::Value::String("RETRIEVAL_QUERY".to_string()),
         );
 
-        let result = embeddings.embed_with_config(request).await;
+        let result = <GeminiClient as EmbeddingExtensions>::embed_with_config(&client, request).await;
 
         match result {
             Ok(response) => {
@@ -219,7 +229,7 @@ mod tests {
 
         let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
-        let embeddings = OpenAiEmbeddings::new(config, http_client);
+        let client = OpenAiClient::new(config, http_client);
 
         // Test with similar and dissimilar texts
         let texts = vec![
@@ -228,7 +238,7 @@ mod tests {
             "The weather is nice today".to_string(),
         ];
 
-        let result = embeddings.embed(texts).await;
+        let result = client.embed(texts).await;
 
         match result {
             Ok(response) => {
@@ -267,7 +277,7 @@ mod tests {
 
         let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
-        let embeddings = OpenAiEmbeddings::new(config, http_client);
+        let client = OpenAiClient::new(config, http_client);
 
         // Test with multiple texts
         let texts = vec![
@@ -278,7 +288,7 @@ mod tests {
             "Fifth document".to_string(),
         ];
 
-        let result = embeddings.embed(texts.clone()).await;
+        let result = client.embed(texts.clone()).await;
 
         match result {
             Ok(response) => {

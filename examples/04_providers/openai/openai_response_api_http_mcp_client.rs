@@ -20,8 +20,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use siumai::prelude::*;
+use siumai::providers::openai::OpenAiClient;
 use siumai::providers::openai::config::OpenAiConfig;
-use siumai::providers::openai::responses::OpenAiResponses;
 
 /// JSON-RPC request structure for MCP communication
 #[derive(Debug, Serialize)]
@@ -210,7 +210,7 @@ impl HttpMcpClient {
 /// Demonstration of HTTP MCP + OpenAI Responses API integration
 pub struct HttpMcpLlmDemo {
     mcp_client: HttpMcpClient,
-    openai_responses_client: Option<OpenAiResponses>,
+    openai_client: Option<OpenAiClient>,
 }
 
 impl HttpMcpLlmDemo {
@@ -222,14 +222,14 @@ impl HttpMcpLlmDemo {
         mcp_client.initialize().await?;
 
         // Try to create OpenAI Responses API client with GPT-5
-        let openai_responses_client = if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
+        let openai_client = if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
             if api_key != "demo-key" && !api_key.is_empty() {
                 println!("🤖 Initializing OpenAI Responses API with GPT-5...");
                 let config = OpenAiConfig::new(&api_key)
-                    .with_model("gpt-5") // Using GPT-5
-                    .with_responses_api(true); // Enable Responses API (no temperature for GPT-5)
-
-                Some(OpenAiResponses::new(reqwest::Client::new(), config))
+                    .with_model("gpt-5")
+                    .with_responses_api(true);
+                let client = OpenAiClient::new(config, reqwest::Client::new());
+                Some(client)
             } else {
                 None
             }
@@ -237,7 +237,7 @@ impl HttpMcpLlmDemo {
             None
         };
 
-        if openai_responses_client.is_some() {
+        if openai_client.is_some() {
             println!("✅ OpenAI Responses API client initialized with GPT-5");
         } else {
             println!("⚠️  No OpenAI API key found - set OPENAI_API_KEY for full integration");
@@ -245,7 +245,7 @@ impl HttpMcpLlmDemo {
 
         Ok(Self {
             mcp_client,
-            openai_responses_client,
+            openai_client,
         })
     }
 
@@ -296,7 +296,7 @@ impl HttpMcpLlmDemo {
         println!();
 
         // Step 3: Show integration with OpenAI Responses API (if available)
-        if let Some(ref openai_client) = self.openai_responses_client {
+        if let Some(ref openai_client) = self.openai_client {
             println!("🤖 Step 3: OpenAI Responses API (GPT-5) Integration Examples...");
 
             // Run non-streaming example
@@ -320,7 +320,7 @@ impl HttpMcpLlmDemo {
             "   ✅ Tool execution: {} calls successful",
             tool_results.len()
         );
-        if self.openai_responses_client.is_some() {
+        if self.openai_client.is_some() {
             println!(
                 "   ✅ Non-streaming OpenAI Responses API (GPT-5) integration: Complete workflow"
             );
@@ -351,7 +351,7 @@ impl HttpMcpLlmDemo {
     /// Demonstrate non-streaming OpenAI Responses API integration with MCP tools
     async fn run_non_streaming_example(
         &self,
-        openai_client: &OpenAiResponses,
+        openai_client: &OpenAiClient,
         tools: &[Tool],
     ) -> Result<(), LlmError> {
         println!("📋 Non-Streaming OpenAI Responses API (GPT-5) + MCP Integration");
@@ -448,7 +448,7 @@ impl HttpMcpLlmDemo {
     /// Demonstrate streaming OpenAI Responses API integration with MCP tools
     async fn run_streaming_example(
         &self,
-        openai_client: &OpenAiResponses,
+        openai_client: &OpenAiClient,
         tools: &[Tool],
     ) -> Result<(), LlmError> {
         use futures::StreamExt;

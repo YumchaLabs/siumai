@@ -50,6 +50,7 @@ pub mod openai_client;
 pub mod openai_config;
 pub mod registry;
 pub mod streaming;
+pub mod transformers;
 pub mod types;
 
 // Re-export model constants for easy access

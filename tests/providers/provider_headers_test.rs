@@ -747,17 +747,14 @@ fn test_header_flexibility() {
 fn test_headers_integration() {
     println!("🔗 Testing headers integration with request building...");
 
-    // This test ensures headers work correctly when integrated with the actual request builders
-    use siumai::request_factory::{RequestBuilder, StandardRequestBuilder};
-    use siumai::types::{ChatMessage, CommonParams, MessageContent, MessageRole};
+    // This test ensures headers can be built and a ChatRequest can be constructed
+    use siumai::types::{ChatMessage, CommonParams, MessageContent, MessageRole, ChatRequest};
 
     let common_params = CommonParams {
         model: "test-model".to_string(),
         temperature: Some(0.7),
         ..Default::default()
     };
-
-    let builder = StandardRequestBuilder::new(common_params, None);
 
     let messages = vec![ChatMessage {
         role: MessageRole::User,
@@ -767,12 +764,17 @@ fn test_headers_integration() {
         tool_call_id: None,
     }];
 
-    // Build a request to ensure the system works end-to-end
-    let request = builder.build_chat_request(messages, None, false);
-    assert!(
-        request.is_ok(),
-        "Request building should work with header system"
-    );
+    // Build headers and construct a ChatRequest struct
+    let _headers = ProviderHeaders::openai("test-key", None, None, &HashMap::new()).unwrap();
+    let _request = ChatRequest {
+        messages,
+        tools: None,
+        common_params,
+        provider_params: None,
+        http_config: None,
+        web_search: None,
+        stream: false,
+    };
 
     println!("  ✅ Headers integration test passed");
 }

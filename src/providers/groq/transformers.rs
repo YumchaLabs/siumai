@@ -1,0 +1,247 @@
+//! Audio transformers for Groq (TTS/STT)
+use crate::error::LlmError;
+use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
+use crate::transformers::{
+    request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
+};
+use crate::types::{ChatRequest, ChatResponse, FunctionCall, MessageContent, ToolCall, Usage};
+use crate::utils::streaming::SseEventConverter;
+use eventsource_stream::Event;
+use std::future::Future;
+use std::pin::Pin;
+
+#[derive(Clone)]
+pub struct GroqAudioTransformer;
+
+impl AudioTransformer for GroqAudioTransformer {
+    fn provider_id(&self) -> &str {
+        "groq"
+    }
+
+    fn build_tts_body(&self, req: &crate::types::TtsRequest) -> Result<AudioHttpBody, LlmError> {
+        let model = req
+            .model
+            .clone()
+            .unwrap_or_else(|| "playai-tts".to_string());
+        let voice = req
+            .voice
+            .clone()
+            .unwrap_or_else(|| "Fritz-PlayAI".to_string());
+        let format = req.format.clone().unwrap_or_else(|| "wav".to_string());
+        let speed = req.speed.unwrap_or(1.0);
+        let json = serde_json::json!({
+            "model": model,
+            "input": req.text,
+            "voice": voice,
+            "response_format": format,
+            "speed": speed
+        });
+        Ok(AudioHttpBody::Json(json))
+    }
+
+    fn build_stt_body(&self, req: &crate::types::SttRequest) -> Result<AudioHttpBody, LlmError> {
+        let model = req
+            .model
+            .clone()
+            .unwrap_or_else(|| "whisper-large-v3".to_string());
+        let audio = req
+            .audio_data
+            .clone()
+            .ok_or_else(|| LlmError::InvalidInput("audio_data required for STT".to_string()))?;
+        let form = reqwest::multipart::Form::new()
+            .part(
+                "file",
+                reqwest::multipart::Part::bytes(audio).file_name("audio.wav"),
+            )
+            .text("model", model);
+        Ok(AudioHttpBody::Multipart(form))
+    }
+
+    fn tts_endpoint(&self) -> &str {
+        "/audio/speech"
+    }
+    fn stt_endpoint(&self) -> &str {
+        "/audio/transcriptions"
+    }
+
+    fn parse_stt_response(&self, json: &serde_json::Value) -> Result<String, LlmError> {
+        let text = json
+            .get("text")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| LlmError::ParseError("missing 'text' field".to_string()))?;
+        Ok(text.to_string())
+    }
+}
+
+/// Request transformer for Groq Chat
+#[derive(Clone)]
+pub struct GroqRequestTransformer;
+
+impl RequestTransformer for GroqRequestTransformer {
+    fn provider_id(&self) -> &str {
+        "groq"
+    }
+
+    fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
+        if req.common_params.model.is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "Model must be specified".to_string(),
+            ));
+        }
+
+        // Base body from common params
+        let mut body = serde_json::json!({
+            "model": req.common_params.model,
+        });
+        if let Some(t) = req.common_params.temperature {
+            body["temperature"] = serde_json::json!(t);
+        }
+        if let Some(tp) = req.common_params.top_p {
+            body["top_p"] = serde_json::json!(tp);
+        }
+        if let Some(max) = req.common_params.max_tokens {
+            body["max_tokens"] = serde_json::json!(max);
+        }
+        if let Some(stops) = &req.common_params.stop_sequences {
+            body["stop"] = serde_json::json!(stops);
+        }
+
+        // Messages
+        let messages = super::utils::convert_messages(&req.messages)?;
+        body["messages"] = serde_json::to_value(messages)?;
+
+        // Tools
+        if let Some(tools) = &req.tools
+            && !tools.is_empty()
+        {
+            body["tools"] = serde_json::to_value(tools)?;
+        }
+
+        // Stream flag
+        body["stream"] = serde_json::json!(req.stream);
+
+        // Merge provider_params if present (flat merge)
+        if let Some(pp) = &req.provider_params
+            && let Some(obj) = body.as_object_mut()
+        {
+            for (k, v) in &pp.params {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+
+        // Provider-specific validation
+        super::utils::validate_groq_params(&body)?;
+        Ok(body)
+    }
+}
+
+/// Response transformer for Groq Chat
+#[derive(Clone)]
+pub struct GroqResponseTransformer;
+
+impl ResponseTransformer for GroqResponseTransformer {
+    fn provider_id(&self) -> &str {
+        "groq"
+    }
+
+    fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
+        let response: super::types::GroqChatResponse = serde_json::from_value(raw.clone())
+            .map_err(|e| LlmError::ParseError(format!("Invalid Groq response: {e}")))?;
+
+        let choice = response
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| LlmError::ApiError {
+                code: 500,
+                message: "No choices in response".to_string(),
+                details: None,
+            })?;
+
+        let content = if let Some(content) = choice.message.content {
+            match content {
+                serde_json::Value::String(text) => MessageContent::Text(text),
+                serde_json::Value::Array(parts) => {
+                    let mut content_parts = Vec::new();
+                    for part in parts {
+                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                            content_parts.push(crate::types::ContentPart::Text {
+                                text: text.to_string(),
+                            });
+                        }
+                    }
+                    MessageContent::MultiModal(content_parts)
+                }
+                _ => MessageContent::Text(String::new()),
+            }
+        } else {
+            MessageContent::Text(String::new())
+        };
+
+        let tool_calls = choice.message.tool_calls.map(|calls| {
+            calls
+                .into_iter()
+                .map(|call| ToolCall {
+                    id: call.id,
+                    r#type: call.r#type,
+                    function: call.function.map(|f| FunctionCall {
+                        name: f.name,
+                        arguments: f.arguments,
+                    }),
+                })
+                .collect()
+        });
+
+        let finish_reason = Some(super::utils::parse_finish_reason(
+            choice.finish_reason.as_deref(),
+        ));
+
+        let usage = response.usage.map(|u| Usage {
+            prompt_tokens: u.prompt_tokens.unwrap_or(0),
+            completion_tokens: u.completion_tokens.unwrap_or(0),
+            total_tokens: u.total_tokens.unwrap_or(0),
+            cached_tokens: None,
+            reasoning_tokens: None,
+        });
+
+        Ok(ChatResponse {
+            id: Some(response.id),
+            content,
+            model: Some(response.model),
+            usage,
+            finish_reason,
+            tool_calls,
+            thinking: None,
+            metadata: std::collections::HashMap::new(),
+        })
+    }
+}
+
+/// Stream transformer wrapper for Groq
+#[derive(Clone)]
+pub struct GroqStreamChunkTransformer {
+    pub provider_id: String,
+    pub inner: super::streaming::GroqEventConverter,
+}
+
+impl StreamChunkTransformer for GroqStreamChunkTransformer {
+    fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+    fn convert_event(
+        &self,
+        event: Event,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>>
+                + Send
+                + Sync
+                + '_,
+        >,
+    > {
+        self.inner.convert_event(event)
+    }
+    fn handle_stream_end(&self) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>> {
+        self.inner.handle_stream_end()
+    }
+}

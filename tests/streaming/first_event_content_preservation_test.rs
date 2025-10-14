@@ -2,21 +2,79 @@ use eventsource_stream::Event;
 use siumai::providers::gemini::streaming::GeminiEventConverter;
 use siumai::providers::gemini::types::GeminiConfig;
 use siumai::providers::ollama::streaming::OllamaEventConverter;
+use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
+use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
 /// Critical test to verify that first event content is preserved in streaming responses
 /// This test validates the multi-event emission architecture that prevents content loss
 ///
 /// Background: Before the refactor, the first SSE event content was lost because
 /// converters would return StreamStart instead of preserving the actual content.
 /// The new architecture allows multiple events to be emitted from a single SSE event.
-use siumai::providers::openai::config::OpenAiConfig;
-use siumai::providers::openai::streaming::OpenAiEventConverter;
+use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
+use siumai::providers::openai_compatible::types::FieldMappings;
+use siumai::traits::ProviderCapabilities;
+use std::sync::Arc;
+
+fn make_openai_converter() -> OpenAiCompatibleEventConverter {
+    #[derive(Debug, Clone)]
+    struct OpenAiStandardAdapter {
+        base_url: String,
+    }
+    impl ProviderAdapter for OpenAiStandardAdapter {
+        fn provider_id(&self) -> &'static str {
+            "openai"
+        }
+        fn transform_request_params(
+            &self,
+            _params: &mut serde_json::Value,
+            _model: &str,
+            _ty: siumai::providers::openai_compatible::types::RequestType,
+        ) -> Result<(), siumai::error::LlmError> {
+            Ok(())
+        }
+        fn get_field_mappings(&self, _model: &str) -> FieldMappings {
+            FieldMappings::standard()
+        }
+        fn get_model_config(
+            &self,
+            _model: &str,
+        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+            Default::default()
+        }
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools()
+        }
+        fn compatibility(&self) -> ProviderCompatibility {
+            ProviderCompatibility::openai_standard()
+        }
+        fn base_url(&self) -> &str {
+            &self.base_url
+        }
+        fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+            Box::new(self.clone())
+        }
+    }
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(OpenAiStandardAdapter {
+        base_url: "https://api.openai.com/v1".to_string(),
+    });
+    let cfg = OpenAiCompatibleConfig::new(
+        "openai",
+        "test",
+        "https://api.openai.com/v1",
+        adapter.clone(),
+    )
+    .with_model("gpt-4");
+    OpenAiCompatibleEventConverter::new(cfg, adapter)
+}
 use siumai::stream::ChatStreamEvent;
 use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_openai_first_event_with_content_preservation() {
-    let config = OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Simulate first SSE event that contains actual content
     // This is the critical test case that was failing before the refactor
@@ -83,7 +141,7 @@ async fn test_openai_first_event_with_content_preservation() {
             delta, "Hello",
             "First event content 'Hello' must be preserved"
         );
-        assert_eq!(*index, Some(0));
+        assert_eq!(index, &Some(0));
     }
 
     println!("✅ OpenAI first event content preservation test passed");
@@ -92,8 +150,7 @@ async fn test_openai_first_event_with_content_preservation() {
 
 #[tokio::test]
 async fn test_openai_subsequent_events_single_emission() {
-    let config = OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // First event to trigger StreamStart
     let first_event_data = r#"{
@@ -284,8 +341,7 @@ async fn test_ollama_first_event_with_content_preservation() {
 
 #[tokio::test]
 async fn test_complete_streaming_sequence_content_preservation() {
-    let config = OpenAiConfig::default();
-    let converter = OpenAiEventConverter::new(config);
+    let converter = make_openai_converter();
 
     // Simulate a complete streaming sequence where first event has content
     let events_data = [

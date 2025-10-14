@@ -219,41 +219,72 @@ mod groq_tests {
     }
 
     #[test]
-    fn test_groq_audio_capability() {
-        use super::super::audio::GroqAudio;
-        use crate::types::HttpConfig;
+    fn test_groq_audio_transformer_defaults() {
+        use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
+        let tx = super::super::transformers::GroqAudioTransformer;
 
-        let audio = GroqAudio::new(
-            "test-api-key".to_string(),
-            "https://api.groq.com/openai/v1".to_string(),
-            reqwest::Client::new(),
-            HttpConfig::default(),
-        );
+        // TTS defaults
+        let tts = crate::types::TtsRequest {
+            text: "hello".to_string(),
+            model: None,
+            voice: None,
+            format: None,
+            speed: None,
+            extra_params: std::collections::HashMap::new(),
+        };
+        match tx.build_tts_body(&tts).unwrap() {
+            AudioHttpBody::Json(j) => {
+                assert_eq!(j["model"], "playai-tts");
+                assert_eq!(j["voice"], "Fritz-PlayAI");
+                assert_eq!(j["response_format"], "wav");
+                assert_eq!(j["speed"], 1.0);
+            }
+            _ => panic!("expected JSON body for TTS"),
+        }
 
-        assert!(audio.supports_transcription());
-        assert!(audio.supports_translation());
-        assert!(audio.supports_speech_synthesis());
+        // STT defaults
+        let stt = crate::types::SttRequest {
+            audio_data: Some(vec![1, 2, 3]),
+            file_path: None,
+            format: None,
+            model: None,
+            language: None,
+            timestamp_granularities: None,
+            extra_params: std::collections::HashMap::new(),
+        };
+        match tx.build_stt_body(&stt).unwrap() {
+            AudioHttpBody::Multipart(_) => {}
+            _ => panic!("expected multipart body for STT"),
+        }
 
-        let models = audio.supported_audio_models();
-        assert!(models.contains(&"whisper-large-v3".to_string()));
-        assert!(models.contains(&"whisper-large-v3-turbo".to_string()));
+        assert_eq!(tx.tts_endpoint(), "/audio/speech");
+        assert_eq!(tx.stt_endpoint(), "/audio/transcriptions");
     }
 
     #[test]
-    fn test_groq_files_capability() {
-        use super::super::files::GroqFiles;
-        use crate::types::HttpConfig;
+    fn test_groq_client_audio_features() {
+        use crate::traits::AudioCapability;
 
-        let _files = GroqFiles::new(
-            "test-api-key".to_string(),
-            "https://api.groq.com/openai/v1".to_string(),
-            reqwest::Client::new(),
-            HttpConfig::default(),
+        let config = super::super::config::GroqConfig::new("test-api-key")
+            .with_model("llama-3.3-70b-versatile");
+        let http_client = reqwest::Client::new();
+        let client = super::super::client::GroqClient::new(config, http_client);
+
+        let feats =
+            <super::super::client::GroqClient as AudioCapability>::supported_features(&client);
+        assert!(
+            feats
+                .iter()
+                .any(|f| matches!(f, crate::types::AudioFeature::TextToSpeech))
         );
-
-        // Note: Methods are private, so we just test creation
-        // In a real implementation, these would be public or tested through public interfaces
+        assert!(
+            feats
+                .iter()
+                .any(|f| matches!(f, crate::types::AudioFeature::SpeechToText))
+        );
     }
+
+    // Files capability removed for Groq; test omitted
 
     #[test]
     fn test_groq_models_capability() {
@@ -277,14 +308,25 @@ mod groq_tests {
     }
 
     #[test]
-    fn test_parameter_mapper_factory() {
-        use crate::params::ParameterMapperFactory;
+    fn test_request_transformer_exists() {
+        use crate::transformers::request::RequestTransformer;
+        let tx = super::super::transformers::GroqRequestTransformer;
+        assert_eq!(tx.provider_id(), "groq");
 
-        let _mapper = ParameterMapperFactory::create_mapper(&ProviderType::Groq);
-        // Should use OpenAI-compatible mapper
-        assert!(ParameterMapperFactory::has_mapper(&ProviderType::Groq));
-
-        let available = ParameterMapperFactory::available_mappers();
-        assert!(available.contains(&ProviderType::Groq));
+        // Basic transform should work with minimal request
+        let req = ChatRequest {
+            messages: vec![],
+            tools: None,
+            common_params: CommonParams {
+                model: "llama-3.3-70b-versatile".into(),
+                ..Default::default()
+            },
+            provider_params: None,
+            http_config: None,
+            web_search: None,
+            stream: false,
+        };
+        let body = tx.transform_chat(&req).unwrap();
+        assert_eq!(body["model"], "llama-3.3-70b-versatile");
     }
 }

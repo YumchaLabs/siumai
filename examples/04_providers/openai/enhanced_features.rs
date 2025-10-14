@@ -294,6 +294,7 @@ async fn demo_advanced_parameters(api_key: &str) -> Result<(), Box<dyn std::erro
 }
 
 /// Example data structures for JSON mode
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct TextAnalysis {
     sentiment: String,
@@ -302,6 +303,7 @@ struct TextAnalysis {
     confidence: f64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct FunctionCall {
     name: String,

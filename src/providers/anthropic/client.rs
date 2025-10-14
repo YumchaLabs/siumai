@@ -6,22 +6,26 @@ use async_trait::async_trait;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+// use crate::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::params::AnthropicParams;
 use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::*;
 use crate::types::*;
+use std::sync::Arc;
 
-use super::chat::AnthropicChatCapability;
 use super::models::AnthropicModels;
 use super::types::AnthropicSpecificParams;
 use super::utils::get_default_models;
 
 /// Anthropic Client
-#[allow(dead_code)]
 pub struct AnthropicClient {
-    /// Chat capability implementation
-    chat_capability: AnthropicChatCapability,
+    /// API key and endpoint configuration
+    api_key: String,
+    base_url: String,
+    http_client: reqwest::Client,
+    http_config: HttpConfig,
     /// Models capability implementation
     models_capability: AnthropicModels,
     /// Common parameters
@@ -32,7 +36,8 @@ pub struct AnthropicClient {
     specific_params: AnthropicSpecificParams,
     /// Tracing configuration
     tracing_config: Option<crate::tracing::TracingConfig>,
-    /// Tracing guard to keep tracing system active
+    /// Tracing guard to keep tracing system active (retained but not read)
+    #[allow(dead_code)]
     _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
@@ -41,7 +46,10 @@ pub struct AnthropicClient {
 impl Clone for AnthropicClient {
     fn clone(&self) -> Self {
         Self {
-            chat_capability: self.chat_capability.clone(),
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            http_client: self.http_client.clone(),
+            http_config: self.http_config.clone(),
             models_capability: self.models_capability.clone(),
             common_params: self.common_params.clone(),
             anthropic_params: self.anthropic_params.clone(),
@@ -58,7 +66,7 @@ impl std::fmt::Debug for AnthropicClient {
         f.debug_struct("AnthropicClient")
             .field("provider_name", &"anthropic")
             .field("model", &self.common_params.model)
-            .field("base_url", &self.chat_capability.base_url)
+            .field("base_url", &self.base_url)
             .field("temperature", &self.common_params.temperature)
             .field("max_tokens", &self.common_params.max_tokens)
             .field("top_p", &self.common_params.top_p)
@@ -97,19 +105,18 @@ impl AnthropicClient {
     ) -> Self {
         let specific_params = AnthropicSpecificParams::default();
 
-        let chat_capability = AnthropicChatCapability::new(
+        let models_capability = AnthropicModels::new(
             api_key.clone(),
             base_url.clone(),
             http_client.clone(),
             http_config.clone(),
-            specific_params.clone(),
-            common_params.clone(),
         );
 
-        let models_capability = AnthropicModels::new(api_key, base_url, http_client, http_config);
-
         Self {
-            chat_capability,
+            api_key,
+            base_url,
+            http_client,
+            http_config,
             models_capability,
             common_params,
             anthropic_params,
@@ -130,11 +137,7 @@ impl AnthropicClient {
         &self.common_params
     }
 
-    /// Get chat capability (for testing and debugging)
-    pub const fn chat_capability(&self) -> &AnthropicChatCapability {
-        &self.chat_capability
-    }
-
+    // Chat capability getter removed after executors migration
     /// Set the tracing guard to keep tracing system active
     pub(crate) fn set_tracing_guard(
         &mut self,
@@ -209,7 +212,7 @@ impl AnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        // Create a ChatRequest with client's configuration
+        // Unified ChatRequest
         let request = ChatRequest {
             messages,
             tools,
@@ -220,37 +223,30 @@ impl AnthropicClient {
             stream: false,
         };
 
-        let headers = super::utils::build_headers(
-            &self.chat_capability.api_key,
-            &self.chat_capability.http_config.headers,
-        )?;
-        let body = self
-            .chat_capability
-            .build_chat_request_body(&request, Some(&self.specific_params))?;
-        let url = format!("{}/v1/messages", self.chat_capability.base_url);
-
-        let response = self
-            .chat_capability
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: format!("Anthropic API error: {error_text}"),
-                details: serde_json::from_str(&error_text).ok(),
-            });
-        }
-
-        let anthropic_response: super::types::AnthropicChatResponse = response.json().await?;
-        self.chat_capability.parse_chat_response(anthropic_response)
+        // Executors wiring
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let custom_headers = self.http_config.headers.clone();
+        let req_tx = super::transformers::AnthropicRequestTransformer::new(Some(
+            self.specific_params.clone(),
+        ));
+        let resp_tx = super::transformers::AnthropicResponseTransformer;
+        let headers_builder = move || {
+            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = Arc::new(HttpChatExecutor {
+            provider_id: "anthropic".to_string(),
+            http_client: http,
+            request_transformer: Arc::new(req_tx),
+            response_transformer: Arc::new(resp_tx),
+            stream_transformer: None,
+            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_headers: Box::new(headers_builder),
+        });
+        exec.execute(request).await
     }
 }
 
@@ -281,8 +277,45 @@ impl ChatCapability for AnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        // Now that AnthropicChatCapability has the correct common_params, we can use the trait method directly
-        self.chat_capability.chat_stream(messages, tools).await
+        let request = ChatRequest {
+            messages,
+            tools,
+            common_params: self.common_params.clone(),
+            provider_params: None,
+            http_config: None,
+            web_search: None,
+            stream: true,
+        };
+
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let custom_headers = self.http_config.headers.clone();
+        let req_tx = super::transformers::AnthropicRequestTransformer::new(Some(
+            self.specific_params.clone(),
+        ));
+        let resp_tx = super::transformers::AnthropicResponseTransformer;
+        let stream_converter =
+            super::streaming::AnthropicEventConverter::new(self.anthropic_params.clone());
+        let stream_tx = super::transformers::AnthropicStreamChunkTransformer {
+            provider_id: "anthropic".to_string(),
+            inner: stream_converter,
+        };
+        let headers_builder = move || {
+            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = Arc::new(HttpChatExecutor {
+            provider_id: "anthropic".to_string(),
+            http_client: http,
+            request_transformer: Arc::new(req_tx),
+            response_transformer: Arc::new(resp_tx),
+            stream_transformer: Some(Arc::new(stream_tx)),
+            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_headers: Box::new(headers_builder),
+        });
+        exec.execute_stream(request).await
     }
 }
 

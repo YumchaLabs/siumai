@@ -44,7 +44,6 @@ impl GroqModels {
     }
 
     /// Convert Groq model to our ModelInfo
-    #[allow(dead_code)]
     fn convert_groq_model(&self, groq_model: GroqModel) -> ModelInfo {
         let model_id = groq_model.id.clone();
 
@@ -63,7 +62,6 @@ impl GroqModels {
     }
 
     /// Get capabilities for a specific model
-    #[allow(dead_code)]
     fn get_model_capabilities(&self, model: &GroqModel) -> Vec<String> {
         let mut capabilities = Vec::new();
 
@@ -94,7 +92,6 @@ impl GroqModels {
     }
 }
 
-#[allow(dead_code)]
 impl GroqModels {
     async fn list_models_internal(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let url = format!("{}/models", self.base_url);
@@ -146,6 +143,7 @@ impl GroqModels {
         Ok(self.convert_groq_model(groq_model))
     }
 
+    #[cfg(test)]
     fn supports_model_listing(&self) -> bool {
         true
     }

@@ -8,10 +8,7 @@ use siumai::types::ImageGenerationRequest;
 
 #[tokio::test]
 async fn test_openai_image_generation_request_conversion() {
-    use siumai::providers::openai::{OpenAiConfig, OpenAiImages};
-
-    let config = OpenAiConfig::new("test-key");
-    let images = OpenAiImages::new(config, reqwest::Client::new());
+    // No client needed here; just validate request mapping readiness
 
     // Test basic request
     let request = ImageGenerationRequest {
@@ -38,11 +35,7 @@ async fn test_openai_image_generation_request_conversion() {
 
 #[tokio::test]
 async fn test_siliconflow_image_generation_request_conversion() {
-    use siumai::providers::openai::{OpenAiConfig, OpenAiImages};
-
-    // Create SiliconFlow config
-    let config = OpenAiConfig::new("test-key").with_base_url("https://api.siliconflow.cn/v1");
-    let images = OpenAiImages::new(config, reqwest::Client::new());
+    // No client needed here; just validate request mapping readiness
 
     // Test SiliconFlow-specific request
     let request = ImageGenerationRequest {

@@ -6,7 +6,7 @@
 use serde_json::json;
 
 // Import the private struct for testing
-use crate::providers::openai::streaming::extract_thinking_from_multiple_fields;
+use crate::providers::openai::transformers::extract_thinking_from_multiple_fields;
 
 #[cfg(test)]
 mod tests {

@@ -13,6 +13,14 @@ pub fn init_tracing(config: TracingConfig) -> Result<Option<WorkerGuard>, LlmErr
     // Set global mask sensitive values flag
     crate::tracing::set_mask_sensitive_values(config.mask_sensitive_values);
 
+    // Enable W3C trace headers from env override or default off
+    let w3c_env = std::env::var("SIUMAI_W3C_TRACE").ok();
+    let enabled = matches!(
+        w3c_env.as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("on")
+    );
+    crate::tracing::set_w3c_trace_enabled(enabled);
+
     // Create filter based on configuration
     let level_str = match config.log_level {
         tracing::Level::TRACE => "trace",

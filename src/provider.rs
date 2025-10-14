@@ -155,6 +155,114 @@ impl Siumai {
     pub async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
         EmbeddingCapability::embed(self, texts).await
     }
+
+    /// Generate images (unified)
+    pub async fn generate_images(
+        &self,
+        request: ImageGenerationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        if let Some(img) = self.client.as_image_generation_capability() {
+            img.generate_images(request).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support image generation.",
+                self.client.provider_name()
+            )))
+        }
+    }
+
+    /// Files - upload (unified)
+    pub async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
+        if let Some(files) = self.client.as_file_management_capability() {
+            files.upload_file(request).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support file management.",
+                self.client.provider_name()
+            )))
+        }
+    }
+
+    /// Files - list (unified)
+    pub async fn list_files(
+        &self,
+        query: Option<FileListQuery>,
+    ) -> Result<FileListResponse, LlmError> {
+        if let Some(files) = self.client.as_file_management_capability() {
+            files.list_files(query).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support file management.",
+                self.client.provider_name()
+            )))
+        }
+    }
+
+    /// Files - retrieve (unified)
+    pub async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
+        if let Some(files) = self.client.as_file_management_capability() {
+            files.retrieve_file(file_id).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support file management.",
+                self.client.provider_name()
+            )))
+        }
+    }
+
+    /// Files - delete (unified)
+    pub async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
+        if let Some(files) = self.client.as_file_management_capability() {
+            files.delete_file(file_id).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support file management.",
+                self.client.provider_name()
+            )))
+        }
+    }
+
+    /// Files - get content (unified)
+    pub async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
+        if let Some(files) = self.client.as_file_management_capability() {
+            files.get_file_content(file_id).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support file management.",
+                self.client.provider_name()
+            )))
+        }
+    }
+
+    /// Image edit (unified)
+    pub async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        if let Some(img) = self.client.as_image_generation_capability() {
+            img.edit_image(request).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support image generation.",
+                self.client.provider_name()
+            )))
+        }
+    }
+
+    /// Image variation (unified)
+    pub async fn create_variation(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        if let Some(img) = self.client.as_image_generation_capability() {
+            img.create_variation(request).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support image generation.",
+                self.client.provider_name()
+            )))
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -466,6 +574,8 @@ pub struct SiumaiBuilder {
     reasoning_budget: Option<i32>,
     // Unified retry configuration
     retry_options: Option<RetryOptions>,
+    // Optional provider-specific parameters provided by the user
+    user_provider_params: Option<ProviderParams>,
 }
 
 impl SiumaiBuilder {
@@ -485,6 +595,7 @@ impl SiumaiBuilder {
             reasoning_enabled: None,
             reasoning_budget: None,
             retry_options: None,
+            user_provider_params: None,
         }
     }
 
@@ -527,6 +638,16 @@ impl SiumaiBuilder {
     /// Set the base URL
     pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         self.base_url = Some(base_url.into());
+        self
+    }
+
+    /// Attach provider-specific parameters (advanced usage)
+    /// Use namespaced keys where applicable, e.g.:
+    /// - "responses_api": true (OpenAI Responses API)
+    /// - "thinking_budget": 4096 (Anthropic/Gemini)
+    /// - "think": true (Ollama)
+    pub fn with_provider_params(mut self, params: ProviderParams) -> Self {
+        self.user_provider_params = Some(params);
         self
     }
 
@@ -883,7 +1004,7 @@ impl SiumaiBuilder {
         }
 
         // Build provider-specific parameters
-        let provider_params = match provider_type {
+        let mut provider_params = match provider_type {
             ProviderType::Anthropic => {
                 let mut params = ProviderParams::anthropic();
 
@@ -920,270 +1041,321 @@ impl SiumaiBuilder {
             }
         };
 
-        // Use RequestBuilder to validate parameters
-        let _request_builder =
-            crate::request_factory::RequestBuilderFactory::create_and_validate_builder(
-                &provider_type,
-                common_params.clone(),
-                provider_params.clone(),
-            )?;
+        // Merge user-provided provider params (override defaults)
+        if let Some(extra) = self.user_provider_params.clone() {
+            provider_params = Some(match provider_params {
+                Some(p) => p.merge(extra),
+                None => extra,
+            });
+        }
+
+        // Validation moved to Transformers within Executors; skip pre-validation here
 
         // Now create the appropriate client based on provider type
         // Parameters have already been validated by RequestBuilder
         let client: Box<dyn LlmClient> = match provider_type {
             #[cfg(feature = "openai")]
             ProviderType::OpenAi => {
-                let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
-                    .with_base_url(
-                        base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
-                    )
-                    .with_model(common_params.model.clone());
-
-                // Use validated common parameters
-                if let Some(temp) = common_params.temperature {
-                    config = config.with_temperature(temp);
-                }
-                if let Some(max_tokens) = common_params.max_tokens {
-                    config = config.with_max_tokens(max_tokens);
-                }
-
-                // Set organization and project if provided
-                if let Some(org) = organization {
-                    config = config.with_organization(org);
-                }
-                if let Some(proj) = project {
-                    config = config.with_project(proj);
-                }
-
-                let mut client =
-                    crate::providers::openai::OpenAiClient::new(config, built_http_client.clone());
-                // Initialize tracing if configured
-                if let Some(tc) = self.tracing_config.clone() {
-                    let guard = crate::tracing::init_tracing(tc).map_err(|e| {
-                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
+                // Resolve defaults via ProviderRegistry v2 (native provider)
+                let resolved_base = {
+                    let registry = crate::registry::global_registry();
+                    let mut guard = registry.lock().map_err(|_| {
+                        LlmError::InternalError("Registry lock poisoned".to_string())
                     })?;
-                    client.set_tracing_guard(guard);
-                }
-                Box::new(client)
+                    if guard.resolve("openai").is_none() {
+                        guard.register_native(
+                            "openai",
+                            "OpenAI",
+                            Some("https://api.openai.com/v1".to_string()),
+                            ProviderCapabilities::new()
+                                .with_chat()
+                                .with_streaming()
+                                .with_tools()
+                                .with_embedding(),
+                        );
+                    }
+                    guard.resolve("openai").and_then(|r| r.base_url.clone())
+                };
+                let resolved_base = base_url
+                    .or(resolved_base)
+                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                crate::registry::factory::build_openai_client(
+                    api_key,
+                    resolved_base,
+                    built_http_client.clone(),
+                    common_params.clone(),
+                    http_config.clone(),
+                    provider_params.clone(),
+                    organization.clone(),
+                    project.clone(),
+                    self.tracing_config.clone(),
+                )
+                .await?
             }
             #[cfg(feature = "anthropic")]
             ProviderType::Anthropic => {
-                let anthropic_base_url =
-                    base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string());
-
-                // Extract Anthropic-specific parameters from validated provider_params
-                let mut anthropic_params = crate::params::AnthropicParams::default();
-                if let Some(ref params) = provider_params
-                    && let Some(budget) = params.get::<u32>("thinking_budget")
-                {
-                    anthropic_params.thinking_budget = Some(budget);
-                }
-
-                let mut client = crate::providers::anthropic::AnthropicClient::new(
+                // Resolve defaults via ProviderRegistry v2 (native provider)
+                let resolved_base = {
+                    let registry = crate::registry::global_registry();
+                    let mut guard = registry.lock().map_err(|_| {
+                        LlmError::InternalError("Registry lock poisoned".to_string())
+                    })?;
+                    if guard.resolve("anthropic").is_none() {
+                        guard.register_native(
+                            "anthropic",
+                            "Anthropic",
+                            Some("https://api.anthropic.com".to_string()),
+                            ProviderCapabilities::new()
+                                .with_chat()
+                                .with_streaming()
+                                .with_tools(),
+                        );
+                    }
+                    guard.resolve("anthropic").and_then(|r| r.base_url.clone())
+                };
+                let anthropic_base_url = base_url
+                    .or(resolved_base)
+                    .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+                crate::registry::factory::build_anthropic_client(
                     api_key,
                     anthropic_base_url,
                     built_http_client.clone(),
                     common_params.clone(),
-                    anthropic_params,
                     http_config.clone(),
-                );
-                if let Some(tc) = self.tracing_config.clone() {
-                    let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
-                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
-                    })?;
-                    client.set_tracing_guard(guard);
-                    client.set_tracing_config(self.tracing_config.clone());
-                }
-                Box::new(client)
+                    provider_params.clone(),
+                    self.tracing_config.clone(),
+                )
+                .await?
             }
             #[cfg(feature = "google")]
             ProviderType::Gemini => {
-                // Create Gemini client using the provider-specific builder
-                // Parameters have already been validated by RequestBuilder
-                // Map HttpConfig into LlmBuilder to inherit timeouts/UA/proxy where supported
-                let mut base_builder = crate::builder::LlmBuilder::new();
-                if let Some(t) = http_config.timeout {
-                    base_builder = base_builder.with_timeout(t);
-                }
-                if let Some(ct) = http_config.connect_timeout {
-                    base_builder = base_builder.with_connect_timeout(ct);
-                }
-                if let Some(ref ua) = http_config.user_agent {
-                    base_builder = base_builder.with_user_agent(ua);
-                }
-                if let Some(ref proxy) = http_config.proxy {
-                    base_builder = base_builder.with_proxy(proxy.clone());
-                }
-                for (k, v) in &http_config.headers {
-                    base_builder = base_builder.with_header(k.clone(), v.clone());
-                }
-
-                let mut builder = base_builder
-                    .gemini()
-                    .api_key(api_key)
-                    .model(&common_params.model);
-
-                // Apply validated common parameters
-                if let Some(temp) = common_params.temperature {
-                    builder = builder.temperature(temp);
-                }
-                if let Some(max_tokens) = common_params.max_tokens {
-                    builder = builder.max_tokens(max_tokens as i32);
-                }
-                if let Some(top_p) = common_params.top_p {
-                    builder = builder.top_p(top_p);
-                }
-
-                // Apply provider-specific parameters from validated provider_params
-                if let Some(ref params) = provider_params
-                    && let Some(budget) = params.get::<u32>("thinking_budget")
-                {
-                    builder = builder.thinking_budget(budget as i32);
-                }
-
-                // Apply tracing
-                if let Some(tc) = self.tracing_config.clone() {
-                    builder = builder.tracing(tc);
-                }
-
-                Box::new(builder.build().await.map_err(|e| {
-                    LlmError::ConfigurationError(format!("Failed to build Gemini client: {e}"))
-                })?)
+                // Resolve defaults via ProviderRegistry v2 (native provider)
+                let resolved_base = {
+                    let registry = crate::registry::global_registry();
+                    let mut guard = registry.lock().map_err(|_| {
+                        LlmError::InternalError("Registry lock poisoned".to_string())
+                    })?;
+                    if guard.resolve("gemini").is_none() {
+                        guard.register_native(
+                            "gemini",
+                            "Gemini",
+                            Some("https://generativelanguage.googleapis.com/v1beta".to_string()),
+                            ProviderCapabilities::new()
+                                .with_chat()
+                                .with_streaming()
+                                .with_embedding()
+                                .with_tools(),
+                        );
+                    }
+                    guard.resolve("gemini").and_then(|r| r.base_url.clone())
+                };
+                let resolved_base = base_url.or(resolved_base).unwrap_or_else(|| {
+                    "https://generativelanguage.googleapis.com/v1beta".to_string()
+                });
+                crate::registry::factory::build_gemini_client(
+                    api_key,
+                    resolved_base,
+                    built_http_client.clone(),
+                    common_params.clone(),
+                    http_config.clone(),
+                    provider_params.clone(),
+                    self.tracing_config.clone(),
+                )
+                .await?
             }
             #[cfg(feature = "xai")]
             ProviderType::XAI => {
-                // Create xAI client using the provider-specific builder
-                // Parameters have already been validated by RequestBuilder
-                let mut base_builder = crate::builder::LlmBuilder::new();
-                if let Some(t) = http_config.timeout {
-                    base_builder = base_builder.with_timeout(t);
-                }
-                if let Some(ct) = http_config.connect_timeout {
-                    base_builder = base_builder.with_connect_timeout(ct);
-                }
-                if let Some(ref ua) = http_config.user_agent {
-                    base_builder = base_builder.with_user_agent(ua);
-                }
-                if let Some(ref proxy) = http_config.proxy {
-                    base_builder = base_builder.with_proxy(proxy.clone());
-                }
-                for (k, v) in &http_config.headers {
-                    base_builder = base_builder.with_header(k.clone(), v.clone());
-                }
+                // Route xAI via ProviderRegistry v2
+                let registry = crate::registry::global_registry();
+                let rec = {
+                    let mut guard = registry.lock().map_err(|_| {
+                        LlmError::InternalError("Registry lock poisoned".to_string())
+                    })?;
+                    let _ = guard.register_openai_compatible("xai_openai_compatible");
+                    guard
+                        .resolve("xai_openai_compatible")
+                        .cloned()
+                        .ok_or_else(|| {
+                            LlmError::ConfigurationError(
+                                "xAI provider not found in registry".to_string(),
+                            )
+                        })?
+                };
 
-                let mut builder = base_builder
-                    .xai()
-                    .api_key(api_key)
-                    .model(&common_params.model);
+                let adapter = rec.adapter.ok_or_else(|| {
+                    LlmError::ConfigurationError("xAI adapter missing".to_string())
+                })?;
+                let resolved_base = base_url
+                    .or(rec.base_url)
+                    .unwrap_or_else(|| "https://api.x.ai/v1".to_string());
 
-                // Apply validated common parameters
+                let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                    &rec.id,
+                    &api_key,
+                    &resolved_base,
+                    adapter,
+                )
+                .with_model(&common_params.model)
+                .with_http_config(http_config.clone());
+
                 if let Some(temp) = common_params.temperature {
-                    builder = builder.temperature(temp);
+                    config.common_params.temperature = Some(temp);
                 }
                 if let Some(max_tokens) = common_params.max_tokens {
-                    builder = builder.max_tokens(max_tokens);
-                }
-                if let Some(top_p) = common_params.top_p {
-                    builder = builder.top_p(top_p);
+                    config.common_params.max_tokens = Some(max_tokens);
                 }
 
-                if let Some(tc) = self.tracing_config.clone() {
-                    builder = builder.tracing(tc);
-                }
-
-                Box::new(builder.build().await.map_err(|e| {
-                    LlmError::ConfigurationError(format!("Failed to build xAI client: {e}"))
-                })?)
+                let client =
+                    crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+                        config,
+                        built_http_client.clone(),
+                    )
+                    .await?;
+                Box::new(client)
             }
             #[cfg(feature = "ollama")]
             ProviderType::Ollama => {
                 let ollama_base_url =
                     base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
-
-                // Extract Ollama-specific parameters from validated provider_params
-                let mut ollama_params = crate::providers::ollama::config::OllamaParams::default();
-                if let Some(ref params) = provider_params
-                    && let Some(think) = params.get::<bool>("think")
-                {
-                    ollama_params.think = Some(think);
-                }
-
-                let config = crate::providers::ollama::config::OllamaConfig {
-                    base_url: ollama_base_url,
-                    model: Some(common_params.model.clone()),
-                    common_params: common_params.clone(),
-                    ollama_params,
-                    http_config,
-                };
-
-                let mut client =
-                    crate::providers::ollama::OllamaClient::new(config, built_http_client.clone());
-                if let Some(tc) = self.tracing_config.clone() {
-                    let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
-                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
-                    })?;
-                    client.set_tracing_guard(guard);
-                    client.set_tracing_config(self.tracing_config.clone());
-                }
-                Box::new(client)
+                crate::registry::factory::build_ollama_client(
+                    ollama_base_url,
+                    built_http_client.clone(),
+                    common_params.clone(),
+                    http_config.clone(),
+                    provider_params.clone(),
+                    self.tracing_config.clone(),
+                )
+                .await?
             }
             #[cfg(feature = "groq")]
             ProviderType::Groq => {
-                let groq_base_url =
-                    base_url.unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string());
+                // Route Groq via ProviderRegistry v2
+                let registry = crate::registry::global_registry();
+                let rec = {
+                    let mut guard = registry.lock().map_err(|_| {
+                        LlmError::InternalError("Registry lock poisoned".to_string())
+                    })?;
+                    let _ = guard.register_openai_compatible("groq");
+                    guard.resolve("groq").cloned().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "Groq provider not found in registry".to_string(),
+                        )
+                    })?
+                };
 
-                let mut config = crate::providers::groq::GroqConfig::new(api_key)
-                    .with_base_url(groq_base_url)
-                    .with_model(common_params.model.clone());
+                let adapter = rec.adapter.ok_or_else(|| {
+                    LlmError::ConfigurationError("Groq adapter missing".to_string())
+                })?;
+                let resolved_base = base_url
+                    .or(rec.base_url)
+                    .unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string());
 
-                // Use validated common parameters
+                let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                    &rec.id,
+                    &api_key,
+                    &resolved_base,
+                    adapter,
+                )
+                .with_model(&common_params.model)
+                .with_http_config(http_config.clone());
+
                 if let Some(temp) = common_params.temperature {
-                    config = config.with_temperature(temp);
+                    config.common_params.temperature = Some(temp);
                 }
                 if let Some(max_tokens) = common_params.max_tokens {
-                    config = config.with_max_tokens(max_tokens);
+                    config.common_params.max_tokens = Some(max_tokens);
                 }
 
-                let mut client =
-                    crate::providers::groq::GroqClient::new(config, built_http_client.clone());
-                if let Some(tc) = self.tracing_config.clone() {
-                    let guard = crate::tracing::init_tracing(tc.clone()).map_err(|e| {
-                        LlmError::ConfigurationError(format!("Failed to init tracing: {e}"))
-                    })?;
-                    client.set_tracing_guard(guard);
-                    client.set_tracing_config(self.tracing_config.clone());
-                }
+                let client =
+                    crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+                        config,
+                        built_http_client.clone(),
+                    )
+                    .await?;
                 Box::new(client)
             }
             ProviderType::Custom(name) => {
+                #[cfg(feature = "openai")]
+                {
+                    // Try registry v2 for openai-compatible providers first
+                    let registry = crate::registry::global_registry();
+                    // Resolve adapter and base outside of await to avoid holding lock across await
+                    let (rec_id, adapter, resolved_base) = {
+                        if let Ok(mut guard) = registry.lock() {
+                            let _ = guard.register_openai_compatible(&name);
+                            if let Some(rec) = guard.resolve(&name)
+                                && let Some(adapter) = &rec.adapter
+                            {
+                                let resolved_base = base_url
+                                    .clone()
+                                    .or_else(|| rec.base_url.clone())
+                                    .unwrap_or_else(|| rec.id.clone());
+                                (
+                                    Some(rec.id.clone()),
+                                    Some(adapter.clone()),
+                                    Some(resolved_base),
+                                )
+                            } else {
+                                (None, None, None)
+                            }
+                        } else {
+                            (None, None, None)
+                        }
+                    };
+                    if let (Some(rec_id), Some(adapter), Some(resolved_base)) =
+                        (rec_id, adapter, resolved_base)
+                    {
+                        let mut config =
+                            crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                                &rec_id,
+                                &api_key,
+                                &resolved_base,
+                                adapter,
+                            )
+                            .with_model(&common_params.model)
+                            .with_http_config(http_config.clone());
+
+                        // Apply common params
+                        if let Some(temp) = common_params.temperature {
+                            config.common_params.temperature = Some(temp);
+                        }
+                        if let Some(max_tokens) = common_params.max_tokens {
+                            config.common_params.max_tokens = Some(max_tokens);
+                        }
+
+                        let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+                            config,
+                            built_http_client.clone(),
+                        )
+                        .await?;
+                        return Ok(Siumai::new(Box::new(client))
+                            .with_retry_options(self.retry_options.clone()));
+                    }
+                    // Fallback to explicit mapping for known providers if registry lookup fails
+                }
                 match name.as_str() {
                     #[cfg(feature = "openai")]
-                    "deepseek" => {
-                        // Use OpenAI-compatible client for DeepSeek with registry adapter
+                    "deepseek" | "siliconflow" | "openrouter" => {
                         let adapter =
-                            crate::providers::openai_compatible::get_provider_adapter("deepseek")?;
-
-                        let base_url =
-                            base_url.unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
-
+                            crate::providers::openai_compatible::get_provider_adapter(&name)?;
+                        let default_base = match name.as_str() {
+                            "deepseek" => "https://api.deepseek.com/v1",
+                            "siliconflow" => "https://api.siliconflow.cn/v1",
+                            _ => "https://openrouter.ai/api/v1",
+                        };
+                        let base = base_url.unwrap_or_else(|| default_base.to_string());
                         let mut config =
                             crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
-                                "deepseek", &api_key, &base_url, adapter,
-                            );
-
-                        // Set model
-                        config = config.with_model(&common_params.model);
-
-                        // Set common parameters through common_params field
+                                &name, &api_key, &base, adapter,
+                            )
+                            .with_model(&common_params.model)
+                            .with_http_config(http_config.clone());
                         if let Some(temp) = common_params.temperature {
                             config.common_params.temperature = Some(temp);
                         }
                         if let Some(max_tokens) = common_params.max_tokens {
                             config.common_params.max_tokens = Some(max_tokens);
                         }
-
-                        // Propagate HTTP config
-                        let config = config.with_http_config(http_config.clone());
                         let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
                             config,
                             built_http_client.clone(),
@@ -1191,75 +1363,6 @@ impl SiumaiBuilder {
                         .await?;
                         Box::new(client)
                     }
-                    #[cfg(feature = "openai")]
-                    "siliconflow" => {
-                        // Use OpenAI-compatible client for SiliconFlow (adapter-based)
-                        let adapter = crate::providers::openai_compatible::get_provider_adapter(
-                            "siliconflow",
-                        )?;
-                        let base_url =
-                            base_url.unwrap_or_else(|| "https://api.siliconflow.cn/v1".to_string());
-
-                        let mut config =
-                            crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
-                                "siliconflow",
-                                &api_key,
-                                &base_url,
-                                adapter,
-                            );
-                        // Set model
-                        config = config.with_model(&common_params.model);
-                        // Set common parameters
-                        if let Some(temp) = common_params.temperature {
-                            config.common_params.temperature = Some(temp);
-                        }
-                        if let Some(max_tokens) = common_params.max_tokens {
-                            config.common_params.max_tokens = Some(max_tokens);
-                        }
-                        // Propagate HTTP config
-                        let config = config.with_http_config(http_config.clone());
-                        let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
-                            config,
-                            built_http_client.clone(),
-                        )
-                        .await?;
-                        Box::new(client)
-                    }
-                    #[cfg(feature = "openai")]
-                    "openrouter" => {
-                        // Use OpenAI-compatible client for OpenRouter (adapter-based)
-                        let adapter = crate::providers::openai_compatible::get_provider_adapter(
-                            "openrouter",
-                        )?;
-                        let base_url =
-                            base_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
-
-                        let mut config =
-                            crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
-                                "openrouter",
-                                &api_key,
-                                &base_url,
-                                adapter,
-                            );
-                        // Set model
-                        config = config.with_model(&common_params.model);
-                        // Set common parameters
-                        if let Some(temp) = common_params.temperature {
-                            config.common_params.temperature = Some(temp);
-                        }
-                        if let Some(max_tokens) = common_params.max_tokens {
-                            config.common_params.max_tokens = Some(max_tokens);
-                        }
-                        // Propagate HTTP config
-                        let config = config.with_http_config(http_config.clone());
-                        let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
-                            config,
-                            built_http_client.clone(),
-                        )
-                        .await?;
-                        Box::new(client)
-                    }
-
                     _ => {
                         return Err(LlmError::UnsupportedOperation(format!(
                             "Custom provider '{name}' not yet implemented"
@@ -1426,14 +1529,7 @@ impl<'a> EmbeddingCapabilityProxy<'a> {
         self.provider.supported_embedding_models()
     }
 
-    /// Placeholder for future embedding operations (deprecated, use embed() instead)
-    #[deprecated(note = "Use embed() method instead")]
-    pub async fn placeholder_operation(&self) -> Result<String, LlmError> {
-        // No automatic warnings - let the user decide if they want to check support
-        Err(LlmError::UnsupportedOperation(
-            "Use embed() method instead of placeholder_operation()".to_string(),
-        ))
-    }
+    // removed deprecated placeholder_operation; use embed() instead
 }
 
 /// Type-safe proxy for vision capabilities

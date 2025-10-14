@@ -110,8 +110,7 @@ async fn test_siumai_retry_respects_max_attempts_and_fails() {
     let err = client
         .chat_with_tools(msgs, None)
         .await
-        .err()
-        .expect("should fail");
+        .expect_err("should fail");
 
     match err {
         LlmError::ApiError { code, .. } => assert!(code >= 500),

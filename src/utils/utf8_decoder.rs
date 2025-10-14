@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(decoder.buffered_byte_count(), 2);
 
         let result2 = decoder.decode(&chunk2);
-        assert_eq!(result2, "中"); // Should return complete character
+        assert_eq!(result2, "中"); // Should return "中"
         assert!(!decoder.has_buffered_bytes());
     }
 

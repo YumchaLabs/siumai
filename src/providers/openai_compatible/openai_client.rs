@@ -2,10 +2,13 @@
 //!
 //! This module provides a client implementation for OpenAI-compatible providers.
 
-use super::{openai_config::OpenAiCompatibleConfig, types::RequestType};
+use super::openai_config::OpenAiCompatibleConfig;
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::providers::openai::utils::convert_messages;
+use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::providers::openai_compatible::RequestType;
 use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::{
@@ -15,7 +18,8 @@ use crate::traits::{
 use crate::types::*;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::sync::Arc;
+// removed: HashMap import not needed after legacy removal
 
 /// OpenAI Compatible Chat Response with provider-specific fields
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -125,51 +129,7 @@ impl OpenAiCompatibleClient {
         })
     }
 
-    /// Build headers for requests
-    fn build_headers(
-        &self,
-        _request_type: RequestType,
-    ) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let mut headers = reqwest::header::HeaderMap::new();
-
-        // Add authorization header
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.config.api_key))
-                .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {}", e)))?,
-        );
-
-        // Add content type
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            reqwest::header::HeaderValue::from_static("application/json"),
-        );
-
-        // Add headers from HTTP config
-        for (key, value) in &self.config.http_config.headers {
-            let header_name =
-                reqwest::header::HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
-                    LlmError::ConfigurationError(format!("Invalid header name '{}': {}", key, e))
-                })?;
-            let header_value = reqwest::header::HeaderValue::from_str(value).map_err(|e| {
-                LlmError::ConfigurationError(format!("Invalid header value '{}': {}", value, e))
-            })?;
-            headers.insert(header_name, header_value);
-        }
-
-        // Add custom headers from config
-        for (key, value) in &self.config.custom_headers {
-            headers.insert(key, value.clone());
-        }
-
-        // Add adapter custom headers
-        let adapter_headers = self.config.adapter.custom_headers();
-        for (key, value) in adapter_headers.iter() {
-            headers.insert(key, value.clone());
-        }
-
-        Ok(headers)
-    }
+    // Removed legacy build_headers; headers are created in executor closures
 
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
@@ -217,140 +177,9 @@ impl OpenAiCompatibleClient {
         &self.config.model
     }
 
-    /// Build request parameters for chat
-    async fn build_chat_request(
-        &self,
-        messages: Vec<ChatMessage>,
-    ) -> Result<serde_json::Value, LlmError> {
-        // Convert ChatMessage to OpenAI format using the existing utility
-        let openai_messages = convert_messages(&messages)?;
+    // Removed legacy build_chat_request; executors use transformers directly
 
-        let mut params = serde_json::json!({
-            "model": self.config.model,
-            "messages": openai_messages,
-            "stream": false,
-        });
-
-        // Apply adapter transformations
-        self.config.adapter.transform_request_params(
-            &mut params,
-            &self.config.model,
-            RequestType::Chat,
-        )?;
-
-        Ok(params)
-    }
-
-    /// Convert OpenAI Compatible response to ChatResponse (based on OpenAI's parse_chat_response)
-    fn parse_chat_response(
-        &self,
-        response: OpenAiCompatibleChatResponse,
-    ) -> Result<ChatResponse, LlmError> {
-        // Extract thinking content from multiple possible fields first (before consuming choices)
-        let mut thinking_content: Option<String> = None;
-
-        // Use dynamic field accessor for thinking content extraction
-        let field_mappings = self.config.adapter.get_field_mappings(&self.config.model);
-        let field_accessor = self.config.adapter.get_field_accessor();
-
-        // Convert response to JSON for dynamic field access
-        if let Ok(response_json) = serde_json::to_value(&response) {
-            thinking_content =
-                field_accessor.extract_thinking_content(&response_json, &field_mappings);
-        }
-
-        // Now extract the choice (consuming the vector)
-        let choice = response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| LlmError::ApiError {
-                code: 500,
-                message: "No choices in response".to_string(),
-                details: None,
-            })?;
-
-        let content = if let Some(content) = choice.message.content {
-            match content {
-                serde_json::Value::String(text) => {
-                    // If no thinking content found in dedicated fields, check for thinking tags
-                    if thinking_content.is_none() {
-                        let thinking_regex = regex::Regex::new(r"<think>(.*?)</think>").unwrap();
-                        if let Some(captures) = thinking_regex.captures(&text) {
-                            thinking_content = Some(captures.get(1).unwrap().as_str().to_string());
-                            // Remove thinking tags from main content
-                            let cleaned_text =
-                                thinking_regex.replace_all(&text, "").trim().to_string();
-                            MessageContent::Text(cleaned_text)
-                        } else {
-                            MessageContent::Text(text)
-                        }
-                    } else {
-                        // If thinking content was found in dedicated fields, use content as-is
-                        MessageContent::Text(text)
-                    }
-                }
-                serde_json::Value::Array(parts) => {
-                    let mut content_parts = Vec::new();
-                    for part in parts {
-                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                            content_parts.push(ContentPart::Text {
-                                text: text.to_string(),
-                            });
-                        }
-                    }
-                    MessageContent::MultiModal(content_parts)
-                }
-                _ => MessageContent::Text(String::new()),
-            }
-        } else {
-            MessageContent::Text(String::new())
-        };
-
-        // Convert tool calls
-        let tool_calls = choice.message.tool_calls.map(|calls| {
-            calls
-                .into_iter()
-                .map(|call| ToolCall {
-                    id: call.id,
-                    r#type: call.r#type,
-                    function: call.function.map(|f| FunctionCall {
-                        name: f.name,
-                        arguments: f.arguments,
-                    }),
-                })
-                .collect()
-        });
-
-        // Convert usage
-        let usage = response.usage.map(|u| Usage {
-            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-            completion_tokens: u.completion_tokens.unwrap_or(0),
-            total_tokens: u.total_tokens.unwrap_or(0),
-            cached_tokens: None,
-            reasoning_tokens: None,
-        });
-
-        // Convert finish reason
-        let finish_reason = choice.finish_reason.map(|reason| match reason.as_str() {
-            "stop" => FinishReason::Stop,
-            "length" => FinishReason::Length,
-            "tool_calls" => FinishReason::ToolCalls,
-            "content_filter" => FinishReason::ContentFilter,
-            _ => FinishReason::Other(reason),
-        });
-
-        Ok(ChatResponse {
-            id: Some(response.id),
-            content,
-            model: Some(response.model),
-            usage,
-            finish_reason,
-            tool_calls,
-            thinking: thinking_content,
-            metadata: HashMap::new(),
-        })
-    }
+    // Removed legacy parse_chat_response; response transformer handles mapping
 
     /// Send HTTP request
     async fn send_request(
@@ -427,39 +256,7 @@ impl OpenAiCompatibleClient {
     }
 }
 
-impl OpenAiCompatibleClient {
-    async fn chat_with_tools_inner(
-        &self,
-        messages: Vec<ChatMessage>,
-        tools: Option<Vec<Tool>>,
-    ) -> Result<ChatResponse, LlmError> {
-        let mut params = self.build_chat_request(messages).await?;
-
-        // Add tools if provided
-        if let Some(tools) = tools {
-            params["tools"] = serde_json::to_value(tools)
-                .map_err(|e| LlmError::ParseError(format!("Failed to serialize tools: {}", e)))?;
-        }
-
-        let response = self.send_request(params, "chat/completions").await?;
-
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        // Parse as OpenAI Compatible response first
-        let openai_response: OpenAiCompatibleChatResponse = serde_json::from_str(&response_text)
-            .map_err(|e| {
-                LlmError::ParseError(format!("Failed to parse OpenAI Compatible response: {}", e))
-            })?;
-
-        // Convert to our ChatResponse format using the same logic as OpenAI
-        let chat_response = self.parse_chat_response(openai_response)?;
-
-        Ok(chat_response)
-    }
-}
+// Removed legacy chat_with_tools_inner; ChatCapability now uses HttpChatExecutor
 
 #[async_trait]
 impl ChatCapability for OpenAiCompatibleClient {
@@ -468,18 +265,71 @@ impl ChatCapability for OpenAiCompatibleClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
+        // Build unified ChatRequest
+        let req = ChatRequest {
+            messages,
+            tools,
+            common_params: self.config.common_params.clone(),
+            provider_params: None,
+            http_config: Some(self.config.http_config.clone()),
+            web_search: None,
+            stream: false,
+        };
+
+        // Instantiate executor
+        let request_tx = super::transformers::CompatRequestTransformer {
+            config: self.config.clone(),
+            adapter: self.config.adapter.clone(),
+        };
+        let response_tx = super::transformers::CompatResponseTransformer {
+            config: self.config.clone(),
+            adapter: self.config.adapter.clone(),
+        };
+        let provider_id = self.config.provider_id.clone();
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let adapter = self.config.adapter.clone();
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
+                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {e}")))?,
+            );
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            // Adapter custom headers
+            for (k, v) in adapter.custom_headers().iter() {
+                headers.insert(k, v.clone());
+            }
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = std::sync::Arc::new(HttpChatExecutor {
+            provider_id: provider_id.clone(),
+            http_client: http,
+            request_transformer: Arc::new(request_tx),
+            response_transformer: Arc::new(response_tx),
+            stream_transformer: None,
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: Box::new(headers_builder),
+        });
+
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
                 || {
-                    let m = messages.clone();
-                    let t = tools.clone();
-                    async move { self.chat_with_tools_inner(m, t).await }
+                    let reqc = req.clone();
+                    let exec = exec.clone();
+                    async move { exec.execute(reqc).await }
                 },
                 opts.clone(),
             )
             .await
         } else {
-            self.chat_with_tools_inner(messages, tools).await
+            exec.execute(req).await
         }
     }
 
@@ -488,7 +338,7 @@ impl ChatCapability for OpenAiCompatibleClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        // Create a ChatRequest from the parameters
+        // Unified ChatRequest
         let request = crate::types::ChatRequest {
             messages,
             tools,
@@ -499,44 +349,130 @@ impl ChatCapability for OpenAiCompatibleClient {
             stream: true,
         };
 
-        // Create streaming client
-        let streaming_client = super::streaming::OpenAiCompatibleStreaming::new(
+        // Stream executor using transformer-backed converter
+        let provider_id = self.config.provider_id.clone();
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let adapter = self.config.adapter.clone();
+        let request_tx = super::transformers::CompatRequestTransformer {
+            config: self.config.clone(),
+            adapter: self.config.adapter.clone(),
+        };
+        let std_adapter = super::streaming::OpenAiCompatibleEventConverter::new(
             self.config.clone(),
             self.config.adapter.clone(),
-            self.http_client.clone(),
         );
-
-        streaming_client.create_chat_stream(request).await
+        let stream_tx = super::transformers::CompatStreamChunkTransformer {
+            provider_id: provider_id.clone(),
+            inner: std_adapter,
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
+                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {e}")))?,
+            );
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            for (k, v) in adapter.custom_headers().iter() {
+                headers.insert(k, v.clone());
+            }
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = std::sync::Arc::new(HttpChatExecutor {
+            provider_id: provider_id.clone(),
+            http_client: http,
+            request_transformer: Arc::new(request_tx),
+            response_transformer: Arc::new(super::transformers::CompatResponseTransformer {
+                config: self.config.clone(),
+                adapter: self.config.adapter.clone(),
+            }),
+            stream_transformer: Some(Arc::new(stream_tx)),
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: Box::new(headers_builder),
+        });
+        exec.execute_stream(request).await
     }
 }
 
 #[async_trait]
 impl EmbeddingCapability for OpenAiCompatibleClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        let mut params = serde_json::json!({
-            "model": self.config.model,
-            "input": texts,
-        });
-
-        // Apply adapter transformations
-        self.config.adapter.transform_request_params(
-            &mut params,
-            &self.config.model,
-            RequestType::Embedding,
-        )?;
-
-        let response = self.send_request(params, "embeddings").await?;
-
-        let response_text = response
-            .text()
+        let req = crate::types::EmbeddingRequest::new(texts).with_model(self.config.model.clone());
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let adapter = self.config.adapter.clone();
+        let req_tx = super::transformers::CompatRequestTransformer {
+            config: self.config.clone(),
+            adapter: adapter.clone(),
+        };
+        let resp_tx = super::transformers::CompatResponseTransformer {
+            config: self.config.clone(),
+            adapter,
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            // Unified tracing headers injection
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rqc = req.clone();
+                    let http = http.clone();
+                    let base = base.clone();
+                    let provider_id = self.config.provider_id.clone();
+                    let req_tx = super::transformers::CompatRequestTransformer {
+                        config: self.config.clone(),
+                        adapter: self.config.adapter.clone(),
+                    };
+                    let resp_tx = super::transformers::CompatResponseTransformer {
+                        config: self.config.clone(),
+                        adapter: self.config.adapter.clone(),
+                    };
+                    let headers_builder = headers_builder.clone();
+                    async move {
+                        let exec = HttpEmbeddingExecutor {
+                            provider_id,
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(move |_r| format!("{}/embeddings", base)),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        EmbeddingExecutor::execute(&exec, rqc).await
+                    }
+                },
+                opts.clone(),
+            )
             .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        // Parse the embedding response
-        let embedding_response =
-            parse_embedding_response(&response_text, &self.config.provider_id)?;
-
-        Ok(embedding_response)
+        } else {
+            let exec = HttpEmbeddingExecutor {
+                provider_id: self.config.provider_id.clone(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(move |_r| format!("{}/embeddings", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute(req).await
+        }
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -735,49 +671,81 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        // Check if provider supports image generation
         if !self.config.adapter.supports_image_generation() {
             return Err(LlmError::UnsupportedOperation(format!(
                 "Provider '{}' does not support image generation",
                 self.config.provider_id
             )));
         }
-
-        let url = format!("{}/images/generations", self.config.base_url);
-
-        // Build headers
-        let headers = self.build_headers(RequestType::ImageGeneration)?;
-
-        // Transform request parameters if needed
-        let mut request = request;
-        self.config.adapter.transform_image_request(&mut request)?;
-
-        // Make request
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&request)
-            .send()
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let adapter = self.config.adapter.clone();
+        let req_tx = super::transformers::CompatRequestTransformer {
+            config: self.config.clone(),
+            adapter: adapter.clone(),
+        };
+        let resp_tx = super::transformers::CompatResponseTransformer {
+            config: self.config.clone(),
+            adapter,
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            // Unified tracing headers injection
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rqc = request.clone();
+                    let http = http.clone();
+                    let base = base.clone();
+                    let provider_id = self.config.provider_id.clone();
+                    let req_tx = super::transformers::CompatRequestTransformer {
+                        config: self.config.clone(),
+                        adapter: self.config.adapter.clone(),
+                    };
+                    let resp_tx = super::transformers::CompatResponseTransformer {
+                        config: self.config.clone(),
+                        adapter: self.config.adapter.clone(),
+                    };
+                    let headers_builder = headers_builder.clone();
+                    async move {
+                        let exec = HttpImageExecutor {
+                            provider_id,
+                            http_client: http,
+                            request_transformer: std::sync::Arc::new(req_tx),
+                            response_transformer: std::sync::Arc::new(resp_tx),
+                            build_url: Box::new(move || format!("{}/images/generations", base)),
+                            build_headers: Box::new(headers_builder),
+                        };
+                        ImageExecutor::execute(&exec, rqc).await
+                    }
+                },
+                opts.clone(),
+            )
             .await
-            .map_err(|e| {
-                LlmError::HttpError(format!("Failed to send image generation request: {}", e))
-            })?;
-
-        if !response.status().is_success() {
-            let status_code = response.status().as_u16();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(LlmError::api_error(
-                status_code,
-                format!("Image generation failed: {}", error_text),
-            ));
+        } else {
+            let exec = HttpImageExecutor {
+                provider_id: self.config.provider_id.clone(),
+                http_client: http,
+                request_transformer: std::sync::Arc::new(req_tx),
+                response_transformer: std::sync::Arc::new(resp_tx),
+                build_url: Box::new(move || format!("{}/images/generations", base)),
+                build_headers: Box::new(headers_builder),
+            };
+            exec.execute(request).await
         }
-
-        let image_response: ImageGenerationResponse = response.json().await.map_err(|e| {
-            LlmError::ParseError(format!("Failed to parse image generation response: {}", e))
-        })?;
-
-        Ok(image_response)
     }
 
     fn get_supported_sizes(&self) -> Vec<String> {
@@ -960,40 +928,4 @@ fn parse_rerank_response(
     }
 }
 
-/// OpenAI-compatible embedding response structure
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct OpenAiCompatibleEmbeddingResponse {
-    pub object: String,
-    pub data: Vec<OpenAiCompatibleEmbeddingData>,
-    pub model: String,
-    pub usage: Option<EmbeddingUsage>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct OpenAiCompatibleEmbeddingData {
-    pub object: String,
-    pub embedding: Vec<f32>,
-    pub index: usize,
-}
-
-/// Parse embedding response based on provider
-fn parse_embedding_response(
-    response_text: &str,
-    _provider_id: &str,
-) -> Result<EmbeddingResponse, LlmError> {
-    // Try to parse as OpenAI-compatible format
-    let openai_response: OpenAiCompatibleEmbeddingResponse = serde_json::from_str(response_text)
-        .map_err(|e| LlmError::ParseError(format!("Failed to parse embedding response: {e}")))?;
-
-    // Convert to standard format
-    let embeddings = openai_response
-        .data
-        .into_iter()
-        .map(|data| data.embedding)
-        .collect();
-
-    let mut response = EmbeddingResponse::new(embeddings, openai_response.model);
-    response.usage = openai_response.usage;
-
-    Ok(response)
-}
+// Removed legacy parse_embedding_response and response structs; embeddings use transformers

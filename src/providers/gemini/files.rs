@@ -5,8 +5,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client as HttpClient;
-use serde_json::json;
-use std::collections::HashMap;
+// no extra imports
 
 use crate::error::LlmError;
 use crate::traits::FileManagementCapability;
@@ -14,10 +13,7 @@ use crate::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
 };
 
-use super::types::{
-    CreateFileRequest, CreateFileResponse, GeminiConfig, GeminiFile, GeminiFileState,
-    ListFilesResponse,
-};
+use super::types::GeminiConfig;
 
 /// Gemini file management capability implementation.
 ///
@@ -48,120 +44,6 @@ impl GeminiFiles {
             config,
             http_client,
         }
-    }
-
-    /// Convert `GeminiFile` to `FileObject`
-    fn convert_gemini_file_to_file_object(&self, gemini_file: GeminiFile) -> FileObject {
-        // Extract file ID from the full name (e.g., "files/abc123" -> "abc123")
-        let id = gemini_file
-            .name
-            .as_ref()
-            .and_then(|name| name.strip_prefix("files/"))
-            .unwrap_or("")
-            .to_string();
-
-        // Parse size from string to u64
-        let bytes = gemini_file
-            .size_bytes
-            .as_ref()
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0);
-
-        // Parse creation timestamp
-        let created_at = gemini_file
-            .create_time
-            .as_ref()
-            .and_then(|time| chrono::DateTime::parse_from_rfc3339(time).ok())
-            .map(|dt| dt.timestamp() as u64)
-            .unwrap_or(0);
-
-        // Determine status
-        let status = match gemini_file.state {
-            Some(GeminiFileState::Active) => "active".to_string(),
-            Some(GeminiFileState::Processing) => "processing".to_string(),
-            Some(GeminiFileState::Failed) => "failed".to_string(),
-            _ => "unknown".to_string(),
-        };
-
-        // Extract filename from display_name or use ID as fallback
-        let filename = gemini_file
-            .display_name
-            .unwrap_or_else(|| format!("file_{id}"));
-
-        // Create metadata
-        let mut metadata = HashMap::new();
-        metadata.insert("provider".to_string(), json!("gemini"));
-        if let Some(uri) = &gemini_file.uri {
-            metadata.insert("uri".to_string(), json!(uri));
-        }
-        if let Some(hash) = &gemini_file.sha256_hash {
-            metadata.insert("sha256_hash".to_string(), json!(hash));
-        }
-        if let Some(expiration) = &gemini_file.expiration_time {
-            metadata.insert("expiration_time".to_string(), json!(expiration));
-        }
-
-        FileObject {
-            id,
-            filename,
-            bytes,
-            created_at,
-            purpose: "general".to_string(), // Gemini doesn't have explicit purposes
-            status,
-            mime_type: gemini_file.mime_type,
-            metadata,
-        }
-    }
-
-    /// Convert `FileUploadRequest` to `CreateFileRequest`
-    #[allow(dead_code)]
-    fn convert_upload_request_to_gemini(&self, request: &FileUploadRequest) -> CreateFileRequest {
-        let gemini_file = GeminiFile {
-            name: None, // Will be auto-generated
-            display_name: Some(request.filename.clone()),
-            mime_type: request.mime_type.clone(),
-            size_bytes: None, // Will be set by the API
-            create_time: None,
-            update_time: None,
-            expiration_time: None,
-            sha256_hash: None,
-            uri: None,
-            state: None,
-            error: None,
-            video_metadata: None,
-        };
-
-        CreateFileRequest {
-            file: Some(gemini_file),
-        }
-    }
-
-    /// Make a request to the Gemini API
-    async fn make_request(
-        &self,
-        method: reqwest::Method,
-        endpoint: &str,
-    ) -> Result<reqwest::RequestBuilder, LlmError> {
-        let url = crate::utils::url::join_url(&self.config.base_url, endpoint);
-
-        let request_builder = self
-            .http_client
-            .request(method, &url)
-            .header("x-goog-api-key", &self.config.api_key)
-            .header("Content-Type", "application/json");
-
-        Ok(request_builder)
-    }
-
-    /// Handle API response errors
-    async fn handle_response_error(&self, response: reqwest::Response) -> LlmError {
-        let status_code = response.status().as_u16();
-        let error_text = response.text().await.unwrap_or_default();
-
-        LlmError::api_error(
-            status_code,
-            format!("Gemini API error: {status_code} - {error_text}"),
-        )
     }
 
     /// Validate file upload request
@@ -199,218 +81,154 @@ impl FileManagementCapability for GeminiFiles {
         // Validate request
         self.validate_upload_request(&request)?;
 
-        // Note: Gemini's file upload is typically done via multipart/form-data
-        // but the exact implementation may vary. For now, we'll implement a basic version.
-
-        // Create multipart form
-        let form = reqwest::multipart::Form::new().part(
-            "file",
-            reqwest::multipart::Part::bytes(request.content)
-                .file_name(request.filename.clone())
-                .mime_str(
-                    request
-                        .mime_type
-                        .as_deref()
-                        .unwrap_or("application/octet-stream"),
-                )
-                .map_err(|e| LlmError::HttpError(format!("Invalid MIME type: {e}")))?,
-        );
-
-        // Add metadata if provided
-        let mut form = form;
-        if let Some(display_name) = request.metadata.get("display_name") {
-            form = form.text("display_name", display_name.clone());
-        }
-
-        let url = format!("{}/files", self.config.base_url);
-        let response = self
-            .http_client
-            .post(&url)
-            .header("x-goog-api-key", &self.config.api_key)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let create_response: CreateFileResponse = response
-            .json()
-            .await
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse upload response: {e}")))?;
-
-        let gemini_file = create_response
-            .file
-            .ok_or_else(|| LlmError::ParseError("No file in upload response".to_string()))?;
-
-        Ok(self.convert_gemini_file_to_file_object(gemini_file))
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let transformer = super::transformers::GeminiFilesTransformer {
+            config: self.config.clone(),
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "gemini".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.upload(request).await
     }
 
     /// List files with optional filtering.
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
-        let mut endpoint = "files".to_string();
-
-        // Add query parameters
-        let mut params = Vec::new();
-        if let Some(q) = &query {
-            if let Some(limit) = q.limit {
-                params.push(format!("pageSize={limit}"));
-            }
-            if let Some(after) = &q.after {
-                params.push(format!("pageToken={after}"));
-            }
-        }
-
-        if !params.is_empty() {
-            endpoint.push('?');
-            endpoint.push_str(&params.join("&"));
-        }
-
-        let request_builder = self.make_request(reqwest::Method::GET, &endpoint).await?;
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let list_response: ListFilesResponse = response
-            .json()
-            .await
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse list response: {e}")))?;
-
-        let files: Vec<FileObject> = list_response
-            .files
-            .into_iter()
-            .map(|f| self.convert_gemini_file_to_file_object(f))
-            .collect();
-
-        Ok(FileListResponse {
-            files,
-            has_more: list_response.next_page_token.is_some(),
-            next_cursor: list_response.next_page_token,
-        })
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let transformer = super::transformers::GeminiFilesTransformer {
+            config: self.config.clone(),
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "gemini".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.list(query).await
     }
 
     /// Retrieve file metadata.
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
-        // Ensure the file ID has the proper prefix
-        let full_file_name = if file_id.starts_with("files/") {
-            file_id
-        } else {
-            format!("files/{file_id}")
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let transformer = super::transformers::GeminiFilesTransformer {
+            config: self.config.clone(),
         };
-
-        let endpoint = &full_file_name;
-        let request_builder = self.make_request(reqwest::Method::GET, endpoint).await?;
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let gemini_file: GeminiFile = response
-            .json()
-            .await
-            .map_err(|e| LlmError::ParseError(format!("Failed to parse file response: {e}")))?;
-
-        Ok(self.convert_gemini_file_to_file_object(gemini_file))
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "gemini".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.retrieve(file_id).await
     }
 
     /// Delete a file permanently.
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
-        // Ensure the file ID has the proper prefix
-        let full_file_name = if file_id.starts_with("files/") {
-            file_id.clone()
-        } else {
-            format!("files/{file_id}")
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let transformer = super::transformers::GeminiFilesTransformer {
+            config: self.config.clone(),
         };
-
-        let endpoint = &full_file_name;
-        let request_builder = self.make_request(reqwest::Method::DELETE, endpoint).await?;
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        // Extract file ID without prefix for response
-        let clean_file_id = full_file_name
-            .strip_prefix("files/")
-            .unwrap_or(&full_file_name)
-            .to_string();
-
-        Ok(FileDeleteResponse {
-            id: clean_file_id,
-            deleted: true,
-        })
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "gemini".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.delete(file_id).await
     }
 
     /// Get file content as bytes.
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
-        // Delegate to the internal implementation
-        self.download_file_content(file_id).await
+        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let transformer = super::transformers::GeminiFilesTransformer {
+            config: self.config.clone(),
+        };
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "x-goog-api-key",
+                reqwest::header::HeaderValue::from_str(&api_key)
+                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = HttpFilesExecutor {
+            provider_id: "gemini".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        exec.get_content(file_id).await
     }
 }
 
 impl GeminiFiles {
-    /// Download file content as bytes.
-    ///
-    /// Note: This downloads the file content from Gemini's storage.
-    pub async fn download_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
-        // Ensure the file ID has the proper prefix
-        let full_file_name = if file_id.starts_with("files/") {
-            file_id
-        } else {
-            format!("files/{file_id}")
-        };
-
-        // First get the file metadata to get the download URI
-        let file_metadata = self.retrieve_file(full_file_name.clone()).await?;
-
-        // Check if we have a download URI in metadata
-        let download_uri = file_metadata
-            .metadata
-            .get("uri")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                LlmError::UnsupportedOperation("File download URI not available".to_string())
-            })?;
-
-        // Download the file content
-        let response = self
-            .http_client
-            .get(download_uri)
-            .header("x-goog-api-key", &self.config.api_key)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Download request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            return Err(self.handle_response_error(response).await);
-        }
-
-        let content = response
-            .bytes()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Failed to read response body: {e}")))?;
-
-        Ok(content.to_vec())
-    }
-
     /// Get file content as string.
     pub async fn get_file_content_as_string(&self, file_id: String) -> Result<String, LlmError> {
-        let bytes = self.download_file_content(file_id).await?;
+        let bytes = self.get_file_content(file_id).await?;
         String::from_utf8(bytes)
             .map_err(|e| LlmError::ParseError(format!("File content is not valid UTF-8: {e}")))
     }

@@ -30,6 +30,168 @@ Choose `Provider` when you need provider-specific features, or `Siumai::builder(
 - **🛡️ Error Handling**: Advanced error classification with recovery suggestions
 - **✅ Parameter Validation**: Cross-provider parameter validation and optimization
 
+### Provider Registry & OpenAI-Compatible
+
+Siumai uses a small internal Provider Registry to unify defaults (like base URLs) and to route certain providers through OpenAI-compatible adapters when appropriate.
+
+- Groq and xAI are unified via OpenAI-compatible by default for lower maintenance and consistent streaming/tool semantics.
+- Native providers (OpenAI/Anthropic/Gemini) resolve default `base_url` via the registry; explicit `base_url` passed by you always takes precedence.
+- Advanced toggles per provider can be injected via `SiumaiBuilder::with_provider_params(...)` while keeping the unified API. For example:
+  - OpenAI Responses API: `{"responses_api": true}`
+  - Anthropic thinking budget: `{"thinking_budget": 4096}`
+  - Ollama thinking: `{"think": true}`
+
+### Transformers Parameter Mapping (Unified)
+
+Parameter mapping/validation is handled by provider-specific Transformers (Request/Response/Stream). Use the unified Builder and ProviderParams to toggle provider-specific features:
+
+```rust
+use siumai::prelude::*;
+
+let client = Siumai::builder()
+    .provider_name("openai")
+    .api_key(std::env::var("OPENAI_API_KEY")?)
+    .model("gpt-4o-mini")
+    // ProviderParams are interpreted by Transformers per provider
+    .with_provider_params(json!({
+        "responses_api": true,
+        "previous_response_id": "resp_123",
+        "built_in_tools": ["web_search"]
+    }))
+    .build()
+    .await?;
+```
+
+- Common parameters (e.g., `temperature/max_tokens/top_p/stop_sequences`) are converted by Transformers into provider-native fields.
+- OpenAI-compatible providers (e.g., Groq/xAI) use the adapter + Transformers path to align event and field semantics.
+
+### Tracing (optional W3C traceparent)
+
+HTTP headers include `X-Trace-Id` and `X-Span-Id` by default. To enable W3C `traceparent`, set:
+
+```bash
+export SIUMAI_W3C_TRACE=1
+```
+
+The library will automatically inject `traceparent`. You can also enable detailed logs with `Siumai::builder().debug_tracing()`.
+
+### Streaming Cancellation (First-class)
+
+You can now cancel streaming with a first-class handle. For any `ChatCapability` client, use `chat_stream_with_cancel` to obtain `{ stream, cancel }`:
+
+```rust
+use siumai::prelude::*;
+use futures::StreamExt;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Siumai::builder()
+        .openai()
+        .api_key(std::env::var("OPENAI_API_KEY")?)
+        .model("gpt-4o-mini")
+        .build()
+        .await?;
+
+    let handle = client.chat_stream_with_cancel(vec![user!("stream a long answer")], None).await?;
+
+    tokio::select! {
+        _ = async {
+            futures::pin_mut!(handle.stream);
+            while let Some(ev) = handle.stream.next().await {
+                // process events...
+                if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev { println!("{}", delta); }
+            }
+        } => {}
+        _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
+            // On timeout or user action, stop the underlying HTTP stream immediately
+            handle.cancel.cancel();
+        }
+    }
+
+    Ok(())
+}
+```
+
+说明：取消会导致流尽快结束并 drop 底层连接，从而让服务端停止继续生成 token。现有的 `chat_stream` 仍可用；推荐迁移到 `chat_stream_with_cancel` 获得显式取消能力。
+
+### Files（Executors + Transformers）
+
+Files 能力已统一走 Executors + Transformers，OpenAI 与 Gemini 的实现在内部保持一致的 headers/错误处理与可选 tracing 注入：
+
+```rust
+// OpenAI Files - upload/list/retrieve/delete/content
+use siumai::prelude::*;
+use siumai::providers::openai::{OpenAiConfig, OpenAiFiles};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("OPENAI_API_KEY")?;
+    let files = OpenAiFiles::new(OpenAiConfig::new(api_key), reqwest::Client::new());
+
+    // Upload a small text file
+    let upload = FileUploadRequest {
+        content: b"hello world".to_vec(),
+        filename: "hello.txt".to_string(),
+        mime_type: Some("text/plain".to_string()),
+        purpose: "assistants".to_string(),
+        metadata: std::collections::HashMap::new(),
+    };
+    let file = files.upload_file(upload).await?;
+
+    // List and retrieve
+    let list = files.list_files(None).await?;
+    let one = files.retrieve_file(file.id.clone()).await?;
+    let content = files.get_file_content(file.id.clone()).await?;
+    println!("{} bytes from {}", content.len(), one.filename);
+
+    // Delete
+    let deleted = files.delete_file(file.id).await?;
+    assert!(deleted.deleted);
+    Ok(())
+}
+```
+
+```rust
+// Gemini Files - upload/list/retrieve/delete/content
+use siumai::prelude::*;
+use siumai::providers::gemini::{types::GeminiConfig, files::GeminiFiles};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("GEMINI_API_KEY")?;
+    let config = GeminiConfig::new(api_key);
+    let files = GeminiFiles::new(config, reqwest::Client::new());
+
+    let mut meta = std::collections::HashMap::new();
+    meta.insert("display_name".to_string(), "hello.txt".to_string());
+    let upload = FileUploadRequest {
+        content: b"hello world".to_vec(),
+        filename: "hello.txt".to_string(),
+        mime_type: Some("text/plain".to_string()),
+        purpose: "general".to_string(),
+        metadata: meta,
+    };
+    let file = files.upload_file(upload).await?;
+
+    let list = files.list_files(None).await?;
+    let one = files.retrieve_file(file.id.clone()).await?;
+    let content = files.get_file_content(file.id.clone()).await?;
+    println!("{} bytes from {}", content.len(), one.filename);
+
+    let deleted = files.delete_file(file.id).await?;
+    assert!(deleted.deleted);
+    Ok(())
+}
+```
+
+迁移提示：
+- 旧的 Files 直连 HTTP 实现已删除或内联；现在通过 `OpenAiFiles`/`GeminiFiles` + Executors 调用，headers 与 tracing 自动注入。
+- OpenAI 的内容下载使用 API 端点（`files/{id}/content`）；Gemini 从文件元数据中的 `uri` 下载（transformer 自动处理）。
+
+### Registry（代码方式）
+
+Siumai 的 Provider Registry 保持“代码驱动、可预测”的初始化策略：默认不从 env/JSON 自动加载配置。若需要自定义别名或 `base_url`，建议在应用层通过已有构造器/注册接口以代码方式注入，保持可读性与可测试性。
+
 ## 🚀 Quick Start
 
 Add Siumai to your `Cargo.toml`:
@@ -160,7 +322,7 @@ Note: the legacy `retry_strategy` module is deprecated and will be removed in `0
 
 ### Web Search Status
 
-OpenAI Responses API `web_search` is not implemented yet. Calling it returns `UnsupportedOperation`.
+OpenAI Responses API 已通过 Executors + Transformers 接线，常规响应与流式可用；但内置工具 `web_search` 仍未实现，调用将返回 `UnsupportedOperation`。
 
 
 > **💡 Feature Tip**: When using specific providers, make sure to enable the corresponding feature in your `Cargo.toml`. If you try to use a provider without its feature enabled, you'll get a compile-time error with a helpful message.
@@ -742,47 +904,43 @@ if let Some(answer) = response.content_text() {
 
 ### OpenAI API Feature Examples
 
-#### Responses API (OpenAI-Specific)
+#### Responses API (via unified interface)
 
-OpenAI's Responses API provides stateful conversations, background processing, and built-in tools:
+Enable `responses_api` on the OpenAI client/config, then call `chat`/`chat_stream` as usual.
 
 ```rust
 use siumai::models;
-use siumai::providers::openai::responses::{OpenAiResponses, ResponsesApiCapability};
+use siumai::prelude::*;
 use siumai::providers::openai::config::OpenAiConfig;
 use siumai::types::OpenAiBuiltInTool;
-use siumai::prelude::*;
 
-// Create Responses API client with built-in tools
+// Create an OpenAI client that routes to /responses under the hood
 let config = OpenAiConfig::new("your-api-key")
     .with_model(models::openai::GPT_4O)
     .with_responses_api(true)
     .with_built_in_tool(OpenAiBuiltInTool::WebSearch);
+let client = siumai::providers::openai::OpenAiClient::new(config, reqwest::Client::new());
 
-let client = OpenAiResponses::new(reqwest::Client::new(), config);
-
-// Basic chat with built-in tools
+// Non-streaming
 let messages = vec![user!("What's the latest news about AI?")];
-let response = client.chat_with_tools(messages, None).await?;
+let response = client.chat_with_tools(messages.clone(), None).await?;
 println!("Response: {}", response.content.all_text());
 
-// Background processing for complex tasks
-let complex_messages = vec![user!("Research quantum computing and write a summary")];
-let background_response = client
-    .create_response_background(
-        complex_messages,
-        None,
-        Some(vec![OpenAiBuiltInTool::WebSearch]),
-        None,
-    )
-    .await?;
-
-// Check if background task is ready
-let is_ready = client.is_response_ready(&background_response.id).await?;
-if is_ready {
-    let final_response = client.get_response(&background_response.id).await?;
-    println!("Background result: {}", final_response.content.all_text());
+// Streaming
+use futures::StreamExt;
+let mut stream = client.chat_stream(messages, None).await?;
+while let Some(evt) = stream.next().await {
+    match evt? {
+        ChatStreamEvent::ContentDelta { delta, .. } => print!("{}", delta),
+        ChatStreamEvent::StreamEnd { response } => {
+            println!("\nFinal: {}", response.content.all_text());
+        }
+        _ => {}
+    }
 }
+
+// Note: background (create/cancel/list) endpoints are not part of the unified API.
+// If you need them, call the HTTP endpoints directly in your application.
 ```
 
 #### Text Embedding

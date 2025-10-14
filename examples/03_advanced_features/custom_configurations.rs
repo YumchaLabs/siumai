@@ -3,7 +3,8 @@
 //! This example demonstrates advanced configuration patterns for production deployments,
 //! including custom parameter mapping, provider-specific optimizations, and performance tuning.
 
-use siumai::params::ParameterMappingUtils;
+use siumai::transformers::request::RequestTransformer;
+use siumai::types::ChatRequest;
 use siumai::types::{CommonParams, ProviderParams, ProviderType};
 use std::time::Duration;
 
@@ -199,8 +200,7 @@ async fn demonstrate_custom_parameter_mapping() -> Result<(), Box<dyn std::error
             ProviderType::Anthropic,
             ProviderType::Gemini,
         ] {
-            let mapped =
-                ParameterMappingUtils::convert_params(&params.0, Some(&params.1), &provider)?;
+            let mapped = convert_params_via_transformers(&params.0, Some(&params.1), &provider)?;
             println!(
                 "     {:?}: {} parameters",
                 provider,
@@ -220,6 +220,51 @@ async fn demonstrate_custom_parameter_mapping() -> Result<(), Box<dyn std::error
     println!("   create sophisticated configurations for production deployments.");
 
     Ok(())
+}
+
+fn convert_params_via_transformers(
+    common: &CommonParams,
+    provider_params: Option<&ProviderParams>,
+    provider: &ProviderType,
+) -> Result<serde_json::Value, siumai::LlmError> {
+    let req = ChatRequest {
+        messages: vec![],
+        tools: None,
+        common_params: common.clone(),
+        provider_params: provider_params.cloned(),
+        http_config: None,
+        web_search: None,
+        stream: false,
+    };
+
+    match provider {
+        ProviderType::OpenAi => {
+            let tx = siumai::providers::openai::transformers::OpenAiRequestTransformer;
+            tx.transform_chat(&req)
+        }
+        ProviderType::Anthropic => {
+            let tx =
+                siumai::providers::anthropic::transformers::AnthropicRequestTransformer::default();
+            tx.transform_chat(&req)
+        }
+        ProviderType::Gemini => {
+            let cfg = siumai::providers::gemini::types::GeminiConfig {
+                api_key: "test".to_string(),
+                base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
+                model: common.model.clone(),
+                generation_config: None,
+                safety_settings: None,
+                timeout: Some(30),
+            };
+            let tx =
+                siumai::providers::gemini::transformers::GeminiRequestTransformer { config: cfg };
+            tx.transform_chat(&req)
+        }
+        other => Err(siumai::LlmError::UnsupportedOperation(format!(
+            "Provider {:?} not supported in this example",
+            other
+        ))),
+    }
 }
 
 // Configuration profile structure

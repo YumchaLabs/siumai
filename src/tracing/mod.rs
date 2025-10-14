@@ -254,6 +254,9 @@ static PRETTY_JSON: AtomicBool = AtomicBool::new(false);
 /// Global flag for masking sensitive values in tracing
 static MASK_SENSITIVE_VALUES: AtomicBool = AtomicBool::new(true);
 
+/// Global flag for enabling W3C trace headers (traceparent)
+static W3C_TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
+
 /// Set the global pretty JSON flag
 pub fn set_pretty_json(pretty: bool) {
     PRETTY_JSON.store(pretty, Ordering::Relaxed);
@@ -267,6 +270,45 @@ pub fn get_pretty_json() -> bool {
 /// Set the global mask sensitive values flag
 pub fn set_mask_sensitive_values(mask: bool) {
     MASK_SENSITIVE_VALUES.store(mask, Ordering::Relaxed);
+}
+
+/// Enable or disable W3C trace headers at runtime
+pub fn set_w3c_trace_enabled(enabled: bool) {
+    W3C_TRACE_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// Check whether W3C trace headers are enabled
+pub fn w3c_trace_enabled() -> bool {
+    W3C_TRACE_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Build a W3C traceparent header value using newly generated IDs
+pub fn create_w3c_traceparent() -> String {
+    // version 00 - 32 hex trace-id - 16 hex span-id - flags 01
+    let trace_id = uuid_hex32(Uuid::new_v4());
+    let span_id = uuid_hex16(Uuid::new_v4());
+    format!("00-{}-{}-01", trace_id, span_id)
+}
+
+fn uuid_hex32(u: Uuid) -> String {
+    // 16 bytes => 32 hex
+    let b = u.as_bytes();
+    bytes_to_hex(b)
+}
+
+fn uuid_hex16(u: Uuid) -> String {
+    // take first 8 bytes => 16 hex
+    let b = &u.as_bytes()[..8];
+    bytes_to_hex(b)
+}
+
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut s, "{:02x}", b);
+    }
+    s
 }
 
 /// Get the global mask sensitive values flag

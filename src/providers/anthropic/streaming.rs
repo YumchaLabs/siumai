@@ -6,6 +6,7 @@
 use crate::error::LlmError;
 use crate::params::AnthropicParams;
 use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::transformers::request::RequestTransformer;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
@@ -17,7 +18,6 @@ use std::pin::Pin;
 /// Anthropic stream event structure
 /// This structure is flexible to handle different event types from Anthropic's SSE stream
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct AnthropicStreamEvent {
     r#type: String,
     #[serde(default)]
@@ -27,48 +27,65 @@ struct AnthropicStreamEvent {
     #[serde(default)]
     usage: Option<AnthropicUsage>,
     #[serde(default)]
+    #[allow(dead_code)]
+    // Kept for forward-compatibility with Anthropic SSE payloads (serde needs the field even if unused)
     index: Option<usize>,
     #[serde(default)]
+    #[allow(dead_code)]
+    // Some Anthropic events provide a content_block object we don't consume yet; retained to avoid parse failures
     content_block: Option<serde_json::Value>,
 }
 
 /// Anthropic message structure
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct AnthropicMessage {
     id: Option<String>,
     model: Option<String>,
+    #[allow(dead_code)]
+    // Role is not consumed by our unified event model, but appears in message_start payloads
     role: Option<String>,
+    #[allow(dead_code)]
+    // Raw content blocks not needed for our delta-based pipeline; retain for serde compatibility
     content: Option<Vec<AnthropicContent>>,
+    #[allow(dead_code)]
+    // Final stop reason may appear on message events; parsing handled elsewhere
     stop_reason: Option<String>,
 }
 
 /// Anthropic content structure
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct AnthropicContent {
     #[serde(rename = "type")]
+    #[allow(dead_code)]
+    // Different content block types exist; we only consume text via deltas
     content_type: String,
+    #[allow(dead_code)]
+    // Some events carry full text here; our converter aggregates from deltas instead
     text: Option<String>,
 }
 
 /// Anthropic delta structure
 /// Supports different delta types: text_delta, input_json_delta, thinking_delta, etc.
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 struct AnthropicDelta {
     #[serde(rename = "type")]
     #[serde(default)]
+    #[allow(dead_code)]
+    // Delta subtype (text_delta, input_json_delta, etc.); not required for our current transformations
     delta_type: Option<String>,
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
+    // Partial JSON chunks for tool inputs; not emitted as separate events in our model yet
     partial_json: Option<String>,
     #[serde(default)]
     thinking: Option<String>,
     #[serde(default)]
     stop_reason: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
+    // Stop sequence token for deltas; usage is reflected via finish events elsewhere
     stop_sequence: Option<String>,
 }
 
@@ -83,6 +100,7 @@ struct AnthropicUsage {
 #[derive(Clone)]
 pub struct AnthropicEventConverter {
     #[allow(dead_code)]
+    // Retained for potential future behavior toggles; not read in the current converter
     config: AnthropicParams,
 }
 
@@ -91,86 +109,87 @@ impl AnthropicEventConverter {
         Self { config }
     }
 
-    /// Convert Anthropic stream event to ChatStreamEvent
-    fn convert_anthropic_event(&self, event: AnthropicStreamEvent) -> Option<ChatStreamEvent> {
+    /// Convert Anthropic stream event to one or more ChatStreamEvents
+    fn convert_anthropic_event(&self, event: AnthropicStreamEvent) -> Vec<ChatStreamEvent> {
+        use crate::utils::streaming::EventBuilder;
+
         match event.r#type.as_str() {
             "message_start" => {
-                // Extract metadata from message_start event
                 if let Some(message) = event.message {
                     let metadata = ResponseMetadata {
                         id: message.id,
                         model: message.model,
-                        created: Some(chrono::Utc::now()), // Anthropic doesn't provide created timestamp in stream
+                        created: Some(chrono::Utc::now()),
                         provider: "anthropic".to_string(),
-                        request_id: None, // Anthropic doesn't provide request_id in stream events
+                        request_id: None,
                     };
-                    Some(ChatStreamEvent::StreamStart { metadata })
+                    EventBuilder::new().add_stream_start(metadata).build()
                 } else {
-                    None
+                    vec![]
                 }
             }
             "content_block_delta" => {
-                if let Some(delta) = event.delta
-                    && let Some(text) = delta.text
-                {
-                    return Some(ChatStreamEvent::ContentDelta {
-                        delta: text,
-                        index: None,
-                    });
+                let mut builder = EventBuilder::new();
+                if let Some(delta) = event.delta {
+                    if let Some(text) = delta.text {
+                        builder = builder.add_content_delta(text, None);
+                    }
+                    if let Some(thinking) = delta.thinking {
+                        builder = builder.add_thinking_delta(thinking);
+                    }
                 }
-                None
+                builder.build()
             }
             "message_delta" => {
-                // Handle usage or finish reason from message_delta events
-                let mut usage_info = None;
-                let mut finish_reason = None;
+                let mut builder = EventBuilder::new();
 
-                // Extract usage information
-                if let Some(usage) = event.usage {
-                    usage_info = Some(Usage {
+                // Thinking (if present)
+                if let Some(delta) = &event.delta
+                    && let Some(thinking) = &delta.thinking
+                    && !thinking.is_empty()
+                {
+                    builder = builder.add_thinking_delta(thinking.clone());
+                }
+
+                // Usage update
+                if let Some(usage) = &event.usage {
+                    let usage_info = Usage {
                         prompt_tokens: usage.input_tokens.unwrap_or(0),
                         completion_tokens: usage.output_tokens.unwrap_or(0),
                         total_tokens: usage.input_tokens.unwrap_or(0)
                             + usage.output_tokens.unwrap_or(0),
                         cached_tokens: None,
                         reasoning_tokens: None,
-                    });
+                    };
+                    builder = builder.add_usage_update(usage_info);
                 }
 
-                // Extract finish reason from delta
-                if let Some(delta) = event.delta
-                    && let Some(stop_reason) = delta.stop_reason
+                // Finish reason -> StreamEnd
+                if let Some(delta) = &event.delta
+                    && let Some(stop_reason) = &delta.stop_reason
                 {
-                    finish_reason = Some(match stop_reason.as_str() {
+                    let reason = match stop_reason.as_str() {
                         "end_turn" => FinishReason::Stop,
                         "max_tokens" => FinishReason::Length,
                         "stop_sequence" => FinishReason::Stop,
                         "tool_use" => FinishReason::ToolCalls,
                         _ => FinishReason::Stop,
-                    });
-                }
+                    };
 
-                // If we have a finish reason, emit StreamEnd event
-                if let Some(reason) = finish_reason {
                     let response = ChatResponse {
                         id: None,
                         model: None,
                         content: MessageContent::Text("".to_string()),
-                        usage: usage_info,
+                        usage: None, // usage already emitted as UsageUpdate above if present
                         finish_reason: Some(reason),
                         tool_calls: None,
                         thinking: None,
                         metadata: HashMap::new(),
                     };
-                    return Some(ChatStreamEvent::StreamEnd { response });
+                    builder = builder.add_stream_end(response);
                 }
 
-                // Otherwise, just emit usage update if available
-                if let Some(usage) = usage_info {
-                    return Some(ChatStreamEvent::UsageUpdate { usage });
-                }
-
-                None
+                builder.build()
             }
             "message_stop" => {
                 let response = ChatResponse {
@@ -183,9 +202,9 @@ impl AnthropicEventConverter {
                     thinking: None,
                     metadata: HashMap::new(),
                 };
-                Some(ChatStreamEvent::StreamEnd { response })
+                EventBuilder::new().add_stream_end(response).build()
             }
-            _ => None,
+            _ => vec![],
         }
     }
 }
@@ -207,13 +226,11 @@ impl SseEventConverter for AnthropicEventConverter {
 
             // Try to parse as standard Anthropic event
             match serde_json::from_str::<AnthropicStreamEvent>(&event.data) {
-                Ok(anthropic_event) => {
-                    if let Some(chat_event) = self.convert_anthropic_event(anthropic_event) {
-                        vec![Ok(chat_event)]
-                    } else {
-                        vec![]
-                    }
-                }
+                Ok(anthropic_event) => self
+                    .convert_anthropic_event(anthropic_event)
+                    .into_iter()
+                    .map(Ok)
+                    .collect(),
                 Err(e) => {
                     // Enhanced error reporting with event data
                     tracing::warn!("Failed to parse Anthropic SSE event: {}", e);
@@ -292,75 +309,17 @@ impl AnthropicStreaming {
         }
     }
 
-    /// Merge provider-specific params into the request body, preserving core fields
-    fn merge_provider_params_into_body(
-        body: &mut serde_json::Value,
-        request: &crate::types::ChatRequest,
-    ) {
-        if let Some(provider) = &request.provider_params
-            && let serde_json::Value::Object(obj) = body
-        {
-            for (k, v) in &provider.params {
-                if k == "stream" || k == "messages" || k == "model" {
-                    continue;
-                }
-                obj.insert(k.clone(), v.clone());
-            }
-        }
-    }
+    // Legacy request merging helper removed; handled by Transformers
 
     /// Create a chat stream from ChatRequest
     pub async fn create_chat_stream(
         self,
         request: crate::types::ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        // Build request body
-        let (messages, system) = self.convert_messages(&request.messages)?;
-        let mut request_body = serde_json::json!({
-            "model": request.common_params.model,
-            "messages": messages,
-            "stream": true,
-            "max_tokens": request.common_params.max_tokens.unwrap_or(1000)
-        });
-
-        // Add system message if present
-        if let Some(system_content) = system {
-            request_body["system"] = serde_json::Value::String(system_content);
-        }
-
-        // Add common parameters
-        if let Some(temp) = request.common_params.temperature {
-            request_body["temperature"] = temp.into();
-        }
-        if let Some(top_p) = request.common_params.top_p {
-            request_body["top_p"] = top_p.into();
-        }
-        if let Some(stop) = &request.common_params.stop_sequences {
-            request_body["stop_sequences"] = stop.clone().into();
-        }
-
-        // Add tools if provided
-        if let Some(tools) = &request.tools {
-            request_body["tools"] = self.convert_tools(tools)?;
-        }
-
-        // Merge provider-specific params if present (preserve core fields)
-        if let Some(provider) = &request.provider_params
-            && let serde_json::Value::Object(obj) = &mut request_body
-        {
-            for (k, v) in &provider.params {
-                if k == "stream" || k == "messages" || k == "model" {
-                    continue;
-                }
-                // Skip null values to prevent API errors
-                if !v.is_null() {
-                    obj.insert(k.clone(), v.clone());
-                }
-            }
-        }
-
-        // Merge provider-specific params before sending
-        Self::merge_provider_params_into_body(&mut request_body, &request);
+        // Build request body via transformer
+        let transformer = super::transformers::AnthropicRequestTransformer::new(None);
+        let mut request_body = transformer.transform_chat(&request)?;
+        request_body["stream"] = serde_json::Value::Bool(true);
 
         // Create headers with authentication
         let headers = crate::utils::http_headers::ProviderHeaders::anthropic(
@@ -382,72 +341,9 @@ impl AnthropicStreaming {
         StreamFactory::create_eventsource_stream(request_builder, converter).await
     }
 
-    /// Convert messages to Anthropic format
-    fn convert_messages(
-        &self,
-        messages: &[crate::types::ChatMessage],
-    ) -> Result<(serde_json::Value, Option<String>), LlmError> {
-        let mut anthropic_messages = Vec::new();
-        let mut system_message = None;
+    // Legacy message conversion helper removed; handled by Transformers
 
-        for msg in messages {
-            match msg.role {
-                crate::types::MessageRole::System => {
-                    // Anthropic handles system messages separately
-                    if let Some(text) = msg.content_text() {
-                        system_message = Some(text.to_string());
-                    }
-                }
-                crate::types::MessageRole::User => {
-                    anthropic_messages.push(serde_json::json!({
-                        "role": "user",
-                        "content": msg.content_text().unwrap_or("")
-                    }));
-                }
-                crate::types::MessageRole::Assistant => {
-                    anthropic_messages.push(serde_json::json!({
-                        "role": "assistant",
-                        "content": msg.content_text().unwrap_or("")
-                    }));
-                }
-                crate::types::MessageRole::Developer => {
-                    // Developer messages are treated as system-level instructions
-                    if let Some(text) = msg.content_text() {
-                        let developer_text = format!("Developer instructions: {text}");
-                        system_message = Some(match system_message {
-                            Some(existing) => format!("{existing}\n\n{developer_text}"),
-                            None => developer_text,
-                        });
-                    }
-                }
-                crate::types::MessageRole::Tool => {
-                    // Tool results are handled as user messages in Anthropic
-                    anthropic_messages.push(serde_json::json!({
-                        "role": "user",
-                        "content": msg.content_text().unwrap_or("")
-                    }));
-                }
-            }
-        }
-
-        Ok((serde_json::Value::Array(anthropic_messages), system_message))
-    }
-
-    /// Convert tools to Anthropic format
-    fn convert_tools(&self, tools: &[crate::types::Tool]) -> Result<serde_json::Value, LlmError> {
-        let anthropic_tools: Vec<serde_json::Value> = tools
-            .iter()
-            .map(|tool| {
-                serde_json::json!({
-                    "name": tool.function.name,
-                    "description": tool.function.description,
-                    "input_schema": tool.function.parameters
-                })
-            })
-            .collect();
-
-        Ok(serde_json::Value::Array(anthropic_tools))
-    }
+    // Legacy tools conversion helper removed; handled by Transformers
 }
 
 #[cfg(test)]
@@ -484,41 +380,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_merge_provider_params_into_body_preserves_core_fields_anthropic() {
-        let request = crate::types::ChatRequest {
-            messages: vec![],
-            tools: None,
-            common_params: crate::types::CommonParams {
-                model: "claude-3-5-sonnet".to_string(),
-                ..Default::default()
-            },
-            provider_params: Some(crate::types::ProviderParams {
-                params: {
-                    let mut m = std::collections::HashMap::new();
-                    m.insert("tool_choice".to_string(), serde_json::json!("auto"));
-                    m.insert("model".to_string(), serde_json::json!("override"));
-                    m
-                },
-            }),
-            http_config: None,
-            web_search: None,
-            stream: true,
-        };
-
-        let mut body = serde_json::json!({
-            "model": request.common_params.model,
-            "messages": [],
-            "stream": true
-        });
-
-        super::AnthropicStreaming::merge_provider_params_into_body(&mut body, &request);
-
-        assert_eq!(body["model"], serde_json::json!("claude-3-5-sonnet"));
-        assert_eq!(body["messages"], serde_json::json!([]));
-        assert_eq!(body["stream"], serde_json::json!(true));
-        assert_eq!(body["tool_choice"], serde_json::json!("auto"));
-    }
+    // Removed legacy merge-provider-params test; behavior now covered by transformers
 
     #[tokio::test]
     async fn test_anthropic_stream_end() {

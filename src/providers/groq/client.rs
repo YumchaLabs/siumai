@@ -7,7 +7,9 @@ use async_trait::async_trait;
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::stream::ChatStream;
-use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
+use crate::traits::{
+    AudioCapability, ChatCapability, ModelListingCapability, ProviderCapabilities,
+};
 use crate::types::*;
 
 use super::api::GroqModels;
@@ -125,6 +127,7 @@ impl LlmClient for GroqClient {
             .with_chat()
             .with_streaming()
             .with_tools()
+            .with_custom_feature("audio", true)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -164,6 +167,73 @@ impl ChatCapability for GroqClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
         self.chat_capability.chat_stream(messages, tools).await
+    }
+}
+
+#[async_trait]
+impl AudioCapability for GroqClient {
+    fn supported_features(&self) -> &[crate::types::AudioFeature] {
+        // Minimal list for Groq (whisper + tts)
+        use crate::types::AudioFeature::*;
+        const FEATURES: &[crate::types::AudioFeature] = &[TextToSpeech, SpeechToText];
+        FEATURES
+    }
+
+    async fn text_to_speech(
+        &self,
+        request: crate::types::TtsRequest,
+    ) -> Result<crate::types::TtsResponse, LlmError> {
+        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let custom_headers = self.config.http_config.headers.clone();
+        let transformer = super::transformers::GroqAudioTransformer;
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpAudioExecutor {
+            provider_id: "groq".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        let audio_bytes = exec.tts(request).await?;
+        Ok(crate::types::TtsResponse {
+            audio_data: audio_bytes,
+            format: "wav".to_string(),
+            duration: None,
+            sample_rate: None,
+            metadata: std::collections::HashMap::new(),
+        })
+    }
+
+    async fn speech_to_text(
+        &self,
+        request: crate::types::SttRequest,
+    ) -> Result<crate::types::SttResponse, LlmError> {
+        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let custom_headers = self.config.http_config.headers.clone();
+        let transformer = super::transformers::GroqAudioTransformer;
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpAudioExecutor {
+            provider_id: "groq".to_string(),
+            http_client: http,
+            transformer: std::sync::Arc::new(transformer),
+            build_base_url: Box::new(move || base.clone()),
+            build_headers: Box::new(headers_builder),
+        };
+        let text = exec.stt(request).await?;
+        Ok(crate::types::SttResponse {
+            text,
+            language: None,
+            confidence: None,
+            words: None,
+            duration: None,
+            metadata: std::collections::HashMap::new(),
+        })
     }
 }
 
