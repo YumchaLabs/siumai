@@ -8,13 +8,14 @@ use crate::error::LlmError;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::executors::image::{HttpImageExecutor, ImageExecutor};
-use crate::providers::openai_compatible::RequestType;
+// use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::{
     ChatCapability, EmbeddingCapability, ImageGenerationCapability, ModelListingCapability,
     RerankCapability,
 };
+use crate::transformers::request::RequestTransformer;
 use crate::types::*;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -295,6 +296,7 @@ impl ChatCapability for OpenAiCompatibleClient {
             stream_transformer: None,
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         });
 
         if let Some(opts) = &self.retry_options {
@@ -362,6 +364,7 @@ impl ChatCapability for OpenAiCompatibleClient {
             stream_transformer: Some(Arc::new(stream_tx)),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         });
         exec.execute_stream(request).await
     }
@@ -412,6 +415,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(move |_r| format!("{}/embeddings", base)),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         EmbeddingExecutor::execute(&exec, rqc).await
                     }
@@ -427,6 +431,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(move |_r| format!("{}/embeddings", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute(req).await
         }
@@ -441,19 +446,12 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
 #[async_trait]
 impl RerankCapability for OpenAiCompatibleClient {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
-        let mut params = serde_json::json!({
-            "model": request.model,
-            "query": request.query,
-            "documents": request.documents,
-            "top_n": request.top_n,
-        });
-
-        // Apply adapter transformations
-        self.config.adapter.transform_request_params(
-            &mut params,
-            &self.config.model,
-            RequestType::Rerank,
-        )?;
+        // Build via transformers (centralized)
+        let req_tx = super::transformers::CompatRequestTransformer {
+            config: self.config.clone(),
+            adapter: self.config.adapter.clone(),
+        };
+        let params = req_tx.transform_rerank(&request)?;
 
         let response = self.send_request(params, "rerank").await?;
 
@@ -655,6 +653,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(move || format!("{}/images/generations", base)),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         ImageExecutor::execute(&exec, rqc).await
                     }
@@ -670,6 +669,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(move || format!("{}/images/generations", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute(request).await
         }

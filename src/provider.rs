@@ -292,7 +292,19 @@ impl ChatCapability for Siumai {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        self.client.chat_stream(messages, tools).await
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let m = messages.clone();
+                    let t = tools.clone();
+                    async move { self.client.chat_stream(m, t).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            self.client.chat_stream(messages, tools).await
+        }
     }
 }
 
@@ -617,6 +629,8 @@ impl SiumaiBuilder {
         // Map provider name to type
         self.provider_type = Some(match name.as_str() {
             "openai" => ProviderType::OpenAi,
+            "openai-chat" => ProviderType::OpenAi,
+            "openai-responses" => ProviderType::OpenAi,
             "anthropic" => ProviderType::Anthropic,
             "gemini" => ProviderType::Gemini,
             "ollama" => ProviderType::Ollama,
@@ -625,8 +639,25 @@ impl SiumaiBuilder {
             "siliconflow" => ProviderType::Custom("siliconflow".to_string()),
             "deepseek" => ProviderType::Custom("deepseek".to_string()),
             "openrouter" => ProviderType::Custom("openrouter".to_string()),
-            _ => ProviderType::Custom(name),
+            _ => ProviderType::Custom(name.clone()),
         });
+        // Also set Responses API toggle automatically for known aliases
+        #[cfg(feature = "openai")]
+        {
+            if name == "openai-chat" {
+                let params = ProviderParams::new().with_param("responses_api", false);
+                self.user_provider_params = Some(match self.user_provider_params.take() {
+                    Some(p) => p.merge(params),
+                    None => params,
+                });
+            } else if name == "openai-responses" {
+                let params = ProviderParams::new().with_param("responses_api", true);
+                self.user_provider_params = Some(match self.user_provider_params.take() {
+                    Some(p) => p.merge(params),
+                    None => params,
+                });
+            }
+        }
         self
     }
 

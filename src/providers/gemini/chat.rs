@@ -84,8 +84,7 @@ impl ChatCapability for GeminiChatCapability {
             .and_then(|c| Some(c.headers))
             .unwrap_or_default();
         let headers_builder = move || {
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+            let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             Ok(headers)
         };
         let exec = HttpChatExecutor {
@@ -98,6 +97,7 @@ impl ChatCapability for GeminiChatCapability {
                 crate::utils::url::join_url(&base, &format!("models/{}:generateContent", model))
             }),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         };
         exec.execute(req).await
     }
@@ -142,8 +142,7 @@ impl ChatCapability for GeminiChatCapability {
             .and_then(|c| Some(c.headers))
             .unwrap_or_default();
         let headers_builder = move || {
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+            let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             Ok(headers)
         };
         let exec = HttpChatExecutor {
@@ -159,6 +158,7 @@ impl ChatCapability for GeminiChatCapability {
                 )
             }),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         };
         exec.execute_stream(req).await
     }

@@ -1,7 +1,8 @@
 //! Parameter constraints (kept for validator/compat checks)
 //!
-//! 历史上的 ParameterMapper 已彻底移除；参数映射/校验交由各 Provider 的 Transformers 处理。
-//! 此模块仅保留 Provider-agnostic 的 ParameterConstraints 供 validator 使用。
+//! Historical `ParameterMapper` has been fully removed; parameter mapping/validation
+//! is handled by provider-local Transformers. This module only keeps
+//! provider-agnostic `ParameterConstraints` for generic validator usage.
 
 /// Parameter constraints for validation
 #[derive(Debug, Clone)]

@@ -4,25 +4,16 @@
 //! including content moderation for text and image content.
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::error::LlmError;
 use crate::traits::ModerationCapability;
+use crate::transformers::request::RequestTransformer;
 use crate::types::{ModerationRequest, ModerationResponse, ModerationResult};
 
 use super::config::OpenAiConfig;
 use secrecy::ExposeSecret;
-
-/// `OpenAI` moderation API request structure
-#[derive(Debug, Clone, Serialize)]
-struct OpenAiModerationRequest {
-    /// Input text or array of texts to moderate
-    input: serde_json::Value,
-    /// Model to use for moderation
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-}
 
 /// `OpenAI` moderation API response structure
 #[derive(Debug, Clone, Deserialize)]
@@ -163,35 +154,7 @@ impl OpenAiModeration {
         "text-moderation-latest".to_string()
     }
 
-    /// Validate moderation request.
-    fn validate_request(&self, request: &ModerationRequest) -> Result<(), LlmError> {
-        // Validate input text
-        if request.input.trim().is_empty() {
-            return Err(LlmError::InvalidInput(
-                "Input text cannot be empty".to_string(),
-            ));
-        }
-
-        // Validate input length (OpenAI has a limit)
-        if request.input.len() > 32768 {
-            return Err(LlmError::InvalidInput(
-                "Input text exceeds maximum length of 32,768 characters".to_string(),
-            ));
-        }
-
-        // Validate model if specified
-        if let Some(ref model) = request.model
-            && !self.get_supported_models().contains(model)
-        {
-            return Err(LlmError::InvalidInput(format!(
-                "Unsupported moderation model: {}. Supported models: {:?}",
-                model,
-                self.get_supported_models()
-            )));
-        }
-
-        Ok(())
-    }
+    // Removed legacy validation; stable checks are performed in `moderate()`
 
     /// Convert `OpenAI` categories to our standard format.
     fn convert_categories(&self, categories: &OpenAiModerationCategories) -> HashMap<String, bool> {
@@ -290,14 +253,22 @@ impl OpenAiModeration {
 impl ModerationCapability for OpenAiModeration {
     /// Moderate content for policy violations.
     async fn moderate(&self, request: ModerationRequest) -> Result<ModerationResponse, LlmError> {
-        // Validate request
-        self.validate_request(&request)?;
+        // Minimal stable validation only: allow either single input or non-empty array
+        let has_single = !request.input.trim().is_empty();
+        let has_array = request
+            .inputs
+            .as_ref()
+            .map(|v| !v.is_empty() && v.iter().any(|s| !s.trim().is_empty()))
+            .unwrap_or(false);
+        if !has_single && !has_array {
+            return Err(LlmError::InvalidInput(
+                "Input text cannot be empty".to_string(),
+            ));
+        }
 
-        // Prepare OpenAI request
-        let openai_request = OpenAiModerationRequest {
-            input: serde_json::Value::String(request.input),
-            model: request.model.or_else(|| Some(self.default_model())),
-        };
+        // Build request payload via centralized transformer
+        let req_tx = crate::providers::openai::transformers::OpenAiRequestTransformer;
+        let openai_request = req_tx.transform_moderation(&request)?;
 
         // Make API request
         let request_builder = self.make_request().await?;

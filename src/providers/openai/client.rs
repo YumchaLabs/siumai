@@ -343,6 +343,7 @@ impl OpenAiClient {
                 stream_transformer: None,
                 build_url: Box::new(move |_stream| format!("{}/responses", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute(request).await
         } else {
@@ -375,6 +376,7 @@ impl OpenAiClient {
                 stream_transformer: None,
                 build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute(request).await
         }
@@ -428,9 +430,8 @@ impl ChatCapability for OpenAiClient {
             let proj = self.project.clone();
             let req_tx = super::transformers::OpenAiResponsesRequestTransformer;
             let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
-            let converter = crate::providers::openai::responses::OpenAiResponsesEventConverter::new(
-                self.common_params.model.clone(),
-            );
+            let converter =
+                crate::providers::openai::responses::OpenAiResponsesEventConverter::new();
             let stream_tx = super::transformers::OpenAiResponsesStreamChunkTransformer {
                 provider_id: "openai_responses".to_string(),
                 inner: converter,
@@ -446,6 +447,7 @@ impl ChatCapability for OpenAiClient {
                 stream_transformer: Some(std::sync::Arc::new(stream_tx)),
                 build_url: Box::new(move |_stream| format!("{}/responses", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute_stream(request).await
         } else {
@@ -503,6 +505,7 @@ impl ChatCapability for OpenAiClient {
                 stream_transformer: Some(std::sync::Arc::new(stream_tx)),
                 build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute_stream(request).await
         }
@@ -553,6 +556,7 @@ impl EmbeddingCapability for OpenAiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(move |_r| format!("{}/embeddings", base)),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         EmbeddingExecutor::execute(&exec, req).await
                     }
@@ -578,6 +582,7 @@ impl EmbeddingCapability for OpenAiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(move |_r| format!("{}/embeddings", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute(req0).await
         }
@@ -649,6 +654,7 @@ impl EmbeddingExtensions for OpenAiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(move |_r| format!("{}/embeddings", base)),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -674,6 +680,7 @@ impl EmbeddingExtensions for OpenAiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(move |_r| format!("{}/embeddings", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute(request).await
         }
@@ -1118,6 +1125,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(move || format!("{}/images/generations", base)),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         ImageExecutor::execute(&exec, rq).await
                     }
@@ -1174,6 +1182,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(move || format!("{}/images/generations", base)),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute(request).await
         }
@@ -1242,6 +1251,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(move || base.clone()),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         ImageExecutor::execute_edit(&exec, rq).await
                     }
@@ -1287,6 +1297,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(move || base.clone()),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute_edit(request).await
         }
@@ -1355,6 +1366,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(move || base.clone()),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         ImageExecutor::execute_variation(&exec, rq).await
                     }
@@ -1400,6 +1412,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(move || base.clone()),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             exec.execute_variation(request).await
         }

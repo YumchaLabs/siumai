@@ -70,3 +70,30 @@ impl From<OpenAiCompatOptions> for ProviderParams {
         ProviderParams::new()
     }
 }
+
+/// Convenience: create OpenAI provider params from typed options
+pub fn create_openai_options(opts: OpenAiOptions) -> ProviderParams {
+    opts.into()
+}
+
+/// Convenience: create Anthropic provider params from typed options
+pub fn create_anthropic_options(opts: AnthropicOptions) -> ProviderParams {
+    opts.into()
+}
+
+/// Convenience: create Gemini provider params from typed options
+pub fn create_gemini_options(opts: GeminiOptions) -> ProviderParams {
+    opts.into()
+}
+
+/// Merge multiple ProviderParams with right-most precedence
+pub fn merge_provider_options<I>(iter: I) -> ProviderParams
+where
+    I: IntoIterator<Item = ProviderParams>,
+{
+    let mut acc = ProviderParams::new();
+    for p in iter {
+        acc = acc.merge(p);
+    }
+    acc
+}

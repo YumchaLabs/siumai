@@ -75,6 +75,7 @@ impl ChatCapability for XaiChatCapability {
             stream_transformer: None,
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         };
         exec.execute(request).await
     }
@@ -116,6 +117,7 @@ impl ChatCapability for XaiChatCapability {
             stream_transformer: Some(std::sync::Arc::new(stream_tx)),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         };
         exec.execute_stream(request).await
     }
@@ -140,6 +142,7 @@ impl XaiChatCapability {
             stream_transformer: None,
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         };
         exec.execute(request).await
     }

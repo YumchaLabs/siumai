@@ -28,47 +28,62 @@ impl RequestTransformer for XaiRequestTransformer {
             ));
         }
 
-        // Base body from common params
-        let mut body = serde_json::json!({
-            "model": req.common_params.model,
-        });
-        if let Some(t) = req.common_params.temperature {
-            body["temperature"] = serde_json::json!(t);
-        }
-        if let Some(tp) = req.common_params.top_p {
-            body["top_p"] = serde_json::json!(tp);
-        }
-        if let Some(max) = req.common_params.max_tokens {
-            body["max_tokens"] = serde_json::json!(max);
-        }
-        if let Some(stops) = &req.common_params.stop_sequences {
-            body["stop"] = serde_json::json!(stops);
-        }
-
-        // Messages via xAI utils
-        let messages = super::utils::convert_messages(&req.messages)?;
-        body["messages"] = serde_json::to_value(messages)?;
-
-        // Tools if provided
-        if let Some(tools) = &req.tools
-            && !tools.is_empty()
-        {
-            body["tools"] = serde_json::to_value(tools)?;
-        }
-
-        // Stream flag
-        body["stream"] = serde_json::json!(req.stream);
-
-        // Merge provider_params if present (flat merge)
-        if let Some(pp) = &req.provider_params
-            && let Some(obj) = body.as_object_mut()
-        {
-            for (k, v) in &pp.params {
-                obj.insert(k.clone(), v.clone());
+        struct XaiChatHooks;
+        impl crate::transformers::request::ProviderRequestHooks for XaiChatHooks {
+            fn build_base_chat_body(
+                &self,
+                req: &ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                let mut body = serde_json::json!({ "model": req.common_params.model });
+                if let Some(t) = req.common_params.temperature {
+                    body["temperature"] = serde_json::json!(t);
+                }
+                if let Some(tp) = req.common_params.top_p {
+                    body["top_p"] = serde_json::json!(tp);
+                }
+                if let Some(max) = req.common_params.max_tokens {
+                    body["max_tokens"] = serde_json::json!(max);
+                }
+                if let Some(stops) = &req.common_params.stop_sequences {
+                    body["stop"] = serde_json::json!(stops);
+                }
+                let messages = super::utils::convert_messages(&req.messages)?;
+                body["messages"] = serde_json::to_value(messages)?;
+                if let Some(tools) = &req.tools {
+                    if !tools.is_empty() {
+                        body["tools"] = serde_json::to_value(tools)?;
+                    }
+                }
+                body["stream"] = serde_json::json!(req.stream);
+                Ok(body)
             }
         }
-
-        Ok(body)
+        let hooks = XaiChatHooks;
+        let profile = crate::transformers::request::MappingProfile {
+            provider_id: "xai",
+            rules: vec![
+                crate::transformers::request::Rule::Range {
+                    field: "temperature",
+                    min: 0.0,
+                    max: 2.0,
+                    mode: crate::transformers::request::RangeMode::Error,
+                    message: None,
+                },
+                crate::transformers::request::Rule::Range {
+                    field: "top_p",
+                    min: 0.0,
+                    max: 1.0,
+                    mode: crate::transformers::request::RangeMode::Error,
+                    message: None,
+                },
+                crate::transformers::request::Rule::MergeProviderParams {
+                    strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+                },
+            ],
+            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+        };
+        let generic = crate::transformers::request::GenericRequestTransformer { profile, hooks };
+        generic.transform_chat(req)
     }
 }
 

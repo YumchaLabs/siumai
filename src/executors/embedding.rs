@@ -19,6 +19,10 @@ pub struct HttpEmbeddingExecutor {
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub build_url: Box<dyn Fn(&EmbeddingRequest) -> String + Send + Sync>,
     pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
+    /// Optional external parameter transformer (plugin-like), applied to JSON body
+    pub before_send: Option<
+        Arc<dyn Fn(&serde_json::Value) -> Result<serde_json::Value, LlmError> + Send + Sync>,
+    >,
 }
 
 #[async_trait::async_trait]
@@ -27,6 +31,12 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
         let body = self.request_transformer.transform_embedding(&req)?;
         let url = (self.build_url)(&req);
         let headers = (self.build_headers)()?;
+
+        let body = if let Some(cb) = &self.before_send {
+            cb(&body)?
+        } else {
+            body
+        };
 
         let resp = self
             .http_client

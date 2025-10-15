@@ -21,11 +21,11 @@ use std::str;
 /// let mut decoder = Utf8StreamDecoder::new();
 ///
 /// // Process chunks that might split UTF-8 characters
-/// let chunk1 = vec![0xE4, 0xB8]; // First 2 bytes of "中" (incomplete)
-/// let chunk2 = vec![0xAD]; // Last byte of "中"
+/// let chunk1 = vec![0xE4, 0xB8]; // First 2 bytes of CJK char U+4E2D (incomplete)
+/// let chunk2 = vec![0xAD]; // Last byte of that CJK char
 ///
 /// let result1 = decoder.decode(&chunk1); // Returns empty string (incomplete)
-/// let result2 = decoder.decode(&chunk2); // Returns "中"
+/// let result2 = decoder.decode(&chunk2); // Returns the full CJK char
 ///
 /// // Don't forget to flush at the end
 /// let remaining = decoder.flush();
@@ -234,7 +234,7 @@ mod tests {
     fn test_incomplete_utf8_sequences() {
         let mut decoder = Utf8StreamDecoder::new();
 
-        // Split Chinese character "中" (0xE4 0xB8 0xAD)
+        // Split CJK character U+4E2D (0xE4 0xB8 0xAD)
         let chunk1 = vec![0xE4, 0xB8]; // First 2 bytes (incomplete)
         let chunk2 = vec![0xAD]; // Last byte
 
@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(decoder.buffered_byte_count(), 2);
 
         let result2 = decoder.decode(&chunk2);
-        assert_eq!(result2, "中"); // Should return "中"
+        assert_eq!(result2, "中"); // Should return the full CJK char
         assert!(!decoder.has_buffered_bytes());
     }
 
@@ -288,7 +288,7 @@ mod tests {
         let mut decoder = Utf8StreamDecoder::new();
 
         // Add incomplete sequence
-        let incomplete = vec![0xE4, 0xB8]; // First 2 bytes of "中"
+        let incomplete = vec![0xE4, 0xB8]; // First 2 bytes of CJK char U+4E2D
         let result = decoder.decode(&incomplete);
         assert_eq!(result, "");
         assert!(decoder.has_buffered_bytes());

@@ -65,6 +65,34 @@ let client = Siumai::builder()
 - Common parameters (e.g., `temperature/max_tokens/top_p/stop_sequences`) are converted by Transformers into provider-native fields.
 - OpenAI-compatible providers (e.g., Groq/xAI) use the adapter + Transformers path to align event and field semantics.
 
+### Spec Alignment (Stable-Only)
+
+- Validations only cover stable, provider-agnostic ranges and required fields (e.g., `temperature` and `top_p` ranges, required `model`).
+- We intentionally avoid enforcing model-specific limits (e.g., context windows) client-side so your code remains portable across models.
+- Provider-specific switches should be passed via `with_provider_params(...)`.
+
+### OpenAI Routing Aliases (Chat vs Responses)
+
+Use explicit aliases when you need to target Chat Completions vs Responses API while keeping the same high-level calls:
+
+```rust
+// Equivalent to provider_name("openai-chat")
+let client = Siumai::builder()
+  .openai_chat()
+  .api_key(std::env::var("OPENAI_API_KEY")?)
+  .model("gpt-4o-mini")
+  .build()
+  .await?;
+
+// Equivalent to provider_name("openai-responses")
+let resp_client = Siumai::builder()
+  .openai_responses()
+  .api_key(std::env::var("OPENAI_API_KEY")?)
+  .model("gpt-4o-mini")
+  .build()
+  .await?;
+```
+
 ### Tracing (optional W3C traceparent)
 
 HTTP headers include `X-Trace-Id` and `X-Span-Id` by default. To enable W3C `traceparent`, set:
@@ -92,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let handle = client.chat_stream_with_cancel(vec![user!("stream a long answer")], None).await?;
+let handle = client.chat_stream_with_cancel(vec![user!("stream a long answer")], None).await?;
 
     tokio::select! {
         _ = async {
@@ -112,11 +140,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-说明：取消会导致流尽快结束并 drop 底层连接，从而让服务端停止继续生成 token。现有的 `chat_stream` 仍可用；推荐迁移到 `chat_stream_with_cancel` 获得显式取消能力。
+Note: Cancelling will end the stream promptly and drop the underlying connection so the server stops generating tokens. The existing `chat_stream` remains available; prefer `chat_stream_with_cancel` for an explicit cancellation handle.
 
-### Files（Executors + Transformers）
+Note on retries: When `RetryOptions` is configured on the unified client, streaming uses retries only during the initial connection phase. Once a `ChatStream` is established, in‑flight streaming is not retried to avoid duplicated or out‑of‑order events. Use `chat_stream_with_cancel` to stop streams explicitly.
 
-Files 能力已统一走 Executors + Transformers，OpenAI 与 Gemini 的实现在内部保持一致的 headers/错误处理与可选 tracing 注入：
+### Files (Executors + Transformers)
+
+The Files capability is implemented via Executors + Transformers. OpenAI and Gemini share consistent headers, error handling, and optional tracing injection:
 
 ```rust
 // OpenAI Files - upload/list/retrieve/delete/content
@@ -184,13 +214,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-迁移提示：
-- 旧的 Files 直连 HTTP 实现已删除或内联；现在通过 `OpenAiFiles`/`GeminiFiles` + Executors 调用，headers 与 tracing 自动注入。
-- OpenAI 的内容下载使用 API 端点（`files/{id}/content`）；Gemini 从文件元数据中的 `uri` 下载（transformer 自动处理）。
+Migration Notes:
+- Legacy direct HTTP implementations for Files have been removed or inlined. Use `OpenAiFiles` / `GeminiFiles` via Executors; headers and tracing are injected automatically.
+- OpenAI downloads content from the API endpoint `files/{id}/content`; Gemini downloads via the file `uri` present in metadata (handled by the transformer).
 
-### Registry（代码方式）
+### Registry (Code-Driven)
 
-Siumai 的 Provider Registry 保持“代码驱动、可预测”的初始化策略：默认不从 env/JSON 自动加载配置。若需要自定义别名或 `base_url`，建议在应用层通过已有构造器/注册接口以代码方式注入，保持可读性与可测试性。
+The Provider Registry is code‑driven and predictable. It does not auto‑load configuration from env/JSON by default. To customize aliases or `base_url`, inject them at the application layer via the existing builders/registration APIs to keep things explicit and testable.
 
 ## Developer Docs
 
@@ -327,7 +357,7 @@ Note: the legacy `retry_strategy` module is deprecated and will be removed in `0
 
 ### Web Search Status
 
-OpenAI Responses API 已通过 Executors + Transformers 接线，常规响应与流式可用；但内置工具 `web_search` 仍未实现，调用将返回 `UnsupportedOperation`。
+The OpenAI Responses API is wired via Executors + Transformers and supports both regular and streaming responses. The built‑in `web_search` tool is not implemented; calling it returns `UnsupportedOperation`.
 
 
 > **💡 Feature Tip**: When using specific providers, make sure to enable the corresponding feature in your `Cargo.toml`. If you try to use a provider without its feature enabled, you'll get a compile-time error with a helpful message.

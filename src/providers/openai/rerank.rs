@@ -12,6 +12,7 @@ use serde_json::json;
 use crate::error::LlmError;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::traits::RerankCapability;
+use crate::transformers::request::RequestTransformer;
 use crate::types::{HttpConfig, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage};
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
 
@@ -81,32 +82,17 @@ impl OpenAiRerank {
         Ok(headers)
     }
 
-    /// Convert rerank request to JSON payload
+    /// Convert rerank request to JSON payload (via centralized transformer)
     fn build_payload(&self, request: &RerankRequest) -> serde_json::Value {
-        let mut payload = json!({
-            "model": request.model,
-            "query": request.query,
-            "documents": request.documents,
-        });
-
-        // Add optional fields
-        if let Some(instruction) = &request.instruction {
-            payload["instruction"] = json!(instruction);
-        }
-        if let Some(top_n) = request.top_n {
-            payload["top_n"] = json!(top_n);
-        }
-        if let Some(return_documents) = request.return_documents {
-            payload["return_documents"] = json!(return_documents);
-        }
-        if let Some(max_chunks) = request.max_chunks_per_doc {
-            payload["max_chunks_per_doc"] = json!(max_chunks);
-        }
-        if let Some(overlap) = request.overlap_tokens {
-            payload["overlap_tokens"] = json!(overlap);
-        }
-
-        payload
+        let req_tx = crate::providers::openai::transformers::OpenAiRequestTransformer;
+        // Safe unwrap: transformer returns Result; fallback to minimal payload on error
+        req_tx.transform_rerank(request).unwrap_or_else(|_| {
+            json!({
+                "model": request.model,
+                "query": request.query,
+                "documents": request.documents,
+            })
+        })
     }
 }
 

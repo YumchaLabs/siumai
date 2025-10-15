@@ -5,6 +5,9 @@
 
 use crate::error::LlmError;
 use crate::transformers::files::{FilesHttpBody, FilesTransformer};
+use crate::transformers::request::{
+    GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
+};
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
@@ -20,7 +23,7 @@ use std::pin::Pin;
 
 use super::types::{CreateFileResponse, GeminiFile, GeminiFileState, ListFilesResponse};
 use super::types::{GeminiConfig, GenerateContentRequest, GenerateContentResponse, Part};
-// no longer depend on chat capability for request construction
+// No longer depend on chat capability for request construction
 
 /// Request transformer for Gemini
 #[derive(Clone)]
@@ -34,204 +37,303 @@ impl RequestTransformer for GeminiRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        // Minimal validation：仅要求 model 非空，其余由服务端校验
+        // Minimal validation: require model
         if req.common_params.model.is_empty() {
             return Err(LlmError::InvalidParameter(
                 "Model must be specified".to_string(),
             ));
         }
 
-        // Build typed request via pure conversion helpers (no HTTP)
-        let mut typed: GenerateContentRequest =
-            super::convert::build_request_body(&self.config, &req.messages, req.tools.as_deref())?;
+        // Hooks + rules via Generic transformer
+        struct GeminiChatHooks(super::types::GeminiConfig);
+        impl ProviderRequestHooks for GeminiChatHooks {
+            fn build_base_chat_body(
+                &self,
+                req: &ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                // Start from typed builder (includes content/messages/tools)
+                let typed: GenerateContentRequest = super::convert::build_request_body(
+                    &self.0,
+                    &req.messages,
+                    req.tools.as_deref(),
+                )?;
+                let mut body = serde_json::to_value(typed)
+                    .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))?;
 
-        // Map CommonParams into Gemini GenerationConfig naming
-        let mut gcfg = typed.generation_config.take().unwrap_or_default();
-        if let Some(t) = req.common_params.temperature {
-            gcfg.temperature = Some(t);
-        }
-        if let Some(tp) = req.common_params.top_p {
-            gcfg.top_p = Some(tp);
-        }
-        if let Some(max) = req.common_params.max_tokens {
-            gcfg.max_output_tokens = Some(max as i32);
-        }
-        if let Some(stops) = &req.common_params.stop_sequences {
-            gcfg.stop_sequences = Some(stops.clone());
-        }
-        typed.generation_config = Some(gcfg);
-
-        // Optional function calling config from provider_params
-        if let Some(pp) = &req.provider_params
-            && let Some(fc) = pp
-                .params
-                .get("function_calling")
-                .and_then(|v| v.as_object())
-        {
-            let mut cfg = super::types::FunctionCallingConfig {
-                mode: None,
-                allowed_function_names: None,
-            };
-            if let Some(mode_str) = fc.get("mode").and_then(|v| v.as_str()) {
-                let m = match mode_str.to_ascii_uppercase().as_str() {
-                    "AUTO" => super::types::FunctionCallingMode::Auto,
-                    "ANY" => super::types::FunctionCallingMode::Any,
-                    "NONE" => super::types::FunctionCallingMode::None,
-                    _ => super::types::FunctionCallingMode::Unspecified,
-                };
-                cfg.mode = Some(m);
-            }
-            if let Some(arr) = fc
-                .get("allowed")
-                .and_then(|v| v.as_array())
-                .or_else(|| fc.get("allowed_function_names").and_then(|v| v.as_array()))
-            {
-                let names: Vec<String> = arr
-                    .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect();
-                if !names.is_empty() {
-                    cfg.allowed_function_names = Some(names);
+                // Put common params at top-level for rule-based moving into generationConfig
+                if let Some(t) = req.common_params.temperature {
+                    body["temperature"] = serde_json::json!(t);
                 }
+                if let Some(tp) = req.common_params.top_p {
+                    body["top_p"] = serde_json::json!(tp);
+                }
+                if let Some(max) = req.common_params.max_tokens {
+                    body["max_tokens"] = serde_json::json!(max);
+                }
+                if let Some(stops) = &req.common_params.stop_sequences {
+                    body["stop_sequences"] = serde_json::json!(stops);
+                }
+                Ok(body)
             }
-            typed.tool_config = Some(super::types::ToolConfig {
-                function_calling_config: Some(cfg),
-            });
+
+            fn post_process_chat(
+                &self,
+                req: &ChatRequest,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                // Map provider_params.function_calling -> toolConfig.functionCallingConfig
+                if let Some(pp) = &req.provider_params {
+                    if let Some(fc) = pp
+                        .params
+                        .get("function_calling")
+                        .and_then(|v| v.as_object())
+                    {
+                        let mut cfg = super::types::FunctionCallingConfig {
+                            mode: None,
+                            allowed_function_names: None,
+                        };
+                        if let Some(mode_str) = fc.get("mode").and_then(|v| v.as_str()) {
+                            let mode = match mode_str.to_ascii_uppercase().as_str() {
+                                "AUTO" => super::types::FunctionCallingMode::Auto,
+                                "ANY" => super::types::FunctionCallingMode::Any,
+                                "NONE" => super::types::FunctionCallingMode::None,
+                                _ => super::types::FunctionCallingMode::Unspecified,
+                            };
+                            cfg.mode = Some(mode);
+                        }
+                        if let Some(arr) = fc
+                            .get("allowed")
+                            .and_then(|v| v.as_array())
+                            .or_else(|| fc.get("allowed_function_names").and_then(|v| v.as_array()))
+                        {
+                            let names: Vec<String> = arr
+                                .iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect();
+                            if !names.is_empty() {
+                                cfg.allowed_function_names = Some(names);
+                            }
+                        }
+                        // Write toolConfig.functionCallingConfig
+                        let tool_cfg = super::types::ToolConfig {
+                            function_calling_config: Some(cfg),
+                        };
+                        body["toolConfig"] = serde_json::to_value(tool_cfg).map_err(|e| {
+                            LlmError::ParseError(format!("Serialize tool config failed: {e}"))
+                        })?;
+                    }
+                }
+                Ok(())
+            }
         }
 
-        // Serialize to JSON
-        serde_json::to_value(typed)
-            .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))
+        let hooks = GeminiChatHooks(self.config.clone());
+        let profile = MappingProfile {
+            provider_id: "gemini",
+            rules: vec![
+                // Stable ranges only
+                Rule::Range {
+                    field: "temperature",
+                    min: 0.0,
+                    max: 2.0,
+                    mode: RangeMode::Error,
+                    message: Some("temperature must be between 0.0 and 2.0"),
+                },
+                Rule::Range {
+                    field: "top_p",
+                    min: 0.0,
+                    max: 1.0,
+                    mode: RangeMode::Error,
+                    message: Some("top_p must be between 0.0 and 1.0"),
+                },
+                // Move top-level common params into generationConfig (camelCase)
+                Rule::Move {
+                    from: "temperature",
+                    to: "generationConfig.temperature",
+                },
+                Rule::Move {
+                    from: "top_p",
+                    to: "generationConfig.topP",
+                },
+                Rule::Move {
+                    from: "max_tokens",
+                    to: "generationConfig.maxOutputTokens",
+                },
+                Rule::Move {
+                    from: "stop_sequences",
+                    to: "generationConfig.stopSequences",
+                },
+            ],
+            // provider_params merged via hooks when needed (function_calling)
+            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+        };
+        let generic = GenericRequestTransformer { profile, hooks };
+        generic.transform_chat(req)
     }
 
     fn transform_embedding(&self, req: &EmbeddingRequest) -> Result<serde_json::Value, LlmError> {
-        // Map to Gemini embedContent / batchEmbedContents request model
-        #[derive(serde::Serialize)]
-        struct GeminiPart {
-            text: String,
-        }
-        #[derive(serde::Serialize)]
-        struct GeminiContent {
-            parts: Vec<GeminiPart>,
-        }
-        #[derive(serde::Serialize)]
-        struct GeminiEmbeddingConfig {
-            #[serde(skip_serializing_if = "Option::is_none", rename = "taskType")]
-            task_type: Option<String>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            title: Option<String>,
-            #[serde(
-                skip_serializing_if = "Option::is_none",
-                rename = "outputDimensionality"
-            )]
-            output_dimensionality: Option<u32>,
-        }
-        #[derive(serde::Serialize)]
-        struct GeminiEmbeddingRequest {
-            #[serde(skip_serializing_if = "Option::is_none")]
-            model: Option<String>,
-            content: GeminiContent,
-            #[serde(skip_serializing_if = "Option::is_none", rename = "embeddingConfig")]
-            embedding_config: Option<GeminiEmbeddingConfig>,
-        }
-        #[derive(serde::Serialize)]
-        struct GeminiBatchEmbeddingRequest {
-            requests: Vec<GeminiEmbeddingRequest>,
-        }
+        // Use Generic transformer hooks to build typed JSON; no extra rules for now
+        struct GeminiEmbeddingHooks(super::types::GeminiConfig);
+        impl crate::transformers::request::ProviderRequestHooks for GeminiEmbeddingHooks {
+            fn build_base_embedding_body(
+                &self,
+                req: &EmbeddingRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                // Map to Gemini embedContent / batchEmbedContents request model
+                #[derive(serde::Serialize)]
+                struct GeminiPart {
+                    text: String,
+                }
+                #[derive(serde::Serialize)]
+                struct GeminiContent {
+                    parts: Vec<GeminiPart>,
+                }
+                #[derive(serde::Serialize)]
+                struct GeminiEmbeddingConfig {
+                    #[serde(skip_serializing_if = "Option::is_none", rename = "taskType")]
+                    task_type: Option<String>,
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    title: Option<String>,
+                    #[serde(
+                        skip_serializing_if = "Option::is_none",
+                        rename = "outputDimensionality"
+                    )]
+                    output_dimensionality: Option<u32>,
+                }
+                #[derive(serde::Serialize)]
+                struct GeminiEmbeddingRequest {
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    model: Option<String>,
+                    content: GeminiContent,
+                    #[serde(skip_serializing_if = "Option::is_none", rename = "embeddingConfig")]
+                    embedding_config: Option<GeminiEmbeddingConfig>,
+                }
+                #[derive(serde::Serialize)]
+                struct GeminiBatchEmbeddingRequest {
+                    requests: Vec<GeminiEmbeddingRequest>,
+                }
 
-        let task_type = req
-            .provider_params
-            .get("task_type")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let title = req
-            .provider_params
-            .get("title")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let output_dimensionality = req.dimensions;
+                let task_type = req
+                    .provider_params
+                    .get("task_type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let title = req
+                    .provider_params
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let output_dimensionality = req.dimensions;
 
-        if req.input.len() == 1 {
-            let content = GeminiContent {
-                parts: vec![GeminiPart {
-                    text: req.input[0].clone(),
-                }],
-            };
-            let cfg = GeminiEmbeddingConfig {
-                task_type,
-                title,
-                output_dimensionality,
-            };
-            let body = GeminiEmbeddingRequest {
-                model: Some(format!("models/{}", self.config.model)),
-                content,
-                embedding_config: Some(cfg),
-            };
-            serde_json::to_value(body)
-                .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))
-        } else {
-            let requests: Vec<GeminiEmbeddingRequest> = req
-                .input
-                .iter()
-                .map(|text| {
+                if req.input.len() == 1 {
                     let content = GeminiContent {
-                        parts: vec![GeminiPart { text: text.clone() }],
+                        parts: vec![GeminiPart {
+                            text: req.input[0].clone(),
+                        }],
                     };
                     let cfg = GeminiEmbeddingConfig {
-                        task_type: task_type.clone(),
-                        title: title.clone(),
+                        task_type,
+                        title,
                         output_dimensionality,
                     };
-                    GeminiEmbeddingRequest {
-                        model: Some(format!("models/{}", self.config.model)),
+                    let body = GeminiEmbeddingRequest {
+                        model: Some(format!("models/{}", self.0.model)),
                         content,
                         embedding_config: Some(cfg),
-                    }
-                })
-                .collect();
-            let batch = GeminiBatchEmbeddingRequest { requests };
-            serde_json::to_value(batch)
-                .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))
+                    };
+                    serde_json::to_value(body)
+                        .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))
+                } else {
+                    let requests: Vec<GeminiEmbeddingRequest> = req
+                        .input
+                        .iter()
+                        .map(|text| {
+                            let content = GeminiContent {
+                                parts: vec![GeminiPart { text: text.clone() }],
+                            };
+                            let cfg = GeminiEmbeddingConfig {
+                                task_type: task_type.clone(),
+                                title: title.clone(),
+                                output_dimensionality,
+                            };
+                            GeminiEmbeddingRequest {
+                                model: Some(format!("models/{}", self.0.model)),
+                                content,
+                                embedding_config: Some(cfg),
+                            }
+                        })
+                        .collect();
+                    let batch = GeminiBatchEmbeddingRequest { requests };
+                    serde_json::to_value(batch)
+                        .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))
+                }
+            }
         }
+        let hooks = GeminiEmbeddingHooks(self.config.clone());
+        let profile = crate::transformers::request::MappingProfile {
+            provider_id: "gemini",
+            rules: vec![], // no generic rules; hook builds typed JSON
+            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+        };
+        let generic = crate::transformers::request::GenericRequestTransformer { profile, hooks };
+        generic.transform_embedding(req)
     }
 
     fn transform_image(&self, req: &ImageGenerationRequest) -> Result<serde_json::Value, LlmError> {
-        use super::types::{Content, GenerateContentRequest, Part};
-        if self.config.model.is_empty() {
-            return Err(LlmError::InvalidParameter("Model must be specified".into()));
+        // Use Generic hooks to build typed JSON for generateContent (IMAGE)
+        struct GeminiImageHooks(super::types::GeminiConfig);
+        impl crate::transformers::request::ProviderRequestHooks for GeminiImageHooks {
+            fn build_base_image_body(
+                &self,
+                req: &ImageGenerationRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                use super::types::{Content, GenerateContentRequest, Part};
+                if self.0.model.is_empty() {
+                    return Err(LlmError::InvalidParameter("Model must be specified".into()));
+                }
+                let prompt = req.prompt.clone();
+                let contents = vec![Content {
+                    role: Some("user".to_string()),
+                    parts: vec![Part::Text {
+                        text: prompt,
+                        thought: None,
+                    }],
+                }];
+                let mut gcfg = self.0.generation_config.clone().unwrap_or_default();
+                if req.count > 0 {
+                    gcfg.candidate_count = Some(req.count as i32);
+                }
+                // Ensure IMAGE modality present
+                let mut modalities = gcfg.response_modalities.take().unwrap_or_default();
+                if !modalities.iter().any(|m| m == "IMAGE") {
+                    modalities.push("IMAGE".to_string());
+                }
+                if !modalities.is_empty() {
+                    gcfg.response_modalities = Some(modalities);
+                }
+                let body = GenerateContentRequest {
+                    model: self.0.model.clone(),
+                    contents,
+                    system_instruction: None,
+                    tools: None,
+                    tool_config: None,
+                    safety_settings: self.0.safety_settings.clone(),
+                    generation_config: Some(gcfg),
+                    cached_content: None,
+                };
+                serde_json::to_value(body).map_err(|e| {
+                    LlmError::ParseError(format!("Serialize image request failed: {e}"))
+                })
+            }
         }
-        let prompt = req.prompt.clone();
-        let contents = vec![Content {
-            role: Some("user".to_string()),
-            parts: vec![Part::Text {
-                text: prompt,
-                thought: None,
-            }],
-        }];
-        let mut gcfg = self.config.generation_config.clone().unwrap_or_default();
-        if req.count > 0 {
-            gcfg.candidate_count = Some(req.count as i32);
-        }
-        // Ensure IMAGE modality present
-        let mut modalities = gcfg.response_modalities.take().unwrap_or_default();
-        if !modalities.iter().any(|m| m == "IMAGE") {
-            modalities.push("IMAGE".to_string());
-        }
-        if !modalities.is_empty() {
-            gcfg.response_modalities = Some(modalities);
-        }
-        let body = GenerateContentRequest {
-            model: self.config.model.clone(),
-            contents,
-            system_instruction: None,
-            tools: None,
-            tool_config: None,
-            safety_settings: self.config.safety_settings.clone(),
-            generation_config: Some(gcfg),
-            cached_content: None,
+        let hooks = GeminiImageHooks(self.config.clone());
+        let profile = crate::transformers::request::MappingProfile {
+            provider_id: "gemini",
+            rules: vec![],
+            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        serde_json::to_value(body)
-            .map_err(|e| LlmError::ParseError(format!("Serialize image request failed: {e}")))
+        let generic = crate::transformers::request::GenericRequestTransformer { profile, hooks };
+        generic.transform_image(req)
     }
 }
 

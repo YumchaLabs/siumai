@@ -530,6 +530,7 @@ impl EmbeddingCapability for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(build_url),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -545,6 +546,7 @@ impl EmbeddingCapability for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(build_url),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             EmbeddingExecutor::execute(&exec, req).await
         }
@@ -620,6 +622,7 @@ impl EmbeddingExtensions for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(build_url),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -635,6 +638,7 @@ impl EmbeddingExtensions for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(build_url),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             EmbeddingExecutor::execute(&exec, request).await
         }
@@ -724,6 +728,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             build_url: Box::new(url_fn),
                             build_headers: Box::new(headers_builder),
+                            before_send: None,
                         };
                         ImageExecutor::execute(&exec, rq).await
                     }
@@ -739,6 +744,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 build_url: Box::new(build_url),
                 build_headers: Box::new(headers_builder),
+                before_send: None,
             };
             ImageExecutor::execute(&exec, request).await
         }

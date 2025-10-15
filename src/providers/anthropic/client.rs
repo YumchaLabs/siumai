@@ -245,6 +245,7 @@ impl AnthropicClient {
             stream_transformer: None,
             build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         });
         exec.execute(request).await
     }
@@ -314,6 +315,7 @@ impl ChatCapability for AnthropicClient {
             stream_transformer: Some(Arc::new(stream_tx)),
             build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
             build_headers: Box::new(headers_builder),
+            before_send: None,
         });
         exec.execute_stream(request).await
     }

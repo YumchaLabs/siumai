@@ -20,6 +20,26 @@ impl SiumaiBuilder {
         self
     }
 
+    /// Create an `OpenAI Chat` variant (explicit Chat Completions route)
+    #[cfg(feature = "openai")]
+    pub fn openai_chat(mut self) -> Self {
+        self.provider_type = Some(ProviderType::OpenAi);
+        self.provider_name = Some("openai-chat".to_string());
+        // Ensure Responses API is disabled explicitly
+        let params = crate::types::ProviderParams::new().with_param("responses_api", false);
+        self.with_provider_params(params)
+    }
+
+    /// Create an `OpenAI Responses` variant (explicit Responses API route)
+    #[cfg(feature = "openai")]
+    pub fn openai_responses(mut self) -> Self {
+        self.provider_type = Some(ProviderType::OpenAi);
+        self.provider_name = Some("openai-responses".to_string());
+        // Toggle Responses API on via provider params
+        let params = crate::types::ProviderParams::new().with_param("responses_api", true);
+        self.with_provider_params(params)
+    }
+
     /// Create an Anthropic provider (convenience method)
     #[cfg(feature = "anthropic")]
     pub fn anthropic(mut self) -> Self {

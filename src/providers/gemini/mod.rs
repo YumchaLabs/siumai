@@ -10,7 +10,7 @@
 //! - `files.rs` - File management capability implementation
 //! - `code_execution.rs` - Code execution feature implementation
 //! - `streaming.rs` - Streaming functionality with JSON buffering
-//! - Embeddings 统一通过 Executors + Transformers（不再有独立 HTTP 实现模块）
+//! - Embeddings are executed via Executors + Transformers (no standalone HTTP module)
 //!
 //! # Example Usage
 //! ```rust,no_run

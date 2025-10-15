@@ -106,6 +106,40 @@ impl RequestTransformer for CompatRequestTransformer {
         serde_json::to_value(r)
             .map_err(|e| LlmError::ParseError(format!("Serialize image request failed: {e}")))
     }
+
+    fn transform_rerank(
+        &self,
+        req: &crate::types::RerankRequest,
+    ) -> Result<serde_json::Value, LlmError> {
+        let mut body = serde_json::json!({
+            "model": req.model,
+            "query": req.query,
+            "documents": req.documents,
+        });
+        if let Some(n) = req.top_n {
+            body["top_n"] = serde_json::json!(n);
+        }
+        if let Some(instr) = &req.instruction {
+            body["instruction"] = serde_json::json!(instr);
+        }
+        if let Some(rd) = req.return_documents {
+            body["return_documents"] = serde_json::json!(rd);
+        }
+        if let Some(maxc) = req.max_chunks_per_doc {
+            body["max_chunks_per_doc"] = serde_json::json!(maxc);
+        }
+        if let Some(over) = req.overlap_tokens {
+            body["overlap_tokens"] = serde_json::json!(over);
+        }
+
+        // Let adapter specialize
+        self.adapter.transform_request_params(
+            &mut body,
+            &self.config.model,
+            RequestType::Rerank,
+        )?;
+        Ok(body)
+    }
 }
 
 /// Response transformer for OpenAI-compatible non-streaming responses

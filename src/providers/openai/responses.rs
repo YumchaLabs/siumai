@@ -7,13 +7,11 @@
 
 /// OpenAI Responses SSE event converter using unified streaming utilities
 #[derive(Clone)]
-pub struct OpenAiResponsesEventConverter {
-    model: String,
-}
+pub struct OpenAiResponsesEventConverter;
 
 impl OpenAiResponsesEventConverter {
-    pub fn new(model: String) -> Self {
-        Self { model }
+    pub fn new() -> Self {
+        Self
     }
 
     fn convert_responses_event(
@@ -176,7 +174,8 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
                 return vec![];
             }
             if event_name == "response.completed" {
-                // The completed event often contains the full response payload
+                // The completed event often contains the full response payload.
+                // Delegate to centralized ResponseTransformer for final ChatResponse.
                 let json = match serde_json::from_str::<serde_json::Value>(data_raw) {
                     Ok(v) => v,
                     Err(e) => {
@@ -185,157 +184,16 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
                         )))];
                     }
                 };
-                let root = json.get("response").unwrap_or(&json);
 
-                // Aggregate text content
-                let mut text_content = String::new();
-                if let Some(output_items) = root.get("output").and_then(|o| o.as_array()) {
-                    for item in output_items {
-                        match item.get("content") {
-                            Some(serde_json::Value::String(s)) => {
-                                if !text_content.is_empty() {
-                                    text_content.push('\n');
-                                }
-                                text_content.push_str(s);
-                            }
-                            Some(serde_json::Value::Array(parts)) => {
-                                for part in parts {
-                                    if let Some(txt) = part.get("text").and_then(|v| v.as_str()) {
-                                        if !text_content.is_empty() {
-                                            text_content.push('\n');
-                                        }
-                                        text_content.push_str(txt);
-                                    } else if let Some(s) = part.as_str() {
-                                        if !text_content.is_empty() {
-                                            text_content.push('\n');
-                                        }
-                                        text_content.push_str(s);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
+                let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
+                match crate::transformers::response::ResponseTransformer::transform_chat_response(
+                    &resp_tx, &json,
+                ) {
+                    Ok(response) => {
+                        return vec![Ok(crate::stream::ChatStreamEvent::StreamEnd { response })];
                     }
-                } else if let Some(s) = root.get("output_text").and_then(|v| v.as_str()) {
-                    text_content.push_str(s);
+                    Err(err) => return vec![Err(err)],
                 }
-
-                // Collect tool calls from output items and root
-                let mut tool_calls: Vec<crate::types::ToolCall> = Vec::new();
-                if let Some(output_items) = root.get("output").and_then(|o| o.as_array()) {
-                    for item in output_items {
-                        if let Some(calls) = item.get("tool_calls").and_then(|tc| tc.as_array()) {
-                            for call in calls {
-                                let id = call
-                                    .get("id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let r#type = call
-                                    .get("type")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("function")
-                                    .to_string();
-                                let (name, arguments) = if let Some(f) = call.get("function") {
-                                    (
-                                        f.get("name")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                        f.get("arguments")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    )
-                                } else {
-                                    (
-                                        call.get("name")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                        call.get("arguments")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("")
-                                            .to_string(),
-                                    )
-                                };
-                                if !name.is_empty() {
-                                    tool_calls.push(crate::types::ToolCall {
-                                        id,
-                                        r#type,
-                                        function: Some(crate::types::FunctionCall {
-                                            name,
-                                            arguments,
-                                        }),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-                if let Some(calls) = root.get("tool_calls").and_then(|tc| tc.as_array()) {
-                    for call in calls {
-                        let id = call
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let r#type = call
-                            .get("type")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("function")
-                            .to_string();
-                        let (name, arguments) = if let Some(f) = call.get("function") {
-                            (
-                                f.get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                f.get("arguments")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            )
-                        } else {
-                            (
-                                call.get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                call.get("arguments")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            )
-                        };
-                        if !name.is_empty() {
-                            tool_calls.push(crate::types::ToolCall {
-                                id,
-                                r#type,
-                                function: Some(crate::types::FunctionCall { name, arguments }),
-                            });
-                        }
-                    }
-                }
-
-                let response = crate::types::ChatResponse {
-                    id: root
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    content: crate::types::MessageContent::Text(text_content),
-                    model: Some(self.model.clone()),
-                    usage: None,
-                    finish_reason: Some(crate::types::FinishReason::Stop),
-                    tool_calls: if tool_calls.is_empty() {
-                        None
-                    } else {
-                        Some(tool_calls)
-                    },
-                    thinking: None,
-                    metadata: std::collections::HashMap::new(),
-                };
-                return vec![Ok(crate::stream::ChatStreamEvent::StreamEnd { response })];
             }
 
             // Parse JSON (fallback)
@@ -382,18 +240,11 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
     fn handle_stream_end(
         &self,
     ) -> Option<Result<crate::stream::ChatStreamEvent, crate::error::LlmError>> {
-        Some(Ok(crate::stream::ChatStreamEvent::StreamEnd {
-            response: crate::types::ChatResponse {
-                id: None,
-                content: crate::types::MessageContent::Text(String::new()),
-                model: Some(self.model.clone()),
-                usage: None,
-                finish_reason: Some(crate::types::FinishReason::Stop),
-                tool_calls: None,
-                thinking: None,
-                metadata: std::collections::HashMap::new(),
-            },
-        }))
+        // Do not emit a StreamEnd on [DONE]. The Responses API emits a
+        // `response.completed` event that we already convert into the final
+        // ChatResponse via the centralized ResponseTransformer. Returning None
+        // here avoids duplicate StreamEnd events and matches Cherry's behavior.
+        None
     }
 }
 
@@ -404,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_responses_event_converter_content_delta() {
-        let conv = OpenAiResponsesEventConverter::new("gpt-5-mini".to_string());
+        let conv = OpenAiResponsesEventConverter::new();
         let event = eventsource_stream::Event {
             event: "message".to_string(),
             data: r#"{"delta":{"content":"hello"}}"#.to_string(),
@@ -425,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_responses_event_converter_tool_call_delta() {
-        let conv = OpenAiResponsesEventConverter::new("gpt-5".to_string());
+        let conv = OpenAiResponsesEventConverter::new();
         let event = eventsource_stream::Event {
             event: "message".to_string(),
             data: r#"{"delta":{"tool_calls":[{"id":"t1","function":{"name":"lookup","arguments":"{\"q\":\"x\"}"}}]}}"#.to_string(),
@@ -453,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_responses_event_converter_usage_update() {
-        let conv = OpenAiResponsesEventConverter::new("gpt-5".to_string());
+        let conv = OpenAiResponsesEventConverter::new();
         let event = eventsource_stream::Event {
             event: "message".to_string(),
             data: r#"{"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}}"#
@@ -477,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_responses_event_converter_done() {
-        let conv = OpenAiResponsesEventConverter::new("gpt-5".to_string());
+        let conv = OpenAiResponsesEventConverter::new();
         let event = eventsource_stream::Event {
             event: "message".to_string(),
             data: "[DONE]".to_string(),
@@ -492,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_sse_named_events_routing() {
-        let conv = OpenAiResponsesEventConverter::new("gpt-5".to_string());
+        let conv = OpenAiResponsesEventConverter::new();
         use crate::utils::streaming::SseEventConverter;
 
         // content delta via named event

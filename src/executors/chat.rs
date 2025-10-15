@@ -32,6 +32,10 @@ pub struct HttpChatExecutor {
     // Strategy hooks
     pub build_url: Box<dyn Fn(bool) -> String + Send + Sync>,
     pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
+    /// Optional external parameter transformer (plugin-like), applied to JSON body
+    pub before_send: Option<
+        Arc<dyn Fn(&serde_json::Value) -> Result<serde_json::Value, LlmError> + Send + Sync>,
+    >,
 }
 
 #[async_trait::async_trait]
@@ -46,7 +50,13 @@ impl ChatExecutor for HttpChatExecutor {
             .http_client
             .post(url)
             .headers(headers)
-            .json(&body)
+            .json(
+                &(if let Some(cb) = &self.before_send {
+                    cb(&body)?
+                } else {
+                    body
+                }),
+            )
             .send()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
@@ -80,7 +90,16 @@ impl ChatExecutor for HttpChatExecutor {
         let url = (self.build_url)(true);
         let headers = (self.build_headers)()?;
 
-        let request_builder = self.http_client.post(url).headers(headers).json(&body);
+        let transformed = if let Some(cb) = &self.before_send {
+            cb(&body)?
+        } else {
+            body
+        };
+        let request_builder = self
+            .http_client
+            .post(url)
+            .headers(headers)
+            .json(&transformed);
 
         // Use underlying converter via adapter/transformer wrapper
         // The StreamChunkTransformer must implement SseEventConverter via a known inner
