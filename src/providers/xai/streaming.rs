@@ -184,17 +184,21 @@ impl XaiStreaming {
         // Override with streaming-specific settings
         request_body["stream"] = serde_json::Value::Bool(true);
 
-        // Create headers
-        let headers = build_headers(&self.config.api_key, &self.config.http_config.headers)?;
-
-        // Create the stream using reqwest_eventsource for enhanced reliability
-        let request_builder = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&request_body);
+        // Build closure for one-shot 401 retry with header rebuild
+        let http = self.http_client.clone();
+        let api_key = self.config.api_key.clone();
+        let extra = self.config.http_config.headers.clone();
+        let url_for_retry = url.clone();
+        let body_for_retry = request_body.clone();
+        let build_request = move || {
+            let headers = build_headers(&api_key, &extra)?;
+            Ok(http
+                .post(&url_for_retry)
+                .headers(headers)
+                .json(&body_for_retry))
+        };
 
         let converter = XaiEventConverter::new();
-        StreamFactory::create_eventsource_stream(request_builder, converter).await
+        StreamFactory::create_eventsource_stream_with_retry("xai", build_request, converter).await
     }
 }

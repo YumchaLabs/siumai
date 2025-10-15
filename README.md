@@ -58,6 +58,151 @@ let client = Siumai::builder()
         "previous_response_id": "resp_123",
         "built_in_tools": ["web_search"]
     }))
+### Enterprise: Google Vertex AI (Bearer Auth)
+
+Siumai supports Vertex AI enterprise authentication via Bearer tokens. There are three ways to provide the token:
+
+- Static Bearer token (externally managed): use `http_header("Authorization", "Bearer <token>")`
+- Service Account (JWT → Access Token): `ServiceAccountTokenProvider`
+- ADC (Application Default Credentials): `AdcTokenProvider` or `with_gemini_adc()`
+
+When a Bearer is present, Siumai will NOT inject `x-goog-api-key`. This avoids header conflicts for Vertex.
+
+Build a Vertex base URL using helper `utils::vertex::vertex_base_url(project, location, publisher)`:
+
+```rust
+use siumai::prelude::*;
+use siumai::utils::vertex::vertex_base_url;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let base = vertex_base_url("my-project", "us-central1", "google"); // publisher "google" for Gemini
+
+    // Option A: ADC one-liner (Bearer)
+    let client = Siumai::builder()
+        .provider(ProviderType::Gemini)
+        .with_gemini_adc() // resolves token from env/SA/metadata
+        .base_url(&base)
+        .model("gemini-1.5-flash")
+        .build()
+        .await?;
+
+    // Option B: Service Account TokenProvider
+    use siumai::auth::service_account::{ServiceAccountCredentials, ServiceAccountTokenProvider};
+    let creds = ServiceAccountCredentials::new(
+        std::env::var("SA_CLIENT_EMAIL")?,
+        std::env::var("SA_PRIVATE_KEY")?,
+    );
+    let tp = std::sync::Arc::new(ServiceAccountTokenProvider::new(
+        creds,
+        reqwest::blocking::Client::new(),
+        None,
+    ));
+    let client2 = Siumai::builder()
+        .provider(ProviderType::Gemini)
+        .with_gemini_token_provider(tp)
+        .base_url(&base)
+        .model("gemini-1.5-flash")
+        .build()
+        .await?;
+
+    Ok(())
+}
+```
+
+Notes:
+
+- Use `publisher="google"` for Gemini models; for Anthropic on Vertex, use `publisher="anthropic"`.
+- If you pass a Bearer token (via headers or TokenProvider), `api_key` is not required for Gemini.
+
+ADC resolution and environment variables:
+
+- Resolution order (first hit wins):
+  1) `GOOGLE_OAUTH_ACCESS_TOKEN` (treated as a ready-to-use Bearer; assumed short‑lived)
+  2) `GOOGLE_APPLICATION_CREDENTIALS` (Service Account JSON → JWT bearer grant)
+  3) GCE/GKE metadata server (`http://169.254.169.254/…/token`)
+- Test override: set `ADC_METADATA_URL` to point metadata requests to a mock server in tests.
+- Scopes: Service Account flow defaults to `https://www.googleapis.com/auth/cloud-platform` unless overridden in the JSON (`scopes`).
+
+Billing and project headers:
+
+- Some Vertex projects require `x-goog-user-project` for quota/billing. You can add it via `http_header` or `http_headers`:
+
+```rust
+let client = Siumai::builder()
+    .provider(ProviderType::Gemini)
+    .with_gemini_adc()
+    .base_url(&base)
+    .http_header("x-goog-user-project", "your-billing-project-id")
+    .model("gemini-1.5-flash")
+    .build()
+    .await?;
+```
+
+Validation behavior for Vertex:
+
+- Builder validation is relaxed for Gemini when either `Authorization: Bearer …` is present or a `TokenProvider` is configured. This ensures Vertex token auth is not blocked by API‑key checks.
+- Covered by tests: `tests/gemini_vertex_validation.rs` and `tests/gemini_token_provider.rs`.
+
+Model-based provider suggestion (optional):
+
+- When you only specify `model` (e.g., `claude-3-7-sonnet-latest`) without a provider, Siumai attempts a best‑effort suggestion via the registry by matching model prefixes.
+- Examples: `claude*` → Anthropic (or Anthropic on Vertex if related alias is used); `gemini*` → Google (Gemini).
+- This is a non-intrusive fallback. You may still override provider selection explicitly via `provider(ProviderType::...)`.
+
+Example:
+
+```rust,no_run
+use siumai::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Only specify model; builder will suggest provider by model prefix (optional fallback)
+    let client = Siumai::builder()
+        .model("claude-3-7-sonnet-latest")  // Suggests Anthropic; if on Vertex aliases, routes to Anthropic on Vertex
+        .build()
+        .await?;
+
+    let resp = client.chat(vec![user!("hello")]).await?;
+    println!("{}", resp.content_text().unwrap_or("<no content>"));
+    Ok(())
+}
+```
+
+#### Anthropic on Vertex (MVP)
+
+Siumai includes an MVP client for Anthropic on Vertex (rawPredict/streamRawPredict). You can activate it by either:
+
+- Setting provider name `anthropic-vertex`; or
+- Using a `base_url` that contains `aiplatform.googleapis.com` and the Anthropic publisher path.
+
+Provide Bearer via headers or TokenProvider (same as Gemini Vertex):
+
+```rust
+use siumai::prelude::*;
+use siumai::utils::vertex::vertex_base_url;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let base = vertex_base_url("my-project", "us-central1", "anthropic");
+    let client = Siumai::builder()
+        .provider_name("anthropic-vertex")
+        .http_header("Authorization", format!("Bearer {}", std::env::var("VERTEX_TOKEN")?))
+        .base_url(&base)
+        .model("claude-3-7-sonnet-latest")
+        .build()
+        .await?;
+    Ok(())
+}
+```
+
+Roadmap: model listing/tool-calls parity and more fine-grained event mapping.
+
+### Streaming: first-packet retry and error classification
+
+- For SSE-based streaming, Siumai performs a one‑shot 401 retry with rebuilt headers (helpful for refreshed Bearer tokens).
+- On non‑401 errors, it classifies errors (429/Retry‑After, quota/rate signals, 5xx) using `retry_api::classify_http_error`.
+- JSON streaming (e.g., Gemini) continues to use the unified converter; error classification applies at the HTTP boundary.
     .build()
     .await?;
 ```

@@ -88,13 +88,20 @@ impl FileManagementCapability for GeminiFiles {
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let extra = self
+        let base_extra = self
             .config
             .http_config
             .clone()
             .and_then(|c| Some(c.headers))
             .unwrap_or_default();
+        let tp = self.config.token_provider.clone();
         let headers_builder = move || {
+            let mut extra = base_extra.clone();
+            if let Some(ref tp) = tp {
+                if let Ok(tok) = tp.token() {
+                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                }
+            }
             let mut headers =
                 crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
@@ -119,13 +126,20 @@ impl FileManagementCapability for GeminiFiles {
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let extra = self
+        let base_extra = self
             .config
             .http_config
             .clone()
             .and_then(|c| Some(c.headers))
             .unwrap_or_default();
+        let tp = self.config.token_provider.clone();
         let headers_builder = move || {
+            let mut extra = base_extra.clone();
+            if let Some(ref tp) = tp {
+                if let Ok(tok) = tp.token() {
+                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                }
+            }
             let mut headers =
                 crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
@@ -150,13 +164,20 @@ impl FileManagementCapability for GeminiFiles {
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let extra = self
+        let base_extra = self
             .config
             .http_config
             .clone()
             .and_then(|c| Some(c.headers))
             .unwrap_or_default();
+        let tp = self.config.token_provider.clone();
         let headers_builder = move || {
+            let mut extra = base_extra.clone();
+            if let Some(ref tp) = tp {
+                if let Ok(tok) = tp.token() {
+                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                }
+            }
             let mut headers =
                 crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
@@ -212,13 +233,22 @@ impl FileManagementCapability for GeminiFiles {
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
+        let base_extra = self
+            .config
+            .http_config
+            .clone()
+            .and_then(|c| Some(c.headers))
+            .unwrap_or_default();
+        let tp = self.config.token_provider.clone();
         let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                "x-goog-api-key",
-                reqwest::header::HeaderValue::from_str(&api_key)
-                    .map_err(|e| LlmError::ConfigurationError(e.to_string()))?,
-            );
+            let mut extra = base_extra.clone();
+            if let Some(ref tp) = tp {
+                if let Ok(tok) = tp.token() {
+                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                }
+            }
+            let mut headers =
+                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             Ok(headers)
         };

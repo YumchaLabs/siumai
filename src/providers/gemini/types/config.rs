@@ -2,7 +2,7 @@ use crate::types::HttpConfig;
 use serde::{Deserialize, Serialize};
 
 /// Gemini-specific configuration parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GeminiConfig {
     /// API key for authentication
     pub api_key: String,
@@ -22,6 +22,27 @@ pub struct GeminiConfig {
     /// HTTP configuration (custom headers, proxy, user agent)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_config: Option<HttpConfig>,
+    /// Optional Bearer token provider (e.g., Vertex AI enterprise auth)
+    /// Not serialized/deserialized; runtime only.
+    #[serde(skip)]
+    pub token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+}
+
+impl std::fmt::Debug for GeminiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GeminiConfig")
+            .field("api_key_present", &(!self.api_key.is_empty()))
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field(
+                "generation_config_present",
+                &self.generation_config.is_some(),
+            )
+            .field("safety_settings_present", &self.safety_settings.is_some())
+            .field("timeout", &self.timeout)
+            .field("http_config_present", &self.http_config.is_some())
+            .finish()
+    }
 }
 
 impl Default for GeminiConfig {
@@ -34,6 +55,7 @@ impl Default for GeminiConfig {
             safety_settings: None,
             timeout: Some(30),
             http_config: Some(HttpConfig::default()),
+            token_provider: None,
         }
     }
 }
@@ -75,6 +97,15 @@ impl GeminiConfig {
     /// Set HTTP config (headers/proxy/user-agent)
     pub fn with_http_config(mut self, http: HttpConfig) -> Self {
         self.http_config = Some(http);
+        self
+    }
+
+    /// Set a Bearer token provider for enterprise auth (e.g., Vertex AI).
+    pub fn with_token_provider(
+        mut self,
+        provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
+    ) -> Self {
+        self.token_provider = Some(provider);
         self
     }
 }

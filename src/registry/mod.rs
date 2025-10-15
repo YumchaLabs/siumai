@@ -25,11 +25,18 @@ pub struct ProviderRecord {
     #[cfg(feature = "openai")]
     pub adapter: Option<std::sync::Arc<dyn ProviderAdapter>>, // for OpenAI-compatible
     pub aliases: Vec<String>,
+    /// Optional model id prefixes that hint routing for this provider
+    pub model_prefixes: Vec<String>,
 }
 
 impl ProviderRecord {
     pub fn with_alias(mut self, alias: impl Into<String>) -> Self {
         self.aliases.push(alias.into());
+        self
+    }
+
+    pub fn with_model_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.model_prefixes.push(prefix.into());
         self
     }
 }
@@ -73,6 +80,7 @@ impl ProviderRegistryV2 {
             capabilities,
             adapter: Some(adapter),
             aliases: vec![],
+            model_prefixes: vec![],
         };
 
         self.register(record);
@@ -95,6 +103,7 @@ impl ProviderRegistryV2 {
             #[cfg(feature = "openai")]
             adapter: None,
             aliases: vec![],
+            model_prefixes: vec![],
         };
         self.register(record);
     }
@@ -108,6 +117,13 @@ impl ProviderRegistryV2 {
         self.by_id
             .values()
             .find(|rec| rec.aliases.iter().any(|a| a == id_or_alias))
+    }
+
+    /// Resolve by model id prefix (best-effort). Returns the first match.
+    pub fn resolve_for_model(&self, model_id: &str) -> Option<&ProviderRecord> {
+        self.by_id
+            .values()
+            .find(|rec| rec.model_prefixes.iter().any(|p| model_id.starts_with(p)))
     }
 
     /// List registered providers

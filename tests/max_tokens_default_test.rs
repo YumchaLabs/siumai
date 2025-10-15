@@ -123,6 +123,7 @@ fn test_gemini_max_tokens_optional() {
             safety_settings: None,
             timeout: Some(30),
             http_config: Some(siumai::types::HttpConfig::default()),
+            token_provider: None,
         },
     };
 

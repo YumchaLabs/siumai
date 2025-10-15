@@ -82,6 +82,7 @@ pub const ENABLED_PROVIDERS: &str = env!("SIUMAI_ENABLED_PROVIDERS");
 pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 
 pub mod analysis;
+pub mod auth;
 pub mod benchmarks;
 pub mod builder;
 pub mod client;

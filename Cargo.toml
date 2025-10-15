@@ -22,12 +22,13 @@ async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 lazy_static = "1.4"
+jsonwebtoken = { version = "9", default-features = true }
 
 # Validation
 validator = { version = "0.20", features = ["derive"] }
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart", "blocking"] }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }

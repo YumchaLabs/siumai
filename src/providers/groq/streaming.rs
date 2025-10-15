@@ -192,17 +192,22 @@ impl GroqStreaming {
         // Validate parameters
         validate_groq_params(&request_body)?;
 
-        // Create headers
-        let headers = build_headers(&self.config.api_key, &self.config.http_config.headers)?;
-
-        // Create the stream using reqwest_eventsource for enhanced reliability
-        let request_builder = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&request_body);
+        // Build closure for one-shot 401 retry with header rebuild
+        let http = self.http_client.clone();
+        let api_key = self.config.api_key.clone();
+        let extra_headers = self.config.http_config.headers.clone();
+        let url_for_retry = url.clone();
+        let body_for_retry = request_body.clone();
+        let build_request = move || {
+            let mut headers = build_headers(&api_key, &extra_headers)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(http
+                .post(&url_for_retry)
+                .headers(headers)
+                .json(&body_for_retry))
+        };
 
         let converter = GroqEventConverter::new();
-        StreamFactory::create_eventsource_stream(request_builder, converter).await
+        StreamFactory::create_eventsource_stream_with_retry("groq", build_request, converter).await
     }
 }

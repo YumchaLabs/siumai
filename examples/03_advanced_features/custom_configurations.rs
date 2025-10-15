@@ -256,6 +256,7 @@ fn convert_params_via_transformers(
                 safety_settings: None,
                 timeout: Some(30),
                 http_config: Some(siumai::types::HttpConfig::default()),
+                token_provider: None,
             };
             let tx =
                 siumai::providers::gemini::transformers::GeminiRequestTransformer { config: cfg };

@@ -27,6 +27,7 @@
 
 use crate::error::LlmError;
 use crate::types::ProviderType;
+use reqwest::header::HeaderMap;
 
 // Re-export core types for convenience
 pub use crate::retry::RetryPolicy;
@@ -143,6 +144,72 @@ where
             executor.execute(operation).await
         }
     }
+}
+
+/// Classify an HTTP failure into a more specific error type with retry hints.
+///
+/// This helper inspects the HTTP status code, response body and headers to
+/// derive a better-typed LlmError (e.g., RateLimitError / QuotaExceededError)
+/// rather than a generic ApiError. It is provider-agnostic with light-weight
+/// heuristics, but includes common Vertex/Google patterns.
+pub fn classify_http_error(
+    provider_id: &str,
+    status: u16,
+    body_text: &str,
+    headers: &HeaderMap,
+    fallback_message: Option<&str>,
+) -> LlmError {
+    let lower = body_text.to_lowercase();
+
+    // 429 Too Many Requests → RateLimit with optional Retry-After hint
+    if status == 429 {
+        let retry_after = headers
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        return LlmError::RateLimitError(format!(
+            "provider={} http=429 retry_after={}",
+            provider_id, retry_after
+        ));
+    }
+
+    // 401 → Authentication
+    if status == 401 {
+        return LlmError::AuthenticationError(format!("provider={} unauthorized", provider_id));
+    }
+
+    // 403/400 with quota/rate patterns → QuotaExceeded or RateLimit
+    if status == 403 || status == 400 {
+        let quota_like = lower.contains("quota") || lower.contains("exceed");
+        let rate_like = lower.contains("rate limit")
+            || lower.contains("ratelimit")
+            || lower.contains("resource_exhausted")
+            || lower.contains("rate_limit_exceeded")
+            || lower.contains("ratelimitexceeded")
+            || lower.contains("ratelimit exceeded");
+        if quota_like {
+            return LlmError::QuotaExceededError(format!(
+                "provider={} quota exceeded",
+                provider_id
+            ));
+        }
+        if rate_like {
+            return LlmError::RateLimitError(format!("provider={} rate limited", provider_id));
+        }
+    }
+
+    // 5xx → Server error (retryable via is_retryable())
+    if (500..=599).contains(&status) {
+        return LlmError::api_error(status, fallback_message.unwrap_or("server error"));
+    }
+
+    // Fallback to ApiError with original status and body snippet
+    let msg = if body_text.is_empty() {
+        fallback_message.unwrap_or("api error")
+    } else {
+        body_text
+    };
+    LlmError::api_error(status, msg)
 }
 
 #[cfg(test)]

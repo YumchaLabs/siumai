@@ -747,6 +747,7 @@ mod files_tests {
             safety_settings: None,
             timeout: Some(30),
             http_config: Some(crate::types::HttpConfig::default()),
+            token_provider: None,
         }
     }
 
@@ -832,6 +833,7 @@ mod images_tests {
             safety_settings: None,
             timeout: Some(30),
             http_config: Some(crate::types::HttpConfig::default()),
+            token_provider: None,
         }
     }
 
@@ -887,6 +889,7 @@ mod embeddings_tests {
             safety_settings: None,
             timeout: Some(30),
             http_config: Some(crate::types::HttpConfig::default()),
+            token_provider: None,
         }
     }
 

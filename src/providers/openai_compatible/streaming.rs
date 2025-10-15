@@ -315,18 +315,40 @@ impl OpenAiCompatibleStreaming {
         // Override with streaming-specific settings
         request_body["stream"] = serde_json::Value::Bool(true);
 
-        // Create headers
-        let headers = self.build_headers()?;
-
-        // Create the stream using reqwest_eventsource for enhanced reliability
-        let request_builder = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&request_body);
+        // Build closure for one-shot 401 retry with header rebuild
+        let http = self.http_client.clone();
+        let url_for_retry = url.clone();
+        let body_for_retry = request_body.clone();
+        let api_key = self.config.api_key.clone();
+        let headers_builder = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
+                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {e}")))?,
+            );
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok::<reqwest::header::HeaderMap, LlmError>(headers)
+        };
+        let build_request = move || {
+            let headers = headers_builder()?;
+            Ok(http
+                .post(&url_for_retry)
+                .headers(headers)
+                .json(&body_for_retry))
+        };
 
         let converter = OpenAiCompatibleEventConverter::new(self.config, self.adapter);
-        StreamFactory::create_eventsource_stream(request_builder, converter).await
+        StreamFactory::create_eventsource_stream_with_retry(
+            "openai-compatible",
+            build_request,
+            converter,
+        )
+        .await
     }
 
     /// Build request body via unified transformer

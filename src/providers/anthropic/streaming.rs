@@ -330,15 +330,25 @@ impl AnthropicStreaming {
         // Build the API URL
         let url = crate::utils::url::join_url(&self.base_url, "/v1/messages");
 
-        // Create the stream using reqwest_eventsource for enhanced reliability
-        let request_builder = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&request_body);
+        // Build closure for one-shot 401 retry with header rebuild
+        let http = self.http_client.clone();
+        let base_headers = self.http_config.headers.clone();
+        let api_key = self.api_key.clone();
+        let url_for_retry = url.clone();
+        let body_for_retry = request_body.clone();
+        let build_request = move || {
+            let mut headers =
+                crate::utils::http_headers::ProviderHeaders::anthropic(&api_key, &base_headers)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(http
+                .post(url_for_retry.clone())
+                .headers(headers)
+                .json(&body_for_retry))
+        };
 
         let converter = AnthropicEventConverter::new(self.config);
-        StreamFactory::create_eventsource_stream(request_builder, converter).await
+        StreamFactory::create_eventsource_stream_with_retry("anthropic", build_request, converter)
+            .await
     }
 
     // Legacy message conversion helper removed; handled by Transformers

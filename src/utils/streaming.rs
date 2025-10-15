@@ -48,6 +48,82 @@ pub trait JsonEventConverter: Send + Sync {
 pub struct StreamFactory;
 
 impl StreamFactory {
+    /// Create a chat stream with one-shot 401 retry and error classification.
+    ///
+    /// The `build_request` closure must construct a fresh RequestBuilder each call
+    /// with up-to-date headers (e.g., refreshed Bearer token). On non-401 errors,
+    /// this method classifies the error using `retry_api::classify_http_error`.
+    pub async fn create_eventsource_stream_with_retry<B, C>(
+        provider_id: &str,
+        build_request: B,
+        converter: C,
+    ) -> Result<ChatStream, LlmError>
+    where
+        B: Fn() -> Result<reqwest::RequestBuilder, LlmError>,
+        C: SseEventConverter + Clone + Send + 'static,
+    {
+        // First attempt
+        let response = build_request()?
+            .send()
+            .await
+            .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
+        let response = if !response.status().is_success() {
+            let status = response.status();
+            if status.as_u16() == 401 {
+                // Retry once with rebuilt headers/request
+                build_request()?
+                    .send()
+                    .await
+                    .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?
+            } else {
+                let headers = response.headers().clone();
+                let text = response.text().await.unwrap_or_default();
+                return Err(crate::retry_api::classify_http_error(
+                    provider_id,
+                    status.as_u16(),
+                    &text,
+                    &headers,
+                    None,
+                ));
+            }
+        } else {
+            response
+        };
+
+        // Convert to byte stream and then to SSE
+        let byte_stream = response
+            .bytes_stream()
+            .map(|chunk| chunk.map_err(|e| LlmError::HttpError(format!("Stream error: {e}"))));
+
+        let sse_stream = byte_stream.into_sse_stream();
+        let chat_stream = sse_stream
+            .then(move |event_result| {
+                let converter = converter.clone();
+                async move {
+                    match event_result {
+                        Ok(event) => {
+                            if event.data.trim() == "[DONE]" {
+                                if let Some(end) = converter.handle_stream_end() {
+                                    return vec![end];
+                                }
+                                return vec![];
+                            }
+                            if event.data.trim().is_empty() {
+                                return vec![];
+                            }
+                            converter.convert_event(event).await
+                        }
+                        Err(e) => {
+                            vec![Err(LlmError::StreamError(format!(
+                                "SSE parsing error: {e}"
+                            )))]
+                        }
+                    }
+                }
+            })
+            .flat_map(futures::stream::iter);
+        Ok(Box::pin(chat_stream))
+    }
     /// Create a chat stream for JSON-based streaming (like Gemini)
     ///
     /// Some providers use JSON streaming instead of SSE. This method handles

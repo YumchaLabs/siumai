@@ -172,6 +172,9 @@ pub async fn build_gemini_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     provider_params: Option<ProviderParams>,
+    #[allow(unused_variables)] gemini_token_provider: Option<
+        std::sync::Arc<dyn crate::auth::TokenProvider>,
+    >,
     tracing_config: Option<crate::tracing::TracingConfig>,
 ) -> Result<Box<dyn LlmClient>, LlmError> {
     use crate::providers::gemini::client::GeminiClient;
@@ -199,6 +202,11 @@ pub async fn build_gemini_client(
     // Pass through HTTP config if present in builder path
     config = config.with_http_config(http_config.clone());
 
+    // Attach token provider if present
+    if let Some(tp) = gemini_token_provider {
+        config = config.with_token_provider(tp);
+    }
+
     // Create client with provided HTTP client
     let mut client = GeminiClient::with_http_client(config, http_client)?;
 
@@ -217,6 +225,27 @@ pub async fn build_gemini_client(
         client.set_tracing_config(Some(tc));
     }
 
+    Ok(Box::new(client))
+}
+
+/// Build Anthropic on Vertex AI client
+#[cfg(feature = "anthropic")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_anthropic_vertex_client(
+    base_url: String,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    http_config: HttpConfig,
+    tracing_config: Option<crate::tracing::TracingConfig>,
+) -> Result<Box<dyn LlmClient>, LlmError> {
+    let cfg = crate::providers::anthropic_vertex::client::VertexAnthropicConfig {
+        base_url,
+        model: common_params.model.clone(),
+        http_config,
+    };
+    let client =
+        crate::providers::anthropic_vertex::client::VertexAnthropicClient::new(cfg, http_client);
+    // No tracing guard necessary; headers are injected via ProviderHeaders.
     Ok(Box::new(client))
 }
 

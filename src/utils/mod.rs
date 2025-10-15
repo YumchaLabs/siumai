@@ -10,8 +10,10 @@ pub mod sse_stream;
 pub mod streaming;
 pub mod url;
 pub mod utf8_decoder;
+pub mod vertex;
 
 pub use sse_stream::{SseStream, SseStreamExt};
 pub use streaming::*;
 pub use url::*;
 pub use utf8_decoder::Utf8StreamDecoder;
+pub use vertex::*;

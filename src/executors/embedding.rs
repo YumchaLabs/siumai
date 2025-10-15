@@ -46,15 +46,32 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
             .send()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
-        if !resp.status().is_success() {
+        let resp = if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: text,
-                details: None,
-            });
-        }
+            if status.as_u16() == 401 {
+                let url = (self.build_url)(&req);
+                let headers = (self.build_headers)()?;
+                self.http_client
+                    .post(url)
+                    .headers(headers)
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| LlmError::HttpError(e.to_string()))?
+            } else {
+                let headers = resp.headers().clone();
+                let text = resp.text().await.unwrap_or_default();
+                return Err(crate::retry_api::classify_http_error(
+                    &self.provider_id,
+                    status.as_u16(),
+                    &text,
+                    &headers,
+                    None,
+                ));
+            }
+        } else {
+            resp
+        };
         let text = resp
             .text()
             .await

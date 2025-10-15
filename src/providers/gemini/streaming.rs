@@ -281,12 +281,15 @@ impl GeminiStreaming {
         request: serde_json::Value,
     ) -> Result<ChatStream, LlmError> {
         // Make the HTTP request
-        let response = self
+        let mut rb = self
             .http_client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("x-goog-api-key", &api_key)
-            .json(&request)
+            .json(&request);
+        if !api_key.is_empty() {
+            rb = rb.header("x-goog-api-key", &api_key);
+        }
+        let response = rb
             .send()
             .await
             .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
@@ -308,15 +311,33 @@ impl GeminiStreaming {
         let mut config = self.config;
         config.api_key = api_key.clone();
         let converter = GeminiEventConverter::new(config);
-        StreamFactory::create_eventsource_stream(
-            self.http_client
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .header("x-goog-api-key", &api_key)
-                .json(&request),
-            converter,
-        )
-        .await
+        // Build closure for one-shot 401 retry with header rebuild
+        let http = self.http_client.clone();
+        let url_for_retry = url.clone();
+        let body_for_retry = request.clone();
+        let key_for_retry = api_key.clone();
+        let build_request = move || {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            if !key_for_retry.is_empty() {
+                headers.insert(
+                    reqwest::header::HeaderName::from_static("x-goog-api-key"),
+                    reqwest::header::HeaderValue::from_str(&key_for_retry).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Invalid api key: {e}"))
+                    })?,
+                );
+            }
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(http
+                .post(&url_for_retry)
+                .headers(headers)
+                .json(&body_for_retry))
+        };
+        StreamFactory::create_eventsource_stream_with_retry("gemini", build_request, converter)
+            .await
     }
 }
 

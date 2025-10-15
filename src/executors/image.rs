@@ -47,32 +47,43 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let body = self.request_transformer.transform_image(&req)?;
         let url = (self.build_url)();
-        let headers = (self.build_headers)()?;
-
-        let body = if let Some(cb) = &self.before_send {
-            cb(&body)?
-        } else {
-            body
+        let mut build_and_send = || async {
+            let body0 = self.request_transformer.transform_image(&req)?;
+            let headers0 = (self.build_headers)()?;
+            let body0 = if let Some(cb) = &self.before_send {
+                cb(&body0)?
+            } else {
+                body0
+            };
+            let resp0 = self
+                .http_client
+                .post(&url)
+                .headers(headers0)
+                .json(&body0)
+                .send()
+                .await
+                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            Ok::<reqwest::Response, LlmError>(resp0)
         };
 
-        let resp = self
-            .http_client
-            .post(url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
+        let mut resp = build_and_send().await?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: text,
-                details: None,
-            });
+            if status.as_u16() == 401 {
+                // Retry once with rebuilt headers/body
+                resp = build_and_send().await?;
+            } else {
+                let headers = resp.headers().clone();
+                let text = resp.text().await.unwrap_or_default();
+                return Err(crate::retry_api::classify_http_error(
+                    &self.provider_id,
+                    status.as_u16(),
+                    &text,
+                    &headers,
+                    None,
+                ));
+            }
         }
         let text = resp
             .text()
@@ -87,24 +98,34 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let body = self.request_transformer.transform_image_edit(&req)?;
         let url = (self.build_url)();
-        let headers = (self.build_headers)()?;
-        let builder = self.http_client.post(url).headers(headers);
-        let resp = match body {
-            ImageHttpBody::Json(json) => builder.json(&json).send().await,
-            ImageHttpBody::Multipart(form) => builder.multipart(form).send().await,
-        }
-        .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
+        let mut build_and_send = || async {
+            let body0 = self.request_transformer.transform_image_edit(&req)?;
+            let headers0 = (self.build_headers)()?;
+            let builder0 = self.http_client.post(&url).headers(headers0);
+            let resp0 = match body0 {
+                ImageHttpBody::Json(json) => builder0.json(&json).send().await,
+                ImageHttpBody::Multipart(form) => builder0.multipart(form).send().await,
+            }
+            .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            Ok::<reqwest::Response, LlmError>(resp0)
+        };
+        let mut resp = build_and_send().await?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: text,
-                details: None,
-            });
+            if status.as_u16() == 401 {
+                resp = build_and_send().await?;
+            } else {
+                let headers = resp.headers().clone();
+                let text = resp.text().await.unwrap_or_default();
+                return Err(crate::retry_api::classify_http_error(
+                    &self.provider_id,
+                    status.as_u16(),
+                    &text,
+                    &headers,
+                    None,
+                ));
+            }
         }
         let text = resp
             .text()
@@ -119,24 +140,34 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let body = self.request_transformer.transform_image_variation(&req)?;
         let url = (self.build_url)();
-        let headers = (self.build_headers)()?;
-        let builder = self.http_client.post(url).headers(headers);
-        let resp = match body {
-            ImageHttpBody::Json(json) => builder.json(&json).send().await,
-            ImageHttpBody::Multipart(form) => builder.multipart(form).send().await,
-        }
-        .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
+        let mut build_and_send = || async {
+            let body0 = self.request_transformer.transform_image_variation(&req)?;
+            let headers0 = (self.build_headers)()?;
+            let builder0 = self.http_client.post(&url).headers(headers0);
+            let resp0 = match body0 {
+                ImageHttpBody::Json(json) => builder0.json(&json).send().await,
+                ImageHttpBody::Multipart(form) => builder0.multipart(form).send().await,
+            }
+            .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            Ok::<reqwest::Response, LlmError>(resp0)
+        };
+        let mut resp = build_and_send().await?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: text,
-                details: None,
-            });
+            if status.as_u16() == 401 {
+                resp = build_and_send().await?;
+            } else {
+                let headers = resp.headers().clone();
+                let text = resp.text().await.unwrap_or_default();
+                return Err(crate::retry_api::classify_http_error(
+                    &self.provider_id,
+                    status.as_u16(),
+                    &text,
+                    &headers,
+                    None,
+                ));
+            }
         }
         let text = resp
             .text()

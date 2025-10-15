@@ -26,6 +26,8 @@ pub mod convenience;
 pub use anthropic::AnthropicClient;
 #[cfg(feature = "google")]
 pub use gemini::GeminiClient;
+#[cfg(feature = "anthropic")]
+pub mod anthropic_vertex;
 #[cfg(feature = "groq")]
 pub use groq::GroqClient;
 #[cfg(feature = "ollama")]

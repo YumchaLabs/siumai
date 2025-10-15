@@ -60,16 +60,39 @@ impl ChatExecutor for HttpChatExecutor {
             .send()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        if !resp.status().is_success() {
+        let resp = if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: text,
-                details: None,
-            });
-        }
+            if status.as_u16() == 401 {
+                // Rebuild headers and retry once (helps with refreshed Bearer tokens)
+                let url = (self.build_url)(false);
+                let headers = (self.build_headers)()?;
+                self.http_client
+                    .post(url)
+                    .headers(headers)
+                    .json(
+                        &(if let Some(cb) = &self.before_send {
+                            cb(&self.request_transformer.transform_chat(&req)?)?
+                        } else {
+                            self.request_transformer.transform_chat(&req)?
+                        }),
+                    )
+                    .send()
+                    .await
+                    .map_err(|e| LlmError::HttpError(e.to_string()))?
+            } else {
+                let headers = resp.headers().clone();
+                let text = resp.text().await.unwrap_or_default();
+                return Err(crate::retry_api::classify_http_error(
+                    &self.provider_id,
+                    status.as_u16(),
+                    &text,
+                    &headers,
+                    None,
+                ));
+            }
+        } else {
+            resp
+        };
 
         let text = resp
             .text()
@@ -95,11 +118,18 @@ impl ChatExecutor for HttpChatExecutor {
         } else {
             body
         };
-        let request_builder = self
-            .http_client
-            .post(url)
-            .headers(headers)
-            .json(&transformed);
+        // Build request closure for 401 one-shot retry with header rebuild
+        let http = self.http_client.clone();
+        let header_builder = &self.build_headers;
+        let url_for_retry = url.clone();
+        let transformed_for_retry = transformed.clone();
+        let build_request = move || {
+            let headers = (header_builder)()?;
+            Ok(http
+                .post(url_for_retry.clone())
+                .headers(headers)
+                .json(&transformed_for_retry))
+        };
 
         // Use underlying converter via adapter/transformer wrapper
         // The StreamChunkTransformer must implement SseEventConverter via a known inner
@@ -128,6 +158,11 @@ impl ChatExecutor for HttpChatExecutor {
         }
 
         let converter = TransformerConverter(stream_tx.clone());
-        StreamFactory::create_eventsource_stream(request_builder, converter).await
+        StreamFactory::create_eventsource_stream_with_retry(
+            &self.provider_id,
+            build_request,
+            converter,
+        )
+        .await
     }
 }

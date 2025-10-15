@@ -588,6 +588,9 @@ pub struct SiumaiBuilder {
     retry_options: Option<RetryOptions>,
     // Optional provider-specific parameters provided by the user
     user_provider_params: Option<ProviderParams>,
+    #[cfg(feature = "google")]
+    /// Optional Bearer token provider for Gemini (e.g., Vertex AI).
+    pub(crate) gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
 }
 
 // Keep module slim by moving heavy build logic out
@@ -611,6 +614,8 @@ impl SiumaiBuilder {
             reasoning_budget: None,
             retry_options: None,
             user_provider_params: None,
+            #[cfg(feature = "google")]
+            gemini_token_provider: None,
         }
     }
 
@@ -826,6 +831,43 @@ impl SiumaiBuilder {
     /// Merge multiple default HTTP headers
     pub fn http_headers(mut self, headers: HashMap<String, String>) -> Self {
         self.http_config.headers.extend(headers);
+        self
+    }
+
+    /// Convenience: Set `x-goog-user-project` billing/quota header for Google Vertex AI.
+    /// This is a helper over `http_header` specialized for Vertex billing projects.
+    pub fn with_x_goog_user_project(mut self, project_id: impl Into<String>) -> Self {
+        self.http_config
+            .headers
+            .insert("x-goog-user-project".to_string(), project_id.into());
+        self
+    }
+
+    /// Convenience: Build and set a Vertex AI base URL using project, location and publisher.
+    /// Publisher should be `google` for Gemini, or `anthropic` for Anthropic on Vertex.
+    pub fn base_url_for_vertex(mut self, project: &str, location: &str, publisher: &str) -> Self {
+        let base = crate::utils::vertex::vertex_base_url(project, location, publisher);
+        self.base_url = Some(base);
+        self
+    }
+
+    /// Attach a Bearer token provider for Gemini (Vertex AI enterprise auth).
+    #[cfg(feature = "google")]
+    pub fn with_gemini_token_provider(
+        mut self,
+        provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
+    ) -> Self {
+        self.gemini_token_provider = Some(provider);
+        self
+    }
+
+    /// Use Application Default Credentials as Gemini (Vertex AI) token source.
+    /// This is a convenience method that sets an ADC-based TokenProvider internally.
+    #[cfg(feature = "google")]
+    pub fn with_gemini_adc(mut self) -> Self {
+        let http = reqwest::blocking::Client::new();
+        let adc = crate::auth::adc::AdcTokenProvider::new(http);
+        self.gemini_token_provider = Some(std::sync::Arc::new(adc));
         self
     }
 

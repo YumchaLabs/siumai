@@ -4,7 +4,7 @@ use crate::traits::ProviderCapabilities;
 use crate::types::{HttpConfig, ProviderParams, ProviderType};
 
 /// Build the unified Siumai provider from SiumaiBuilder
-pub async fn build(builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
+pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     // Helper: build an HTTP client from HttpConfig
     fn build_http_client_from_config(cfg: &HttpConfig) -> Result<reqwest::Client, LlmError> {
         let mut builder = reqwest::Client::builder();
@@ -44,6 +44,32 @@ pub async fn build(builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmEr
             .map_err(|e| LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}")))
     }
 
+    // Best-effort provider suggestion by model prefix (when provider is not set)
+    if builder.provider_type.is_none() && !builder.common_params.model.is_empty() {
+        let registry = crate::registry::global_registry();
+        if let Ok(guard) = registry.lock() {
+            if let Some(rec) = guard.resolve_for_model(&builder.common_params.model) {
+                let mapped = match rec.id.as_str() {
+                    #[cfg(feature = "google")]
+                    "gemini" | "google" | "google-gemini" | "google-vertex" => {
+                        Some(ProviderType::Gemini)
+                    }
+                    #[cfg(feature = "anthropic")]
+                    "anthropic" | "anthropic-vertex" | "google-vertex-anthropic" => {
+                        Some(ProviderType::Anthropic)
+                    }
+                    _ => None,
+                };
+                if let Some(pt) = mapped {
+                    builder.provider_type = Some(pt);
+                    if rec.id == "anthropic-vertex" || rec.id == "google-vertex-anthropic" {
+                        builder.provider_name = Some("anthropic-vertex".to_string());
+                    }
+                }
+            }
+        }
+    }
+
     // Extract all needed values first to avoid borrow checker issues
     let provider_type = builder
         .provider_type
@@ -51,9 +77,29 @@ pub async fn build(builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmEr
         .ok_or_else(|| LlmError::ConfigurationError("Provider type not specified".to_string()))?;
 
     // Check if API key is required for this provider type
+    // For Gemini: if Authorization (Bearer) is provided via default headers
+    // or a TokenProvider is configured, do not enforce API Key (supports Vertex AI enterprise auth)
     let requires_api_key = match provider_type {
-        ProviderType::Ollama => false, // Ollama doesn't require API key
-        _ => true,                     // All other providers require API key
+        ProviderType::Ollama => false,
+        ProviderType::Gemini => {
+            let has_auth_header = builder
+                .http_config
+                .headers
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case("authorization"));
+            let has_token_provider = {
+                #[cfg(feature = "google")]
+                {
+                    builder.gemini_token_provider.is_some()
+                }
+                #[cfg(not(feature = "google"))]
+                {
+                    false
+                }
+            };
+            !(has_auth_header || has_token_provider)
+        }
+        _ => true,
     };
 
     let api_key = if requires_api_key {
@@ -255,22 +301,71 @@ pub async fn build(builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmEr
                             .with_streaming()
                             .with_tools(),
                     );
+                    if let Some(rec) = guard.resolve("anthropic").cloned() {
+                        let mut rec = rec.with_model_prefix("claude");
+                        guard.register(rec);
+                    }
+                }
+                // Register an alias record for Anthropic on Vertex to support id/alias lookup
+                if guard.resolve("anthropic-vertex").is_none() {
+                    guard.register_native(
+                        "anthropic-vertex",
+                        "Anthropic on Vertex",
+                        None,
+                        ProviderCapabilities::new()
+                            .with_chat()
+                            .with_streaming()
+                            .with_tools(),
+                    );
+                    if let Some(rec) = guard.resolve("anthropic-vertex").cloned() {
+                        let mut rec = rec
+                            .with_alias("google-vertex-anthropic")
+                            .with_model_prefix("claude");
+                        guard.register(rec);
+                    }
                 }
                 guard.resolve("anthropic").and_then(|r| r.base_url.clone())
             };
-            let anthropic_base_url = base_url
-                .or(resolved_base)
-                .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-            crate::registry::factory::build_anthropic_client(
-                api_key,
-                anthropic_base_url,
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                provider_params.clone(),
-                builder.tracing_config.clone(),
-            )
-            .await?
+            // Detect Anthropic on Vertex AI:
+            // - If provider_name is explicitly set to "anthropic-vertex"
+            // - Or base_url contains aiplatform.googleapis.com
+            // - Or Authorization header is present (and base_url looks like Vertex)
+            let is_vertex = builder
+                .provider_name
+                .as_deref()
+                .map(|n| n == "anthropic-vertex")
+                .unwrap_or(false)
+                || base_url
+                    .as_ref()
+                    .map(|u| u.contains("aiplatform.googleapis.com"))
+                    .unwrap_or(false);
+            if is_vertex {
+                let base = base_url
+                    .or_else(|| Some(resolved_base.clone().unwrap_or_default()))
+                    .unwrap_or_default();
+                crate::registry::factory::build_anthropic_vertex_client(
+                    base,
+                    built_http_client.clone(),
+                    common_params.clone(),
+                    http_config.clone(),
+                    builder.tracing_config.clone(),
+                )
+                .await?
+            } else {
+                let anthropic_base_url = base_url
+                    .or(resolved_base)
+                    .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+                crate::registry::factory::build_anthropic_client(
+                    api_key,
+                    anthropic_base_url,
+                    built_http_client.clone(),
+                    common_params.clone(),
+                    http_config.clone(),
+                    provider_params.clone(),
+                    builder.tracing_config.clone(),
+                )
+                .await?
+            }
         }
         #[cfg(feature = "google")]
         ProviderType::Gemini => {
@@ -292,6 +387,15 @@ pub async fn build(builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmEr
                             .with_tools(),
                     );
                 }
+                // Add common aliases and model prefixes to ease lookup/routing
+                if let Some(rec) = guard.resolve("gemini").cloned() {
+                    let mut rec = rec
+                        .with_alias("google")
+                        .with_alias("google-gemini")
+                        .with_alias("google-vertex")
+                        .with_model_prefix("gemini");
+                    guard.register(rec);
+                }
                 guard.resolve("gemini").and_then(|r| r.base_url.clone())
             };
             let resolved_base = base_url
@@ -304,6 +408,10 @@ pub async fn build(builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmEr
                 common_params.clone(),
                 http_config.clone(),
                 provider_params.clone(),
+                #[cfg(feature = "google")]
+                builder.gemini_token_provider.clone(),
+                #[cfg(not(feature = "google"))]
+                None,
                 builder.tracing_config.clone(),
             )
             .await?

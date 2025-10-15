@@ -154,10 +154,26 @@ impl GeminiModels {
                 url.push_str(&params.join("&"));
             }
 
+            // Allow Authorization-based (Bearer) Vertex AI auth via custom headers; otherwise use x-goog-api-key
+            let mut extra = self
+                .config
+                .http_config
+                .clone()
+                .and_then(|c| Some(c.headers))
+                .unwrap_or_default();
+            if let Some(ref tp) = self.config.token_provider {
+                if let Ok(tok) = tp.token() {
+                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                }
+            }
+            let mut headers =
+                crate::utils::http_headers::ProviderHeaders::gemini(&self.config.api_key, &extra)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+
             let response = self
                 .http_client
                 .get(&url)
-                .header("x-goog-api-key", &self.config.api_key)
+                .headers(headers)
                 .send()
                 .await
                 .map_err(|e| LlmError::HttpError(e.to_string()))?;
@@ -219,10 +235,26 @@ impl ModelListingCapability for GeminiModels {
 
         let url = crate::utils::url::join_url(&self.config.base_url, &full_model_name);
 
+        // Allow Authorization-based (Bearer) Vertex AI auth via custom headers; otherwise use x-goog-api-key
+        let mut extra = self
+            .config
+            .http_config
+            .clone()
+            .and_then(|c| Some(c.headers))
+            .unwrap_or_default();
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token() {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+        let mut headers =
+            crate::utils::http_headers::ProviderHeaders::gemini(&self.config.api_key, &extra)?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
+
         let response = self
             .http_client
             .get(&url)
-            .header("x-goog-api-key", &self.config.api_key)
+            .headers(headers)
             .send()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;

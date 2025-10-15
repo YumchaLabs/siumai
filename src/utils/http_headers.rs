@@ -201,15 +201,42 @@ impl ProviderHeaders {
     }
 
     /// Build headers for Gemini API
+    ///
+    /// Behavior:
+    /// - If `custom_headers` already contains `Authorization` (case-insensitive),
+    ///   treat it as a Bearer token (e.g., Vertex AI enterprise auth) and DO NOT
+    ///   inject `x-goog-api-key`.
+    /// - Otherwise, if `api_key` is non-empty, inject `x-goog-api-key`.
+    /// - Always include `Content-Type: application/json` and pass through custom headers.
     pub fn gemini(
         api_key: &str,
         custom_headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, LlmError> {
-        let builder = HttpHeaderBuilder::new()
-            .with_custom_auth("x-goog-api-key", api_key)?
+        // Base headers: JSON + custom headers
+        let mut builder = HttpHeaderBuilder::new()
             .with_json_content_type()
             .with_custom_headers(custom_headers)?;
 
+        // Detect whether Authorization (Bearer) is provided; if so, skip x-goog-api-key
+        let has_authorization = custom_headers
+            .keys()
+            .any(|k| k.eq_ignore_ascii_case("authorization"));
+
+        if !has_authorization {
+            // Without Authorization, fall back to API Key if provided
+            if !api_key.is_empty() {
+                builder = builder.with_custom_auth("x-goog-api-key", api_key)?;
+            }
+        }
+
+        Ok(builder.build())
+    }
+
+    /// Build headers for Vertex (Bearer-only JSON)
+    pub fn vertex_bearer(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
+        let mut builder = HttpHeaderBuilder::new().with_json_content_type();
+        // Pass through custom headers (should include Authorization)
+        builder = builder.with_custom_headers(custom_headers)?;
         Ok(builder.build())
     }
 }
@@ -251,6 +278,19 @@ mod tests {
         assert_eq!(headers.get(AUTHORIZATION).unwrap(), "Bearer test-token");
         assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "application/json");
         assert_eq!(headers.get(USER_AGENT).unwrap(), "test-agent");
+    }
+
+    #[test]
+    fn test_gemini_headers_with_bearer_authorization() {
+        // When Authorization is provided, x-goog-api-key must NOT be injected
+        let mut extra = HashMap::new();
+        extra.insert("Authorization".to_string(), "Bearer test-token".to_string());
+
+        let headers = ProviderHeaders::gemini("", &extra).unwrap();
+
+        assert_eq!(headers.get("Authorization").unwrap(), "Bearer test-token");
+        assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "application/json");
+        assert!(headers.get("x-goog-api-key").is_none());
     }
 
     #[test]
