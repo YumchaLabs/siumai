@@ -8,6 +8,7 @@ use crate::stream::{ChatStream, ChatStreamEvent};
 use crate::utils::sse_stream::SseStreamExt;
 use eventsource_stream::Event;
 use futures_util::StreamExt;
+use futures_util::TryStreamExt;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -96,14 +97,35 @@ impl StreamFactory {
             .map(|chunk| chunk.map_err(|e| LlmError::HttpError(format!("Stream error: {e}"))));
 
         let sse_stream = byte_stream.into_sse_stream();
+        // Track whether any ContentDelta was emitted; used to inject a fallback delta on StreamEnd
+        let saw_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let chat_stream = sse_stream
             .then(move |event_result| {
                 let converter = converter.clone();
+                let saw_content = saw_content.clone();
                 async move {
                     match event_result {
                         Ok(event) => {
                             if event.data.trim() == "[DONE]" {
                                 if let Some(end) = converter.handle_stream_end() {
+                                    // If the converter provides a final response and no deltas were seen,
+                                    // inject a synthetic ContentDelta before StreamEnd so downstream
+                                    // consumers that accumulate deltas still see content.
+                                    if let Ok(ChatStreamEvent::StreamEnd { response }) = &end {
+                                        if !saw_content.load(std::sync::atomic::Ordering::Relaxed) {
+                                            if let Some(text) = response.content_text() {
+                                                if !text.is_empty() {
+                                                    return vec![
+                                                        Ok(ChatStreamEvent::ContentDelta {
+                                                            delta: text.to_string(),
+                                                            index: None,
+                                                        }),
+                                                        end,
+                                                    ];
+                                                }
+                                            }
+                                        }
+                                    }
                                     return vec![end];
                                 }
                                 return vec![];
@@ -111,7 +133,13 @@ impl StreamFactory {
                             if event.data.trim().is_empty() {
                                 return vec![];
                             }
-                            converter.convert_event(event).await
+                            let mut events = converter.convert_event(event).await;
+                            // Mark if any ContentDelta is present
+                            let has_content = events.iter().any(|ev| matches!(ev, Ok(ChatStreamEvent::ContentDelta { .. })));
+                            if has_content {
+                                saw_content.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            events
                         }
                         Err(e) => {
                             vec![Err(LlmError::StreamError(format!(
@@ -124,10 +152,11 @@ impl StreamFactory {
             .flat_map(futures::stream::iter);
         Ok(Box::pin(chat_stream))
     }
-    /// Create a chat stream for JSON-based streaming (like Gemini)
+    /// Create a chat stream for JSON-based streaming (provider emits JSON fragments)
     ///
-    /// Some providers use JSON streaming instead of SSE. This method handles
-    /// JSON object parsing across chunk boundaries using UTF-8 safe processing.
+    /// We route the byte stream through the SSE parser for consistent UTF-8 handling
+    /// and treat each `event.data` as a raw JSON string for conversion. Note: Providers
+    /// emitting plain line-delimited JSON may not be fully compatible with this method.
     pub async fn create_json_stream<C>(
         response: reqwest::Response,
         converter: C,
@@ -135,39 +164,39 @@ impl StreamFactory {
     where
         C: JsonEventConverter + Clone + 'static,
     {
-        let byte_stream = response
-            .bytes_stream()
-            .map(|chunk| chunk.map_err(|e| LlmError::HttpError(format!("Stream error: {e}"))));
+        use tokio_util::codec::{FramedRead, LinesCodec};
+        use tokio_util::io::StreamReader;
 
-        // Use eventsource-stream for UTF-8 handling, then parse as JSON
-        let sse_stream = byte_stream.into_sse_stream();
+        // Convert the byte stream to an AsyncRead via StreamReader
+        let byte_stream = response.bytes_stream().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Stream error: {e}"))
+        });
+        let reader = StreamReader::new(byte_stream);
+        let lines = FramedRead::new(reader, LinesCodec::new());
 
-        let chat_stream = sse_stream
-            .then(move |event_result| {
+        let chat_stream = lines
+            .map(|res| match res {
+                Ok(line) => Ok(line),
+                Err(e) => Err(LlmError::ParseError(format!("JSON line error: {e}"))),
+            })
+            .then(move |line_res| {
                 let converter = converter.clone();
                 async move {
-                    match event_result {
-                        Ok(event) => {
-                            // For JSON streaming, we treat the data as raw JSON
-                            if event.data.trim().is_empty() {
+                    match line_res {
+                        Ok(line) => {
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() {
                                 return vec![];
                             }
-
-                            converter.convert_json(&event.data).await
+                            converter.convert_json(trimmed).await
                         }
-                        Err(e) => {
-                            let error =
-                                Err(LlmError::ParseError(format!("JSON parsing error: {e}")));
-                            vec![error]
-                        }
+                        Err(e) => vec![Err(e)],
                     }
                 }
             })
             .flat_map(futures::stream::iter);
 
-        // Explicitly type the boxed stream to help the compiler
-        let boxed_stream: ChatStream = Box::pin(chat_stream);
-        Ok(boxed_stream)
+        Ok(Box::pin(chat_stream))
     }
 
     /// Create a chat stream using eventsource-stream
