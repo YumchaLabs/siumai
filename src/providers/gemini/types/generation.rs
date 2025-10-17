@@ -196,6 +196,12 @@ impl ThinkingConfig {
     }
 }
 
+impl Default for ThinkingConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A set of the feedback metadata the prompt specified in GenerateContentRequest.content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptFeedback {

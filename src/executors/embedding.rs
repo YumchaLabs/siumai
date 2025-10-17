@@ -20,9 +20,7 @@ pub struct HttpEmbeddingExecutor {
     pub build_url: Box<dyn Fn(&EmbeddingRequest) -> String + Send + Sync>,
     pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
-    pub before_send: Option<
-        Arc<dyn Fn(&serde_json::Value) -> Result<serde_json::Value, LlmError> + Send + Sync>,
-    >,
+    pub before_send: Option<crate::executors::BeforeSendHook>,
 }
 
 #[async_trait::async_trait]

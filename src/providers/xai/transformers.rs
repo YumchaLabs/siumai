@@ -49,10 +49,10 @@ impl RequestTransformer for XaiRequestTransformer {
                 }
                 let messages = super::utils::convert_messages(&req.messages)?;
                 body["messages"] = serde_json::to_value(messages)?;
-                if let Some(tools) = &req.tools {
-                    if !tools.is_empty() {
-                        body["tools"] = serde_json::to_value(tools)?;
-                    }
+                if let Some(tools) = &req.tools
+                    && !tools.is_empty()
+                {
+                    body["tools"] = serde_json::to_value(tools)?;
                 }
                 body["stream"] = serde_json::json!(req.stream);
                 Ok(body)

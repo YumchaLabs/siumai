@@ -101,15 +101,15 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
                 // Merge provider params with filtered keys to avoid overriding core fields
-                if let Some(pp) = &req.provider_params {
-                    if let Some(obj) = body.as_object_mut() {
-                        for (k, v) in &pp.params {
-                            if k == "model" || k == "messages" || k == "stream" {
-                                continue;
-                            }
-                            if !v.is_null() {
-                                obj.insert(k.clone(), v.clone());
-                            }
+                if let Some(pp) = &req.provider_params
+                    && let Some(obj) = body.as_object_mut()
+                {
+                    for (k, v) in &pp.params {
+                        if k == "model" || k == "messages" || k == "stream" {
+                            continue;
+                        }
+                        if !v.is_null() {
+                            obj.insert(k.clone(), v.clone());
                         }
                     }
                 }

@@ -257,7 +257,7 @@ impl GroqBuilder {
         // Install interceptors
         let mut interceptors = self.http_interceptors;
         if self.http_debug {
-            interceptors.push(Arc::new(LoggingInterceptor::default()));
+            interceptors.push(Arc::new(LoggingInterceptor));
         }
         if !interceptors.is_empty() {
             client = client.with_http_interceptors(interceptors);

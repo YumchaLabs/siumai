@@ -384,7 +384,7 @@ impl OpenAiBuilder {
         // Install interceptors
         let mut interceptors = self.http_interceptors;
         if self.http_debug {
-            interceptors.push(Arc::new(LoggingInterceptor::default()));
+            interceptors.push(Arc::new(LoggingInterceptor));
         }
         client = client.with_http_interceptors(interceptors);
 

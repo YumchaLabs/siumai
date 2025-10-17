@@ -135,12 +135,11 @@ impl ServiceAccountTokenProvider {
     /// Returns a cached token if valid and not near expiry.
     fn get_cached_token(&self) -> Option<String> {
         let now = chrono::Utc::now().timestamp();
-        if let Ok(guard) = self.cache.lock() {
-            if let Some(ct) = guard.as_ref() {
-                if ct.exp_unix - EXPIRY_SAFETY_WINDOW > now {
-                    return Some(ct.token.clone());
-                }
-            }
+        if let Ok(guard) = self.cache.lock()
+            && let Some(ct) = guard.as_ref()
+            && ct.exp_unix - EXPIRY_SAFETY_WINDOW > now
+        {
+            return Some(ct.token.clone());
         }
         None
     }

@@ -320,12 +320,6 @@ impl AnthropicStreaming {
         let mut request_body = transformer.transform_chat(&request)?;
         request_body["stream"] = serde_json::Value::Bool(true);
 
-        // Create headers with authentication
-        let headers = crate::utils::http_headers::ProviderHeaders::anthropic(
-            &self.api_key,
-            &self.http_config.headers,
-        )?;
-
         // Build the API URL
         let url = crate::utils::url::join_url(&self.base_url, "/v1/messages");
 

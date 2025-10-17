@@ -22,6 +22,9 @@ use super::adapter::ProviderAdapter;
 use super::openai_config::OpenAiCompatibleConfig;
 use crate::transformers::request::RequestTransformer;
 
+// Type alias for better readability and to reduce type complexity lints
+type ToolCallDelta = (String, Option<String>, Option<String>, Option<usize>);
+
 /// OpenAI-compatible stream event structure
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OpenAiCompatibleStreamEvent {
@@ -99,6 +102,7 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Convert OpenAI-compatible stream event to multiple ChatStreamEvents
+    #[allow(dead_code)]
     async fn convert_event_async(
         &self,
         event: OpenAiCompatibleStreamEvent,
@@ -160,16 +164,16 @@ impl OpenAiCompatibleEventConverter {
         // If the event data itself is a JSON string (common when SSE named events
         // carry plain text as data, e.g., Responses "output_text.delta" proxied),
         // treat it directly as a content delta.
-        if let Some(s) = json.as_str() {
-            if !s.trim().is_empty() {
-                {
-                    let mut acc = self.accumulated_content.lock().await;
-                    acc.push_str(s);
-                }
-                self.emitted_content
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                return builder.add_content_delta(s.to_string(), None).build();
+        if let Some(s) = json.as_str()
+            && !s.trim().is_empty()
+        {
+            {
+                let mut acc = self.accumulated_content.lock().await;
+                acc.push_str(s);
             }
+            self.emitted_content
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            return builder.add_content_delta(s.to_string(), None).build();
         }
 
         // Content (compatible with Chat Completions and Responses API)
@@ -257,6 +261,7 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Create stream start metadata
+    #[allow(dead_code)]
     fn create_stream_start_metadata(
         &self,
         event: &OpenAiCompatibleStreamEvent,
@@ -295,6 +300,7 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Extract content from stream event using dynamic field accessor
+    #[allow(dead_code)]
     fn extract_content(&self, event: &OpenAiCompatibleStreamEvent) -> Option<String> {
         let model = &self.config.model;
         let field_mappings = self.adapter.get_field_mappings(model);
@@ -315,10 +321,10 @@ impl OpenAiCompatibleEventConverter {
         let field_accessor = self.adapter.get_field_accessor();
 
         // First try standard mappings (e.g., choices.0.delta.content)
-        if let Some(text) = field_accessor.extract_content(json, &field_mappings) {
-            if !text.trim().is_empty() {
-                return Some(text);
-            }
+        if let Some(text) = field_accessor.extract_content(json, &field_mappings)
+            && !text.trim().is_empty()
+        {
+            return Some(text);
         }
 
         // Responses API compatibility: delta.text and final aggregated message.content[0].text
@@ -329,12 +335,11 @@ impl OpenAiCompatibleEventConverter {
             "choices.0.message.content.0.text",
         ];
         for p in compat_paths {
-            if let Some(val) = json.pointer(&to_pointer(p)) {
-                if let Some(s) = val.as_str() {
-                    if !s.trim().is_empty() {
-                        return Some(s.to_string());
-                    }
-                }
+            if let Some(val) = json.pointer(&to_pointer(p))
+                && let Some(s) = val.as_str()
+                && !s.trim().is_empty()
+            {
+                return Some(s.to_string());
             }
         }
 
@@ -343,10 +348,10 @@ impl OpenAiCompatibleEventConverter {
         // hitting chat/completions. In that case, content can appear as a plain
         // string under `delta` with an accompanying type like
         // `response.output_text.delta`.
-        if let Some(s) = json.get("delta").and_then(|d| d.as_str()) {
-            if !s.trim().is_empty() {
-                return Some(s.to_string());
-            }
+        if let Some(s) = json.get("delta").and_then(|d| d.as_str())
+            && !s.trim().is_empty()
+        {
+            return Some(s.to_string());
         }
 
         // Also handle nested form {"delta": {"text": "..."}} occasionally seen in
@@ -355,14 +360,13 @@ impl OpenAiCompatibleEventConverter {
             .get("delta")
             .and_then(|d| d.get("text"))
             .and_then(|v| v.as_str())
+            && !s.trim().is_empty()
         {
-            if !s.trim().is_empty() {
-                return Some(s.to_string());
-            }
+            return Some(s.to_string());
         }
         // Generic fallback: recursively search for first non-empty string under
         // commonly used keys for streaming text (content/text/output_text/outputText)
-        fn find_first_text_like<'a>(v: &'a serde_json::Value) -> Option<&'a str> {
+        fn find_first_text_like(v: &serde_json::Value) -> Option<&str> {
             const KEYS: [&str; 4] = ["content", "text", "output_text", "outputText"];
             match v {
                 serde_json::Value::String(s) => {
@@ -374,10 +378,10 @@ impl OpenAiCompatibleEventConverter {
                 }
                 serde_json::Value::Object(map) => {
                     for k in KEYS {
-                        if let Some(serde_json::Value::String(s)) = map.get(k) {
-                            if !s.trim().is_empty() {
-                                return Some(s);
-                            }
+                        if let Some(serde_json::Value::String(s)) = map.get(k)
+                            && !s.trim().is_empty()
+                        {
+                            return Some(s);
                         }
                     }
                     for (_k, val) in map.iter() {
@@ -408,6 +412,7 @@ impl OpenAiCompatibleEventConverter {
     ///
     /// This uses the adapter's configurable field accessor to dynamically extract
     /// thinking content from any field structure, completely eliminating hardcoded field names.
+    #[allow(dead_code)]
     fn extract_thinking(&self, event: &OpenAiCompatibleStreamEvent) -> Option<String> {
         let model = &self.config.model;
         let field_mappings = self.adapter.get_field_mappings(model);
@@ -426,25 +431,25 @@ impl OpenAiCompatibleEventConverter {
         let model = &self.config.model;
         let field_mappings = self.adapter.get_field_mappings(model);
         let field_accessor = self.adapter.get_field_accessor();
-        if let Some(t) = field_accessor.extract_thinking_content(json, &field_mappings) {
-            if !t.trim().is_empty() {
-                return Some(t);
-            }
+        if let Some(t) = field_accessor.extract_thinking_content(json, &field_mappings)
+            && !t.trim().is_empty()
+        {
+            return Some(t);
         }
         let compat_paths = ["delta.reasoning.text", "choices.0.delta.reasoning.text"];
         for p in compat_paths {
-            if let Some(val) = json.pointer(&to_pointer(p)) {
-                if let Some(s) = val.as_str() {
-                    if !s.trim().is_empty() {
-                        return Some(s.to_string());
-                    }
-                }
+            if let Some(val) = json.pointer(&to_pointer(p))
+                && let Some(s) = val.as_str()
+                && !s.trim().is_empty()
+            {
+                return Some(s.to_string());
             }
         }
         None
     }
 
     /// Extract tool call information
+    #[allow(dead_code)]
     fn extract_tool_call(
         &self,
         event: &OpenAiCompatibleStreamEvent,
@@ -462,45 +467,39 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Extract tool-call deltas from raw JSON
-    fn extract_tool_call_from_json(
-        &self,
-        json: &serde_json::Value,
-    ) -> Option<(String, Option<String>, Option<String>, Option<usize>)> {
+    #[allow(dead_code)]
+    fn extract_tool_call_from_json(&self, json: &serde_json::Value) -> Option<ToolCallDelta> {
         if let Some(calls) = json
             .get("choices")
             .and_then(|c| c.get(0))
             .and_then(|c0| c0.get("delta"))
             .and_then(|d| d.get("tool_calls"))
             .and_then(|tc| tc.as_array())
+            && let Some(first) = calls.first()
         {
-            if let Some(first) = calls.first() {
-                let id = first.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let function = first.get("function");
-                let name = function
-                    .and_then(|f| f.get("name"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let args = function
-                    .and_then(|f| f.get("arguments"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let idx = json
-                    .get("choices")
-                    .and_then(|c| c.get(0))
-                    .and_then(|choice| choice.get("index"))
-                    .and_then(|v| v.as_u64())
-                    .map(|i| i as usize);
-                return Some((id.to_string(), name, args, idx));
-            }
+            let id = first.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let function = first.get("function");
+            let name = function
+                .and_then(|f| f.get("name"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let args = function
+                .and_then(|f| f.get("arguments"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let idx = json
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|choice| choice.get("index"))
+                .and_then(|v| v.as_u64())
+                .map(|i| i as usize);
+            return Some((id.to_string(), name, args, idx));
         }
         None
     }
 
     /// Extract multiple tool calls (if present) from a single JSON chunk
-    fn extract_tool_calls_from_json(
-        &self,
-        json: &serde_json::Value,
-    ) -> Vec<(String, Option<String>, Option<String>, Option<usize>)> {
+    fn extract_tool_calls_from_json(&self, json: &serde_json::Value) -> Vec<ToolCallDelta> {
         let mut out = Vec::new();
         if let Some(arr) = json
             .get("choices")
@@ -533,6 +532,7 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Extract choice index
+    #[allow(dead_code)]
     fn extract_choice_index(&self, event: &OpenAiCompatibleStreamEvent) -> u32 {
         event
             .choices
@@ -552,6 +552,7 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Extract usage information
+    #[allow(dead_code)]
     fn extract_usage(&self, event: &OpenAiCompatibleStreamEvent) -> Option<Usage> {
         event.usage.as_ref().map(|usage| Usage {
             prompt_tokens: usage.prompt_tokens.unwrap_or(0),
@@ -720,6 +721,7 @@ impl OpenAiCompatibleStreaming {
     }
 
     /// Build HTTP headers
+    #[allow(dead_code)]
     fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LlmError> {
         let mut headers = reqwest::header::HeaderMap::new();
 

@@ -36,9 +36,7 @@ pub struct HttpImageExecutor {
     pub build_url: Box<dyn Fn() -> String + Send + Sync>,
     pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
     /// Optional external parameter transformer (plugin-like), applied to JSON bodies only
-    pub before_send: Option<
-        Arc<dyn Fn(&serde_json::Value) -> Result<serde_json::Value, LlmError> + Send + Sync>,
-    >,
+    pub before_send: Option<crate::executors::BeforeSendHook>,
 }
 
 #[async_trait::async_trait]
@@ -48,7 +46,7 @@ impl ImageExecutor for HttpImageExecutor {
         req: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let url = (self.build_url)();
-        let mut build_and_send = || async {
+        let build_and_send = || async {
             let body0 = self.request_transformer.transform_image(&req)?;
             let headers0 = (self.build_headers)()?;
             let body0 = if let Some(cb) = &self.before_send {
@@ -99,7 +97,7 @@ impl ImageExecutor for HttpImageExecutor {
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let url = (self.build_url)();
-        let mut build_and_send = || async {
+        let build_and_send = || async {
             let body0 = self.request_transformer.transform_image_edit(&req)?;
             let headers0 = (self.build_headers)()?;
             let builder0 = self.http_client.post(&url).headers(headers0);
@@ -141,7 +139,7 @@ impl ImageExecutor for HttpImageExecutor {
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let url = (self.build_url)();
-        let mut build_and_send = || async {
+        let build_and_send = || async {
             let body0 = self.request_transformer.transform_image_variation(&req)?;
             let headers0 = (self.build_headers)()?;
             let builder0 = self.http_client.post(&url).headers(headers0);

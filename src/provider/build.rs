@@ -49,24 +49,24 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // Best-effort provider suggestion by model prefix (when provider is not set)
     if builder.provider_type.is_none() && !builder.common_params.model.is_empty() {
         let registry = crate::registry::global_registry();
-        if let Ok(guard) = registry.lock() {
-            if let Some(rec) = guard.resolve_for_model(&builder.common_params.model) {
-                let mapped = match rec.id.as_str() {
-                    #[cfg(feature = "google")]
-                    "gemini" | "google" | "google-gemini" | "google-vertex" => {
-                        Some(ProviderType::Gemini)
-                    }
-                    #[cfg(feature = "anthropic")]
-                    "anthropic" | "anthropic-vertex" | "google-vertex-anthropic" => {
-                        Some(ProviderType::Anthropic)
-                    }
-                    _ => None,
-                };
-                if let Some(pt) = mapped {
-                    builder.provider_type = Some(pt);
-                    if rec.id == "anthropic-vertex" || rec.id == "google-vertex-anthropic" {
-                        builder.provider_name = Some("anthropic-vertex".to_string());
-                    }
+        if let Ok(guard) = registry.lock()
+            && let Some(rec) = guard.resolve_for_model(&builder.common_params.model)
+        {
+            let mapped = match rec.id.as_str() {
+                #[cfg(feature = "google")]
+                "gemini" | "google" | "google-gemini" | "google-vertex" => {
+                    Some(ProviderType::Gemini)
+                }
+                #[cfg(feature = "anthropic")]
+                "anthropic" | "anthropic-vertex" | "google-vertex-anthropic" => {
+                    Some(ProviderType::Anthropic)
+                }
+                _ => None,
+            };
+            if let Some(pt) = mapped {
+                builder.provider_type = Some(pt);
+                if rec.id == "anthropic-vertex" || rec.id == "google-vertex-anthropic" {
+                    builder.provider_name = Some("anthropic-vertex".to_string());
                 }
             }
         }
@@ -249,7 +249,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // Prepare interceptors (unified interface)
     let mut interceptors: Vec<Arc<dyn HttpInterceptor>> = builder.http_interceptors.clone();
     if builder.http_debug {
-        interceptors.push(Arc::new(LoggingInterceptor::default()));
+        interceptors.push(Arc::new(LoggingInterceptor));
     }
 
     let client: Box<dyn LlmClient> = match provider_type {
@@ -311,7 +311,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                             .with_tools(),
                     );
                     if let Some(rec) = guard.resolve("anthropic").cloned() {
-                        let mut rec = rec.with_model_prefix("claude");
+                        let rec = rec.with_model_prefix("claude");
                         guard.register(rec);
                     }
                 }
@@ -327,7 +327,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                             .with_tools(),
                     );
                     if let Some(rec) = guard.resolve("anthropic-vertex").cloned() {
-                        let mut rec = rec
+                        let rec = rec
                             .with_alias("google-vertex-anthropic")
                             .with_model_prefix("claude");
                         guard.register(rec);
@@ -399,7 +399,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 }
                 // Add common aliases and model prefixes to ease lookup/routing
                 if let Some(rec) = guard.resolve("gemini").cloned() {
-                    let mut rec = rec
+                    let rec = rec
                         .with_alias("google")
                         .with_alias("google-gemini")
                         .with_alias("google-vertex")

@@ -131,17 +131,18 @@ impl GeminiEventConverter {
     }
 
     /// Extract content from Gemini response
+    #[allow(dead_code)]
     fn extract_content(&self, response: &GeminiStreamResponse) -> Option<String> {
         let candidates = response.candidates.as_ref()?;
         for cand in candidates {
-            if let Some(content) = &cand.content {
-                if let Some(parts) = &content.parts {
-                    for part in parts {
-                        if let Some(text) = &part.text {
-                            if !text.is_empty() {
-                                return Some(text.clone());
-                            }
-                        }
+            if let Some(content) = &cand.content
+                && let Some(parts) = &content.parts
+            {
+                for part in parts {
+                    if let Some(text) = &part.text
+                        && !text.is_empty()
+                    {
+                        return Some(text.clone());
                     }
                 }
             }
@@ -154,14 +155,14 @@ impl GeminiEventConverter {
         let mut out = Vec::new();
         if let Some(candidates) = &response.candidates {
             for cand in candidates {
-                if let Some(content) = &cand.content {
-                    if let Some(parts) = &content.parts {
-                        for part in parts {
-                            if let Some(text) = &part.text {
-                                if !text.is_empty() {
-                                    out.push(text.clone());
-                                }
-                            }
+                if let Some(content) = &cand.content
+                    && let Some(parts) = &content.parts
+                {
+                    for part in parts {
+                        if let Some(text) = &part.text
+                            && !text.is_empty()
+                        {
+                            out.push(text.clone());
                         }
                     }
                 }

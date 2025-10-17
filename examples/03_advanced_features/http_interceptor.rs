@@ -105,8 +105,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Install interceptors globally via LlmBuilder
     let client = LlmBuilder::new()
-        .with_http_interceptor(Arc::new(CorrelationIdInterceptor::default()))
-        .with_http_interceptor(Arc::new(LoggingInterceptor::default()))
+        .with_http_interceptor(Arc::new(CorrelationIdInterceptor))
+        .with_http_interceptor(Arc::new(LoggingInterceptor))
         .openai()
         .api_key(api_key)
         .model("gpt-4o-mini")

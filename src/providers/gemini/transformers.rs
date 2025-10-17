@@ -82,46 +82,45 @@ impl RequestTransformer for GeminiRequestTransformer {
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
                 // Map provider_params.function_calling -> toolConfig.functionCallingConfig
-                if let Some(pp) = &req.provider_params {
-                    if let Some(fc) = pp
+                if let Some(pp) = &req.provider_params
+                    && let Some(fc) = pp
                         .params
                         .get("function_calling")
                         .and_then(|v| v.as_object())
-                    {
-                        let mut cfg = super::types::FunctionCallingConfig {
-                            mode: None,
-                            allowed_function_names: None,
+                {
+                    let mut cfg = super::types::FunctionCallingConfig {
+                        mode: None,
+                        allowed_function_names: None,
+                    };
+                    if let Some(mode_str) = fc.get("mode").and_then(|v| v.as_str()) {
+                        let mode = match mode_str.to_ascii_uppercase().as_str() {
+                            "AUTO" => super::types::FunctionCallingMode::Auto,
+                            "ANY" => super::types::FunctionCallingMode::Any,
+                            "NONE" => super::types::FunctionCallingMode::None,
+                            _ => super::types::FunctionCallingMode::Unspecified,
                         };
-                        if let Some(mode_str) = fc.get("mode").and_then(|v| v.as_str()) {
-                            let mode = match mode_str.to_ascii_uppercase().as_str() {
-                                "AUTO" => super::types::FunctionCallingMode::Auto,
-                                "ANY" => super::types::FunctionCallingMode::Any,
-                                "NONE" => super::types::FunctionCallingMode::None,
-                                _ => super::types::FunctionCallingMode::Unspecified,
-                            };
-                            cfg.mode = Some(mode);
-                        }
-                        if let Some(arr) = fc
-                            .get("allowed")
-                            .and_then(|v| v.as_array())
-                            .or_else(|| fc.get("allowed_function_names").and_then(|v| v.as_array()))
-                        {
-                            let names: Vec<String> = arr
-                                .iter()
-                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                .collect();
-                            if !names.is_empty() {
-                                cfg.allowed_function_names = Some(names);
-                            }
-                        }
-                        // Write toolConfig.functionCallingConfig
-                        let tool_cfg = super::types::ToolConfig {
-                            function_calling_config: Some(cfg),
-                        };
-                        body["toolConfig"] = serde_json::to_value(tool_cfg).map_err(|e| {
-                            LlmError::ParseError(format!("Serialize tool config failed: {e}"))
-                        })?;
+                        cfg.mode = Some(mode);
                     }
+                    if let Some(arr) = fc
+                        .get("allowed")
+                        .and_then(|v| v.as_array())
+                        .or_else(|| fc.get("allowed_function_names").and_then(|v| v.as_array()))
+                    {
+                        let names: Vec<String> = arr
+                            .iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect();
+                        if !names.is_empty() {
+                            cfg.allowed_function_names = Some(names);
+                        }
+                    }
+                    // Write toolConfig.functionCallingConfig
+                    let tool_cfg = super::types::ToolConfig {
+                        function_calling_config: Some(cfg),
+                    };
+                    body["toolConfig"] = serde_json::to_value(tool_cfg).map_err(|e| {
+                        LlmError::ParseError(format!("Serialize tool config failed: {e}"))
+                    })?;
                 }
                 Ok(())
             }
@@ -186,10 +185,15 @@ impl RequestTransformer for GeminiRequestTransformer {
                 }
                 #[derive(serde::Serialize)]
                 struct GeminiContent {
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    role: Option<String>,
                     parts: Vec<GeminiPart>,
                 }
                 #[derive(serde::Serialize)]
-                struct GeminiEmbeddingConfig {
+                struct GeminiEmbeddingRequest {
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    model: Option<String>,
+                    content: GeminiContent,
                     #[serde(skip_serializing_if = "Option::is_none", rename = "taskType")]
                     task_type: Option<String>,
                     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,14 +203,6 @@ impl RequestTransformer for GeminiRequestTransformer {
                         rename = "outputDimensionality"
                     )]
                     output_dimensionality: Option<u32>,
-                }
-                #[derive(serde::Serialize)]
-                struct GeminiEmbeddingRequest {
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    model: Option<String>,
-                    content: GeminiContent,
-                    #[serde(skip_serializing_if = "Option::is_none", rename = "embeddingConfig")]
-                    embedding_config: Option<GeminiEmbeddingConfig>,
                 }
                 #[derive(serde::Serialize)]
                 struct GeminiBatchEmbeddingRequest {
@@ -227,19 +223,17 @@ impl RequestTransformer for GeminiRequestTransformer {
 
                 if req.input.len() == 1 {
                     let content = GeminiContent {
+                        role: None,
                         parts: vec![GeminiPart {
                             text: req.input[0].clone(),
                         }],
                     };
-                    let cfg = GeminiEmbeddingConfig {
-                        task_type,
-                        title,
-                        output_dimensionality,
-                    };
                     let body = GeminiEmbeddingRequest {
                         model: Some(format!("models/{}", self.0.model)),
                         content,
-                        embedding_config: Some(cfg),
+                        task_type,
+                        title,
+                        output_dimensionality,
                     };
                     serde_json::to_value(body)
                         .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))
@@ -249,17 +243,15 @@ impl RequestTransformer for GeminiRequestTransformer {
                         .iter()
                         .map(|text| {
                             let content = GeminiContent {
+                                role: Some("user".to_string()),
                                 parts: vec![GeminiPart { text: text.clone() }],
-                            };
-                            let cfg = GeminiEmbeddingConfig {
-                                task_type: task_type.clone(),
-                                title: title.clone(),
-                                output_dimensionality,
                             };
                             GeminiEmbeddingRequest {
                                 model: Some(format!("models/{}", self.0.model)),
                                 content,
-                                embedding_config: Some(cfg),
+                                task_type: task_type.clone(),
+                                title: title.clone(),
+                                output_dimensionality,
                             }
                         })
                         .collect();
@@ -878,6 +870,7 @@ mod images_tests {
 #[cfg(test)]
 mod embeddings_tests {
     use super::*;
+    use crate::transformers::request::RequestTransformer;
     use crate::transformers::response::ResponseTransformer;
 
     fn cfg() -> GeminiConfig {
@@ -918,6 +911,49 @@ mod embeddings_tests {
         assert_eq!(out.embeddings.len(), 2);
         assert_eq!(out.embeddings[0], vec![0.1_f32, 0.2_f32]);
         assert_eq!(out.embeddings[1], vec![0.3_f32, 0.4_f32]);
+    }
+
+    #[test]
+    fn test_transform_embedding_request_single_flattened() {
+        let tx = GeminiRequestTransformer { config: cfg() };
+        let req = crate::types::EmbeddingRequest::new(vec!["Hello".to_string()])
+            .with_dimensions(768)
+            .with_task_type(crate::types::EmbeddingTaskType::RetrievalQuery)
+            .with_provider_param("title", serde_json::Value::String("My Title".into()));
+
+        let body = tx.transform_embedding(&req).expect("serialize request");
+
+        // Ensure there is no nested embeddingConfig and fields are flattened
+        assert!(body.get("embeddingConfig").is_none());
+        assert_eq!(body["model"], "models/gemini-embedding-001");
+        assert_eq!(body["taskType"], "RETRIEVAL_QUERY");
+        assert_eq!(body["title"], "My Title");
+        assert_eq!(body["outputDimensionality"], 768);
+        assert_eq!(body["content"]["parts"][0]["text"], "Hello");
+        // role is optional for single
+        assert!(body["content"].get("role").is_none());
+    }
+
+    #[test]
+    fn test_transform_embedding_request_batch_flattened_with_role() {
+        let tx = GeminiRequestTransformer { config: cfg() };
+        let req = crate::types::EmbeddingRequest::new(vec!["A".to_string(), "B".to_string()])
+            .with_dimensions(64)
+            .with_task_type(crate::types::EmbeddingTaskType::SemanticSimilarity);
+
+        let body = tx.transform_embedding(&req).expect("serialize request");
+
+        let requests = body["requests"].as_array().expect("requests array");
+        assert_eq!(requests.len(), 2);
+        for (i, value) in ["A", "B"].iter().enumerate() {
+            let item = &requests[i];
+            assert_eq!(item["model"], "models/gemini-embedding-001");
+            assert_eq!(item["taskType"], "SEMANTIC_SIMILARITY");
+            assert_eq!(item["outputDimensionality"], 64);
+            assert_eq!(item["content"]["role"], "user");
+            assert_eq!(item["content"]["parts"][0]["text"], *value);
+            assert!(item.get("embeddingConfig").is_none());
+        }
     }
 }
 

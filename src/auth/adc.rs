@@ -28,6 +28,7 @@ struct CachedToken {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum Source {
     Env,
     ServiceAccount,
@@ -56,12 +57,11 @@ impl AdcTokenProvider {
 
     fn get_cached(&self) -> Option<String> {
         let now = chrono::Utc::now().timestamp();
-        if let Ok(g) = self.cache.lock() {
-            if let Some(ct) = g.as_ref() {
-                if ct.exp_unix - EXPIRY_SAFETY_WINDOW > now {
-                    return Some(ct.token.clone());
-                }
-            }
+        if let Ok(g) = self.cache.lock()
+            && let Some(ct) = g.as_ref()
+            && ct.exp_unix - EXPIRY_SAFETY_WINDOW > now
+        {
+            return Some(ct.token.clone());
         }
         None
     }
@@ -78,11 +78,11 @@ impl AdcTokenProvider {
     }
 
     fn try_env(&self) -> Option<(String, i64)> {
-        if let Ok(tok) = std::env::var("GOOGLE_OAUTH_ACCESS_TOKEN") {
-            if !tok.is_empty() {
-                // No expiry info; assume short-lived
-                return Some((tok, 600));
-            }
+        if let Ok(tok) = std::env::var("GOOGLE_OAUTH_ACCESS_TOKEN")
+            && !tok.is_empty()
+        {
+            // No expiry info; assume short-lived
+            return Some((tok, 600));
         }
         None
     }

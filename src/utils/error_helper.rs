@@ -269,11 +269,10 @@ pub fn format_summary(summary: &ErrorSummary, verbose: bool) -> String {
     }
     if verbose {
         if let Some(body) = &summary.raw.body {
-            let _ =
-                std::fmt::Write::write_str(&mut out, &format!("Raw body: {}\n", body.to_string()));
+            let _ = std::fmt::Write::write_str(&mut out, &format!("Raw body: {body}\n"));
         }
         if let Some(d) = &summary.details.details {
-            let _ = std::fmt::Write::write_str(&mut out, &format!("Details: {}\n", d.to_string()));
+            let _ = std::fmt::Write::write_str(&mut out, &format!("Details: {d}\n"));
         }
     }
     out

@@ -381,9 +381,10 @@ impl GeminiClient {
         if let Some(ref mut http) = self.config.http_config {
             http.stream_disable_compression = disable;
         } else {
-            let mut http = crate::types::HttpConfig::default();
-            http.stream_disable_compression = disable;
-            self.config.http_config = Some(http);
+            self.config.http_config = Some(crate::types::HttpConfig {
+                stream_disable_compression: disable,
+                ..Default::default()
+            });
         }
         self
     }
@@ -506,6 +507,15 @@ impl ChatCapability for GeminiClient {
 impl EmbeddingCapability for GeminiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
         use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        // Enforce provider limit on number of inputs per call (parity with official SDKs)
+        // Google Generative AI supports up to 2048 inputs per batchEmbedContents call.
+        if texts.len() > 2048 {
+            return Err(LlmError::InvalidParameter(format!(
+                "Too many values for a single embedding call. The Gemini model \"{}\" can only embed up to 2048 values per call, but {} values were provided.",
+                self.config.model,
+                texts.len()
+            )));
+        }
         let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
@@ -521,15 +531,15 @@ impl EmbeddingCapability for GeminiClient {
             .config
             .http_config
             .clone()
-            .and_then(|c| Some(c.headers))
+            .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
         let headers_builder = move || {
             let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp {
-                if let Ok(tok) = tp.token() {
-                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                }
+            if let Some(ref tp) = tp
+                && let Ok(tok) = tp.token()
+            {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
             }
             let mut headers =
                 crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
@@ -606,6 +616,14 @@ impl EmbeddingExtensions for GeminiClient {
         request: EmbeddingRequest,
     ) -> Result<EmbeddingResponse, LlmError> {
         use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        // Enforce provider limit on number of inputs per call
+        if request.input.len() > 2048 {
+            return Err(LlmError::InvalidParameter(format!(
+                "Too many values for a single embedding call. The Gemini model \"{}\" can only embed up to 2048 values per call, but {} values were provided.",
+                self.config.model,
+                request.input.len()
+            )));
+        }
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
         let model = self.config.model.clone();
@@ -620,7 +638,7 @@ impl EmbeddingExtensions for GeminiClient {
             .config
             .http_config
             .clone()
-            .and_then(|c| Some(c.headers))
+            .map(|c| c.headers)
             .unwrap_or_default();
         let headers_builder = move || {
             let mut headers =
@@ -711,12 +729,12 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
             .config
             .http_config
             .clone()
-            .and_then(|c| Some(c.headers))
+            .map(|c| c.headers)
             .unwrap_or_default();
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token() {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token()
+        {
+            extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
         let headers_builder = move || {
             let mut headers =

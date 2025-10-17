@@ -12,6 +12,8 @@ use super::thinking::ThinkingConfig;
 pub struct AnthropicMessage {
     pub role: String,
     pub content: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<serde_json::Value>,
 }
 
 /// Anthropic Chat Response

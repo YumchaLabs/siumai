@@ -115,15 +115,14 @@ impl StreamFactory {
                 .any(|ev| matches!(ev, Ok(ChatStreamEvent::ContentDelta { .. })));
             if let Some(end) = converter.handle_stream_end() {
                 if let Ok(ChatStreamEvent::StreamEnd { response }) = &end {
-                    if !saw_content {
-                        if let Some(text) = response.content_text() {
-                            if !text.is_empty() {
-                                events.push(Ok(ChatStreamEvent::ContentDelta {
-                                    delta: text.to_string(),
-                                    index: None,
-                                }));
-                            }
-                        }
+                    if !saw_content
+                        && let Some(text) = response.content_text()
+                        && !text.is_empty()
+                    {
+                        events.push(Ok(ChatStreamEvent::ContentDelta {
+                            delta: text.to_string(),
+                            index: None,
+                        }));
                     }
                     events.push(end);
                 } else {
@@ -155,20 +154,18 @@ impl StreamFactory {
                                     // If the converter provides a final response and no deltas were seen,
                                     // inject a synthetic ContentDelta before StreamEnd so downstream
                                     // consumers that accumulate deltas still see content.
-                                    if let Ok(ChatStreamEvent::StreamEnd { response }) = &end {
-                                        if !saw_content.load(std::sync::atomic::Ordering::Relaxed) {
-                                            if let Some(text) = response.content_text() {
-                                                if !text.is_empty() {
-                                                    return vec![
-                                                        Ok(ChatStreamEvent::ContentDelta {
-                                                            delta: text.to_string(),
-                                                            index: None,
-                                                        }),
-                                                        end,
-                                                    ];
-                                                }
-                                            }
-                                        }
+                                    if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
+                                        && !saw_content.load(std::sync::atomic::Ordering::Relaxed)
+                                        && let Some(text) = response.content_text()
+                                        && !text.is_empty()
+                                    {
+                                        return vec![
+                                            Ok(ChatStreamEvent::ContentDelta {
+                                                delta: text.to_string(),
+                                                index: None,
+                                            }),
+                                            end,
+                                        ];
                                     }
                                     return vec![end];
                                 }
@@ -177,7 +174,7 @@ impl StreamFactory {
                             if event.data.trim().is_empty() {
                                 return vec![];
                             }
-                            let mut events = converter.convert_event(event).await;
+                            let events = converter.convert_event(event).await;
                             // Mark if any ContentDelta is present
                             let has_content = events
                                 .iter()
@@ -214,9 +211,9 @@ impl StreamFactory {
         use tokio_util::io::StreamReader;
 
         // Convert the byte stream to an AsyncRead via StreamReader
-        let byte_stream = response.bytes_stream().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Stream error: {e}"))
-        });
+        let byte_stream = response
+            .bytes_stream()
+            .map_err(|e| std::io::Error::other(format!("Stream error: {e}")));
         let reader = StreamReader::new(byte_stream);
         let lines = FramedRead::new(reader, LinesCodec::new());
 

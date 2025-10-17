@@ -159,12 +159,12 @@ impl GeminiModels {
                 .config
                 .http_config
                 .clone()
-                .and_then(|c| Some(c.headers))
+                .map(|c| c.headers)
                 .unwrap_or_default();
-            if let Some(ref tp) = self.config.token_provider {
-                if let Ok(tok) = tp.token() {
-                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                }
+            if let Some(ref tp) = self.config.token_provider
+                && let Ok(tok) = tp.token()
+            {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
             }
             let mut headers =
                 crate::utils::http_headers::ProviderHeaders::gemini(&self.config.api_key, &extra)?;
@@ -240,12 +240,12 @@ impl ModelListingCapability for GeminiModels {
             .config
             .http_config
             .clone()
-            .and_then(|c| Some(c.headers))
+            .map(|c| c.headers)
             .unwrap_or_default();
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token() {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token()
+        {
+            extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
         let mut headers =
             crate::utils::http_headers::ProviderHeaders::gemini(&self.config.api_key, &extra)?;

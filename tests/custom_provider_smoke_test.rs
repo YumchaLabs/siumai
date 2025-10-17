@@ -110,9 +110,8 @@ async fn custom_provider_chat_and_stream_smoke() -> Result<(), LlmError> {
         .await?;
     let mut acc = String::new();
     while let Some(ev) = stream.next().await {
-        match ev? {
-            ChatStreamEvent::ContentDelta { delta, .. } => acc.push_str(&delta),
-            _ => {}
+        if let ChatStreamEvent::ContentDelta { delta, .. } = ev? {
+            acc.push_str(&delta);
         }
     }
     assert_eq!(acc, "echo:pong");

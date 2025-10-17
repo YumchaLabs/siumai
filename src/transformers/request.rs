@@ -301,15 +301,15 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                 segments[..segments.len() - 1].join("."),
                 segments[segments.len() - 1],
             );
-            if let Some(parent) = Self::get_path_mut(body, &parent_path) {
-                if let serde_json::Value::Object(map) = parent {
-                    map.remove(leaf);
-                }
+            if let Some(parent) = Self::get_path_mut(body, &parent_path)
+                && let serde_json::Value::Object(map) = parent
+            {
+                map.remove(leaf);
             }
         }
         // Set destination
         if let Some(parent) = Self::ensure_parent_object(body, to) {
-            let leaf = to.split('.').last().unwrap();
+            let leaf = to.split('.').next_back().unwrap();
             parent.insert(leaf.to_string(), val.unwrap());
         }
     }
@@ -325,10 +325,10 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                 segments[..segments.len() - 1].join("."),
                 segments[segments.len() - 1],
             );
-            if let Some(parent) = Self::get_path_mut(body, &parent_path) {
-                if let serde_json::Value::Object(map) = parent {
-                    map.remove(leaf);
-                }
+            if let Some(parent) = Self::get_path_mut(body, &parent_path)
+                && let serde_json::Value::Object(map) = parent
+            {
+                map.remove(leaf);
             }
         }
     }
@@ -337,11 +337,9 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         let exists_and_non_null = Self::get_path(body, field)
             .map(|v| !v.is_null())
             .unwrap_or(false);
-        if !exists_and_non_null {
-            if let Some(parent) = Self::ensure_parent_object(body, field) {
-                let leaf = field.split('.').last().unwrap();
-                parent.insert(leaf.to_string(), value);
-            }
+        if !exists_and_non_null && let Some(parent) = Self::ensure_parent_object(body, field) {
+            let leaf = field.split('.').next_back().unwrap();
+            parent.insert(leaf.to_string(), value);
         }
     }
 
@@ -359,19 +357,19 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                 serde_json::Value::Null => None,
                 _ => None,
             };
-            if let Some(n) = n_opt {
-                if n < min || n > max {
-                    match mode {
-                        RangeMode::Error => {
-                            let msg = message.map(|s| s.to_string()).unwrap_or_else(|| {
-                                format!("{} must be between {} and {}", field, min, max)
-                            });
-                            return Err(LlmError::InvalidParameter(msg));
-                        }
-                        RangeMode::Clamp => {
-                            let clamped = if n < min { min } else { max };
-                            *v = serde_json::json!(clamped);
-                        }
+            if let Some(n) = n_opt
+                && (n < min || n > max)
+            {
+                match mode {
+                    RangeMode::Error => {
+                        let msg = message.map(|s| s.to_string()).unwrap_or_else(|| {
+                            format!("{} must be between {} and {}", field, min, max)
+                        });
+                        return Err(LlmError::InvalidParameter(msg));
+                    }
+                    RangeMode::Clamp => {
+                        let clamped = if n < min { min } else { max };
+                        *v = serde_json::json!(clamped);
                     }
                 }
             }
@@ -385,12 +383,11 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         max: usize,
         message: &'static str,
     ) -> Result<(), LlmError> {
-        if let Some(v) = Self::get_path(body, field) {
-            if let serde_json::Value::Array(arr) = v {
-                if arr.len() > max {
-                    return Err(LlmError::InvalidParameter(message.to_string()));
-                }
-            }
+        if let Some(v) = Self::get_path(body, field)
+            && let serde_json::Value::Array(arr) = v
+            && arr.len() > max
+        {
+            return Err(LlmError::InvalidParameter(message.to_string()));
         }
         Ok(())
     }

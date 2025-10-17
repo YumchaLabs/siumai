@@ -38,9 +38,7 @@ pub struct HttpChatExecutor {
     pub build_url: Box<dyn Fn(bool) -> String + Send + Sync>,
     pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
-    pub before_send: Option<
-        Arc<dyn Fn(&serde_json::Value) -> Result<serde_json::Value, LlmError> + Send + Sync>,
-    >,
+    pub before_send: Option<crate::executors::BeforeSendHook>,
 }
 
 #[async_trait::async_trait]
@@ -141,7 +139,6 @@ impl ChatExecutor for HttpChatExecutor {
         };
         let body = self.request_transformer.transform_chat(&req)?;
         let url = (self.build_url)(true);
-        let headers = (self.build_headers)()?;
 
         let transformed = if let Some(cb) = &self.before_send {
             cb(&body)?
@@ -170,7 +167,7 @@ impl ChatExecutor for HttpChatExecutor {
             let mut body_for_send = transformed_for_retry.clone();
             if provider_id.starts_with("openai") {
                 body_for_send["stream"] = serde_json::Value::Bool(true);
-                if !body_for_send.get("stream_options").is_some() {
+                if body_for_send.get("stream_options").is_none() {
                     body_for_send["stream_options"] = serde_json::json!({"include_usage": true});
                 } else if let Some(obj) = body_for_send["stream_options"].as_object_mut() {
                     obj.entry("include_usage")
@@ -191,7 +188,7 @@ impl ChatExecutor for HttpChatExecutor {
             // Note: headers were already applied above on the builder
             let cloned_headers = rb
                 .try_clone()
-                .and_then(|req| Some(req.build().ok()?.headers().clone()))
+                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
                 .unwrap_or_default();
             for it in &interceptors {
                 rb = it.on_before_send(&ctx, rb, &body_for_send, &cloned_headers)?;
@@ -228,13 +225,12 @@ impl ChatExecutor for HttpChatExecutor {
         let converter = TransformerConverter(stream_tx.clone());
         // Wrap converter to notify interceptors of SSE events
         #[derive(Clone)]
-        struct InterceptingConverter<I, C> {
+        struct InterceptingConverter<C> {
             interceptors: Vec<Arc<dyn HttpInterceptor>>,
             ctx: HttpRequestContext,
-            inner: I,
             convert: C,
         }
-        impl<C> SseEventConverter for InterceptingConverter<Arc<dyn StreamChunkTransformer>, C>
+        impl<C> SseEventConverter for InterceptingConverter<C>
         where
             C: SseEventConverter + Clone + Send + Sync + 'static,
         {
@@ -275,7 +271,6 @@ impl ChatExecutor for HttpChatExecutor {
                 url: (self.build_url)(true),
                 stream: true,
             },
-            inner: stream_tx.clone(),
             convert: converter,
         };
         StreamFactory::create_eventsource_stream_with_retry(

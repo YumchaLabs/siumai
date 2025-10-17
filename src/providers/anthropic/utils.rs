@@ -71,6 +71,28 @@ pub fn convert_messages(
     let mut anthropic_messages = Vec::new();
     let mut system_message = None;
 
+    // Helper: map generic message metadata cache control to Anthropic JSON
+    fn map_cache_control(meta: &MessageMetadata) -> Option<serde_json::Value> {
+        if let Some(ref cc) = meta.cache_control {
+            match cc {
+                CacheControl::Ephemeral => Some(serde_json::json!({
+                    "type": "ephemeral"
+                })),
+                CacheControl::Persistent { ttl } => {
+                    // Anthropic currently documents ephemeral cache; when persistent is used
+                    // map to ephemeral and forward TTL seconds if provided for best effort.
+                    let mut obj = serde_json::json!({ "type": "ephemeral" });
+                    if let Some(dur) = ttl {
+                        obj["ttl"] = serde_json::json!(dur.as_secs());
+                    }
+                    Some(obj)
+                }
+            }
+        } else {
+            None
+        }
+    }
+
     for message in messages {
         match message.role {
             MessageRole::System => {
@@ -80,15 +102,36 @@ pub fn convert_messages(
                 }
             }
             MessageRole::User => {
+                let mut content_json = convert_message_content(&message.content)?;
+                // Content-level cache control indices from metadata.custom
+                if let Some(indices) = message
+                    .metadata
+                    .custom
+                    .get("anthropic_content_cache_indices")
+                    .and_then(|v| v.as_array())
+                    && let Some(parts) = content_json.as_array_mut()
+                {
+                    for idx_val in indices {
+                        if let Some(i) = idx_val.as_u64().map(|u| u as usize)
+                            && let Some(part) = parts.get_mut(i)
+                            && part.is_object()
+                        {
+                            part["cache_control"] = serde_json::json!({"type":"ephemeral"});
+                        }
+                    }
+                }
                 anthropic_messages.push(AnthropicMessage {
                     role: "user".to_string(),
-                    content: convert_message_content(&message.content)?,
+                    content: content_json,
+                    cache_control: map_cache_control(&message.metadata),
                 });
             }
             MessageRole::Assistant => {
+                let content_json = convert_message_content(&message.content)?;
                 anthropic_messages.push(AnthropicMessage {
                     role: "assistant".to_string(),
-                    content: convert_message_content(&message.content)?,
+                    content: content_json,
+                    cache_control: map_cache_control(&message.metadata),
                 });
             }
             MessageRole::Developer => {
@@ -104,9 +147,11 @@ pub fn convert_messages(
             }
             MessageRole::Tool => {
                 // Handling of tool results for Anthropic
+                let content_json = convert_message_content(&message.content)?;
                 anthropic_messages.push(AnthropicMessage {
                     role: "user".to_string(),
-                    content: convert_message_content(&message.content)?,
+                    content: content_json,
+                    cache_control: map_cache_control(&message.metadata),
                 });
             }
         }

@@ -53,10 +53,10 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 let messages = convert_messages(&req.messages)?;
                 body["messages"] = serde_json::to_value(messages)?;
 
-                if let Some(tools) = &req.tools {
-                    if !tools.is_empty() {
-                        body["tools"] = serde_json::to_value(tools)?;
-                    }
+                if let Some(tools) = &req.tools
+                    && !tools.is_empty()
+                {
+                    body["tools"] = serde_json::to_value(tools)?;
                 }
 
                 if req.stream {

@@ -140,6 +140,7 @@ pub async fn build_openai_compatible_client(
 }
 
 #[cfg(feature = "anthropic")]
+#[allow(clippy::too_many_arguments)]
 pub async fn build_anthropic_client(
     api_key: String,
     base_url: String,
@@ -179,6 +180,7 @@ pub async fn build_anthropic_client(
 }
 
 #[cfg(feature = "google")]
+#[allow(clippy::too_many_arguments)]
 pub async fn build_gemini_client(
     api_key: String,
     base_url: String,
@@ -254,7 +256,7 @@ pub async fn build_anthropic_vertex_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    _tracing_config: Option<crate::tracing::TracingConfig>,
 ) -> Result<Box<dyn LlmClient>, LlmError> {
     let cfg = crate::providers::anthropic_vertex::client::VertexAnthropicConfig {
         base_url,

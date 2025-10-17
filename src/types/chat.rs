@@ -310,6 +310,47 @@ impl ChatMessageBuilder {
         self
     }
 
+    /// Sets cache control for a specific multimodal content part (Anthropic only)
+    /// The index refers to the position in the final content array after transformation.
+    pub fn cache_control_for_part(mut self, index: usize, _cache: CacheControl) -> Self {
+        use serde_json::Value;
+        // Collect existing indices from metadata.custom
+        let key = "anthropic_content_cache_indices".to_string();
+        let mut indices: Vec<usize> = self
+            .metadata
+            .custom
+            .get(&key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_u64().map(|u| u as usize))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !indices.contains(&index) {
+            indices.push(index);
+        }
+        indices.sort_unstable();
+        self.metadata.custom.insert(
+            key,
+            Value::Array(indices.into_iter().map(|i| Value::from(i as u64)).collect()),
+        );
+        self
+    }
+
+    /// Sets cache control for multiple multimodal content parts (Anthropic only)
+    pub fn cache_control_for_parts<I: IntoIterator<Item = usize>>(
+        self,
+        idx: I,
+        cache: CacheControl,
+    ) -> Self {
+        let mut me = self;
+        for i in idx {
+            me = me.cache_control_for_part(i, cache.clone());
+        }
+        me
+    }
+
     /// Adds image content
     pub fn with_image(mut self, image_url: String, detail: Option<String>) -> Self {
         let image_part = ContentPart::Image { image_url, detail };

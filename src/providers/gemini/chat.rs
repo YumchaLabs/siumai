@@ -89,15 +89,15 @@ impl ChatCapability for GeminiChatCapability {
             .config
             .http_config
             .clone()
-            .and_then(|c| Some(c.headers))
+            .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
         let headers_builder = move || {
             let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp {
-                if let Ok(tok) = tp.token() {
-                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                }
+            if let Some(ref tp) = tp
+                && let Ok(tok) = tp.token()
+            {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
             }
             let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             Ok(headers)
@@ -161,15 +161,15 @@ impl ChatCapability for GeminiChatCapability {
             .config
             .http_config
             .clone()
-            .and_then(|c| Some(c.headers))
+            .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
         let headers_builder = move || {
             let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp {
-                if let Ok(tok) = tp.token() {
-                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                }
+            if let Some(ref tp) = tp
+                && let Ok(tok) = tp.token()
+            {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
             }
             let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
             Ok(headers)
