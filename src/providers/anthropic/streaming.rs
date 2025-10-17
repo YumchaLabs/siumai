@@ -173,6 +173,7 @@ impl AnthropicEventConverter {
                         "max_tokens" => FinishReason::Length,
                         "stop_sequence" => FinishReason::Stop,
                         "tool_use" => FinishReason::ToolCalls,
+                        "refusal" => FinishReason::ContentFilter,
                         _ => FinishReason::Stop,
                     };
 
@@ -248,10 +249,8 @@ impl SseEventConverter for AnthropicEventConverter {
                                 .and_then(|m| m.as_str())
                                 .unwrap_or("Unknown error");
 
-                            return vec![Err(LlmError::ApiError {
-                                code: 0, // Unknown status code from SSE
-                                message: format!("Anthropic API error: {}", error_message),
-                                details: Some(error_obj.clone()),
+                            return vec![Ok(ChatStreamEvent::Error {
+                                error: format!("Anthropic API error: {}", error_message),
                             })];
                         }
                     }
@@ -336,14 +335,23 @@ impl AnthropicStreaming {
         let api_key = self.api_key.clone();
         let url_for_retry = url.clone();
         let body_for_retry = request_body.clone();
+        let disable_compression = self.http_config.stream_disable_compression;
         let build_request = move || {
             let mut headers =
                 crate::utils::http_headers::ProviderHeaders::anthropic(&api_key, &base_headers)?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(http
+            // Ensure SSE stability: explicit Accept and disable compression on long-lived stream
+            let mut builder = http
                 .post(url_for_retry.clone())
                 .headers(headers)
-                .json(&body_for_retry))
+                .header(reqwest::header::ACCEPT, "text/event-stream")
+                .header(reqwest::header::CACHE_CONTROL, "no-cache")
+                .header(reqwest::header::CONNECTION, "keep-alive")
+                .json(&body_for_retry);
+            if disable_compression {
+                builder = builder.header(reqwest::header::ACCEPT_ENCODING, "identity");
+            }
+            Ok(builder)
         };
 
         let converter = AnthropicEventConverter::new(self.config);

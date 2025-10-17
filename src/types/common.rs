@@ -340,6 +340,12 @@ pub struct HttpConfig {
     pub proxy: Option<String>,
     /// User agent
     pub user_agent: Option<String>,
+    /// Whether to disable compression for streaming (SSE) requests.
+    ///
+    /// When `true`, streaming requests explicitly set `Accept-Encoding: identity`
+    /// to avoid intermediary/proxy compression which can break long-lived SSE
+    /// connections. Default is `true` for stability.
+    pub stream_disable_compression: bool,
 }
 
 // Helper module for Duration serialization
@@ -368,12 +374,21 @@ mod duration_option_serde {
 
 impl Default for HttpConfig {
     fn default() -> Self {
+        // Determine default for stream_disable_compression from env var (default: true)
+        let sdc = match std::env::var("SIUMAI_STREAM_DISABLE_COMPRESSION") {
+            Ok(val) => {
+                let v = val.trim().to_lowercase();
+                !(v == "false" || v == "0" || v == "off" || v == "no")
+            }
+            Err(_) => true,
+        };
         Self {
             timeout: Some(crate::defaults::http::REQUEST_TIMEOUT),
             connect_timeout: Some(crate::defaults::http::CONNECT_TIMEOUT),
             headers: HashMap::new(),
             proxy: None,
             user_agent: Some(crate::defaults::http::USER_AGENT.to_string()),
+            stream_disable_compression: sdc,
         }
     }
 }

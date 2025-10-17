@@ -2,6 +2,8 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::types::{HttpConfig, ProviderParams, ProviderType};
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
+use std::sync::Arc;
 
 /// Build the unified Siumai provider from SiumaiBuilder
 pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
@@ -244,6 +246,12 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Now create the appropriate client based on provider type
     // Parameters have already been validated by RequestBuilder
+    // Prepare interceptors (unified interface)
+    let mut interceptors: Vec<Arc<dyn HttpInterceptor>> = builder.http_interceptors.clone();
+    if builder.http_debug {
+        interceptors.push(Arc::new(LoggingInterceptor::default()));
+    }
+
     let client: Box<dyn LlmClient> = match provider_type {
         #[cfg(feature = "openai")]
         ProviderType::OpenAi => {
@@ -280,6 +288,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 organization.clone(),
                 project.clone(),
                 builder.tracing_config.clone(),
+                interceptors.clone(),
             )
             .await?
         }
@@ -363,6 +372,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     http_config.clone(),
                     provider_params.clone(),
                     builder.tracing_config.clone(),
+                    interceptors.clone(),
                 )
                 .await?
             }
@@ -413,6 +423,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 #[cfg(not(feature = "google"))]
                 None,
                 builder.tracing_config.clone(),
+                interceptors.clone(),
             )
             .await?
         }
@@ -427,6 +438,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 http_config.clone(),
                 provider_params.clone(),
                 builder.tracing_config.clone(),
+                interceptors.clone(),
             )
             .await?
         }
@@ -454,6 +466,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 http_config.clone(),
                 provider_params.clone(),
                 builder.tracing_config.clone(),
+                interceptors.clone(),
             )
             .await?
         }
@@ -470,6 +483,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     http_config.clone(),
                     provider_params.clone(),
                     builder.tracing_config.clone(),
+                    interceptors.clone(),
                 )
                 .await?
             }

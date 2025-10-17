@@ -11,6 +11,8 @@ use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
 use crate::types::*;
+use crate::utils::http_interceptor::HttpInterceptor;
+use std::sync::Arc;
 
 use super::api::XaiModels;
 use super::chat::XaiChatCapability;
@@ -21,7 +23,6 @@ use super::config::XaiConfig;
 /// Main client that provides access to all `xAI` capabilities.
 /// This client implements the `LlmClient` trait for unified access
 /// and also provides `xAI`-specific functionality.
-#[derive(Debug)]
 pub struct XaiClient {
     /// Chat capability
     pub chat_capability: XaiChatCapability,
@@ -37,6 +38,8 @@ pub struct XaiClient {
     _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to all chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 impl Clone for XaiClient {
@@ -49,6 +52,7 @@ impl Clone for XaiClient {
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
+            http_interceptors: self.http_interceptors.clone(),
         }
     }
 }
@@ -110,6 +114,7 @@ impl XaiClient {
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
+            http_interceptors: Vec::new(),
         })
     }
 
@@ -344,6 +349,15 @@ impl XaiClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+    }
+
+    /// Install HTTP interceptors for all chat requests.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors.clone();
+        let mut cap = self.chat_capability.clone();
+        cap.interceptors = interceptors;
+        self.chat_capability = cap;
+        self
     }
 }
 

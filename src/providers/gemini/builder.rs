@@ -1,5 +1,7 @@
 use crate::retry_api::RetryOptions;
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{LlmBuilder, LlmError};
+use std::sync::Arc;
 use validator::Validate;
 
 /// Gemini-specific builder for configuring Gemini clients.
@@ -28,7 +30,7 @@ use validator::Validate;
 ///     Ok(())
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GeminiBuilder {
     /// Base builder with HTTP configuration
     pub(crate) base: LlmBuilder,
@@ -60,13 +62,19 @@ pub struct GeminiBuilder {
     tracing_config: Option<crate::tracing::TracingConfig>,
     /// Unified retry options
     retry_options: Option<RetryOptions>,
+    /// Optional override for streaming compression behavior
+    stream_disable_compression: Option<bool>,
+    /// Optional HTTP interceptors applied to chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable lightweight HTTP debug logging interceptor
+    http_debug: bool,
 }
 
 impl GeminiBuilder {
     /// Create a new Gemini builder
-    pub const fn new(base: LlmBuilder) -> Self {
+    pub fn new(base: LlmBuilder) -> Self {
         Self {
-            base,
+            base: base.clone(),
             api_key: None,
             base_url: None,
             model: None,
@@ -81,6 +89,10 @@ impl GeminiBuilder {
             thinking_config: None,
             tracing_config: None,
             retry_options: None,
+            stream_disable_compression: None,
+            // Inherit interceptors/debug from unified builder
+            http_interceptors: base.http_interceptors.clone(),
+            http_debug: base.http_debug,
         }
     }
 
@@ -123,6 +135,12 @@ impl GeminiBuilder {
     /// Set top-k
     pub const fn top_k(mut self, top_k: i32) -> Self {
         self.top_k = Some(top_k);
+        self
+    }
+
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.stream_disable_compression = Some(disable);
         self
     }
 
@@ -320,6 +338,18 @@ impl GeminiBuilder {
         self
     }
 
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
+        self
+    }
+
     /// Build the Gemini client
     pub async fn build(self) -> Result<crate::providers::gemini::GeminiClient, LlmError> {
         let api_key = self.api_key.ok_or_else(|| {
@@ -401,6 +431,13 @@ impl GeminiBuilder {
             config = config.with_timeout(timeout.as_secs());
         }
 
+        // Apply stream_disable_compression override if provided
+        if let Some(disable) = self.stream_disable_compression {
+            let mut http = config.http_config.take().unwrap_or_default();
+            http.stream_disable_compression = disable;
+            config = config.with_http_config(http);
+        }
+
         // Build HTTP client from base builder to inherit unified HTTP config
         let http_client = self.base.build_http_client()?;
 
@@ -409,6 +446,15 @@ impl GeminiBuilder {
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
+
+        // Install interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor::default()));
+        }
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
+        }
 
         Ok(client)
     }

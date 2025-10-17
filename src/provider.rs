@@ -10,7 +10,9 @@ use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::*;
 use crate::types::*;
+use crate::utils::http_interceptor::HttpInterceptor;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// The main siumai LLM provider that can dynamically dispatch to different capabilities
@@ -588,6 +590,10 @@ pub struct SiumaiBuilder {
     retry_options: Option<RetryOptions>,
     // Optional provider-specific parameters provided by the user
     user_provider_params: Option<ProviderParams>,
+    /// Optional HTTP interceptors applied to chat requests (unified interface)
+    pub(crate) http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data)
+    pub(crate) http_debug: bool,
     #[cfg(feature = "google")]
     /// Optional Bearer token provider for Gemini (e.g., Vertex AI).
     pub(crate) gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
@@ -614,6 +620,8 @@ impl SiumaiBuilder {
             reasoning_budget: None,
             retry_options: None,
             user_provider_params: None,
+            http_interceptors: Vec::new(),
+            http_debug: false,
             #[cfg(feature = "google")]
             gemini_token_provider: None,
         }
@@ -776,6 +784,19 @@ impl SiumaiBuilder {
         self
     }
 
+    /// Install a custom HTTP interceptor at the unified interface level.
+    /// Interceptors will be applied to all chat requests for the built client.
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
+        self
+    }
+
     /// Enable audio capability
     pub fn with_audio(self) -> Self {
         self.with_capability("audio")
@@ -831,6 +852,16 @@ impl SiumaiBuilder {
     /// Merge multiple default HTTP headers
     pub fn http_headers(mut self, headers: HashMap<String, String>) -> Self {
         self.http_config.headers.extend(headers);
+        self
+    }
+
+    /// Control whether to disable compression for streaming (SSE) requests.
+    ///
+    /// When set to `true` (default), streaming requests send
+    /// `Accept-Encoding: identity` to avoid proxy compression that can
+    /// destabilize long-lived SSE connections.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
         self
     }
 

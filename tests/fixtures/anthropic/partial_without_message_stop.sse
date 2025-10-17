@@ -1,0 +1,4 @@
+data: {"type":"message_start","message":{"id":"msg_partial","model":"claude-3.5"}}
+
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Partial stream"}}
+

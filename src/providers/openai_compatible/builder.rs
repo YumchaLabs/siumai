@@ -1,6 +1,8 @@
 use super::registry::get_provider_adapter;
 use crate::retry_api::RetryOptions;
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{LlmBuilder, LlmError};
+use std::sync::Arc;
 
 /// OpenAI-compatible builder for configuring OpenAI-compatible providers.
 ///
@@ -30,7 +32,7 @@ use crate::{LlmBuilder, LlmError};
 ///     Ok(())
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiCompatibleBuilder {
     /// Base builder with HTTP configuration
     base: LlmBuilder,
@@ -50,6 +52,10 @@ pub struct OpenAiCompatibleBuilder {
     provider_specific_config: std::collections::HashMap<String, serde_json::Value>,
     /// Unified retry options
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable lightweight HTTP debug logging interceptor
+    http_debug: bool,
 }
 
 impl OpenAiCompatibleBuilder {
@@ -63,7 +69,7 @@ impl OpenAiCompatibleBuilder {
             .map(|model| model.to_string());
 
         Self {
-            base,
+            base: base.clone(),
             provider_id: provider_id.to_string(),
             api_key: None,
             base_url: None,
@@ -72,6 +78,9 @@ impl OpenAiCompatibleBuilder {
             http_config: crate::types::HttpConfig::default(),
             provider_specific_config: std::collections::HashMap::new(),
             retry_options: None,
+            // Inherit interceptors/debug from unified builder
+            http_interceptors: base.http_interceptors.clone(),
+            http_debug: base.http_debug,
         }
     }
 
@@ -184,6 +193,18 @@ impl OpenAiCompatibleBuilder {
     /// Set unified retry options for chat operations
     pub fn with_retry(mut self, options: RetryOptions) -> Self {
         self.retry_options = Some(options);
+        self
+    }
+
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
         self
     }
 
@@ -463,6 +484,14 @@ impl OpenAiCompatibleBuilder {
         };
 
         client.set_retry_options(self.retry_options.clone());
+        // Install interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor::default()));
+        }
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
+        }
         Ok(client)
     }
 }

@@ -56,7 +56,10 @@ mod thinking_utils_test;
 // Capability modules
 pub mod files;
 pub mod rerank;
-mod responses; // keep internal (event converter), not re-exported
+// NOTE: Expose Responses event converter publicly for fixture-driven tests and
+// compatibility checks. This keeps the client surface unchanged while allowing
+// integration tests to validate SSE parsing behavior directly.
+pub mod responses;
 pub mod structured_output;
 pub mod transformers;
 // pub mod streaming; // removed after test migration to compat converter

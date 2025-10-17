@@ -1,0 +1,8 @@
+data: {"type":"message_start","message":{"id":"msg_1","model":"claude-3.5","role":"assistant"}}
+
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello "}}
+
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}
+
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":5,"output_tokens":7}}
+

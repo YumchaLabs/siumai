@@ -18,8 +18,18 @@ impl OpenAiResponsesEventConverter {
         &self,
         json: serde_json::Value,
     ) -> Option<crate::stream::ChatStreamEvent> {
-        // Handle delta.content as plain text
+        // Handle delta as plain text or delta.content
         if let Some(delta) = json.get("delta") {
+            // Case 1: delta is a plain string (response.output_text.delta)
+            if let Some(s) = delta.as_str() {
+                if !s.is_empty() {
+                    return Some(crate::stream::ChatStreamEvent::ContentDelta {
+                        delta: s.to_string(),
+                        index: None,
+                    });
+                }
+            }
+            // Case 2: delta.content is a string (message.delta simplified)
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                 return Some(crate::stream::ChatStreamEvent::ContentDelta {
                     delta: content.to_string(),
@@ -215,6 +225,16 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
                     if let Some(evt) = self.convert_responses_event(json) {
                         return vec![Ok(evt)];
                     }
+                }
+                "response.error" => {
+                    // Normalize provider error into ChatStreamEvent::Error
+                    let msg = json
+                        .get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("Unknown error")
+                        .to_string();
+                    return vec![Ok(crate::stream::ChatStreamEvent::Error { error: msg })];
                 }
                 "response.function_call_arguments.delta" => {
                     if let Some(evt) = self.convert_function_call_arguments_delta(json) {

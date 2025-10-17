@@ -8,6 +8,8 @@
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::types::{CommonParams, HttpConfig, ProviderParams};
+use crate::utils::http_interceptor::HttpInterceptor;
+use std::sync::Arc;
 
 #[cfg(feature = "openai")]
 #[allow(clippy::too_many_arguments)]
@@ -21,6 +23,7 @@ pub async fn build_openai_client(
     organization: Option<String>,
     project: Option<String>,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Box<dyn LlmClient>, LlmError> {
     let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
@@ -47,6 +50,9 @@ pub async fn build_openai_client(
     }
 
     let mut client = crate::providers::openai::OpenAiClient::new(config, http_client);
+    if !interceptors.is_empty() {
+        client = client.with_http_interceptors(interceptors);
+    }
     if let Some(tc) = tracing_config {
         let guard = crate::tracing::init_tracing(tc)
             .map_err(|e| LlmError::ConfigurationError(format!("Failed to init tracing: {e}")))?;
@@ -67,6 +73,7 @@ pub async fn build_openai_compatible_client(
     http_config: HttpConfig,
     _provider_params: Option<ProviderParams>,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Box<dyn LlmClient>, LlmError> {
     // Resolve provider adapter and base URL via registry v2
     let registry = crate::registry::global_registry();
@@ -114,11 +121,14 @@ pub async fn build_openai_compatible_client(
     }
 
     // Create client via provided HTTP client
-    let client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+    let mut client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
         config,
         http_client,
     )
     .await?;
+    if !interceptors.is_empty() {
+        client = client.with_http_interceptors(interceptors);
+    }
 
     // Apply tracing if configured (no-op if client ignores)
     if let Some(tc) = tracing_config {
@@ -138,6 +148,7 @@ pub async fn build_anthropic_client(
     http_config: HttpConfig,
     provider_params: Option<ProviderParams>,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Box<dyn LlmClient>, LlmError> {
     // Extract Anthropic-specific parameters from provider_params
     let mut anthropic_params = crate::params::AnthropicParams::default();
@@ -155,6 +166,9 @@ pub async fn build_anthropic_client(
         anthropic_params,
         http_config,
     );
+    if !interceptors.is_empty() {
+        client = client.with_http_interceptors(interceptors);
+    }
     if let Some(tc) = tracing_config {
         let guard = crate::tracing::init_tracing(tc.clone())
             .map_err(|e| LlmError::ConfigurationError(format!("Failed to init tracing: {e}")))?;
@@ -176,6 +190,7 @@ pub async fn build_gemini_client(
         std::sync::Arc<dyn crate::auth::TokenProvider>,
     >,
     tracing_config: Option<crate::tracing::TracingConfig>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Box<dyn LlmClient>, LlmError> {
     use crate::providers::gemini::client::GeminiClient;
     use crate::providers::gemini::types::{GeminiConfig, GenerationConfig};
@@ -209,6 +224,9 @@ pub async fn build_gemini_client(
 
     // Create client with provided HTTP client
     let mut client = GeminiClient::with_http_client(config, http_client)?;
+    if !interceptors.is_empty() {
+        client = client.with_http_interceptors(interceptors);
+    }
 
     // Apply thinking budget if provided
     if let Some(ref params) = provider_params

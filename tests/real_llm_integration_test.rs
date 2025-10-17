@@ -521,7 +521,10 @@ async fn test_reasoning_openai(config: &ProviderTestConfig) {
     let mut builder = LlmBuilder::new()
         .openai()
         .api_key(api_key)
-        .model(reasoning_model);
+        .model(reasoning_model)
+        // Explicitly route to Responses API to exercise that code path
+        // alongside the default Chat Completions path tested earlier.
+        .use_responses_api(true);
 
     // Only set base URL if environment variable exists
     if let Ok(base_url) = env::var("OPENAI_BASE_URL") {

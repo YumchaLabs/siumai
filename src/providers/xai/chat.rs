@@ -12,15 +12,19 @@ use crate::types::*;
 
 // use super::types::*;
 use super::utils::*;
+use crate::utils::http_interceptor::HttpInterceptor;
+use std::sync::Arc;
 
 /// `xAI` Chat Capability Implementation
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct XaiChatCapability {
     pub api_key: String,
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
     pub common_params: CommonParams,
+    /// Optional HTTP interceptors for chat requests
+    pub interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 impl XaiChatCapability {
@@ -38,6 +42,7 @@ impl XaiChatCapability {
             http_client,
             http_config,
             common_params,
+            interceptors: Vec::new(),
         }
     }
 }
@@ -73,6 +78,8 @@ impl ChatCapability for XaiChatCapability {
             request_transformer: std::sync::Arc::new(req_tx),
             response_transformer: std::sync::Arc::new(resp_tx),
             stream_transformer: None,
+            stream_disable_compression: self.http_config.stream_disable_compression,
+            interceptors: self.interceptors.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
             before_send: None,
@@ -115,6 +122,8 @@ impl ChatCapability for XaiChatCapability {
             request_transformer: std::sync::Arc::new(req_tx),
             response_transformer: std::sync::Arc::new(resp_tx),
             stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+            stream_disable_compression: self.http_config.stream_disable_compression,
+            interceptors: self.interceptors.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
             before_send: None,
@@ -140,6 +149,8 @@ impl XaiChatCapability {
             request_transformer: std::sync::Arc::new(req_tx),
             response_transformer: std::sync::Arc::new(resp_tx),
             stream_transformer: None,
+            stream_disable_compression: self.http_config.stream_disable_compression,
+            interceptors: self.interceptors.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
             before_send: None,

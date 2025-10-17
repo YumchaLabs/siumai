@@ -159,6 +159,10 @@ name = "custom_provider"
 path = "examples/03_advanced_features/custom_provider.rs"
 
 [[example]]
+name = "http_interceptor"
+path = "examples/03_advanced_features/http_interceptor.rs"
+
+[[example]]
 name = "tracing_monitoring"
 path = "examples/03_advanced_features/tracing_monitoring.rs"
 

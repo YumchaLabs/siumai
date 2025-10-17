@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client as HttpClient;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::client::LlmClient;
@@ -17,9 +18,9 @@ use super::files::GeminiFiles;
 use super::models::GeminiModels;
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
 use crate::retry_api::RetryOptions;
+use crate::utils::http_interceptor::HttpInterceptor;
 
 /// Gemini client that implements the `LlmClient` trait
-#[derive(Debug)]
 pub struct GeminiClient {
     /// HTTP client for making requests
     pub http_client: HttpClient,
@@ -41,6 +42,8 @@ pub struct GeminiClient {
     _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to all chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 impl Clone for GeminiClient {
@@ -56,6 +59,7 @@ impl Clone for GeminiClient {
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
+            http_interceptors: self.http_interceptors.clone(),
         }
     }
 }
@@ -81,7 +85,8 @@ impl GeminiClient {
         http_client: HttpClient,
     ) -> Result<Self, LlmError> {
         // Build capability implementations with provided client
-        let chat_capability = GeminiChatCapability::new(config.clone(), http_client.clone());
+        let chat_capability =
+            GeminiChatCapability::new(config.clone(), http_client.clone(), Vec::new());
 
         let models_capability = GeminiModels::new(config.clone(), http_client.clone());
 
@@ -135,6 +140,7 @@ impl GeminiClient {
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
+            http_interceptors: Vec::new(),
         })
     }
 
@@ -370,6 +376,18 @@ impl GeminiClient {
         &self.config.base_url
     }
 
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        if let Some(ref mut http) = self.config.http_config {
+            http.stream_disable_compression = disable;
+        } else {
+            let mut http = crate::types::HttpConfig::default();
+            http.stream_disable_compression = disable;
+            self.config.http_config = Some(http);
+        }
+        self
+    }
+
     /// Get the model
     pub fn model(&self) -> &str {
         &self.config.model
@@ -431,6 +449,15 @@ impl GeminiClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+    }
+
+    /// Install HTTP interceptors for all chat requests.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors.clone();
+        // Rebuild chat capability with interceptors
+        self.chat_capability =
+            GeminiChatCapability::new(self.config.clone(), self.http_client.clone(), interceptors);
+        self
     }
 }
 

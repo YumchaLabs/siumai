@@ -6,6 +6,8 @@ use crate::LlmBuilder;
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
 use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
+use std::sync::Arc;
 
 use super::client::XaiClient;
 use super::config::XaiConfig;
@@ -14,11 +16,15 @@ use super::config::XaiConfig;
 ///
 /// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
 /// for chat operations.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct XaiBuilder {
     config: XaiConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable lightweight HTTP debug logging interceptor
+    http_debug: bool,
 }
 
 impl XaiBuilder {
@@ -28,6 +34,8 @@ impl XaiBuilder {
             config: XaiConfig::default(),
             tracing_config: None,
             retry_options: None,
+            http_interceptors: Vec::new(),
+            http_debug: false,
         }
     }
 
@@ -88,6 +96,12 @@ impl XaiBuilder {
     /// Set HTTP configuration
     pub fn http_config(mut self, config: HttpConfig) -> Self {
         self.config.http_config = config;
+        self
+    }
+
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.config.http_config.stream_disable_compression = disable;
         self
     }
 
@@ -160,6 +174,18 @@ impl XaiBuilder {
         self
     }
 
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
+        self
+    }
+
     /// Build the `xAI` client
     pub async fn build(self) -> Result<XaiClient, LlmError> {
         // Validate configuration
@@ -184,6 +210,15 @@ impl XaiBuilder {
         client.set_tracing_guard(_tracing_guard);
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
+
+        // Install interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor::default()));
+        }
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
+        }
 
         Ok(client)
     }
@@ -216,6 +251,15 @@ impl XaiBuilder {
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
 
+        // Install interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor::default()));
+        }
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
+        }
+
         Ok(client)
     }
 }
@@ -230,9 +274,15 @@ pub struct XaiBuilderWrapper {
 #[cfg(feature = "xai")]
 impl XaiBuilderWrapper {
     pub fn new(base: LlmBuilder) -> Self {
+        // Inherit interceptors/debug from unified builder
+        let mut inner = crate::providers::xai::XaiBuilder::new();
+        for it in &base.http_interceptors {
+            inner = inner.with_http_interceptor(it.clone());
+        }
+        inner = inner.http_debug(base.http_debug);
         Self {
             base,
-            xai_builder: crate::providers::xai::XaiBuilder::new(),
+            xai_builder: inner,
         }
     }
 

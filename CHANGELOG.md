@@ -20,6 +20,16 @@
 - Files and Audio transformers/executors for consistent upload/STT/TTS flows.
 - Public typed options scaffold under `siumai::public::options` (converts to `ProviderParams`).
 - Tests: end-to-end header flow tests (OpenAI Files, Anthropic chat with beta, Gemini Files, OpenAI-Compatible chat, Groq/xAI chat); multipart negative checks (Groq STT, OpenAI Files upload).
+- HTTP Interceptors (experimental but stable API):
+  - New `utils::http_interceptor::{HttpInterceptor, HttpRequestContext}` with hooks:
+    `on_before_send`, `on_response`, `on_error`, `on_sse_event`.
+  - Unified `LlmBuilder::with_http_interceptor(...)` and `http_debug(true)` to install
+    custom interceptors and enable a built‑in `LoggingInterceptor` (no sensitive data).
+  - Provider builders inherit interceptors from `LlmBuilder`; provider clients expose
+    `with_http_interceptors(...)` (e.g. OpenAI/Groq) for direct installation.
+  - Interceptors run for both non‑streaming and streaming chat; SSE events are surfaced
+    via a wrapper converter so `on_sse_event` observes provider chunks.
+  - Headers visible to interceptors reflect merged runtime headers (tracing + custom + http_config).
 
 ### Removed
 - Legacy `retry_strategy` (use the new `retry_api` facade).

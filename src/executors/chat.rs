@@ -9,6 +9,7 @@ use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse};
+use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
 use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 use reqwest::header::HeaderMap;
@@ -29,6 +30,10 @@ pub struct HttpChatExecutor {
     pub request_transformer: Arc<dyn RequestTransformer>,
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
+    /// Whether to disable compression for streaming requests
+    pub stream_disable_compression: bool,
+    /// Optional list of HTTP interceptors (order preserved)
+    pub interceptors: Vec<Arc<dyn HttpInterceptor>>,
     // Strategy hooks
     pub build_url: Box<dyn Fn(bool) -> String + Send + Sync>,
     pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
@@ -45,18 +50,26 @@ impl ChatExecutor for HttpChatExecutor {
         let body = self.request_transformer.transform_chat(&req)?;
         let url = (self.build_url)(false);
         let headers = (self.build_headers)()?;
+        let headers_for_interceptors = headers.clone();
 
-        let resp = self
-            .http_client
-            .post(url)
-            .headers(headers)
-            .json(
-                &(if let Some(cb) = &self.before_send {
-                    cb(&body)?
-                } else {
-                    body
-                }),
-            )
+        let json_body = if let Some(cb) = &self.before_send {
+            cb(&body)?
+        } else {
+            body
+        };
+
+        // Build request and run interceptors
+        let mut rb = self.http_client.post(url.clone()).headers(headers);
+        let ctx = HttpRequestContext {
+            provider_id: self.provider_id.clone(),
+            url: url.clone(),
+            stream: false,
+        };
+        for it in &self.interceptors {
+            rb = it.on_before_send(&ctx, rb, &json_body, &headers_for_interceptors)?;
+        }
+        let resp = rb
+            .json(&json_body)
             .send()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
@@ -66,22 +79,36 @@ impl ChatExecutor for HttpChatExecutor {
                 // Rebuild headers and retry once (helps with refreshed Bearer tokens)
                 let url = (self.build_url)(false);
                 let headers = (self.build_headers)()?;
-                self.http_client
-                    .post(url)
-                    .headers(headers)
-                    .json(
-                        &(if let Some(cb) = &self.before_send {
-                            cb(&self.request_transformer.transform_chat(&req)?)?
-                        } else {
-                            self.request_transformer.transform_chat(&req)?
-                        }),
-                    )
+                let headers_for_interceptors = headers.clone();
+                let json_body = self.request_transformer.transform_chat(&req)?;
+                let mut rb = self.http_client.post(url.clone()).headers(headers);
+                let ctx = HttpRequestContext {
+                    provider_id: self.provider_id.clone(),
+                    url: url.clone(),
+                    stream: false,
+                };
+                for it in &self.interceptors {
+                    rb = it.on_before_send(&ctx, rb, &json_body, &headers_for_interceptors)?;
+                }
+                rb.json(&json_body)
                     .send()
                     .await
                     .map_err(|e| LlmError::HttpError(e.to_string()))?
             } else {
                 let headers = resp.headers().clone();
                 let text = resp.text().await.unwrap_or_default();
+                for it in &self.interceptors {
+                    it.on_error(
+                        &ctx,
+                        &crate::retry_api::classify_http_error(
+                            &self.provider_id,
+                            status.as_u16(),
+                            &text,
+                            &headers,
+                            None,
+                        ),
+                    );
+                }
                 return Err(crate::retry_api::classify_http_error(
                     &self.provider_id,
                     status.as_u16(),
@@ -91,6 +118,9 @@ impl ChatExecutor for HttpChatExecutor {
                 ));
             }
         } else {
+            for it in &self.interceptors {
+                it.on_response(&ctx, &resp)?;
+            }
             resp
         };
 
@@ -123,12 +153,50 @@ impl ChatExecutor for HttpChatExecutor {
         let header_builder = &self.build_headers;
         let url_for_retry = url.clone();
         let transformed_for_retry = transformed.clone();
+        let disable_compression = self.stream_disable_compression;
+        let interceptors = self.interceptors.clone();
+        let provider_id = self.provider_id.clone();
         let build_request = move || {
             let headers = (header_builder)()?;
-            Ok(http
-                .post(url_for_retry.clone())
+            let url_clone = url_for_retry.clone();
+            let mut rb = http
+                .post(url_clone.clone())
                 .headers(headers)
-                .json(&transformed_for_retry))
+                .header(reqwest::header::ACCEPT, "text/event-stream")
+                .header(reqwest::header::CACHE_CONTROL, "no-cache")
+                .header(reqwest::header::CONNECTION, "keep-alive");
+            // Ensure OpenAI bodies include stream flags for compatibility
+            // with tests and vercel/ai behavior.
+            let mut body_for_send = transformed_for_retry.clone();
+            if provider_id.starts_with("openai") {
+                body_for_send["stream"] = serde_json::Value::Bool(true);
+                if !body_for_send.get("stream_options").is_some() {
+                    body_for_send["stream_options"] = serde_json::json!({"include_usage": true});
+                } else if let Some(obj) = body_for_send["stream_options"].as_object_mut() {
+                    obj.entry("include_usage")
+                        .or_insert(serde_json::Value::Bool(true));
+                }
+            }
+            rb = rb.json(&body_for_send);
+            if disable_compression {
+                rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
+            }
+            // Interceptors on streaming request
+            let ctx = HttpRequestContext {
+                provider_id: provider_id.clone(),
+                url: url_clone,
+                stream: true,
+            };
+            // Build headers again for interceptor visibility
+            // Note: headers were already applied above on the builder
+            let cloned_headers = rb
+                .try_clone()
+                .and_then(|req| Some(req.build().ok()?.headers().clone()))
+                .unwrap_or_default();
+            for it in &interceptors {
+                rb = it.on_before_send(&ctx, rb, &body_for_send, &cloned_headers)?;
+            }
+            Ok(rb)
         };
 
         // Use underlying converter via adapter/transformer wrapper
@@ -158,10 +226,62 @@ impl ChatExecutor for HttpChatExecutor {
         }
 
         let converter = TransformerConverter(stream_tx.clone());
+        // Wrap converter to notify interceptors of SSE events
+        #[derive(Clone)]
+        struct InterceptingConverter<I, C> {
+            interceptors: Vec<Arc<dyn HttpInterceptor>>,
+            ctx: HttpRequestContext,
+            inner: I,
+            convert: C,
+        }
+        impl<C> SseEventConverter for InterceptingConverter<Arc<dyn StreamChunkTransformer>, C>
+        where
+            C: SseEventConverter + Clone + Send + Sync + 'static,
+        {
+            fn convert_event(
+                &self,
+                event: eventsource_stream::Event,
+            ) -> Pin<
+                Box<
+                    dyn Future<Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>>
+                        + Send
+                        + Sync
+                        + '_,
+                >,
+            > {
+                let interceptors = self.interceptors.clone();
+                let ctx = self.ctx.clone();
+                let inner = self.convert.clone();
+                Box::pin(async move {
+                    for it in &interceptors {
+                        if let Err(e) = it.on_sse_event(&ctx, &event) {
+                            return vec![Err(e)];
+                        }
+                    }
+                    inner.convert_event(event).await
+                })
+            }
+            fn handle_stream_end(
+                &self,
+            ) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>> {
+                self.convert.handle_stream_end()
+            }
+        }
+
+        let intercepting = InterceptingConverter {
+            interceptors: self.interceptors.clone(),
+            ctx: HttpRequestContext {
+                provider_id: self.provider_id.clone(),
+                url: (self.build_url)(true),
+                stream: true,
+            },
+            inner: stream_tx.clone(),
+            convert: converter,
+        };
         StreamFactory::create_eventsource_stream_with_retry(
             &self.provider_id,
             build_request,
-            converter,
+            intercepting,
         )
         .await
     }

@@ -72,6 +72,12 @@ impl AnthropicBuilder {
         self
     }
 
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     // Anthropic-specific parameters
 
     /// Sets cache control

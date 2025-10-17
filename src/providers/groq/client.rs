@@ -16,6 +16,8 @@ use super::api::GroqModels;
 use super::chat::GroqChatCapability;
 use super::config::GroqConfig;
 use crate::retry_api::RetryOptions;
+use crate::utils::http_interceptor::HttpInterceptor;
+use std::sync::Arc;
 
 /// `Groq` client that implements all capabilities
 pub struct GroqClient {
@@ -33,6 +35,8 @@ pub struct GroqClient {
     _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to all chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 impl Clone for GroqClient {
@@ -45,6 +49,7 @@ impl Clone for GroqClient {
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
+            http_interceptors: self.http_interceptors.clone(),
         }
     }
 }
@@ -90,6 +95,7 @@ impl GroqClient {
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
+            http_interceptors: Vec::new(),
         }
     }
 
@@ -254,6 +260,15 @@ impl GroqClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+    }
+
+    /// Install HTTP interceptors for all chat requests.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors.clone();
+        let mut cap = self.chat_capability.clone();
+        cap.interceptors = interceptors;
+        self.chat_capability = cap;
+        self
     }
 }
 

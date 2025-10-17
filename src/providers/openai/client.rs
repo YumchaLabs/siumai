@@ -54,6 +54,8 @@ pub struct OpenAiClient {
     web_search_config: crate::types::WebSearchConfig,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to all chat requests
+    http_interceptors: Vec<std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
 }
 
 impl Clone for OpenAiClient {
@@ -77,6 +79,7 @@ impl Clone for OpenAiClient {
             built_in_tools: self.built_in_tools.clone(),
             web_search_config: self.web_search_config.clone(),
             retry_options: self.retry_options.clone(),
+            http_interceptors: self.http_interceptors.clone(),
         }
     }
 }
@@ -171,6 +174,7 @@ impl OpenAiClient {
             built_in_tools: config.built_in_tools,
             web_search_config: config.web_search_config,
             retry_options: None,
+            http_interceptors: Vec::new(),
         }
     }
 
@@ -235,8 +239,10 @@ impl OpenAiClient {
             previous_response_id: None,
             built_in_tools: Vec::new(),
         };
-
-        Self::new(config, http_client)
+        let mut client = Self::new(config, http_client);
+        // Default: no interceptors
+        client.http_interceptors = Vec::new();
+        client
     }
 
     /// Get OpenAI-specific parameters
@@ -247,6 +253,23 @@ impl OpenAiClient {
     /// Get common parameters (for testing and debugging)
     pub const fn common_params(&self) -> &CommonParams {
         &self.common_params
+    }
+
+    /// Enable or disable the OpenAI Responses API routing.
+    /// This toggles whether chat requests use `/responses` (when true)
+    /// or `/chat/completions` (when false).
+    pub fn with_responses_api(mut self, enabled: bool) -> Self {
+        self.use_responses_api = enabled;
+        self
+    }
+
+    /// Install HTTP interceptors for all chat requests.
+    pub fn with_http_interceptors(
+        mut self,
+        interceptors: Vec<std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    ) -> Self {
+        self.http_interceptors = interceptors;
+        self
     }
 
     // chat_capability removed after executors migration
@@ -341,6 +364,8 @@ impl OpenAiClient {
                 request_transformer: std::sync::Arc::new(req_tx),
                 response_transformer: std::sync::Arc::new(resp_tx),
                 stream_transformer: None,
+                stream_disable_compression: self.http_config.stream_disable_compression,
+                interceptors: self.http_interceptors.clone(),
                 build_url: Box::new(move |_stream| format!("{}/responses", base)),
                 build_headers: Box::new(headers_builder),
                 before_send: None,
@@ -374,6 +399,8 @@ impl OpenAiClient {
                 request_transformer: std::sync::Arc::new(req_tx),
                 response_transformer: std::sync::Arc::new(resp_tx),
                 stream_transformer: None,
+                stream_disable_compression: self.http_config.stream_disable_compression,
+                interceptors: self.http_interceptors.clone(),
                 build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
                 build_headers: Box::new(headers_builder),
                 before_send: None,
@@ -445,6 +472,8 @@ impl ChatCapability for OpenAiClient {
                 request_transformer: std::sync::Arc::new(req_tx),
                 response_transformer: std::sync::Arc::new(resp_tx),
                 stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+                stream_disable_compression: self.http_config.stream_disable_compression,
+                interceptors: self.http_interceptors.clone(),
                 build_url: Box::new(move |_stream| format!("{}/responses", base)),
                 build_headers: Box::new(headers_builder),
                 before_send: None,
@@ -503,6 +532,8 @@ impl ChatCapability for OpenAiClient {
                 request_transformer: std::sync::Arc::new(req_tx),
                 response_transformer: std::sync::Arc::new(resp_tx),
                 stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+                stream_disable_compression: self.http_config.stream_disable_compression,
+                interceptors: self.http_interceptors.clone(),
                 build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
                 build_headers: Box::new(headers_builder),
                 before_send: None,

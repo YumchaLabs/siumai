@@ -2,12 +2,14 @@
 //!
 //! Builder pattern implementation for creating Groq clients.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::LlmBuilder;
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 
 use super::client::GroqClient;
 use super::config::GroqConfig;
@@ -16,11 +18,15 @@ use super::config::GroqConfig;
 ///
 /// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
 /// for chat operations.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GroqBuilder {
     config: GroqConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable lightweight HTTP debug logging interceptor
+    http_debug: bool,
 }
 
 impl GroqBuilder {
@@ -30,6 +36,8 @@ impl GroqBuilder {
             config: GroqConfig::default(),
             tracing_config: None,
             retry_options: None,
+            http_interceptors: Vec::new(),
+            http_debug: false,
         }
     }
 
@@ -114,6 +122,12 @@ impl GroqBuilder {
         self
     }
 
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn stream_disable_compression(mut self, disable: bool) -> Self {
+        self.config.http_config.stream_disable_compression = disable;
+        self
+    }
+
     /// Add a built-in tool
     pub fn tool(mut self, tool: crate::types::Tool) -> Self {
         self.config.built_in_tools.push(tool);
@@ -177,6 +191,18 @@ impl GroqBuilder {
         self
     }
 
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
+        self
+    }
+
     /// Build the `Groq` client
     pub async fn build(mut self) -> Result<GroqClient, LlmError> {
         // Try to get API key from environment if not set
@@ -228,6 +254,15 @@ impl GroqBuilder {
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
 
+        // Install interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor::default()));
+        }
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
+        }
+
         Ok(client)
     }
 
@@ -265,9 +300,15 @@ pub struct GroqBuilderWrapper {
 #[cfg(feature = "groq")]
 impl GroqBuilderWrapper {
     pub fn new(base: LlmBuilder) -> Self {
+        // Inherit interceptors/debug from unified builder
+        let mut inner = crate::providers::groq::GroqBuilder::new();
+        for it in &base.http_interceptors {
+            inner = inner.with_http_interceptor(it.clone());
+        }
+        inner = inner.http_debug(base.http_debug);
         Self {
             base,
-            groq_builder: crate::providers::groq::GroqBuilder::new(),
+            groq_builder: inner,
         }
     }
 
@@ -280,6 +321,11 @@ impl GroqBuilderWrapper {
     /// Set the base URL
     pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         self.groq_builder = self.groq_builder.base_url(base_url);
+        self
+    }
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.groq_builder = self.groq_builder.stream_disable_compression(disable);
         self
     }
 

@@ -10,6 +10,8 @@ use crate::retry_api::RetryOptions;
 use crate::types::*;
 
 use super::OpenAiClient;
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
+use std::sync::Arc;
 
 /// OpenAI-specific builder for configuring `OpenAI` clients.
 ///
@@ -49,11 +51,20 @@ pub struct OpenAiBuilder {
     http_config: HttpConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
+    /// Whether to use the OpenAI Responses API instead of Chat Completions
+    use_responses_api: bool,
+    /// Optional HTTP interceptors applied to chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable lightweight HTTP debug logging interceptor
+    http_debug: bool,
 }
 
 #[cfg(feature = "openai")]
 impl OpenAiBuilder {
     pub fn new(base: LlmBuilder) -> Self {
+        // Inherit interceptors/debug from unified builder
+        let inherited_interceptors = base.http_interceptors.clone();
+        let inherited_debug = base.http_debug;
         Self {
             base,
             api_key: None,
@@ -66,6 +77,9 @@ impl OpenAiBuilder {
             http_config: HttpConfig::default(),
             tracing_config: None,
             retry_options: None,
+            use_responses_api: false,
+            http_interceptors: inherited_interceptors,
+            http_debug: inherited_debug,
         }
     }
 
@@ -172,6 +186,13 @@ impl OpenAiBuilder {
     /// Sets the HTTP configuration
     pub fn with_http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = config;
+        self
+    }
+
+    /// Control whether to disable compression for streaming (SSE) requests.
+    /// Default is true for stability. Set to false to allow compression.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
         self
     }
 
@@ -285,6 +306,27 @@ impl OpenAiBuilder {
         self
     }
 
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
+        self
+    }
+
+    /// Use the OpenAI Responses API instead of Chat Completions.
+    ///
+    /// When enabled, the client routes chat requests to `/responses` and sets
+    /// the required beta header automatically.
+    pub fn use_responses_api(mut self, enabled: bool) -> Self {
+        self.use_responses_api = enabled;
+        self
+    }
+
     /// Builds the `OpenAI` client
     pub async fn build(self) -> Result<OpenAiClient, LlmError> {
         let api_key = self
@@ -335,6 +377,16 @@ impl OpenAiBuilder {
 
         // Apply retry options if provided
         client.set_retry_options(self.retry_options.clone());
+
+        // Route to Responses API if explicitly enabled
+        client = client.with_responses_api(self.use_responses_api);
+
+        // Install interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor::default()));
+        }
+        client = client.with_http_interceptors(interceptors);
 
         Ok(client)
     }

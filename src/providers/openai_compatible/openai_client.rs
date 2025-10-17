@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 // removed: HashMap import not needed after legacy removal
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::utils::http_interceptor::HttpInterceptor;
 
 /// OpenAI Compatible Chat Response with provider-specific fields
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -83,11 +84,13 @@ pub struct OpenAiCompatibleUsage {
 ///
 /// This is a separate client implementation that uses the adapter system
 /// to handle provider-specific differences without modifying the core OpenAI client.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct OpenAiCompatibleClient {
     config: OpenAiCompatibleConfig,
     http_client: reqwest::Client,
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to all chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 impl OpenAiCompatibleClient {
@@ -108,6 +111,7 @@ impl OpenAiCompatibleClient {
             config,
             http_client,
             retry_options: None,
+            http_interceptors: Vec::new(),
         })
     }
 
@@ -128,6 +132,7 @@ impl OpenAiCompatibleClient {
             config,
             http_client,
             retry_options: None,
+            http_interceptors: Vec::new(),
         })
     }
 
@@ -136,6 +141,12 @@ impl OpenAiCompatibleClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+    }
+
+    /// Install HTTP interceptors for all chat requests.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors;
+        self
     }
 
     /// Build unified JSON headers for OpenAI-compatible providers
@@ -294,6 +305,8 @@ impl ChatCapability for OpenAiCompatibleClient {
             request_transformer: Arc::new(request_tx),
             response_transformer: Arc::new(response_tx),
             stream_transformer: None,
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
             before_send: None,
@@ -362,6 +375,8 @@ impl ChatCapability for OpenAiCompatibleClient {
                 adapter: self.config.adapter.clone(),
             }),
             stream_transformer: Some(Arc::new(stream_tx)),
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
             build_headers: Box::new(headers_builder),
             before_send: None,

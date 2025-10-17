@@ -1,0 +1,10 @@
+data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":"{\"q\":\"rus"}}]}}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_1","function":{"arguments":"t\"}"}}]}}]}
+
+data: {"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}
+
+data: {"choices":[{"index":0,"finish_reason":"stop"}]}
+

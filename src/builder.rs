@@ -84,6 +84,8 @@
 //! ```
 
 use std::collections::HashMap;
+use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::LlmError;
@@ -212,7 +214,7 @@ pub async fn quick_xai_with_model(
 /// - Support for custom HTTP clients (key requirement)
 /// - Fluent API with method chaining
 /// - Validation at build time
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LlmBuilder {
     /// Custom HTTP client (key requirement from design doc)
     pub(crate) http_client: Option<reqwest::Client>,
@@ -224,6 +226,10 @@ pub struct LlmBuilder {
     pub(crate) user_agent: Option<String>,
     /// Default headers
     pub(crate) default_headers: HashMap<String, String>,
+    /// Optional HTTP interceptors applied to chat requests (inherited by provider builders)
+    pub(crate) http_interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    /// Enable a built-in LoggingInterceptor for lightweight HTTP debug
+    pub(crate) http_debug: bool,
     /// Enable HTTP/2
     pub(crate) http2_prior_knowledge: Option<bool>,
     /// Enable gzip compression
@@ -246,6 +252,8 @@ impl LlmBuilder {
             connect_timeout: None,
             user_agent: None,
             default_headers: HashMap::new(),
+            http_interceptors: Vec::new(),
+            http_debug: false,
             http2_prior_knowledge: None,
             gzip: None,
             brotli: None,
@@ -355,6 +363,23 @@ impl LlmBuilder {
     /// * `value` - Header value
     pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
         self.default_headers.insert(name.into(), value.into());
+        self
+    }
+
+    /// Install a custom HTTP interceptor at the unified builder level.
+    /// Provider builders created from this `LlmBuilder` will inherit these
+    /// interceptors and install them on their clients when built.
+    pub fn with_http_interceptor(
+        mut self,
+        interceptor: Arc<dyn crate::utils::http_interceptor::HttpInterceptor>,
+    ) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
         self
     }
 
@@ -471,6 +496,24 @@ impl LlmBuilder {
         builder
             .build()
             .map_err(|e| LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}")))
+    }
+}
+
+impl fmt::Debug for LlmBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LlmBuilder")
+            .field("has_http_client", &self.http_client.is_some())
+            .field("timeout", &self.timeout)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("user_agent", &self.user_agent)
+            .field("default_headers_len", &self.default_headers.len())
+            .field("http2_prior_knowledge", &self.http2_prior_knowledge)
+            .field("gzip", &self.gzip)
+            .field("brotli", &self.brotli)
+            .field("proxy", &self.proxy)
+            .field("cookie_store", &self.cookie_store)
+            .field("http_debug", &self.http_debug)
+            .finish()
     }
 }
 

@@ -4,7 +4,9 @@
 
 pub mod cancel;
 pub mod error_handling;
+pub mod error_helper;
 pub mod http_headers;
+pub mod http_interceptor;
 pub mod mime;
 pub mod sse_stream;
 pub mod streaming;
@@ -12,6 +14,8 @@ pub mod url;
 pub mod utf8_decoder;
 pub mod vertex;
 
+pub use error_helper::*;
+pub use http_interceptor::*;
 pub use sse_stream::{SseStream, SseStreamExt};
 pub use streaming::*;
 pub use url::*;

@@ -14,24 +14,32 @@ use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::stream::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, Tool};
+use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 use super::types::{GeminiConfig, GenerateContentRequest};
 use crate::ChatResponse;
 
 /// Gemini chat capability implementation
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GeminiChatCapability {
     config: GeminiConfig,
     http_client: HttpClient,
+    /// Optional HTTP interceptors for chat requests
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 impl GeminiChatCapability {
     /// Create a new Gemini chat capability
-    pub fn new(config: GeminiConfig, http_client: HttpClient) -> Self {
+    pub fn new(
+        config: GeminiConfig,
+        http_client: HttpClient,
+        interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    ) -> Self {
         Self {
             config,
             http_client,
+            interceptors,
         }
     }
 
@@ -100,6 +108,13 @@ impl ChatCapability for GeminiChatCapability {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: None,
+            stream_disable_compression: self
+                .config
+                .http_config
+                .as_ref()
+                .map(|h| h.stream_disable_compression)
+                .unwrap_or(true),
+            interceptors: self.interceptors.clone(),
             build_url: Box::new(move |_stream| {
                 crate::utils::url::join_url(&base, &format!("models/{}:generateContent", model))
             }),
@@ -165,6 +180,13 @@ impl ChatCapability for GeminiChatCapability {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: Some(Arc::new(stream_tx)),
+            stream_disable_compression: self
+                .config
+                .http_config
+                .as_ref()
+                .map(|h| h.stream_disable_compression)
+                .unwrap_or(true),
+            interceptors: self.interceptors.clone(),
             build_url: Box::new(move |_stream| {
                 crate::utils::url::join_url(
                     &base,

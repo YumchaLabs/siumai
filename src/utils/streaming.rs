@@ -91,6 +91,49 @@ impl StreamFactory {
             response
         };
 
+        // If server didn't return SSE, fall back to single JSON body conversion
+        let is_sse = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|ct| ct.to_ascii_lowercase().contains("text/event-stream"))
+            .unwrap_or(false);
+        if !is_sse {
+            let text = response
+                .text()
+                .await
+                .map_err(|e| LlmError::HttpError(format!("Failed to read body: {e}")))?;
+            let evt = eventsource_stream::Event {
+                event: "message".to_string(),
+                data: text,
+                id: "0".to_string(),
+                retry: None,
+            };
+            let mut events = converter.clone().convert_event(evt).await;
+            let saw_content = events
+                .iter()
+                .any(|ev| matches!(ev, Ok(ChatStreamEvent::ContentDelta { .. })));
+            if let Some(end) = converter.handle_stream_end() {
+                if let Ok(ChatStreamEvent::StreamEnd { response }) = &end {
+                    if !saw_content {
+                        if let Some(text) = response.content_text() {
+                            if !text.is_empty() {
+                                events.push(Ok(ChatStreamEvent::ContentDelta {
+                                    delta: text.to_string(),
+                                    index: None,
+                                }));
+                            }
+                        }
+                    }
+                    events.push(end);
+                } else {
+                    events.push(end);
+                }
+            }
+            let stream = futures::stream::iter(events);
+            return Ok(Box::pin(stream));
+        }
+
         // Convert to byte stream and then to SSE
         let byte_stream = response
             .bytes_stream()
@@ -106,6 +149,7 @@ impl StreamFactory {
                 async move {
                     match event_result {
                         Ok(event) => {
+                            // No unconditional debug printing in production path
                             if event.data.trim() == "[DONE]" {
                                 if let Some(end) = converter.handle_stream_end() {
                                     // If the converter provides a final response and no deltas were seen,
@@ -135,7 +179,9 @@ impl StreamFactory {
                             }
                             let mut events = converter.convert_event(event).await;
                             // Mark if any ContentDelta is present
-                            let has_content = events.iter().any(|ev| matches!(ev, Ok(ChatStreamEvent::ContentDelta { .. })));
+                            let has_content = events
+                                .iter()
+                                .any(|ev| matches!(ev, Ok(ChatStreamEvent::ContentDelta { .. })));
                             if has_content {
                                 saw_content.store(true, std::sync::atomic::Ordering::Relaxed);
                             }

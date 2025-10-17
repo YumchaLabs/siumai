@@ -206,10 +206,8 @@ pub fn is_responses_model(model: &str) -> bool {
 /// - Explicit flag use_responses_api takes precedence
 /// - Auto: models matching is_responses_model (currently only gpt-5*)
 pub fn should_route_responses(cfg: &super::config::OpenAiConfig) -> bool {
-    if cfg.use_responses_api {
-        return true;
-    }
-    is_responses_model(&cfg.common_params.model)
+    // 默认仅在显式开启时走 Responses API，不再根据模型名自动切换。
+    cfg.use_responses_api
 }
 
 #[cfg(test)]
@@ -228,12 +226,12 @@ mod tests {
     }
 
     #[test]
-    fn test_should_route_responses_explicit_or_gpt5() {
+    fn test_should_route_responses_explicit_only() {
         let cfg = OpenAiConfig::new("test").with_model("gpt-4o");
         assert!(!should_route_responses(&cfg));
 
         let cfg = OpenAiConfig::new("test").with_model("gpt-5-mini");
-        assert!(should_route_responses(&cfg));
+        assert!(!should_route_responses(&cfg));
 
         let cfg = OpenAiConfig::new("test")
             .with_model("gpt-4")

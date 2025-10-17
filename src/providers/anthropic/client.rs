@@ -13,6 +13,7 @@ use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::*;
 use crate::types::*;
+use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 use super::models::AnthropicModels;
@@ -41,6 +42,8 @@ pub struct AnthropicClient {
     _tracing_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to all chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 impl Clone for AnthropicClient {
@@ -57,6 +60,7 @@ impl Clone for AnthropicClient {
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
+            http_interceptors: self.http_interceptors.clone(),
         }
     }
 }
@@ -124,6 +128,7 @@ impl AnthropicClient {
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
+            http_interceptors: Vec::new(),
         }
     }
 
@@ -154,6 +159,12 @@ impl AnthropicClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+    }
+
+    /// Install HTTP interceptors for all chat requests.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors;
+        self
     }
 
     /// Update Anthropic-specific parameters
@@ -243,6 +254,8 @@ impl AnthropicClient {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: None,
+            stream_disable_compression: self.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
             build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
             build_headers: Box::new(headers_builder),
             before_send: None,
@@ -313,6 +326,8 @@ impl ChatCapability for AnthropicClient {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: Some(Arc::new(stream_tx)),
+            stream_disable_compression: self.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
             build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
             build_headers: Box::new(headers_builder),
             before_send: None,

@@ -93,9 +93,12 @@ impl GeminiEventConverter {
             builder = builder.add_stream_start(self.create_stream_start_metadata());
         }
 
-        // Process content - NO MORE CONTENT LOSS!
-        if let Some(content) = self.extract_content(&response) {
-            builder = builder.add_content_delta(content, None);
+        // Process content - support multiple candidates/parts per chunk
+        let texts = self.extract_all_texts(&response);
+        if !texts.is_empty() {
+            for t in texts {
+                builder = builder.add_content_delta(t, None);
+            }
         }
 
         // Process thinking content (if supported)
@@ -129,19 +132,42 @@ impl GeminiEventConverter {
 
     /// Extract content from Gemini response
     fn extract_content(&self, response: &GeminiStreamResponse) -> Option<String> {
-        response
-            .candidates
-            .as_ref()?
-            .first()?
-            .content
-            .as_ref()?
-            .parts
-            .as_ref()?
-            .first()?
-            .text
-            .as_ref()
-            .filter(|text| !text.is_empty())
-            .cloned()
+        let candidates = response.candidates.as_ref()?;
+        for cand in candidates {
+            if let Some(content) = &cand.content {
+                if let Some(parts) = &content.parts {
+                    for part in parts {
+                        if let Some(text) = &part.text {
+                            if !text.is_empty() {
+                                return Some(text.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Extract all non-empty texts across candidates/parts (for multi-candidate streams)
+    fn extract_all_texts(&self, response: &GeminiStreamResponse) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(candidates) = &response.candidates {
+            for cand in candidates {
+                if let Some(content) = &cand.content {
+                    if let Some(parts) = &content.parts {
+                        for part in parts {
+                            if let Some(text) = &part.text {
+                                if !text.is_empty() {
+                                    out.push(text.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Extract thinking content from Gemini response
@@ -307,6 +333,14 @@ impl GeminiStreaming {
             });
         }
 
+        // Determine compression behavior for streaming
+        let disable_compression = self
+            .config
+            .http_config
+            .as_ref()
+            .map(|h| h.stream_disable_compression)
+            .unwrap_or(true);
+
         // Create the stream using SSE infrastructure (Gemini uses SSE format)
         let mut config = self.config;
         config.api_key = api_key.clone();
@@ -331,10 +365,18 @@ impl GeminiStreaming {
                 );
             }
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(http
+            let mut builder = http
                 .post(&url_for_retry)
                 .headers(headers)
-                .json(&body_for_retry))
+                // SSE expectations: explicit Accept + disable compression
+                .header(reqwest::header::ACCEPT, "text/event-stream")
+                .header(reqwest::header::CACHE_CONTROL, "no-cache")
+                .header(reqwest::header::CONNECTION, "keep-alive")
+                .json(&body_for_retry);
+            if disable_compression {
+                builder = builder.header(reqwest::header::ACCEPT_ENCODING, "identity");
+            }
+            Ok(builder)
         };
         StreamFactory::create_eventsource_stream_with_retry("gemini", build_request, converter)
             .await
