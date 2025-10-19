@@ -18,6 +18,11 @@
 - OpenAI client now routes non‑streaming and streaming chat through the new `HttpChatExecutor` with `OpenAi*Transformer`s.
 - OpenAI‑compatible providers now share centralized adapter + transformer + streaming event conversion logic (`providers/openai_compatible/*`).
 - Introduced `ProviderRegistryV2` + factory helpers to reduce builder branching and enable config‑driven provider wiring.
+- **Provider Registry Architecture** (aligned with Vercel AI SDK):
+  - New `ProviderFactory` trait with async capability-specific methods (language_model, embedding_model, etc.).
+  - `ProviderRegistryHandle` delegates client creation to factory instances; capability handles implement corresponding traits.
+  - String-driven model resolution via `"provider:model"` format; middleware applied at handle level.
+  - Internal: trait objects now use `Arc<dyn LlmClient>` instead of `Box<dyn LlmClient>` for better cloning performance.
 - Request headers unified across providers via `utils::http_headers::ProviderHeaders` and `inject_tracing_headers`; custom headers merged from `http_config.headers`.
 - OpenAI-Compatible header unification preserves adapter custom headers + `http_config.headers` + config `custom_headers` (compat client).
 - OpenAI Rerank now uses `ProviderHeaders::openai`; accepts `HttpConfig` for custom headers/tracing.
@@ -44,6 +49,7 @@
 - Legacy `request_factory` and scattered per‑provider request builders in favor of transformers.
 - Duplicated per‑provider streaming parsers replaced by unified transformers/converters.
 - Legacy `SiumaiBuilder::build_legacy` (modern build path is `provider/build.rs`).
+- Unused legacy provider registry code from `src/provider.rs` (replaced by new registry system in `src/registry/entry.rs`).
 
 ### Migration Guide (short)
 - Retries: replace any usage of `retry_strategy` with `retry_api::{retry, retry_for_provider, retry_with(RetryOptions)}`. Builders support `with_retry(...)`.
@@ -52,6 +58,7 @@
 - OpenAI native: if you built on internal mapping code, move to `OpenAiRequestTransformer` (Chat/Embedding/Image) and Responses API transformers. ParameterMapper is no longer needed.
 - Streaming behavior: ensure your stream transformer emits `StreamStart` and `StreamEnd` and can produce multiple events per provider chunk (thinking/tool call/usage updates).
 - If you instantiate `OpenAiRerank::new(...)` directly, add a final `HttpConfig` argument; usage via `OpenAiClient` is unchanged.
+- **Custom ProviderFactory implementations**: If you implemented the old `ProviderFactory` trait, migrate to the new async trait in `src/registry/entry.rs` (change `Box::new(client)` to `Arc::new(client)`, implement async capability methods). Most users unaffected.
 
 ## [0.10.3] - 2025-10-10
 

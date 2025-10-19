@@ -24,7 +24,7 @@ pub async fn build_openai_client(
     project: Option<String>,
     tracing_config: Option<crate::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
-) -> Result<Box<dyn LlmClient>, LlmError> {
+) -> Result<Arc<dyn LlmClient>, LlmError> {
     let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
         .with_model(common_params.model.clone());
@@ -59,7 +59,7 @@ pub async fn build_openai_client(
         client.set_tracing_guard(guard);
     }
 
-    Ok(Box::new(client))
+    Ok(Arc::new(client))
 }
 
 #[cfg(feature = "openai")]
@@ -74,7 +74,7 @@ pub async fn build_openai_compatible_client(
     _provider_params: Option<ProviderParams>,
     tracing_config: Option<crate::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
-) -> Result<Box<dyn LlmClient>, LlmError> {
+) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Resolve provider adapter and base URL via registry v2
     let registry = crate::registry::global_registry();
     let (resolved_id, adapter, resolved_base) = {
@@ -136,7 +136,7 @@ pub async fn build_openai_compatible_client(
         let _ = tc; // avoid unused warning
     }
 
-    Ok(Box::new(client))
+    Ok(Arc::new(client))
 }
 
 #[cfg(feature = "anthropic")]
@@ -150,7 +150,7 @@ pub async fn build_anthropic_client(
     provider_params: Option<ProviderParams>,
     tracing_config: Option<crate::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
-) -> Result<Box<dyn LlmClient>, LlmError> {
+) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Extract Anthropic-specific parameters from provider_params
     let mut anthropic_params = crate::params::AnthropicParams::default();
     if let Some(ref params) = provider_params
@@ -176,7 +176,7 @@ pub async fn build_anthropic_client(
         client.set_tracing_guard(guard);
         client.set_tracing_config(Some(tc));
     }
-    Ok(Box::new(client))
+    Ok(Arc::new(client))
 }
 
 #[cfg(feature = "google")]
@@ -193,7 +193,7 @@ pub async fn build_gemini_client(
     >,
     tracing_config: Option<crate::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
-) -> Result<Box<dyn LlmClient>, LlmError> {
+) -> Result<Arc<dyn LlmClient>, LlmError> {
     use crate::providers::gemini::client::GeminiClient;
     use crate::providers::gemini::types::{GeminiConfig, GenerationConfig};
 
@@ -245,7 +245,7 @@ pub async fn build_gemini_client(
         client.set_tracing_config(Some(tc));
     }
 
-    Ok(Box::new(client))
+    Ok(Arc::new(client))
 }
 
 /// Build Anthropic on Vertex AI client
@@ -257,7 +257,7 @@ pub async fn build_anthropic_vertex_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     _tracing_config: Option<crate::tracing::TracingConfig>,
-) -> Result<Box<dyn LlmClient>, LlmError> {
+) -> Result<Arc<dyn LlmClient>, LlmError> {
     let cfg = crate::providers::anthropic_vertex::client::VertexAnthropicConfig {
         base_url,
         model: common_params.model.clone(),
@@ -266,7 +266,7 @@ pub async fn build_anthropic_vertex_client(
     let client =
         crate::providers::anthropic_vertex::client::VertexAnthropicClient::new(cfg, http_client);
     // No tracing guard necessary; headers are injected via ProviderHeaders.
-    Ok(Box::new(client))
+    Ok(Arc::new(client))
 }
 
 #[cfg(feature = "ollama")]
@@ -277,7 +277,7 @@ pub async fn build_ollama_client(
     http_config: HttpConfig,
     provider_params: Option<ProviderParams>,
     tracing_config: Option<crate::tracing::TracingConfig>,
-) -> Result<Box<dyn LlmClient>, LlmError> {
+) -> Result<Arc<dyn LlmClient>, LlmError> {
     use crate::providers::ollama::OllamaClient;
     use crate::providers::ollama::config::{OllamaConfig, OllamaParams};
 
@@ -303,5 +303,5 @@ pub async fn build_ollama_client(
         client.set_tracing_guard(guard);
         client.set_tracing_config(Some(tc));
     }
-    Ok(Box::new(client))
+    Ok(Arc::new(client))
 }

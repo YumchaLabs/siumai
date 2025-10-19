@@ -2,6 +2,8 @@
 //!
 //! Each provider implements the ProviderFactory trait to create clients.
 
+use std::sync::Arc;
+
 use crate::builder::LlmBuilder;
 use crate::client::LlmClient;
 use crate::error::LlmError;
@@ -14,9 +16,9 @@ pub struct OpenAIProviderFactory;
 #[cfg(feature = "openai")]
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAIProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = crate::quick_openai_with_model(model_id).await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -31,9 +33,9 @@ pub struct AnthropicProviderFactory;
 #[cfg(feature = "anthropic")]
 #[async_trait::async_trait]
 impl ProviderFactory for AnthropicProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = crate::quick_anthropic_with_model(model_id).await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -48,9 +50,9 @@ pub struct GeminiProviderFactory;
 #[cfg(feature = "google")]
 #[async_trait::async_trait]
 impl ProviderFactory for GeminiProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = crate::quick_gemini_with_model(model_id).await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -65,9 +67,9 @@ pub struct GroqProviderFactory;
 #[cfg(feature = "groq")]
 #[async_trait::async_trait]
 impl ProviderFactory for GroqProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = crate::quick_groq_with_model(model_id).await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -82,9 +84,9 @@ pub struct XAIProviderFactory;
 #[cfg(feature = "xai")]
 #[async_trait::async_trait]
 impl ProviderFactory for XAIProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = crate::prelude::quick_xai_with_model(model_id).await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -99,9 +101,9 @@ pub struct OllamaProviderFactory;
 #[cfg(feature = "ollama")]
 #[async_trait::async_trait]
 impl ProviderFactory for OllamaProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = LlmBuilder::new().ollama().model(model_id).build().await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -116,13 +118,13 @@ pub struct OpenRouterProviderFactory;
 #[cfg(feature = "openai")]
 #[async_trait::async_trait]
 impl ProviderFactory for OpenRouterProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = LlmBuilder::new()
             .openrouter()
             .model(model_id)
             .build()
             .await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -137,9 +139,9 @@ pub struct DeepSeekProviderFactory;
 #[cfg(feature = "openai")]
 #[async_trait::async_trait]
 impl ProviderFactory for DeepSeekProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let client = LlmBuilder::new().deepseek().model(model_id).build().await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -163,7 +165,7 @@ impl OpenAICompatibleProviderFactory {
 #[cfg(feature = "openai")]
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAICompatibleProviderFactory {
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         let mut builder = crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
             LlmBuilder::new(),
             &self.provider_id,
@@ -179,7 +181,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
 
         builder = builder.api_key(api_key).model(model_id);
         let client = builder.build().await?;
-        Ok(Box::new(client))
+        Ok(Arc::new(client))
     }
 
     fn provider_name(&self) -> &'static str {
@@ -194,14 +196,14 @@ pub struct TestProviderFactory;
 #[cfg(test)]
 #[async_trait::async_trait]
 impl ProviderFactory for TestProviderFactory {
-    async fn language_model(&self, _model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         use crate::registry::entry::TEST_BUILD_COUNT;
         TEST_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(Box::new(crate::registry::entry::TestProvClient))
+        Ok(Arc::new(crate::registry::entry::TestProvClient))
     }
 
-    async fn embedding_model(&self, _model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
-        Ok(Box::new(crate::registry::entry::TestProvEmbedClient))
+    async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(crate::registry::entry::TestProvEmbedClient))
     }
 
     fn provider_name(&self) -> &'static str {

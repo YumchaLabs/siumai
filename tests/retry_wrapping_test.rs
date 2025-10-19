@@ -88,7 +88,7 @@ impl LlmClient for TestProvider {
 async fn test_siumai_retries_and_succeeds_on_second_attempt() {
     // First attempt fails, second succeeds
     let provider = TestProvider::new(1);
-    let client = siumai::provider::Siumai::new(Box::new(provider))
+    let client = siumai::provider::Siumai::new(std::sync::Arc::new(provider))
         .with_retry_options(Some(RetryOptions::policy_default().with_max_attempts(3)));
 
     let msgs = vec![ChatMessage::user("hi").build()];
@@ -103,7 +103,7 @@ async fn test_siumai_retries_and_succeeds_on_second_attempt() {
 async fn test_siumai_retry_respects_max_attempts_and_fails() {
     // Always fail, allow only 2 attempts => error
     let provider = TestProvider::new(u32::MAX);
-    let client = siumai::provider::Siumai::new(Box::new(provider))
+    let client = siumai::provider::Siumai::new(std::sync::Arc::new(provider))
         .with_retry_options(Some(RetryOptions::policy_default().with_max_attempts(2)));
 
     let msgs = vec![ChatMessage::user("hi").build()];

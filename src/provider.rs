@@ -21,7 +21,7 @@ use std::time::Duration;
 /// call different provider functionality through a single interface.
 pub struct Siumai {
     /// The underlying provider client
-    client: Box<dyn LlmClient>,
+    client: Arc<dyn LlmClient>,
     /// Provider-specific metadata
     metadata: ProviderMetadata,
     /// Optional retry options for chat calls
@@ -30,11 +30,9 @@ pub struct Siumai {
 
 impl Clone for Siumai {
     fn clone(&self) -> Self {
-        // Clone the client using the ClientWrapper approach
-        let client = self.client.clone_box();
-
+        // Clone the client using Arc (cheap reference counting)
         Self {
-            client,
+            client: Arc::clone(&self.client),
             metadata: self.metadata.clone(),
             retry_options: self.retry_options.clone(),
         }
@@ -66,7 +64,7 @@ pub struct ProviderMetadata {
 
 impl Siumai {
     /// Create a new siumai provider
-    pub fn new(client: Box<dyn LlmClient>) -> Self {
+    pub fn new(client: Arc<dyn LlmClient>) -> Self {
         let metadata = ProviderMetadata {
             provider_type: client.provider_type(),
             provider_name: client.provider_name().to_string(),
@@ -1172,62 +1170,6 @@ impl std::fmt::Debug for SiumaiBuilder {
     }
 }
 
-/// Provider registry for dynamic provider creation
-pub struct ProviderRegistry {
-    factories: HashMap<String, Box<dyn ProviderFactory>>,
-}
-
-/// Factory trait for creating providers
-pub trait ProviderFactory: Send + Sync {
-    fn create_provider(&self, config: ProviderConfig) -> Result<Box<dyn LlmClient>, LlmError>;
-    fn supported_capabilities(&self) -> Vec<String>;
-}
-
-/// Configuration for provider creation
-#[derive(Debug, Clone)]
-pub struct ProviderConfig {
-    pub api_key: String,
-    pub base_url: Option<String>,
-    pub model: Option<String>,
-    pub capabilities: Vec<String>,
-}
-
-impl ProviderRegistry {
-    /// Create a new registry
-    pub fn new() -> Self {
-        Self {
-            factories: HashMap::new(),
-        }
-    }
-
-    /// Register a provider factory
-    pub fn register<S: Into<String>>(&mut self, name: S, factory: Box<dyn ProviderFactory>) {
-        self.factories.insert(name.into(), factory);
-    }
-
-    /// Create a provider by name
-    pub fn create_provider(&self, name: &str, config: ProviderConfig) -> Result<Siumai, LlmError> {
-        let factory = self
-            .factories
-            .get(name)
-            .ok_or_else(|| LlmError::ConfigurationError(format!("Unknown provider: {name}")))?;
-
-        let client = factory.create_provider(config)?;
-        Ok(Siumai::new(client))
-    }
-
-    /// Get supported providers
-    pub fn supported_providers(&self) -> Vec<String> {
-        self.factories.keys().cloned().collect()
-    }
-}
-
-impl Default for ProviderRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1294,7 +1236,7 @@ mod tests {
     async fn test_siumai_embedding_unsupported_provider() {
         // Create a mock provider that doesn't support embedding
         let mock_provider = MockProvider;
-        let siumai = Siumai::new(Box::new(mock_provider));
+        let siumai = Siumai::new(Arc::new(mock_provider));
 
         // Test that embedding returns an error for unsupported provider
         let result = siumai.embed(vec!["test".to_string()]).await;
@@ -1310,7 +1252,7 @@ mod tests {
     #[test]
     fn test_embedding_capability_proxy() {
         let mock_provider = MockProvider;
-        let siumai = Siumai::new(Box::new(mock_provider));
+        let siumai = Siumai::new(Arc::new(mock_provider));
 
         let proxy = siumai.embedding_capability();
         assert_eq!(proxy.provider_name(), "custom"); // MockProvider gets mapped to "custom" type
@@ -1320,7 +1262,7 @@ mod tests {
     #[tokio::test]
     async fn test_embedding_capability_proxy_embed() {
         let mock_provider = MockProvider;
-        let siumai = Siumai::new(Box::new(mock_provider));
+        let siumai = Siumai::new(Arc::new(mock_provider));
 
         let proxy = siumai.embedding_capability();
         let result = proxy.embed(vec!["test".to_string()]).await;

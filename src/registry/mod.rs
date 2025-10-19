@@ -150,4 +150,10 @@ pub mod factories;
 /// Convenience helpers to bootstrap registries with common defaults
 pub mod helpers;
 
+// Re-export commonly used items for convenience
+pub use entry::{
+    ProviderFactory, ProviderRegistryHandle, RegistryOptions, create_provider_registry,
+};
+pub use helpers::{create_empty_registry, create_registry_with_defaults};
+
 // External config loaders were removed to keep the core deterministic and simple.

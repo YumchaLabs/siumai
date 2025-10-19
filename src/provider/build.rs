@@ -252,7 +252,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         interceptors.push(Arc::new(LoggingInterceptor));
     }
 
-    let client: Box<dyn LlmClient> = match provider_type {
+    let client: Arc<dyn LlmClient> = match provider_type {
         #[cfg(feature = "openai")]
         ProviderType::OpenAi => {
             // Resolve defaults via ProviderRegistry v2 (native provider)

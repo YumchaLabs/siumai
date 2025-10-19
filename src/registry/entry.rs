@@ -35,26 +35,26 @@ pub trait ProviderFactory: Send + Sync {
     /// Create a language model client for the given model ID
     ///
     /// The returned client should NOT have middlewares applied - the Handle will apply them.
-    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError>;
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError>;
 
     /// Create an embedding model client for the given model ID
-    async fn embedding_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn embedding_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Default: delegate to language_model (many providers use same client)
         self.language_model(model_id).await
     }
 
     /// Create an image model client for the given model ID
-    async fn image_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn image_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.language_model(model_id).await
     }
 
     /// Create a speech model client for the given model ID
-    async fn speech_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn speech_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.language_model(model_id).await
     }
 
     /// Create a transcription model client for the given model ID
-    async fn transcription_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+    async fn transcription_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.speech_model(model_id).await
     }
 
