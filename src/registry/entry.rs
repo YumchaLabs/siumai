@@ -5,8 +5,7 @@
 //! `provider:model` identifiers and holding model-level middleware options.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
 use crate::builder::LlmBuilder;
 use crate::client::LlmClient;
@@ -23,7 +22,6 @@ use crate::types::{ChatMessage, ChatResponse, Tool};
 pub struct RegistryOptions {
     pub separator: char,
     pub language_model_middleware: Vec<Arc<dyn LanguageModelMiddleware>>,
-    pub client_ttl: Option<Duration>,
 }
 
 /// Minimal provider registry handle.
@@ -34,16 +32,6 @@ pub struct RegistryOptions {
 pub struct ProviderRegistryHandle {
     separator: char,
     pub(crate) middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
-    // Experimental in-memory client cache keyed by "provider:model"
-    clients: Arc<Mutex<HashMap<String, CachedClient>>>,
-    ttl: Option<Duration>,
-    in_flight: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
-}
-
-#[derive(Clone)]
-struct CachedClient {
-    client: Arc<dyn LlmClient>,
-    inserted_at: Instant,
 }
 
 impl ProviderRegistryHandle {
@@ -73,9 +61,6 @@ impl ProviderRegistryHandle {
             provider_id: provider,
             model_id: model,
             middlewares: self.middlewares.clone(),
-            clients: self.clients.clone(),
-            ttl: self.ttl,
-            in_flight: self.in_flight.clone(),
         })
     }
 
@@ -85,9 +70,6 @@ impl ProviderRegistryHandle {
         Ok(EmbeddingModelHandle {
             provider_id: provider,
             model_id: model,
-            clients: self.clients.clone(),
-            ttl: self.ttl,
-            in_flight: self.in_flight.clone(),
         })
     }
 
@@ -97,9 +79,6 @@ impl ProviderRegistryHandle {
         Ok(ImageModelHandle {
             provider_id: provider,
             model_id: model,
-            clients: self.clients.clone(),
-            ttl: self.ttl,
-            in_flight: self.in_flight.clone(),
         })
     }
 
@@ -109,9 +88,6 @@ impl ProviderRegistryHandle {
         Ok(SpeechModelHandle {
             provider_id: provider,
             model_id: model,
-            clients: self.clients.clone(),
-            ttl: self.ttl,
-            in_flight: self.in_flight.clone(),
         })
     }
 
@@ -121,9 +97,6 @@ impl ProviderRegistryHandle {
         Ok(TranscriptionModelHandle {
             provider_id: provider,
             model_id: model,
-            clients: self.clients.clone(),
-            ttl: self.ttl,
-            in_flight: self.in_flight.clone(),
         })
     }
 }
@@ -133,17 +106,14 @@ pub fn create_provider_registry(
     _providers: HashMap<String, ()>,
     opts: Option<RegistryOptions>,
 ) -> ProviderRegistryHandle {
-    let (separator, middlewares, ttl) = if let Some(o) = opts {
-        (o.separator, o.language_model_middleware, o.client_ttl)
+    let (separator, middlewares) = if let Some(o) = opts {
+        (o.separator, o.language_model_middleware)
     } else {
-        (':', Vec::new(), None)
+        (':', Vec::new())
     };
     ProviderRegistryHandle {
         separator,
         middlewares,
-        clients: Arc::new(Mutex::new(HashMap::new())),
-        ttl,
-        in_flight: Arc::new(Mutex::new(HashMap::new())),
     }
 }
 
@@ -157,85 +127,12 @@ pub struct LanguageModelHandle {
     pub provider_id: String,
     pub model_id: String,
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>, // applied before provider mapping
-    clients: Arc<Mutex<HashMap<String, CachedClient>>>,
-    pub(crate) ttl: Option<Duration>,
-    pub(crate) in_flight: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl LanguageModelHandle {
-    async fn get_or_build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let key = format!("{}:{}", self.provider_id, self.model_id);
-        // Fast path: try read cache (check TTL)
-        // Check and remove in a single lock scope to avoid race conditions
-        let cached_valid = {
-            let mut map = self.clients.lock().map_err(|e| {
-                LlmError::InternalError(format!("Client cache lock poisoned: {}", e))
-            })?;
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    // Expired; remove it
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
-
-        // Acquire per-key async build lock to dedupe concurrent builds.
-        // Intentionally hold this guard across the build + insert to ensure
-        // at most one builder runs per key. Other waiters will either observe
-        // a valid cached client in the double-check below or block until the
-        // new client is inserted.
-        let build_lock = {
-            let mut map = self
-                .in_flight
-                .lock()
-                .map_err(|e| LlmError::InternalError(format!("In-flight lock poisoned: {}", e)))?;
-            Arc::clone(
-                map.entry(key.clone())
-                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
-            )
-        };
-        let _guard = build_lock.lock().await;
-
-        // Double-check after acquiring lock (check and remove in single scope)
-        let cached_valid = {
-            let mut map = self.clients.lock().map_err(|e| {
-                LlmError::InternalError(format!("Client cache lock poisoned: {}", e))
-            })?;
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    // Expired; remove it
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
-
-        // Build client outside inner lock
+    /// Build a client for this language model handle.
+    /// Creates a new client instance on each call - client creation is cheap (no network I/O).
+    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
         let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
             #[cfg(test)]
             "testprov" => {
@@ -332,17 +229,6 @@ impl LanguageModelHandle {
             }
         };
 
-        // Insert into cache with timestamp
-        self.clients
-            .lock()
-            .map_err(|e| LlmError::InternalError(format!("Client cache lock poisoned: {}", e)))?
-            .insert(
-                key,
-                CachedClient {
-                    client: built.clone(),
-                    inserted_at: Instant::now(),
-                },
-            );
         Ok(built)
     }
 
@@ -352,7 +238,7 @@ impl LanguageModelHandle {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let client = self.get_or_build_client().await?;
+        let client = self.build_client().await?;
         client.chat_with_tools(messages, tools).await
     }
 
@@ -362,7 +248,7 @@ impl LanguageModelHandle {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        let client = self.get_or_build_client().await?;
+        let client = self.build_client().await?;
         client.chat_stream(messages, tools).await
     }
 }
@@ -372,69 +258,11 @@ impl LanguageModelHandle {
 pub struct EmbeddingModelHandle {
     pub provider_id: String,
     pub model_id: String,
-    clients: Arc<Mutex<HashMap<String, CachedClient>>>,
-    pub(crate) ttl: Option<Duration>,
-    pub(crate) in_flight: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl EmbeddingModelHandle {
-    async fn get_or_build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let key = format!("{}:{}", self.provider_id, self.model_id);
-        // Fast path: check cache and remove expired in single lock scope
-        let cached_valid = {
-            let mut map = self.clients.lock().unwrap();
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
-
-        let build_lock = {
-            let mut map = self.in_flight.lock().unwrap();
-            Arc::clone(
-                map.entry(key.clone())
-                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
-            )
-        };
-        let _guard = build_lock.lock().await;
-
-        // Double-check after acquiring lock
-        let cached_valid = {
-            let mut map = self.clients.lock().unwrap();
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
-
+    /// Build a client for this embedding model handle.
+    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
         let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
             #[cfg(test)]
             "testprov_embed" => {
@@ -500,13 +328,6 @@ impl EmbeddingModelHandle {
             }
         };
 
-        self.clients.lock().unwrap().insert(
-            key,
-            CachedClient {
-                client: built.clone(),
-                inserted_at: Instant::now(),
-            },
-        );
         Ok(built)
     }
 
@@ -515,7 +336,7 @@ impl EmbeddingModelHandle {
         &self,
         input: Vec<String>,
     ) -> Result<crate::types::EmbeddingResponse, LlmError> {
-        let client = self.get_or_build_client().await?;
+        let client = self.build_client().await?;
         let Some(cap) = client.as_embedding_capability() else {
             return Err(LlmError::UnsupportedOperation(
                 "Embedding not supported by this client".into(),
@@ -530,68 +351,11 @@ impl EmbeddingModelHandle {
 pub struct ImageModelHandle {
     pub provider_id: String,
     pub model_id: String,
-    clients: Arc<Mutex<HashMap<String, CachedClient>>>,
-    pub(crate) ttl: Option<Duration>,
-    pub(crate) in_flight: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl ImageModelHandle {
-    async fn get_or_build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let key = format!("{}:{}:image", self.provider_id, self.model_id);
-        // Fast path: check cache and remove expired in single lock scope
-        let cached_valid = {
-            let mut map = self.clients.lock().unwrap();
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
-
-        let build_lock = {
-            let mut map = self.in_flight.lock().unwrap();
-            Arc::clone(
-                map.entry(key.clone())
-                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
-            )
-        };
-        let _guard = build_lock.lock().await;
-
-        // Double-check after acquiring lock
-        let cached_valid = {
-            let mut map = self.clients.lock().unwrap();
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
+    /// Build a client for this image model handle.
+    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
         let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
             #[cfg(feature = "openai")]
             "openai" => {
@@ -640,13 +404,6 @@ impl ImageModelHandle {
                 }
             }
         };
-        self.clients.lock().unwrap().insert(
-            key,
-            CachedClient {
-                client: built.clone(),
-                inserted_at: Instant::now(),
-            },
-        );
         Ok(built)
     }
 
@@ -654,7 +411,7 @@ impl ImageModelHandle {
         &self,
         request: crate::types::ImageGenerationRequest,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
-        let client = self.get_or_build_client().await?;
+        let client = self.build_client().await?;
         let Some(cap) = client.as_image_generation_capability() else {
             return Err(LlmError::UnsupportedOperation(
                 "Image generation not supported by this client".into(),
@@ -669,68 +426,11 @@ impl ImageModelHandle {
 pub struct SpeechModelHandle {
     pub provider_id: String,
     pub model_id: String,
-    clients: Arc<Mutex<HashMap<String, CachedClient>>>,
-    pub(crate) ttl: Option<Duration>,
-    pub(crate) in_flight: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl SpeechModelHandle {
-    async fn get_or_build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let key = format!("{}:{}:audio", self.provider_id, self.model_id);
-        // Fast path: check cache and remove expired in single lock scope
-        let cached_valid = {
-            let mut map = self.clients.lock().unwrap();
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
-
-        let build_lock = {
-            let mut map = self.in_flight.lock().unwrap();
-            Arc::clone(
-                map.entry(key.clone())
-                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
-            )
-        };
-        let _guard = build_lock.lock().await;
-
-        // Double-check after acquiring lock
-        let cached_valid = {
-            let mut map = self.clients.lock().unwrap();
-            if let Some(cached) = map.get(&key) {
-                let is_valid = self
-                    .ttl
-                    .map(|ttl| cached.inserted_at.elapsed() <= ttl)
-                    .unwrap_or(true);
-                if is_valid {
-                    Some(cached.client.clone())
-                } else {
-                    map.remove(&key);
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(client) = cached_valid {
-            return Ok(client);
-        }
+    /// Build a client for this speech model handle.
+    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
         let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
             #[cfg(feature = "openai")]
             "openai" => Arc::new(crate::quick_openai_with_model(&self.model_id).await?),
@@ -772,13 +472,6 @@ impl SpeechModelHandle {
                 }
             }
         };
-        self.clients.lock().unwrap().insert(
-            key,
-            CachedClient {
-                client: built.clone(),
-                inserted_at: Instant::now(),
-            },
-        );
         Ok(built)
     }
 
@@ -786,7 +479,7 @@ impl SpeechModelHandle {
         &self,
         req: crate::types::TtsRequest,
     ) -> Result<crate::types::TtsResponse, LlmError> {
-        let client = self.get_or_build_client().await?;
+        let client = self.build_client().await?;
         let Some(cap) = client.as_audio_capability() else {
             return Err(LlmError::UnsupportedOperation(
                 "TTS not supported by this client".into(),
@@ -799,7 +492,7 @@ impl SpeechModelHandle {
         &self,
         req: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
-        let client = self.get_or_build_client().await?;
+        let client = self.build_client().await?;
         let Some(cap) = client.as_audio_capability() else {
             return Err(LlmError::UnsupportedOperation(
                 "STT not supported by this client".into(),
@@ -814,34 +507,17 @@ impl SpeechModelHandle {
 pub struct TranscriptionModelHandle {
     pub provider_id: String,
     pub model_id: String,
-    clients: Arc<Mutex<HashMap<String, CachedClient>>>,
-    pub(crate) ttl: Option<Duration>,
-    pub(crate) in_flight: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl TranscriptionModelHandle {
-    async fn get_or_build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Reuse SpeechModelHandle semantics
-        let tmp = SpeechModelHandle {
-            provider_id: self.provider_id.clone(),
-            model_id: self.model_id.clone(),
-            clients: self.clients.clone(),
-            ttl: self.ttl,
-            in_flight: self.in_flight.clone(),
-        };
-        tmp.get_or_build_client().await
-    }
-
     pub async fn speech_to_text(
         &self,
         req: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
+        // Reuse SpeechModelHandle semantics
         let tmp = SpeechModelHandle {
             provider_id: self.provider_id.clone(),
             model_id: self.model_id.clone(),
-            clients: self.clients.clone(),
-            ttl: self.ttl,
-            in_flight: self.in_flight.clone(),
         };
         tmp.speech_to_text(req).await
     }
@@ -940,85 +616,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn language_model_handle_uses_cached_client() {
+    async fn language_model_handle_builds_client() {
         let reg = create_provider_registry(HashMap::new(), None);
-        let hit = std::sync::Arc::new(std::sync::Mutex::new(0usize));
-        // Insert cached client for key "openai:mock-model"
-        let mock: Arc<dyn LlmClient> = Arc::new(MockClient(hit.clone()));
-        reg.clients.lock().unwrap().insert(
-            "openai:mock-model".to_string(),
-            CachedClient {
-                client: mock,
-                inserted_at: Instant::now(),
-            },
-        );
+        let handle = reg.language_model("testprov:model").unwrap();
 
-        let handle = reg.language_model("openai:mock-model").unwrap();
+        // Each call builds a new client (no caching)
+        TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
         let resp = handle.chat(vec![], None).await.unwrap();
         assert_eq!(resp.content_text().unwrap_or_default(), "ok");
-        assert_eq!(*hit.lock().unwrap(), 1);
-    }
-}
-
-#[cfg(test)]
-mod ttl_and_concurrency_tests {
-    use super::*;
-    use std::sync::atomic::Ordering;
-    use tokio::task;
-
-    #[tokio::test]
-    async fn ttl_expiry_triggers_rebuild() {
-        TEST_BUILD_COUNT.store(0, Ordering::SeqCst);
-        let reg = create_provider_registry(
-            HashMap::new(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                client_ttl: Some(Duration::from_millis(20)),
-            }),
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            1
         );
-        let handle = reg.language_model("testprov:model").unwrap();
-        // First build
-        let _ = handle.chat(vec![], None).await.unwrap();
-        assert_eq!(TEST_BUILD_COUNT.load(Ordering::SeqCst), 1);
-        // Force expiration without relying on real time.
-        // This makes the test deterministic across platforms and runners.
-        {
-            let mut map = reg.clients.lock().unwrap();
-            if let Some(entry) = map.get_mut("testprov:model") {
-                // Make cached entry older than TTL so next access rebuilds.
-                entry.inserted_at = Instant::now() - Duration::from_millis(30);
-            }
-        }
-        // Second call should rebuild
-        let _ = handle.chat(vec![], None).await.unwrap();
-        assert_eq!(TEST_BUILD_COUNT.load(Ordering::SeqCst), 2);
-    }
 
-    #[tokio::test]
-    async fn concurrent_builds_are_deduped() {
-        TEST_BUILD_COUNT.store(0, Ordering::SeqCst);
-        let reg = create_provider_registry(
-            HashMap::new(),
-            Some(RegistryOptions {
-                separator: ':',
-                language_model_middleware: Vec::new(),
-                client_ttl: Some(Duration::from_secs(60)),
-            }),
+        // Second call also builds a new client
+        let resp = handle.chat(vec![], None).await.unwrap();
+        assert_eq!(resp.content_text().unwrap_or_default(), "ok");
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            2
         );
-        let handle = reg.language_model("testprov:model").unwrap();
-        // Spawn 10 concurrent chats, should build once
-        let mut joins = Vec::new();
-        for _ in 0..10 {
-            let h = handle.clone();
-            joins.push(task::spawn(async move {
-                let _ = h.chat(vec![], None).await;
-            }));
-        }
-        for j in joins {
-            let _ = j.await;
-        }
-        assert_eq!(TEST_BUILD_COUNT.load(Ordering::SeqCst), 1);
     }
 }
 
@@ -1063,18 +680,11 @@ impl LlmClient for TestProvEmbedClient {
 mod embedding_tests {
     use super::*;
     #[tokio::test]
-    async fn embedding_model_handle_works_with_cached_client() {
+    async fn embedding_model_handle_builds_client() {
         let reg = create_provider_registry(HashMap::new(), None);
-        // Insert cached client for key "testprov_embed:model"
-        let mock: Arc<dyn LlmClient> = Arc::new(TestProvEmbedClient);
-        reg.clients.lock().unwrap().insert(
-            "testprov_embed:model".to_string(),
-            CachedClient {
-                client: mock,
-                inserted_at: Instant::now(),
-            },
-        );
         let handle = reg.embedding_model("testprov_embed:model").unwrap();
+
+        // Client is built on each call (no caching)
         let out = handle.embed(vec!["a".into(), "b".into()]).await.unwrap();
         assert_eq!(out.embeddings[0][0], 2.0);
     }

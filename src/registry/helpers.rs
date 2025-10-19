@@ -16,7 +16,6 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
-            client_ttl: None,
         }),
     )
 }
@@ -28,7 +27,6 @@ pub fn create_empty_registry() -> ProviderRegistryHandle {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: Vec::new(),
-            client_ttl: None,
         }),
     )
 }
