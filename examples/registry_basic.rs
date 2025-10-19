@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("OPENAI_API_KEY").is_ok() {
         let lm = reg.language_model("openai:gpt-4o")?;
         let resp = lm
-            .chat(vec![user!("Hello from registry (OpenAI)!")], None)
+            .chat(vec![user!("Hello from registry (OpenAI)!")])
             .await?;
         println!("OpenAI> {}", resp.content_text().unwrap_or("<no text>"));
     } else {
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("OPENROUTER_API_KEY").is_ok() {
         let lm = reg.language_model("openrouter:openai/gpt-4o-mini")?;
         let resp = lm
-            .chat(vec![user!("Hello from registry (OpenRouter)!")], None)
+            .chat(vec![user!("Hello from registry (OpenRouter)!")])
             .await?;
         println!("OpenRouter> {}", resp.content_text().unwrap_or("<no text>"));
     } else {

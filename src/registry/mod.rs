@@ -145,6 +145,8 @@ pub mod factory;
 
 /// Experimental registry entry (Iteration A): minimal handle + options
 pub mod entry;
+/// Provider factory implementations
+pub mod factories;
 /// Convenience helpers to bootstrap registries with common defaults
 pub mod helpers;
 

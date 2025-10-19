@@ -1,22 +1,66 @@
-//! Experimental Provider Registry entry (Iteration A)
+//! Provider Registry - Vercel AI SDK Aligned Architecture
 //!
-//! This is a minimal skeleton intended to provide a
-//! typed place for the future registry-as-entrypoint. It focuses on parsing
-//! `provider:model` identifiers and holding model-level middleware options.
+//! This module provides a provider registry system that aligns with Vercel AI SDK's design:
+//! - ProviderFactory trait for creating provider clients
+//! - Registry stores factory instances (not hardcoded logic)
+//! - Handles delegate to factories for client creation
+//! - Easy to extend with new providers
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::builder::LlmBuilder;
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::middleware::language_model::LanguageModelMiddleware;
-#[cfg(feature = "xai")]
-use crate::prelude::quick_xai_with_model;
 use crate::stream::ChatStream;
-#[cfg(test)]
-use crate::traits::ChatCapability;
-use crate::types::{ChatMessage, ChatResponse, Tool};
+use crate::traits::{
+    AudioCapability, ChatCapability, EmbeddingCapability, ImageGenerationCapability,
+};
+use crate::types::{
+    AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingResponse,
+    ImageGenerationRequest, ImageGenerationResponse, SttRequest, SttResponse, Tool, TtsRequest,
+    TtsResponse,
+};
+
+/// Provider factory trait - similar to Vercel AI SDK's ProviderV3
+///
+/// Each provider implements this trait to create clients for different model types.
+/// This allows the registry to be provider-agnostic and easily extensible.
+///
+/// Note: Middlewares are applied by the Handle after client creation, not by the factory.
+/// This keeps the factory simple and aligns with Vercel AI SDK's design where
+/// middleware wrapping happens at the registry level.
+#[async_trait::async_trait]
+pub trait ProviderFactory: Send + Sync {
+    /// Create a language model client for the given model ID
+    ///
+    /// The returned client should NOT have middlewares applied - the Handle will apply them.
+    async fn language_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError>;
+
+    /// Create an embedding model client for the given model ID
+    async fn embedding_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+        // Default: delegate to language_model (many providers use same client)
+        self.language_model(model_id).await
+    }
+
+    /// Create an image model client for the given model ID
+    async fn image_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+        self.language_model(model_id).await
+    }
+
+    /// Create a speech model client for the given model ID
+    async fn speech_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+        self.language_model(model_id).await
+    }
+
+    /// Create a transcription model client for the given model ID
+    async fn transcription_model(&self, model_id: &str) -> Result<Box<dyn LlmClient>, LlmError> {
+        self.speech_model(model_id).await
+    }
+
+    /// Get the provider name
+    fn provider_name(&self) -> &'static str;
+}
 
 /// Options for creating a provider registry handle.
 pub struct RegistryOptions {
@@ -24,19 +68,22 @@ pub struct RegistryOptions {
     pub language_model_middleware: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
-/// Minimal provider registry handle.
+/// Provider registry handle - aligned with Vercel AI SDK design
 ///
-/// Iteration A: only provides parsing and stores model-level middlewares for
-/// future use. Client construction is intentionally not implemented here to
-/// avoid breaking existing builders.
+/// Stores provider factories and delegates client creation to them.
+/// This makes the registry extensible and provider-agnostic.
 pub struct ProviderRegistryHandle {
+    /// Registered provider factories (provider_id -> factory)
+    providers: HashMap<String, Arc<dyn ProviderFactory>>,
+    /// Separator for parsing "provider:model" identifiers
     separator: char,
+    /// Middlewares to apply to all language models
     pub(crate) middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl ProviderRegistryHandle {
     /// Split a registry model id like "provider:model" into (provider, model).
-    pub fn split_id(&self, id: &str) -> Result<(String, String), LlmError> {
+    fn split_id(&self, id: &str) -> Result<(String, String), LlmError> {
         if let Some((p, m)) = id.split_once(self.separator) {
             if p.is_empty() || m.is_empty() {
                 return Err(LlmError::InvalidParameter(format!(
@@ -53,57 +100,102 @@ impl ProviderRegistryHandle {
         }
     }
 
-    /// Experimental API: resolve language model in future iterations.
-    /// Returns a minimal language model handle with chat APIs.
+    /// Get a provider factory by ID
+    fn get_provider(&self, provider_id: &str) -> Result<&Arc<dyn ProviderFactory>, LlmError> {
+        self.providers.get(provider_id).ok_or_else(|| {
+            LlmError::ConfigurationError(format!(
+                "No such provider: {}. Available providers: {:?}",
+                provider_id,
+                self.providers.keys().collect::<Vec<_>>()
+            ))
+        })
+    }
+
+    /// Resolve language model - returns a handle that delegates to the factory
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use siumai::registry::create_provider_registry;
+    /// # use std::collections::HashMap;
+    /// let registry = create_provider_registry(HashMap::new(), None);
+    /// let handle = registry.language_model("openai:gpt-4")?;
+    /// # Ok::<(), siumai::error::LlmError>(())
+    /// ```
     pub fn language_model(&self, id: &str) -> Result<LanguageModelHandle, LlmError> {
-        let (provider, model) = self.split_id(id)?;
+        let (provider_id, model_id) = self.split_id(id)?;
+        let factory = self.get_provider(&provider_id)?;
+
         Ok(LanguageModelHandle {
-            provider_id: provider,
-            model_id: model,
+            factory: factory.clone(),
+            model_id,
             middlewares: self.middlewares.clone(),
         })
     }
 
-    /// Experimental API: resolve embedding model in future iterations.
+    /// Resolve embedding model - returns a handle that delegates to the factory
     pub fn embedding_model(&self, id: &str) -> Result<EmbeddingModelHandle, LlmError> {
-        let (provider, model) = self.split_id(id)?;
+        let (provider_id, model_id) = self.split_id(id)?;
+        let factory = self.get_provider(&provider_id)?;
+
         Ok(EmbeddingModelHandle {
-            provider_id: provider,
-            model_id: model,
+            factory: factory.clone(),
+            model_id,
         })
     }
 
-    /// Experimental API: resolve image model.
+    /// Resolve image model - returns a handle that delegates to the factory
     pub fn image_model(&self, id: &str) -> Result<ImageModelHandle, LlmError> {
-        let (provider, model) = self.split_id(id)?;
+        let (provider_id, model_id) = self.split_id(id)?;
+        let factory = self.get_provider(&provider_id)?;
+
         Ok(ImageModelHandle {
-            provider_id: provider,
-            model_id: model,
+            factory: factory.clone(),
+            model_id,
         })
     }
 
-    /// Experimental API: resolve speech model (TTS/STT).
+    /// Resolve speech model - returns a handle that delegates to the factory
     pub fn speech_model(&self, id: &str) -> Result<SpeechModelHandle, LlmError> {
-        let (provider, model) = self.split_id(id)?;
+        let (provider_id, model_id) = self.split_id(id)?;
+        let factory = self.get_provider(&provider_id)?;
+
         Ok(SpeechModelHandle {
-            provider_id: provider,
-            model_id: model,
+            factory: factory.clone(),
+            model_id,
         })
     }
 
-    /// Experimental API: resolve transcription model (STT alias).
+    /// Resolve transcription model - returns a handle that delegates to the factory
     pub fn transcription_model(&self, id: &str) -> Result<TranscriptionModelHandle, LlmError> {
-        let (provider, model) = self.split_id(id)?;
+        let (provider_id, model_id) = self.split_id(id)?;
+        let factory = self.get_provider(&provider_id)?;
+
         Ok(TranscriptionModelHandle {
-            provider_id: provider,
-            model_id: model,
+            factory: factory.clone(),
+            model_id,
         })
     }
 }
 
-/// Create a provider registry handle (experimental, Iteration A)
+/// Create a provider registry handle - aligned with Vercel AI SDK
+///
+/// # Arguments
+/// * `providers` - Map of provider_id -> ProviderFactory instances
+/// * `opts` - Optional registry configuration (separator, middlewares)
+///
+/// # Example
+/// ```rust,no_run
+/// use std::collections::HashMap;
+/// use std::sync::Arc;
+/// use siumai::registry::{create_provider_registry, ProviderFactory};
+///
+/// let mut providers = HashMap::new();
+/// // providers.insert("openai".to_string(), Arc::new(OpenAIProviderFactory) as Arc<dyn ProviderFactory>);
+///
+/// let registry = create_provider_registry(providers, None);
+/// ```
 pub fn create_provider_registry(
-    _providers: HashMap<String, ()>,
+    providers: HashMap<String, Arc<dyn ProviderFactory>>,
     opts: Option<RegistryOptions>,
 ) -> ProviderRegistryHandle {
     let (separator, middlewares) = if let Some(o) = opts {
@@ -112,387 +204,238 @@ pub fn create_provider_registry(
         (':', Vec::new())
     };
     ProviderRegistryHandle {
+        providers,
         separator,
         middlewares,
     }
 }
 
-/// Minimal language model handle.
+/// Language model handle - delegates to provider factory
 ///
-/// Chat methods build a provider client on-demand using quick_* helpers and
-/// attach registry-level middlewares before executing the request. This avoids
-/// introducing stateful clients at registry level and keeps behavior explicit.
+/// This handle stores a reference to the provider factory and delegates
+/// client creation to it. This aligns with Vercel AI SDK's design where
+/// the registry returns model instances that know how to create themselves.
 #[derive(Clone)]
 pub struct LanguageModelHandle {
-    pub provider_id: String,
+    /// Provider factory for creating clients
+    factory: Arc<dyn ProviderFactory>,
+    /// Model ID to pass to the factory
     pub model_id: String,
-    pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>, // applied before provider mapping
+    /// Middlewares to apply to the client
+    pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
-impl LanguageModelHandle {
-    /// Build a client for this language model handle.
-    /// Creates a new client instance on each call - client creation is cheap (no network I/O).
-    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
-            #[cfg(test)]
-            "testprov" => {
-                TEST_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Arc::new(TestProvClient)
-            }
-            #[cfg(feature = "openai")]
-            "openai" => {
-                let client = crate::quick_openai_with_model(&self.model_id).await?;
-                let client = client.with_model_middlewares(self.middlewares.clone());
-                Arc::new(client)
-            }
-            #[cfg(feature = "google")]
-            "gemini" => {
-                let client = crate::quick_gemini_with_model(&self.model_id).await?;
-                let client = client.with_model_middlewares(self.middlewares.clone());
-                Arc::new(client)
-            }
-            #[cfg(feature = "anthropic")]
-            "anthropic" => {
-                let client = crate::quick_anthropic_with_model(&self.model_id).await?;
-                let client = client.with_model_middlewares(self.middlewares.clone());
-                Arc::new(client)
-            }
-            #[cfg(feature = "groq")]
-            "groq" => {
-                let client = crate::quick_groq_with_model(&self.model_id).await?;
-                let client = client.with_model_middlewares(self.middlewares.clone());
-                Arc::new(client)
-            }
-            #[cfg(feature = "xai")]
-            "xai" => {
-                let client = quick_xai_with_model(&self.model_id).await?;
-                let client = client.with_model_middlewares(self.middlewares.clone());
-                Arc::new(client)
-            }
-            // OpenAI-compatible (selected common providers)
-            #[cfg(feature = "openai")]
-            "openrouter" => {
-                let client = LlmBuilder::new()
-                    .openrouter()
-                    .model(&self.model_id)
-                    .build()
-                    .await?;
-                let client = client.with_model_middlewares(self.middlewares.clone());
-                Arc::new(client)
-            }
-            #[cfg(feature = "openai")]
-            "deepseek" => {
-                let client = LlmBuilder::new()
-                    .deepseek()
-                    .model(&self.model_id)
-                    .build()
-                    .await?;
-                let client = client.with_model_middlewares(self.middlewares.clone());
-                Arc::new(client)
-            }
-            other => {
-                #[cfg(feature = "openai")]
-                {
-                    if crate::providers::openai_compatible::config::get_provider_config(other)
-                        .is_some()
-                    {
-                        let mut b =
-                            crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                                LlmBuilder::new(),
-                                other,
-                            );
-                        let env_key = format!("{}_API_KEY", other.to_uppercase());
-                        let api_key = std::env::var(&env_key).map_err(|_| {
-                            LlmError::ConfigurationError(format!(
-                                "Missing {} for OpenAI-compatible provider {}",
-                                env_key, other
-                            ))
-                        })?;
-                        b = b.api_key(api_key).model(&self.model_id);
-                        let client = b.build().await?;
-                        let client = client.with_model_middlewares(self.middlewares.clone());
-                        Arc::new(client)
-                    } else {
-                        return Err(LlmError::ConfigurationError(format!(
-                            "Unsupported provider for registry handle: {}",
-                            other
-                        )));
-                    }
-                }
-                #[cfg(not(feature = "openai"))]
-                {
-                    return Err(LlmError::ConfigurationError(format!(
-                        "Unsupported provider for registry handle: {}",
-                        other
-                    )));
-                }
-            }
-        };
-
-        Ok(built)
-    }
-
-    /// Non-streaming chat (messages + optional tools)
-    pub async fn chat(
+/// Implementation of ChatCapability for LanguageModelHandle
+///
+/// This allows the handle to be used directly as a chat client, aligning with
+/// Vercel AI SDK's design where registry.languageModel() returns a callable model.
+#[async_trait::async_trait]
+impl ChatCapability for LanguageModelHandle {
+    async fn chat_with_tools(
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let client = self.build_client().await?;
-        client.chat_with_tools(messages, tools).await
+        // Build client from factory
+        let client = self.factory.language_model(&self.model_id).await?;
+
+        // Apply middlewares if any
+        if !self.middlewares.is_empty() {
+            let mut req = ChatRequest::new(messages);
+            if let Some(t) = tools {
+                req = req.with_tools(t);
+            }
+            req = crate::middleware::language_model::apply_transform_chain(&self.middlewares, req);
+            client.chat_with_tools(req.messages, req.tools).await
+        } else {
+            client.chat_with_tools(messages, tools).await
+        }
     }
 
-    /// Streaming chat (messages + optional tools)
-    pub async fn chat_stream(
+    async fn chat_stream(
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        let client = self.build_client().await?;
-        client.chat_stream(messages, tools).await
+        // Build client from factory
+        let client = self.factory.language_model(&self.model_id).await?;
+
+        // Apply middlewares if any
+        if !self.middlewares.is_empty() {
+            let mut req = ChatRequest::new(messages);
+            if let Some(t) = tools {
+                req = req.with_tools(t);
+            }
+            req = crate::middleware::language_model::apply_transform_chain(&self.middlewares, req);
+            client.chat_stream(req.messages, req.tools).await
+        } else {
+            client.chat_stream(messages, tools).await
+        }
     }
 }
 
-/// Minimal embedding model handle.
+/// Embedding model handle - delegates to factory for client creation
 #[derive(Clone)]
 pub struct EmbeddingModelHandle {
-    pub provider_id: String,
+    factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
 }
 
-impl EmbeddingModelHandle {
-    /// Build a client for this embedding model handle.
-    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
-            #[cfg(test)]
-            "testprov_embed" => {
-                TEST_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Arc::new(TestProvEmbedClient)
-            }
-            #[cfg(feature = "openai")]
-            "openai" => {
-                let client = crate::quick_openai_with_model(&self.model_id).await?;
-                Arc::new(client)
-            }
-            #[cfg(feature = "google")]
-            "gemini" => {
-                let client = crate::quick_gemini_with_model(&self.model_id).await?;
-                Arc::new(client)
-            }
-            #[cfg(feature = "anthropic")]
-            "anthropic" => {
-                let client = crate::quick_anthropic_with_model(&self.model_id).await?;
-                Arc::new(client)
-            }
-            #[cfg(feature = "groq")]
-            "groq" => {
-                let client = crate::quick_groq_with_model(&self.model_id).await?;
-                Arc::new(client)
-            }
-            #[cfg(feature = "xai")]
-            "xai" => {
-                let client = crate::prelude::quick_xai_with_model(&self.model_id).await?;
-                Arc::new(client)
-            }
-            #[cfg(feature = "openai")]
-            other => {
-                if crate::providers::openai_compatible::config::get_provider_config(other).is_some()
-                {
-                    let mut b = crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                        crate::builder::LlmBuilder::new(),
-                        other,
-                    );
-                    let env_key = format!("{}_API_KEY", other.to_uppercase());
-                    let api_key = std::env::var(&env_key).map_err(|_| {
-                        LlmError::ConfigurationError(format!(
-                            "Missing {} for OpenAI-compatible provider {}",
-                            env_key, other
-                        ))
-                    })?;
-                    b = b.api_key(api_key).model(&self.model_id);
-                    let client = b.build().await?;
-                    Arc::new(client)
-                } else {
-                    return Err(LlmError::ConfigurationError(format!(
-                        "Unsupported provider for registry embedding handle: {}",
-                        other
-                    )));
-                }
-            }
-            #[cfg(not(feature = "openai"))]
-            other => {
-                return Err(LlmError::ConfigurationError(format!(
-                    "Unsupported provider for registry embedding handle: {}",
-                    other
-                )));
-            }
-        };
+/// Implementation of EmbeddingCapability for EmbeddingModelHandle
+///
+/// This allows the handle to be used directly as an embedding client, aligning with
+/// Vercel AI SDK's design where registry.textEmbeddingModel() returns a callable model.
+#[async_trait::async_trait]
+impl EmbeddingCapability for EmbeddingModelHandle {
+    async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
+        // Build client from factory
+        let client = self.factory.embedding_model(&self.model_id).await?;
 
-        Ok(built)
+        // Get embedding capability
+        let embedding_client = client.as_embedding_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support embeddings".to_string())
+        })?;
+
+        // Call embed
+        embedding_client.embed(input).await
     }
 
-    /// Simple embedding call
+    fn embedding_dimension(&self) -> usize {
+        // Default dimension - providers should override this
+        // We can't get this without building a client, so we return a default
+        // In practice, users should check the provider's documentation
+        1536 // OpenAI's default
+    }
+}
+
+impl EmbeddingModelHandle {
+    /// Simple embedding call (deprecated - use trait method directly)
+    #[deprecated(
+        since = "0.10.3",
+        note = "Use the EmbeddingCapability trait method directly"
+    )]
     pub async fn embed(
         &self,
         input: Vec<String>,
     ) -> Result<crate::types::EmbeddingResponse, LlmError> {
-        let client = self.build_client().await?;
-        let Some(cap) = client.as_embedding_capability() else {
-            return Err(LlmError::UnsupportedOperation(
-                "Embedding not supported by this client".into(),
-            ));
-        };
-        cap.embed(input).await
+        // Delegate to trait implementation
+        EmbeddingCapability::embed(self, input).await
     }
 }
 
-/// Minimal image model handle.
+/// Image model handle - delegates to factory for client creation
 #[derive(Clone)]
 pub struct ImageModelHandle {
-    pub provider_id: String,
+    factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
 }
 
-impl ImageModelHandle {
-    /// Build a client for this image model handle.
-    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
-            #[cfg(feature = "openai")]
-            "openai" => {
-                let client = crate::quick_openai_with_model(&self.model_id).await?;
-                Arc::new(client)
-            }
-            #[cfg(feature = "google")]
-            "gemini" => {
-                let client = crate::quick_gemini_with_model(&self.model_id).await?;
-                Arc::new(client)
-            }
-            other => {
-                #[cfg(feature = "openai")]
-                {
-                    if crate::providers::openai_compatible::config::get_provider_config(other)
-                        .is_some()
-                    {
-                        let mut b =
-                            crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                                crate::builder::LlmBuilder::new(),
-                                other,
-                            );
-                        let env_key = format!("{}_API_KEY", other.to_uppercase());
-                        let api_key = std::env::var(&env_key).map_err(|_| {
-                            LlmError::ConfigurationError(format!(
-                                "Missing {} for OpenAI-compatible provider {}",
-                                env_key, other
-                            ))
-                        })?;
-                        b = b.api_key(api_key).model(&self.model_id);
-                        let client = b.build().await?;
-                        Arc::new(client)
-                    } else {
-                        return Err(LlmError::ConfigurationError(format!(
-                            "Unsupported provider for registry image handle: {}",
-                            other
-                        )));
-                    }
-                }
-                #[cfg(not(feature = "openai"))]
-                {
-                    return Err(LlmError::ConfigurationError(format!(
-                        "Unsupported provider for registry image handle: {}",
-                        other
-                    )));
-                }
-            }
-        };
-        Ok(built)
+/// Implementation of ImageGenerationCapability for ImageModelHandle
+///
+/// This allows the handle to be used directly as an image generation client, aligning with
+/// Vercel AI SDK's design where registry.imageModel() returns a callable model.
+#[async_trait::async_trait]
+impl ImageGenerationCapability for ImageModelHandle {
+    async fn generate_images(
+        &self,
+        request: ImageGenerationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        // Build client from factory
+        let client = self.factory.image_model(&self.model_id).await?;
+
+        // Get image generation capability
+        let image_client = client.as_image_generation_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support image generation".to_string())
+        })?;
+
+        // Call generate_images
+        image_client.generate_images(request).await
     }
 
+    fn get_supported_sizes(&self) -> Vec<String> {
+        // Default sizes - providers should override this
+        vec![
+            "1024x1024".to_string(),
+            "512x512".to_string(),
+            "256x256".to_string(),
+        ]
+    }
+
+    fn get_supported_formats(&self) -> Vec<String> {
+        // Default formats
+        vec!["url".to_string(), "b64_json".to_string()]
+    }
+}
+
+impl ImageModelHandle {
+    /// Generate images (deprecated - use trait method directly)
+    #[deprecated(
+        since = "0.10.3",
+        note = "Use the ImageGenerationCapability trait method directly"
+    )]
     pub async fn generate_images(
         &self,
         request: crate::types::ImageGenerationRequest,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
-        let client = self.build_client().await?;
-        let Some(cap) = client.as_image_generation_capability() else {
-            return Err(LlmError::UnsupportedOperation(
-                "Image generation not supported by this client".into(),
-            ));
-        };
-        cap.generate_images(request).await
+        // Delegate to trait implementation
+        ImageGenerationCapability::generate_images(self, request).await
     }
 }
 
-/// Minimal speech model handle (TTS/STT).
+/// Speech model handle (TTS) - delegates to factory for client creation
 #[derive(Clone)]
 pub struct SpeechModelHandle {
-    pub provider_id: String,
+    factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
 }
 
-impl SpeechModelHandle {
-    /// Build a client for this speech model handle.
-    async fn build_client(&self) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let built: Arc<dyn LlmClient> = match self.provider_id.as_str() {
-            #[cfg(feature = "openai")]
-            "openai" => Arc::new(crate::quick_openai_with_model(&self.model_id).await?),
-            #[cfg(feature = "google")]
-            "gemini" => Arc::new(crate::quick_gemini_with_model(&self.model_id).await?),
-            other => {
-                #[cfg(feature = "openai")]
-                {
-                    if crate::providers::openai_compatible::config::get_provider_config(other)
-                        .is_some()
-                    {
-                        let mut b =
-                            crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-                                crate::builder::LlmBuilder::new(),
-                                other,
-                            );
-                        let env_key = format!("{}_API_KEY", other.to_uppercase());
-                        let api_key = std::env::var(&env_key).map_err(|_| {
-                            LlmError::ConfigurationError(format!(
-                                "Missing {} for {}",
-                                env_key, other
-                            ))
-                        })?;
-                        b = b.api_key(api_key).model(&self.model_id);
-                        Arc::new(b.build().await?)
-                    } else {
-                        return Err(LlmError::ConfigurationError(format!(
-                            "Unsupported provider for registry speech handle: {}",
-                            other
-                        )));
-                    }
-                }
-                #[cfg(not(feature = "openai"))]
-                {
-                    return Err(LlmError::ConfigurationError(format!(
-                        "Unsupported provider for registry speech handle: {}",
-                        other
-                    )));
-                }
-            }
-        };
-        Ok(built)
+/// Implementation of AudioCapability for SpeechModelHandle
+///
+/// This allows the handle to be used directly as a TTS client, aligning with
+/// Vercel AI SDK's design where registry.speechModel() returns a callable model.
+#[async_trait::async_trait]
+impl AudioCapability for SpeechModelHandle {
+    fn supported_features(&self) -> &[AudioFeature] {
+        // Default features - providers should override this
+        &[AudioFeature::TextToSpeech]
     }
 
+    async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
+        // Build client from factory
+        let client = self.factory.speech_model(&self.model_id).await?;
+
+        // Get audio capability
+        let audio_client = client.as_audio_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support text-to-speech".to_string())
+        })?;
+
+        // Call text_to_speech
+        audio_client.text_to_speech(request).await
+    }
+}
+
+impl SpeechModelHandle {
+    /// Text to speech (deprecated - use trait method directly)
+    #[deprecated(
+        since = "0.10.3",
+        note = "Use the AudioCapability trait method directly"
+    )]
     pub async fn text_to_speech(
         &self,
         req: crate::types::TtsRequest,
     ) -> Result<crate::types::TtsResponse, LlmError> {
-        let client = self.build_client().await?;
-        let Some(cap) = client.as_audio_capability() else {
-            return Err(LlmError::UnsupportedOperation(
-                "TTS not supported by this client".into(),
-            ));
-        };
-        cap.text_to_speech(req).await
+        // Delegate to trait implementation
+        AudioCapability::text_to_speech(self, req).await
     }
 
+    /// Speech to text (deprecated - use TranscriptionModelHandle instead)
+    #[deprecated(since = "0.10.3", note = "Use TranscriptionModelHandle for STT")]
     pub async fn speech_to_text(
         &self,
         req: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
-        let client = self.build_client().await?;
+        // Build client from factory
+        let client = self.factory.speech_model(&self.model_id).await?;
         let Some(cap) = client.as_audio_capability() else {
             return Err(LlmError::UnsupportedOperation(
                 "STT not supported by this client".into(),
@@ -502,24 +445,50 @@ impl SpeechModelHandle {
     }
 }
 
-/// Minimal transcription model handle (alias of speech for STT).
+/// Transcription model handle (STT) - delegates to factory for client creation
 #[derive(Clone)]
 pub struct TranscriptionModelHandle {
-    pub provider_id: String,
+    factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
 }
 
+/// Implementation of AudioCapability for TranscriptionModelHandle
+///
+/// This allows the handle to be used directly as an STT client, aligning with
+/// Vercel AI SDK's design where registry.transcriptionModel() returns a callable model.
+#[async_trait::async_trait]
+impl AudioCapability for TranscriptionModelHandle {
+    fn supported_features(&self) -> &[AudioFeature] {
+        // Default features - providers should override this
+        &[AudioFeature::SpeechToText]
+    }
+
+    async fn speech_to_text(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
+        // Build client from factory
+        let client = self.factory.transcription_model(&self.model_id).await?;
+
+        // Get audio capability
+        let audio_client = client.as_audio_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support speech-to-text".to_string())
+        })?;
+
+        // Call speech_to_text
+        audio_client.speech_to_text(request).await
+    }
+}
+
 impl TranscriptionModelHandle {
+    /// Speech to text (deprecated - use trait method directly)
+    #[deprecated(
+        since = "0.10.3",
+        note = "Use the AudioCapability trait method directly"
+    )]
     pub async fn speech_to_text(
         &self,
         req: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
-        // Reuse SpeechModelHandle semantics
-        let tmp = SpeechModelHandle {
-            provider_id: self.provider_id.clone(),
-            model_id: self.model_id.clone(),
-        };
-        tmp.speech_to_text(req).await
+        // Delegate to trait implementation
+        AudioCapability::speech_to_text(self, req).await
     }
 }
 #[cfg(test)]
@@ -617,12 +586,18 @@ mod tests {
 
     #[tokio::test]
     async fn language_model_handle_builds_client() {
-        let reg = create_provider_registry(HashMap::new(), None);
+        // Create registry with test provider factory
+        let mut providers = HashMap::new();
+        providers.insert(
+            "testprov".to_string(),
+            Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+        let reg = create_provider_registry(providers, None);
         let handle = reg.language_model("testprov:model").unwrap();
 
         // Each call builds a new client (no caching)
         TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
-        let resp = handle.chat(vec![], None).await.unwrap();
+        let resp = handle.chat(vec![]).await.unwrap();
         assert_eq!(resp.content_text().unwrap_or_default(), "ok");
         assert_eq!(
             TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
@@ -630,7 +605,7 @@ mod tests {
         );
 
         // Second call also builds a new client
-        let resp = handle.chat(vec![], None).await.unwrap();
+        let resp = handle.chat(vec![]).await.unwrap();
         assert_eq!(resp.content_text().unwrap_or_default(), "ok");
         assert_eq!(
             TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
@@ -681,7 +656,13 @@ mod embedding_tests {
     use super::*;
     #[tokio::test]
     async fn embedding_model_handle_builds_client() {
-        let reg = create_provider_registry(HashMap::new(), None);
+        // Create registry with test provider factory
+        let mut providers = HashMap::new();
+        providers.insert(
+            "testprov_embed".to_string(),
+            Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+        let reg = create_provider_registry(providers, None);
         let handle = reg.embedding_model("testprov_embed:model").unwrap();
 
         // Client is built on each call (no caching)
