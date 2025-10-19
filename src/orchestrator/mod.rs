@@ -486,6 +486,7 @@ where
 
     tokio::spawn(async move {
         let mut step_results: Vec<StepResult> = Vec::new();
+        let mut encountered_error = false;
         let resolver = resolver
             .map(|r| std::sync::Arc::new(r) as std::sync::Arc<dyn ToolResolver + Send + Sync>);
         // Sender doesn't need to be mutable; keep ownership local in task.
@@ -504,6 +505,7 @@ where
                 {
                     Ok(h) => h,
                     Err(e) => {
+                        encountered_error = true;
                         let _ = sender.send(Err(e)).await;
                         break;
                     }
@@ -533,7 +535,9 @@ where
                             let _ = sender.send(Ok(ev)).await;
                         }
                         Err(e) => {
+                            encountered_error = true;
                             let _ = sender.send(Err(e)).await;
+                            break;
                         }
                     }
                 }
@@ -544,6 +548,7 @@ where
                 match model.chat_with_tools(history.clone(), tools.clone()).await {
                     Ok(r) => r,
                     Err(e) => {
+                        encountered_error = true;
                         let _ = sender.send(Err(e)).await;
                         break;
                     }
@@ -639,8 +644,10 @@ where
             if let Some(cb) = &on_abort {
                 cb(&step_results);
             }
-        } else if let Some(cb) = &on_finish {
-            cb(&step_results);
+        } else if !encountered_error {
+            if let Some(cb) = &on_finish {
+                cb(&step_results);
+            }
         }
         let _ = steps_tx.send(step_results);
     });
@@ -1086,6 +1093,149 @@ mod tests {
                 .any(|e| matches!(e, Err(LlmError::InternalError(_))))
         );
     }
+
+    #[tokio::test]
+    async fn orchestrator_stream_error_does_not_call_on_finish() {
+        // Model that emits a delta then an error in the first streaming step
+        struct ErrModel;
+        #[async_trait]
+        impl ChatCapability for ErrModel {
+            async fn chat_with_tools(
+                &self,
+                _m: Vec<ChatMessage>,
+                _t: Option<Vec<Tool>>,
+            ) -> Result<ChatResponse, LlmError> {
+                Ok(ChatResponse::new(MessageContent::Text(String::new())))
+            }
+            async fn chat_stream(
+                &self,
+                _m: Vec<ChatMessage>,
+                _t: Option<Vec<Tool>>,
+            ) -> Result<ChatStream, LlmError> {
+                let s = try_stream! {
+                    yield ChatStreamEvent::ContentDelta{ delta: "a".into(), index: None };
+                    Err::<ChatStreamEvent, LlmError>(LlmError::InternalError("boom".into()))?;
+                };
+                Ok(Box::pin(s))
+            }
+        }
+        struct Noop;
+        #[async_trait]
+        impl ToolResolver for Noop {
+            async fn call_tool(&self, _: &str, _a: Value) -> Result<Value, LlmError> {
+                Ok(serde_json::json!({}))
+            }
+        }
+        let finish_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let finish_called_c = finish_called.clone();
+        let opts = OrchestratorStreamOptions {
+            on_finish: Some(std::sync::Arc::new(move |_steps| {
+                finish_called_c.store(true, std::sync::atomic::Ordering::SeqCst);
+            })),
+            ..Default::default()
+        };
+        let out = generate_stream_owned(
+            ErrModel,
+            vec![ChatMessage::user("err").build()],
+            None,
+            Some(Noop),
+            opts,
+        )
+        .await
+        .expect("owned");
+        let evs: Vec<_> = out.stream.collect().await;
+        assert!(
+            evs.iter()
+                .any(|e| matches!(e, Err(LlmError::InternalError(_))))
+        );
+        let _ = out.steps.await.expect("steps");
+        assert_eq!(finish_called.load(std::sync::atomic::Ordering::SeqCst), false);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_stream_duplicate_tool_ids_executed_once() {
+        // Model returns a tool call with id "dup" in step 1 (streaming),
+        // then erroneously repeats the same id in a follow-up step (non-streaming).
+        struct DupModel;
+        #[async_trait]
+        impl ChatCapability for DupModel {
+            async fn chat_with_tools(
+                &self,
+                messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatResponse, LlmError> {
+                let tool_msgs = messages
+                    .iter()
+                    .filter(|m| matches!(m.role, crate::types::MessageRole::Tool))
+                    .count();
+                match tool_msgs {
+                    0 => {
+                        // First follow-up: improperly repeat same tool id
+                        let mut r = ChatResponse::new(MessageContent::Text(String::new()));
+                        r.tool_calls = Some(vec![ToolCall {
+                            id: "dup".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "t".into(),
+                                arguments: "{}".into(),
+                            }),
+                        }]);
+                        r.finish_reason = Some(FinishReason::ToolCalls);
+                        Ok(r)
+                    }
+                    1 => {
+                        // Final answer
+                        let mut r = ChatResponse::new(MessageContent::Text("done".into()));
+                        r.finish_reason = Some(FinishReason::Stop);
+                        Ok(r)
+                    }
+                    _ => Ok(ChatResponse::new(MessageContent::Text("done".into()))),
+                }
+            }
+            async fn chat_stream(
+                &self,
+                _m: Vec<ChatMessage>,
+                _t: Option<Vec<Tool>>,
+            ) -> Result<ChatStream, LlmError> {
+                let s = try_stream! {
+                    yield ChatStreamEvent::StreamEnd { response: {
+                        let mut r = ChatResponse::new(MessageContent::Text(String::new()));
+                        r.tool_calls = Some(vec![ToolCall {
+                            id: "dup".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall { name: "t".into(), arguments: "{}".into() })
+                        }]);
+                        r.finish_reason = Some(FinishReason::ToolCalls);
+                        r
+                    } };
+                };
+                Ok(Box::pin(s))
+            }
+        }
+        struct Counter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+        #[async_trait]
+        impl ToolResolver for Counter {
+            async fn call_tool(&self, _name: &str, _args: Value) -> Result<Value, LlmError> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(serde_json::json!({"ok":true}))
+            }
+        }
+        let ctr = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let out = generate_stream_owned(
+            DupModel,
+            vec![ChatMessage::user("go").build()],
+            Some(vec![Tool::function("t".into(), "".into(), serde_json::json!({"type":"object"}))]),
+            Some(Counter(ctr.clone())),
+            Default::default(),
+        )
+        .await
+        .expect("owned");
+        let _ = out.stream.collect::<Vec<_>>().await;
+        let _ = out.steps.await.expect("steps");
+        assert_eq!(ctr.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    
 
     #[tokio::test]
     async fn orchestrator_stream_many_chunks_and_callbacks() {

@@ -3,6 +3,11 @@
 ## [0.11.0] - 2025-10-19
 
 ### Highlights (concise additions)
+- BREAKING: Unify Chat entry points on ChatCapability (remove legacy extension methods)
+  - New unified methods on ChatCapability: `chat_request(ChatRequest)` and `chat_stream_request(ChatRequest)`; prefer these going forward.
+  - Removed the similarly named methods from ChatExtensions (`chat_request/chat_stream_request/chat_stream_request_with_cancel`). Call the trait methods directly on ChatCapability.
+  - OpenAI client implements these unified methods using the Transformers + Executors pipeline and preserves enhanced fields such as `provider_params/http_config/web_search/telemetry`.
+  - Added: Gemini / Anthropic / Groq / xAI / Ollama now also override `chat_request/chat_stream_request`, routing via their Transformers + Executors with full preservation of enhanced fields.
 - Middleware pipeline: wired `wrap_generate_async`/`wrap_stream_async` with `transform → pre_* → wrap_* → HTTP → post/on_event`, plus tests and docs.
 - **Middleware Override**: `LanguageModelMiddleware` now supports `override_provider_id()` and `override_model_id()` for dynamic routing (aligned with Vercel AI SDK's `wrapLanguageModel`).
 - **Registry LRU Cache**: `ProviderRegistryHandle` now features LRU cache with configurable capacity (`max_cache_entries`) and optional TTL (`client_ttl`) to prevent unbounded growth; includes concurrent access de-duplication.
@@ -32,13 +37,19 @@
 - OpenAI Rerank now uses `ProviderHeaders::openai`; accepts `HttpConfig` for custom headers/tracing.
 
 ### Added
-- **Registry LRU Cache with TTL**:
-  - `ProviderRegistryHandle` now caches language model clients with LRU eviction (default: 100 entries).
+- Registry LRU Cache with TTL
+  - `ProviderRegistryHandle` caches language model clients with LRU eviction (default: 100 entries).
   - Configurable via `RegistryOptions::max_cache_entries` and `RegistryOptions::client_ttl`.
-  - Automatic expiration based on TTL; concurrent access de-duplication via async Mutex.
+  - TTL-based expiration; concurrent access de‑duplication via async Mutex.
   - Cache key includes provider and model ID to support middleware overrides correctly.
-- OpenAI native transformers: `OpenAiRequestTransformer`, `OpenAiResponseTransformer`, and Responses API transformers.
-- Streaming utilities: `SseEventConverter` and helpers to convert provider events to unified `ChatStreamEvent`s.
+- OpenAI native transformers: `OpenAiRequestTransformer`, `OpenAiResponseTransformer`, plus Responses API transformers.
+- Streaming utilities: `SseEventConverter` and helpers for unified `ChatStreamEvent` mapping.
+- Structured Output parity across providers:
+  - OpenAI: `response_format` (json_object/json_schema + strict) for Chat and Responses.
+  - Gemini: maps `provider_params.structured_output` to `generationConfig.responseMimeType/responseSchema`.
+  - Anthropic: maps `provider_params.structured_output` to `response_format` (json_object/json_schema + strict).
+  - Groq/xAI (OpenAI‑compatible style): maps `provider_params.structured_output` to `response_format` for JSON mode.
+  - Ollama: maps `provider_params.structured_output` to `format` (schema object or "json").
 - Files and Audio transformers/executors for consistent upload/STT/TTS flows.
 - Public typed options scaffold under `siumai::public::options` (converts to `ProviderParams`).
 - Tests: end-to-end header flow tests (OpenAI Files, Anthropic chat with beta, Gemini Files, OpenAI-Compatible chat, Groq/xAI chat); multipart negative checks (Groq STT, OpenAI Files upload).

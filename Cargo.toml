@@ -201,6 +201,10 @@ name = "multimodal_processing"
 path = "examples/03_advanced_features/multimodal_processing.rs"
 
 [[example]]
+name = "middleware_simulate_streaming"
+path = "examples/03_advanced_features/middleware_simulate_streaming.rs"
+
+[[example]]
 name = "openai_response_api_http_mcp_client"
 path = "examples/04_providers/openai/openai_response_api_http_mcp_client.rs"
 

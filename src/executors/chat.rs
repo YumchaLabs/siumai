@@ -38,6 +38,8 @@ pub struct HttpChatExecutor {
     pub request_transformer: Arc<dyn RequestTransformer>,
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
+    /// Optional JSON streaming converter for providers that emit JSON lines
+    pub json_stream_converter: Option<Arc<dyn crate::utils::streaming::JsonEventConverter>>,
     /// Whether to disable compression for streaming requests
     pub stream_disable_compression: bool,
     /// Optional list of HTTP interceptors (order preserved)
@@ -110,6 +112,7 @@ mod tests {
             request_transformer,
             response_transformer,
             stream_transformer: None,
+            json_stream_converter: None,
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(AppendSuffix)],
@@ -209,6 +212,7 @@ mod tests {
             request_transformer,
             response_transformer,
             stream_transformer: Some(std::sync::Arc::new(DummyStreamTx)),
+            json_stream_converter: None,
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![std::sync::Arc::new(Outer), std::sync::Arc::new(Inner)],
@@ -287,6 +291,7 @@ mod tests {
             request_transformer,
             response_transformer,
             stream_transformer: None,
+            json_stream_converter: None,
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(Outer), Arc::new(Inner)],
@@ -335,6 +340,7 @@ mod tests {
             request_transformer,
             response_transformer,
             stream_transformer: None,
+            json_stream_converter: None,
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(PreMw)],
@@ -394,6 +400,7 @@ mod tests {
             request_transformer,
             response_transformer,
             stream_transformer: Some(Arc::new(DummyTx)),
+            json_stream_converter: None,
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(PreMwStream)],
@@ -414,6 +421,143 @@ mod tests {
             }
             _ => false,
         }));
+    }
+
+    // Interceptor that captures headers and aborts before network
+    struct CaptureHeadersInterceptor {
+        seen: std::sync::Arc<std::sync::Mutex<Option<reqwest::header::HeaderMap>>>,
+    }
+    impl crate::utils::http_interceptor::HttpInterceptor for CaptureHeadersInterceptor {
+        fn on_before_send(
+            &self,
+            _ctx: &crate::utils::http_interceptor::HttpRequestContext,
+            rb: reqwest::RequestBuilder,
+            _body: &serde_json::Value,
+            headers: &reqwest::header::HeaderMap,
+        ) -> Result<reqwest::RequestBuilder, LlmError> {
+            *self.seen.lock().unwrap() = Some(headers.clone());
+            Err(LlmError::InvalidParameter("abort".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn merges_request_headers_into_base_nonstream() {
+        let http = reqwest::Client::new();
+        let request_transformer = Arc::new(EchoRequestTransformer);
+        let response_transformer = Arc::new(NoopResponseTransformer);
+        // base headers
+        let headers_builder = || {
+            let mut h = reqwest::header::HeaderMap::new();
+            h.insert(
+                reqwest::header::HeaderName::from_static("x-base"),
+                reqwest::header::HeaderValue::from_static("base"),
+            );
+            Ok(h)
+        };
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let interceptor = CaptureHeadersInterceptor { seen: seen.clone() };
+        let exec = HttpChatExecutor {
+            provider_id: "test".into(),
+            http_client: http,
+            request_transformer,
+            response_transformer,
+            stream_transformer: None,
+            json_stream_converter: None,
+            stream_disable_compression: true,
+            interceptors: vec![Arc::new(interceptor)],
+            middlewares: vec![],
+            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_headers: Arc::new(headers_builder),
+            before_send: None,
+        };
+
+        let mut req = crate::types::ChatRequest::new(vec![]);
+        // per-request header
+        let mut hc = crate::types::HttpConfig::default();
+        hc.headers
+            .insert("X-Req".to_string(), "req".to_string());
+        req.http_config = Some(hc);
+        let _ = exec.execute(req).await;
+        let captured = seen.lock().unwrap().clone().expect("headers captured");
+        assert_eq!(
+            captured
+                .get("x-base")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "base"
+        );
+        assert_eq!(
+            captured
+                .get("x-req")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "req"
+        );
+    }
+
+    #[tokio::test]
+    async fn merges_request_headers_into_base_stream() {
+        // Dummy stream transformer
+        struct DummyTx;
+        impl crate::transformers::stream::StreamChunkTransformer for DummyTx {
+            fn provider_id(&self) -> &str {
+                "test"
+            }
+            fn convert_event(
+                &self,
+                _event: eventsource_stream::Event,
+            ) -> crate::transformers::stream::StreamEventFuture<'_> {
+                Box::pin(async { vec![] })
+            }
+        }
+        let http = reqwest::Client::new();
+        let request_transformer = Arc::new(EchoRequestTransformer);
+        let response_transformer = Arc::new(NoopResponseTransformer);
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let interceptor = CaptureHeadersInterceptor { seen: seen.clone() };
+        let headers_builder = || {
+            let mut h = reqwest::header::HeaderMap::new();
+            h.insert(
+                reqwest::header::HeaderName::from_static("x-base"),
+                reqwest::header::HeaderValue::from_static("base"),
+            );
+            Ok(h)
+        };
+        let exec = HttpChatExecutor {
+            provider_id: "test".into(),
+            http_client: http,
+            request_transformer,
+            response_transformer,
+            stream_transformer: Some(Arc::new(DummyTx)),
+            json_stream_converter: None,
+            stream_disable_compression: true,
+            interceptors: vec![Arc::new(interceptor)],
+            middlewares: vec![],
+            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_headers: Arc::new(headers_builder),
+            before_send: None,
+        };
+        let mut req = crate::types::ChatRequest::new(vec![]);
+        let mut hc = crate::types::HttpConfig::default();
+        hc.headers
+            .insert("X-Req".to_string(), "req".to_string());
+        req.http_config = Some(hc);
+        let _ = exec.execute_stream(req).await;
+        let captured = seen.lock().unwrap().clone().expect("headers captured");
+        assert_eq!(
+            captured
+                .get("x-base")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "base"
+        );
+        assert_eq!(
+            captured
+                .get("x-req")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "req"
+        );
     }
 }
 
@@ -472,7 +616,7 @@ impl ChatExecutor for HttpChatExecutor {
         let response_tx = self.response_transformer.clone();
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
-        // Pre-compute URL and initial headers
+        // Pre-compute URL and initial headers (provider/base-level). Request-level headers are merged later per-request.
         let url = (self.build_url)(false);
         let build_headers = self.build_headers.clone();
         let headers_initial = (build_headers)()?;
@@ -500,19 +644,34 @@ impl ChatExecutor for HttpChatExecutor {
                     };
 
                     // Build request and run interceptors
-                    let mut rb = client.post(url.clone()).headers(headers_initial.clone());
+                    // Merge per-request http_config.headers on top of provider/base headers
+                    let merged_headers = {
+                        let mut h = headers_initial.clone();
+                        if let Some(hc) = &req_in.http_config {
+                            for (k, v) in &hc.headers {
+                                if let (Ok(name), Ok(val)) = (
+                                    reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                                    reqwest::header::HeaderValue::from_str(v),
+                                ) {
+                                    h.insert(name, val);
+                                }
+                            }
+                        }
+                        h
+                    };
+                    let mut rb = client.post(url.clone()).headers(merged_headers);
                     let ctx = HttpRequestContext {
                         provider_id: provider_id.clone(),
                         url: url.clone(),
                         stream: false,
                     };
+                    // Build effective headers for interceptor visibility
+                    let cloned_headers = rb
+                        .try_clone()
+                        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+                        .unwrap_or_default();
                     for it in &interceptors {
-                        rb = it.on_before_send(
-                            &ctx,
-                            rb,
-                            &json_body,
-                            &headers_for_interceptors_initial,
-                        )?;
+                        rb = it.on_before_send(&ctx, rb, &json_body, &cloned_headers)?;
                     }
                     let resp = rb
                         .json(&json_body)
@@ -524,6 +683,20 @@ impl ChatExecutor for HttpChatExecutor {
                         if status.as_u16() == 401 {
                             // Rebuild headers and retry once
                             let headers_retry = (build_headers2)()?;
+                            let headers_retry = {
+                                let mut h = headers_retry;
+                                if let Some(hc) = &req_in.http_config {
+                                    for (k, v) in &hc.headers {
+                                        if let (Ok(name), Ok(val)) = (
+                                            reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                                            reqwest::header::HeaderValue::from_str(v),
+                                        ) {
+                                            h.insert(name, val);
+                                        }
+                                    }
+                                }
+                                h
+                            };
                             let headers_for_interceptors_retry = headers_retry.clone();
                             let mut rb2 = client.post(url.clone()).headers(headers_retry);
                             let ctx = HttpRequestContext {
@@ -690,9 +863,13 @@ impl ChatExecutor for HttpChatExecutor {
             }
         }
 
-        let stream_tx = self.stream_transformer.clone().ok_or_else(|| {
-            LlmError::UnsupportedOperation("Streaming not supported by this executor".into())
-        })?;
+        let sse_tx_opt = self.stream_transformer.clone();
+        let json_tx_opt = self.json_stream_converter.clone();
+        if sse_tx_opt.is_none() && json_tx_opt.is_none() {
+            return Err(LlmError::UnsupportedOperation(
+                "Streaming not supported by this executor".into(),
+            ));
+        }
         // Apply model-level parameter transforms
         let req = apply_transform_chain(&self.middlewares, req);
         // Try pre-stream short-circuit
@@ -720,7 +897,8 @@ impl ChatExecutor for HttpChatExecutor {
         let provider_id_for_telemetry = provider_id.clone(); // Clone for telemetry use later
         let http = self.http_client.clone();
         let request_tx = self.request_transformer.clone();
-        let stream_tx = stream_tx.clone();
+        let sse_tx = sse_tx_opt.clone();
+        let json_tx = json_tx_opt.clone();
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
         let url = (self.build_url)(true);
@@ -733,7 +911,8 @@ impl ChatExecutor for HttpChatExecutor {
             let provider_id = provider_id.clone();
             let http = http.clone();
             let request_tx = request_tx.clone();
-            let stream_tx = stream_tx.clone();
+            let sse_tx = sse_tx.clone();
+            let json_tx = json_tx.clone();
             let interceptors = interceptors.clone();
             let before_send = before_send.clone();
             let url = url.clone();
@@ -747,6 +926,7 @@ impl ChatExecutor for HttpChatExecutor {
                     body
                 };
 
+                // Build SSE request (used only when SSE transformer present)
                 let build_request = {
                     let http = http.clone();
                     let headers_base = headers_base.clone();
@@ -754,10 +934,30 @@ impl ChatExecutor for HttpChatExecutor {
                     let transformed_for_retry = transformed.clone();
                     let interceptors = interceptors.clone();
                     let provider_id = provider_id.clone();
+                    // Extract per-request headers once to avoid moving req_in into the closure
+                    let req_headers_extra = req_in
+                        .http_config
+                        .as_ref()
+                        .map(|hc| hc.headers.clone());
                     move || -> Result<reqwest::RequestBuilder, LlmError> {
+                        // Merge per-request headers into base headers
+                        let headers_effective = {
+                            let mut h = headers_base.clone();
+                            if let Some(ref headers_map) = req_headers_extra {
+                                for (k, v) in headers_map.iter() {
+                                    if let (Ok(name), Ok(val)) = (
+                                        reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                                        reqwest::header::HeaderValue::from_str(v),
+                                    ) {
+                                        h.insert(name, val);
+                                    }
+                                }
+                            }
+                            h
+                        };
                         let mut rb = http
                             .post(url_for_retry.clone())
-                            .headers(headers_base.clone())
+                            .headers(headers_effective)
                             .header(reqwest::header::ACCEPT, "text/event-stream")
                             .header(reqwest::header::CACHE_CONTROL, "no-cache")
                             .header(reqwest::header::CONNECTION, "keep-alive");
@@ -924,27 +1124,106 @@ impl ChatExecutor for HttpChatExecutor {
                     }
                 }
 
-                let converter = TransformerConverter(stream_tx.clone());
-                let mw_wrapped = MiddlewareConverter {
-                    middlewares: middlewares.clone(),
-                    req: req_in.clone(),
-                    convert: converter,
-                };
-                let intercepting = InterceptingConverter {
-                    interceptors: interceptors.clone(),
-                    ctx: HttpRequestContext {
+                if let Some(stream_tx) = sse_tx {
+                    let converter = TransformerConverter(stream_tx.clone());
+                    let mw_wrapped = MiddlewareConverter {
+                        middlewares: middlewares.clone(),
+                        req: req_in.clone(),
+                        convert: converter,
+                    };
+                    let intercepting = InterceptingConverter {
+                        interceptors: interceptors.clone(),
+                        ctx: HttpRequestContext {
+                            provider_id: provider_id.clone(),
+                            url: url.clone(),
+                            stream: true,
+                        },
+                        convert: mw_wrapped,
+                    };
+                    StreamFactory::create_eventsource_stream_with_retry(
+                        &provider_id,
+                        build_request,
+                        intercepting,
+                    )
+                    .await
+                } else if let Some(jsonc) = json_tx {
+                    // JSON streaming path: build request without SSE headers
+                    let mut rb = http.post(url.clone()).headers(headers_base.clone());
+                    let body_for_send = transformed.clone();
+                    rb = rb.json(&body_for_send);
+                    if disable_compression {
+                        rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
+                    }
+                    // Interceptors
+                    let ctx = HttpRequestContext {
                         provider_id: provider_id.clone(),
                         url: url.clone(),
                         stream: true,
-                    },
-                    convert: mw_wrapped,
-                };
-                StreamFactory::create_eventsource_stream_with_retry(
-                    &provider_id,
-                    build_request,
-                    intercepting,
-                )
-                .await
+                    };
+                    let cloned_headers = rb
+                        .try_clone()
+                        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+                        .unwrap_or_default();
+                    for it in &interceptors {
+                        rb = it.on_before_send(&ctx, rb, &body_for_send, &cloned_headers)?;
+                    }
+                    let response = rb
+                        .send()
+                        .await
+                        .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
+                    if !response.status().is_success() {
+                        let status = response.status();
+                        let error_text = response.text().await.unwrap_or_default();
+                        return Err(LlmError::HttpError(format!(
+                            "HTTP error {}: {}",
+                            status.as_u16(),
+                            error_text
+                        )));
+                    }
+                    // Wrap JSON converter with middlewares
+                #[derive(Clone)]
+                struct MiddlewareJsonConverter {
+                    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+                    req: crate::types::ChatRequest,
+                    convert: Arc<dyn crate::utils::streaming::JsonEventConverter>,
+                }
+                impl crate::utils::streaming::JsonEventConverter for MiddlewareJsonConverter {
+                    fn convert_json<'a>(
+                        &'a self,
+                        json_data: &'a str,
+                    ) -> Pin<
+                        Box<
+                            dyn Future<
+                                    Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>,
+                                > + Send
+                                + Sync
+                                + 'a,
+                        >,
+                    > {
+                        let mws = self.middlewares.clone();
+                        let req = self.req.clone();
+                        let inner = self.convert.clone();
+                        Box::pin(async move {
+                            let raw = inner.convert_json(json_data).await;
+                            let mut out = Vec::new();
+                            for item in raw.into_iter() {
+                                match item {
+                                    Ok(ev) => match apply_stream_event_chain(&mws, &req, ev) {
+                                        Ok(list) => out.extend(list.into_iter().map(Ok)),
+                                        Err(e) => out.push(Err(e)),
+                                    },
+                                    Err(e) => out.push(Err(e)),
+                                }
+                            }
+                            out
+                        })
+                    }
+                }
+                    let mw = MiddlewareJsonConverter { middlewares: middlewares.clone(), req: req_in.clone(), convert: jsonc.clone() };
+                    crate::utils::streaming::StreamFactory::create_json_stream(response, mw).await
+                } else {
+                    Err(LlmError::UnsupportedOperation("No stream transformer".into()))
+                }
             })
         });
 

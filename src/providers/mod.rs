@@ -232,9 +232,30 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             .with_chat()
             .with_streaming()
             .with_tools()
+            .with_audio()
             .with_custom_feature("fast_inference", true),
         default_base_url: "https://api.groq.com/openai/v1",
         supported_models: crate::providers::groq::models::all_models(),
+    });
+
+    // OpenAI-Compatible meta provider (adapters for many providers)
+    #[cfg(feature = "openai")]
+    providers.push(ProviderInfo {
+        provider_type: ProviderType::Custom("openai-compatible".to_string()),
+        name: "OpenAI-Compatible",
+        description: "Any provider implementing the OpenAI API (via adapters)",
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_custom_feature("structured_output", true),
+        default_base_url: "custom",
+        supported_models: vec![
+            // Examples only; actual models depend on the selected provider adapter
+            "deepseek-chat",
+            "openrouter:openai/gpt-4o-mini",
+            "together:meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        ],
     });
 
     providers

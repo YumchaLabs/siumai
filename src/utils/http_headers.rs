@@ -264,6 +264,8 @@ pub fn inject_tracing_headers(headers: &mut HeaderMap) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+    static TRACING_TOGGLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn test_header_builder() {
@@ -316,7 +318,8 @@ mod tests {
 
     #[test]
     fn test_inject_tracing_headers_basic() {
-        // Ensure W3C trace is disabled for this test (tests run in parallel)
+        let _g = TRACING_TOGGLE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        // Ensure W3C trace is disabled for this test
         crate::tracing::set_w3c_trace_enabled(false);
         let mut headers = HeaderMap::new();
         super::inject_tracing_headers(&mut headers);
@@ -329,6 +332,7 @@ mod tests {
 
     #[test]
     fn test_inject_tracing_headers_w3c() {
+        let _g = TRACING_TOGGLE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         // Enable W3C trace headers for this test
         crate::tracing::set_w3c_trace_enabled(true);
         let mut headers = HeaderMap::new();

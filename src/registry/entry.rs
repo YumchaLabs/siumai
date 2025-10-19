@@ -672,6 +672,13 @@ impl LlmClient for TestProvClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    // Serialize registry tests that mutate global TEST_BUILD_COUNT to avoid flakiness under parallel runs
+    static REG_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    fn reg_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        REG_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[derive(Clone)]
     struct MockClient(std::sync::Arc<std::sync::Mutex<usize>>);
@@ -718,6 +725,7 @@ mod tests {
 
     #[tokio::test]
     async fn language_model_handle_builds_client() {
+        let _g = reg_test_guard();
         // Create registry with test provider factory
         let mut providers = HashMap::new();
         providers.insert(
@@ -749,6 +757,7 @@ mod tests {
 
     #[tokio::test]
     async fn lru_cache_eviction() {
+        let _g = reg_test_guard();
         // Create registry with small cache (2 entries)
         let mut providers = HashMap::new();
         providers.insert(
@@ -804,6 +813,7 @@ mod tests {
 
     #[tokio::test]
     async fn ttl_expiration() {
+        let _g = reg_test_guard();
         use std::time::Duration;
 
         // Create registry with TTL of 100ms

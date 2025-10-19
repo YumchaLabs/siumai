@@ -35,14 +35,13 @@ pub trait ChatCapability: Send + Sync {
             cancel,
         })
     }
-}
 
-#[async_trait]
-pub trait ChatExtensions: ChatCapability {
+    /// Full chat request (preferred unified path). Default falls back to chat_with_tools.
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         self.chat_with_tools(request.messages, request.tools).await
     }
 
+    /// Full streaming chat request (preferred unified path). Default falls back to chat_stream.
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
         self.chat_stream(request.messages, request.tools).await
     }
@@ -51,10 +50,14 @@ pub trait ChatExtensions: ChatCapability {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStreamHandle, LlmError> {
-        self.chat_stream_with_cancel(request.messages, request.tools)
-            .await
+        let stream = self.chat_stream_request(request).await?;
+        let (cancellable, cancel) = crate::utils::cancel::make_cancellable_stream(stream);
+        Ok(ChatStreamHandle { stream: cancellable, cancel })
     }
+}
 
+#[async_trait]
+pub trait ChatExtensions: ChatCapability {
     async fn chat_with_retry(
         &self,
         messages: Vec<ChatMessage>,

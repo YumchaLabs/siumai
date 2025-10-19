@@ -240,6 +240,64 @@ impl ChatCapability for XaiClient {
         // Now that XaiChatCapability has the correct common_params, we can use the trait method directly
         self.chat_capability.chat_stream(messages, tools).await
     }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        // Route via transformers + executor path to preserve provider_params
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.chat_capability.base_url.clone();
+        let api_key = self.chat_capability.api_key.clone();
+        let custom_headers = self.chat_capability.http_config.headers.clone();
+        let req_tx = super::transformers::XaiRequestTransformer;
+        let resp_tx = super::transformers::XaiResponseTransformer;
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpChatExecutor {
+            provider_id: "xai".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: None,
+            json_stream_converter: None,
+            stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.chat_capability.middlewares.clone(),
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        exec.execute(request).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.chat_capability.base_url.clone();
+        let api_key = self.chat_capability.api_key.clone();
+        let custom_headers = self.chat_capability.http_config.headers.clone();
+        let req_tx = super::transformers::XaiRequestTransformer;
+        let resp_tx = super::transformers::XaiResponseTransformer;
+        let inner = super::streaming::XaiEventConverter::new();
+        let stream_tx = super::transformers::XaiStreamChunkTransformer {
+            provider_id: "xai".to_string(),
+            inner,
+        };
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpChatExecutor {
+            provider_id: "xai".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+            json_stream_converter: None,
+            stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.chat_capability.middlewares.clone(),
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        exec.execute_stream(request).await
+    }
 }
 
 /// `xAI`-specific methods

@@ -184,6 +184,63 @@ impl ChatCapability for GroqClient {
     ) -> Result<ChatStream, LlmError> {
         self.chat_capability.chat_stream(messages, tools).await
     }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let custom_headers = self.config.http_config.headers.clone();
+        let req_tx = super::transformers::GroqRequestTransformer;
+        let resp_tx = super::transformers::GroqResponseTransformer;
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpChatExecutor {
+            provider_id: "groq".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: None,
+            json_stream_converter: None,
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.chat_capability.middlewares.clone(),
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        exec.execute(request).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let api_key = self.config.api_key.clone();
+        let custom_headers = self.config.http_config.headers.clone();
+        let req_tx = super::transformers::GroqRequestTransformer;
+        let resp_tx = super::transformers::GroqResponseTransformer;
+        let inner = super::streaming::GroqEventConverter::new();
+        let stream_tx = super::transformers::GroqStreamChunkTransformer {
+            provider_id: "groq".to_string(),
+            inner,
+        };
+        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let exec = HttpChatExecutor {
+            provider_id: "groq".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+            json_stream_converter: None,
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.chat_capability.middlewares.clone(),
+            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        exec.execute_stream(request).await
+    }
 }
 
 #[async_trait]

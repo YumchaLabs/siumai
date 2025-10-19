@@ -522,6 +522,120 @@ impl ChatCapability for GeminiClient {
     ) -> Result<ChatStream, LlmError> {
         self.chat_capability.chat_stream(messages, tools).await
     }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let model = self.config.model.clone();
+        let api_key = self.config.api_key.clone();
+        let req_tx = super::transformers::GeminiRequestTransformer {
+            config: self.config.clone(),
+        };
+        let resp_tx = super::transformers::GeminiResponseTransformer {
+            config: self.config.clone(),
+        };
+        let base_extra = self
+            .config
+            .http_config
+            .clone()
+            .map(|c| c.headers)
+            .unwrap_or_default();
+        let tp = self.config.token_provider.clone();
+        let headers_builder = move || {
+            let mut extra = base_extra.clone();
+            if let Some(ref tp) = tp
+                && let Ok(tok) = tp.token()
+            {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+            let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+            Ok(headers)
+        };
+        let exec = HttpChatExecutor {
+            provider_id: "gemini".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: None,
+            json_stream_converter: None,
+            stream_disable_compression: self
+                .config
+                .http_config
+                .as_ref()
+                .map(|h| h.stream_disable_compression)
+                .unwrap_or(true),
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
+            build_url: Box::new(move |_stream| {
+                crate::utils::url::join_url(&base, &format!("models/{}:generateContent", model))
+            }),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        exec.execute(request).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.config.base_url.clone();
+        let model = self.config.model.clone();
+        let api_key = self.config.api_key.clone();
+        let req_tx = super::transformers::GeminiRequestTransformer {
+            config: self.config.clone(),
+        };
+        let resp_tx = super::transformers::GeminiResponseTransformer {
+            config: self.config.clone(),
+        };
+        let converter = super::streaming::GeminiEventConverter::new(self.config.clone());
+        let stream_tx = super::transformers::GeminiStreamChunkTransformer {
+            provider_id: "gemini".to_string(),
+            inner: converter,
+        };
+        let base_extra = self
+            .config
+            .http_config
+            .clone()
+            .map(|c| c.headers)
+            .unwrap_or_default();
+        let tp = self.config.token_provider.clone();
+        let headers_builder = move || {
+            let mut extra = base_extra.clone();
+            if let Some(ref tp) = tp
+                && let Ok(tok) = tp.token()
+            {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+            let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+            Ok(headers)
+        };
+        let exec = HttpChatExecutor {
+            provider_id: "gemini".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+            json_stream_converter: None,
+            stream_disable_compression: self
+                .config
+                .http_config
+                .as_ref()
+                .map(|h| h.stream_disable_compression)
+                .unwrap_or(true),
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
+            build_url: Box::new(move |_stream| {
+                crate::utils::url::join_url(
+                    &base,
+                    &format!("models/{}:streamGenerateContent?alt=sse", model),
+                )
+            }),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        exec.execute_stream(request).await
+    }
 }
 
 #[async_trait]

@@ -265,6 +265,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Structured Output (JSON/Schema)
+
+Siumai supports provider‑agnostic structured outputs. Pass a hint via `provider_params.structured_output` and the library maps it to each provider’s JSON mode:
+
+```rust
+use siumai::prelude::*;
+use serde_json::json;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Siumai::builder().openai()
+        .api_key(std::env::var("OPENAI_API_KEY")?)
+        .model("gpt-4o-mini")
+        .build()
+        .await?;
+
+    let schema = json!({
+        "type": "object",
+        "properties": {"title": {"type": "string"}},
+        "required": ["title"]
+    });
+    let mut pp = ProviderParams::new();
+    pp = pp.with_param("structured_output", json!({"schema": schema}));
+
+    let req = ChatRequestBuilder::new()
+        .model("gpt-4o-mini")
+        .message(user!("Return a JSON object with title"))
+        .provider_params(pp)
+        .build();
+
+    let resp = client.chat_request(req).await?;
+    println!("{}", resp.content_text().unwrap_or_default());
+    Ok(())
+}
+```
+
+Notes:
+- OpenAI: uses `response_format` (json_object/json_schema + strict)
+- Gemini: sets `generationConfig.responseMimeType/responseSchema`
+- Anthropic: sets `response_format` for Messages API
+- Groq/xAI: sets OpenAI‑compatible `response_format`
+- Ollama: sets `format` (schema or "json")
+
+See more patterns and high‑level helpers in `docs/OBJECT_API_AND_OPENAI_STRUCTURED_OUTPUT.md`.
+
+## OpenAI‑Compatible (Adapters)
+
+OpenAI‑compatible providers share one meta provider using adapters instead of separate provider types. Each adapter declares base URL, headers, and capability quirks (JSON mode, tools, streaming, reasoning fields). This keeps a single execution path (transformers + executors) while capturing provider differences.
+
+- Build via convenience helpers, e.g. `LlmBuilder::new().openrouter()`, `deepseek()`, `together()`, or the generic `OpenAiCompatibleBuilder`.
+- Environment: adapters read `{PROVIDER_ID}_API_KEY` (see `docs/ENV_VARS.md`).
+- Structured output: pass `provider_params.structured_output` and it maps to `response_format` for all compat providers.
+- Tools/streaming/thinking: handled by the adapter’s field mappings and compatibility flags.
+
+Example (OpenRouter via adapter):
+
+```rust
+use siumai::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = LlmBuilder::new()
+        .openrouter() // OpenAI-compatible adapter
+        .model("openai/gpt-4o-mini")
+        .build()
+        .await?;
+
+    let resp = client.chat(vec![user!("Hello from OpenRouter")]).await?;
+    println!("{}", resp.content_text().unwrap_or_default());
+    Ok(())
+}
+```
+
+## Middleware
+
+- Simulate streaming middleware and example: docs/developer/simulate_streaming_middleware.md
+- Example code: examples/03_advanced_features/middleware_simulate_streaming.rs
+
 ## HTTP Interceptors (New)
 
 Install custom interceptors globally via `LlmBuilder`, or per‑provider where supported. A built‑in `LoggingInterceptor` is available for lightweight debug (no sensitive data).
@@ -287,6 +365,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## Provider Capabilities (Quick Matrix)
+
+- OpenAI
+  - Chat/Stream: SSE; Tools: function calls; Structured Output: `response_format` (json_object/json_schema + strict)
+  - Images/Audio/Embeddings: supported via dedicated executors/transformers
+- Google Gemini
+  - Chat/Stream: SSE; Tools: function calls + code execution (models dependent)
+  - Structured Output: `generationConfig.responseMimeType/responseSchema`
+- Anthropic Claude
+  - Chat/Stream: SSE; Tools: function calls; Thinking: supported（beta flags）
+  - Structured Output: `response_format`（json_object/json_schema）
+- Groq
+  - Chat/Stream: SSE; Tools: function calls; Audio: TTS/STT helpers
+  - Structured Output: OpenAI‑style `response_format`
+- xAI Grok
+  - Chat/Stream: SSE; Tools: function calls; Thinking: reasoning fields
+  - Structured Output: OpenAI‑style `response_format`
+- Ollama
+  - Chat/Stream: JSON streaming; Tools: function calls（模型支持）
+  - Structured Output: `format`（json or schema object）
+- OpenAI‑Compatible（Meta Provider）
+  - Chat/Stream: SSE（依适配器）；Tools/Thinking：由适配器能力决定
+  - Structured Output: `response_format`（由 adapters 统一映射）
+
+Notes
+- 行为以各模型与供应商实际支持为准；以上为 Siumai 侧映射与执行路径能力概览。
 
 Interceptors receive hooks: `on_before_send`, `on_response`, `on_error`, and `on_sse_event` for streaming. See `src/utils/http_interceptor.rs`.
 

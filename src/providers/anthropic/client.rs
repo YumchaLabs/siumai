@@ -269,6 +269,7 @@ impl AnthropicClient {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: None,
+            json_stream_converter: None,
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
@@ -343,6 +344,77 @@ impl ChatCapability for AnthropicClient {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: Some(Arc::new(stream_tx)),
+            json_stream_converter: None,
+            stream_disable_compression: self.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
+            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        });
+        exec.execute_stream(request).await
+    }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let custom_headers = self.http_config.headers.clone();
+        let req_tx = super::transformers::AnthropicRequestTransformer::new(Some(
+            self.specific_params.clone(),
+        ));
+        let resp_tx = super::transformers::AnthropicResponseTransformer;
+        let headers_builder = move || {
+            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = std::sync::Arc::new(HttpChatExecutor {
+            provider_id: "anthropic".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: None,
+            json_stream_converter: None,
+            stream_disable_compression: self.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
+            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        });
+        exec.execute(request).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let api_key = self.api_key.clone();
+        let custom_headers = self.http_config.headers.clone();
+        let req_tx = super::transformers::AnthropicRequestTransformer::new(Some(
+            self.specific_params.clone(),
+        ));
+        let resp_tx = super::transformers::AnthropicResponseTransformer;
+        let stream_converter =
+            super::streaming::AnthropicEventConverter::new(self.anthropic_params.clone());
+        let stream_tx = super::transformers::AnthropicStreamChunkTransformer {
+            provider_id: "anthropic".to_string(),
+            inner: stream_converter,
+        };
+        let headers_builder = move || {
+            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
+            Ok(headers)
+        };
+        let exec = std::sync::Arc::new(HttpChatExecutor {
+            provider_id: "anthropic".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: Some(std::sync::Arc::new(stream_tx)),
+            json_stream_converter: None,
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),

@@ -65,6 +65,42 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 }
                 Ok(body)
             }
+
+            fn post_process_chat(
+                &self,
+                req: &ChatRequest,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                // Map structured_output provider hint to OpenAI chat `response_format`
+                if let Some(pp) = &req.provider_params {
+                    if let Some(so) = pp.params.get("structured_output").and_then(|v| v.as_object()) {
+                        let mode = so.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
+                        let schema = so.get("schema");
+                        let name = so.get("schema_name").and_then(|v| v.as_str());
+                        if let Some(schema_v) = schema.cloned() {
+                            let rf = if let Some(n) = name {
+                                serde_json::json!({
+                                    "type": "json_schema",
+                                    "json_schema": {"name": n, "schema": schema_v, "strict": true}
+                                })
+                            } else {
+                                serde_json::json!({
+                                    "type": "json_object",
+                                    "json_schema": {"schema": schema_v, "strict": true}
+                                })
+                            };
+                            body["response_format"] = rf;
+                        } else if mode == "json" {
+                            body["response_format"] = serde_json::json!({"type":"json_object"});
+                        }
+                    }
+                }
+                // Drop leftover hint if merged by rules
+                if let Some(obj) = body.as_object_mut() {
+                    obj.remove("structured_output");
+                }
+                Ok(())
+            }
         }
 
         let profile = MappingProfile {
@@ -327,6 +363,45 @@ impl RequestTransformer for OpenAiRequestTransformer {
         };
 
         Ok(serde_json::json!({ "model": model, "input": input_value }))
+    }
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::*;
+    use crate::types::{ChatMessage, ChatRequest, ProviderParams};
+
+    #[test]
+    fn chat_transform_injects_response_format_from_structured_output_named() {
+        let tx = OpenAiRequestTransformer;
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gpt-4o-mini".into();
+        let mut hint = serde_json::Map::new();
+        hint.insert("mode".into(), serde_json::json!("auto"));
+        hint.insert("schema_name".into(), serde_json::json!("User"));
+        hint.insert("schema".into(), serde_json::json!({"type":"object"}));
+        req = req.with_provider_params(ProviderParams::new().with_param("structured_output", serde_json::Value::Object(hint)));
+        let body = tx.transform_chat(&req).expect("ok");
+        assert_eq!(
+            body.get("response_format").and_then(|v| v.get("type")).and_then(|v| v.as_str()),
+            Some("json_schema")
+        );
+    }
+
+    #[test]
+    fn chat_transform_injects_response_format_from_structured_output_object() {
+        let tx = OpenAiRequestTransformer;
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gpt-4o-mini".into();
+        let mut hint = serde_json::Map::new();
+        hint.insert("mode".into(), serde_json::json!("auto"));
+        hint.insert("schema".into(), serde_json::json!({"type":"object"}));
+        req = req.with_provider_params(ProviderParams::new().with_param("structured_output", serde_json::Value::Object(hint)));
+        let body = tx.transform_chat(&req).expect("ok");
+        assert_eq!(
+            body.get("response_format").and_then(|v| v.get("type")).and_then(|v| v.as_str()),
+            Some("json_object")
+        );
     }
 }
 

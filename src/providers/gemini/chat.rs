@@ -119,6 +119,7 @@ impl ChatCapability for GeminiChatCapability {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: None,
+            json_stream_converter: None,
             stream_disable_compression: self
                 .config
                 .http_config
@@ -193,6 +194,7 @@ impl ChatCapability for GeminiChatCapability {
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: Some(Arc::new(stream_tx)),
+            json_stream_converter: None,
             stream_disable_compression: self
                 .config
                 .http_config

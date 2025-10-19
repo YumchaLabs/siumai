@@ -358,7 +358,7 @@ impl ChatCapability for OllamaClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        // Create a ChatRequest with proper common_params
+        // Route via HttpChatExecutor with JSON streaming converter
         let request = ChatRequest {
             messages,
             tools,
@@ -370,13 +370,98 @@ impl ChatCapability for OllamaClient {
             telemetry: None,
         };
 
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let params = self.ollama_params.clone();
+        let extra_headers = self.chat_capability.http_config.headers.clone();
+        let headers_builder = move || super::utils::build_headers(&extra_headers);
+        let req_tx = super::transformers::OllamaRequestTransformer { params };
+        let resp_tx = super::transformers::OllamaResponseTransformer;
+        let json_converter: std::sync::Arc<dyn crate::utils::streaming::JsonEventConverter> =
+            std::sync::Arc::new(super::streaming::OllamaEventConverter::new());
+        let exec = HttpChatExecutor {
+            provider_id: "ollama".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: None,
+            json_stream_converter: Some(json_converter),
+            stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
+            interceptors: vec![],
+            middlewares: vec![],
+            build_url: Box::new(move |_stream| format!("{}/api/chat", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        exec.execute_stream(request).await
+    }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        let http = self.http_client.clone();
+        let base = self.base_url.clone();
+        let req_tx = super::transformers::OllamaRequestTransformer {
+            params: self.ollama_params.clone(),
+        };
+        let resp_tx = super::transformers::OllamaResponseTransformer;
+        let extra_headers = self.chat_capability.http_config.headers.clone();
+        let headers_builder = move || super::utils::build_headers(&extra_headers);
+
+        let exec = HttpChatExecutor {
+            provider_id: "ollama".to_string(),
+            http_client: http,
+            request_transformer: std::sync::Arc::new(req_tx),
+            response_transformer: std::sync::Arc::new(resp_tx),
+            stream_transformer: None,
+            json_stream_converter: None,
+            stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
+            interceptors: vec![],
+            middlewares: vec![],
+            build_url: Box::new(move |_stream| format!("{}/api/chat", base)),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        };
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(|| {
+                let rq = request.clone();
+                let http = self.http_client.clone();
+                let base = self.base_url.clone();
+                let params = self.ollama_params.clone();
+                let extra_headers = self.chat_capability.http_config.headers.clone();
+                let headers_builder = move || super::utils::build_headers(&extra_headers);
+                async move {
+                    let req_tx = super::transformers::OllamaRequestTransformer { params };
+                    let resp_tx = super::transformers::OllamaResponseTransformer;
+                    let exec2 = HttpChatExecutor {
+                        provider_id: "ollama".to_string(),
+                        http_client: http,
+                        request_transformer: std::sync::Arc::new(req_tx),
+                        response_transformer: std::sync::Arc::new(resp_tx),
+                        stream_transformer: None,
+                        json_stream_converter: None,
+                        stream_disable_compression: false,
+                        interceptors: vec![],
+                        middlewares: vec![],
+                        build_url: Box::new(move |_stream| format!("{}/api/chat", base)),
+                        build_headers: std::sync::Arc::new(headers_builder),
+                        before_send: None,
+                    };
+                    exec2.execute(rq).await
+                }
+            }, opts.clone()).await
+        } else {
+            exec.execute(request).await
+        }
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        // Use streaming capability directly with full request mapping
         let headers = crate::providers::ollama::utils::build_headers(
             &self.chat_capability.http_config.headers,
         )?;
         let body = self.chat_capability.build_chat_request_body(&request)?;
         let url = format!("{}/api/chat", self.base_url);
-
-        // Use the dedicated streaming capability
         self.streaming_capability
             .clone()
             .create_chat_stream(url, headers, body)

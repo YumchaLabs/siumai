@@ -678,6 +678,78 @@ mod tests {
         age: u32,
     }
 
+    struct StreamOnlyModel {
+        deltas: Vec<&'static str>,
+    }
+    #[async_trait]
+    impl ChatCapability for StreamOnlyModel {
+        async fn chat_with_tools(
+            &self,
+            _messages: Vec<crate::types::ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<crate::types::ChatResponse, LlmError> {
+            Err(LlmError::UnsupportedOperation("non-stream".into()))
+        }
+        async fn chat_stream(
+            &self,
+            _messages: Vec<crate::types::ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<crate::stream::ChatStream, LlmError> {
+            let chunks = self.deltas.clone();
+            let s = async_stream::try_stream! {
+                for d in chunks {
+                    yield crate::stream::ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
+                }
+                yield crate::stream::ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text(String::new())) };
+            };
+            Ok(Box::pin(s))
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_object_emits_partial_on_balanced_block() {
+        // JSON appears across multiple deltas; partial should emit once balanced
+        let model = StreamOnlyModel { deltas: vec!["prefix ", "{" , "\"id\":1", "}", " suffix"] };
+        let mut s = stream_object::<serde_json::Value>(&model, vec![], None, Default::default())
+            .await
+            .expect("stream");
+        use futures::StreamExt;
+        let mut saw_partial = false;
+        let mut saw_final = false;
+        while let Some(ev) = s.next().await {
+            match ev.expect("ok") {
+                StreamObjectEvent::PartialObject { partial } => {
+                    saw_partial = true;
+                    assert_eq!(partial.get("id").and_then(|v| v.as_u64()), Some(1));
+                }
+                StreamObjectEvent::Final { object, .. } => {
+                    saw_final = true;
+                    assert_eq!(object.get("id").and_then(|v| v.as_u64()), Some(1));
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_partial && saw_final);
+    }
+
+    #[tokio::test]
+    async fn stream_object_repairs_trailing_comma() {
+        // Trailing comma appears before closing brace; repair should handle
+        let model = StreamOnlyModel { deltas: vec!["{\"a\":1,", "}\n"] };
+        let mut s = stream_object::<serde_json::Value>(&model, vec![], None, Default::default())
+            .await
+            .expect("stream");
+        use futures::StreamExt;
+        let mut final_obj: Option<serde_json::Value> = None;
+        while let Some(ev) = s.next().await {
+            if let StreamObjectEvent::Final { object, .. } = ev.expect("ok") {
+                final_obj = Some(object);
+            }
+        }
+        let obj = final_obj.expect("final");
+        assert_eq!(obj.get("a").and_then(|v| v.as_u64()), Some(1));
+    }
+
     struct MockModel;
     #[async_trait]
     impl ChatCapability for MockModel {
@@ -806,5 +878,78 @@ mod tests {
         }
         assert!(saw_partial, "should emit at least one partial object");
         assert!(saw_final, "should emit final object");
+    }
+}
+
+#[cfg(all(test, feature = "openai"))]
+mod openai_integration_tests {
+    use super::*;
+
+    struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
+    impl crate::utils::http_interceptor::HttpInterceptor for Capture {
+        fn on_before_send(
+            &self,
+            _ctx: &crate::utils::http_interceptor::HttpRequestContext,
+            _rb: reqwest::RequestBuilder,
+            body: &serde_json::Value,
+            _headers: &reqwest::header::HeaderMap,
+        ) -> Result<reqwest::RequestBuilder, crate::error::LlmError> {
+            *self.0.lock().unwrap() = Some(body.clone());
+            Err(crate::error::LlmError::InvalidParameter("stop".into()))
+        }
+    }
+
+    #[test]
+    fn openai_generate_object_injects_response_format_object() {
+        // Prepare OpenAI client
+        let cfg = crate::providers::openai::OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
+        let client = crate::providers::openai::OpenAiClient::new(cfg, reqwest::Client::new());
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+
+        // A simple object schema without name triggers json_object format
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"]
+        });
+        let messages = vec![crate::types::ChatMessage::user("hi").build()];
+        let opts = GenerateObjectOptions { schema: Some(schema), ..Default::default() };
+        // Invoke; interceptor will abort before network
+        let _ = futures::executor::block_on(async {
+            let _ = generate_object_openai::<serde_json::Value>(&client, messages, None, opts).await;
+        });
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        let rf = body.get("response_format").cloned().expect("format");
+        assert_eq!(rf.get("type").and_then(|v| v.as_str()), Some("json_object"));
+    }
+
+    #[test]
+    fn openai_stream_object_injects_response_format_named_schema() {
+        let cfg = crate::providers::openai::OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
+        let client = crate::providers::openai::OpenAiClient::new(cfg, reqwest::Client::new());
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {"age": {"type": "integer"}},
+            "required": ["age"]
+        });
+        let messages = vec![crate::types::ChatMessage::user("hi").build()];
+        let opts = StreamObjectOptions { schema: Some(schema), schema_name: Some("User".into()), ..Default::default() };
+        // Invoke streaming helper; interceptor will abort before HTTP
+        let _ = futures::executor::block_on(async {
+            let _ = stream_object_openai::<serde_json::Value>(&client, messages, None, opts).await;
+        });
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        let rf = body.get("response_format").cloned().expect("format");
+        assert_eq!(rf.get("type").and_then(|v| v.as_str()), Some("json_schema"));
+        assert_eq!(
+            rf.get("json_schema").and_then(|o| o.get("name")).and_then(|v| v.as_str()),
+            Some("User")
+        );
     }
 }
