@@ -429,6 +429,9 @@ pub struct ChatRequest {
     pub web_search: Option<WebSearchConfig>,
     /// Stream the response
     pub stream: bool,
+    /// Optional telemetry configuration
+    #[serde(skip)]
+    pub telemetry: Option<crate::telemetry::TelemetryConfig>,
 }
 
 impl ChatRequest {
@@ -442,6 +445,7 @@ impl ChatRequest {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         }
     }
 
@@ -595,6 +599,7 @@ impl ChatRequestBuilder {
             http_config: self.http_config,
             web_search: self.web_search,
             stream: self.stream,
+            telemetry: None,
         }
     }
 }

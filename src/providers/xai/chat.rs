@@ -73,6 +73,7 @@ impl ChatCapability for XaiChatCapability {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
         let http = self.http_client.clone();
@@ -112,6 +113,7 @@ impl ChatCapability for XaiChatCapability {
             http_config: None,
             web_search: None,
             stream: true,
+            telemetry: None,
         };
 
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};

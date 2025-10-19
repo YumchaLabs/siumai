@@ -266,6 +266,7 @@ impl XaiClient {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         self.chat_capability.chat_request(request).await
@@ -289,6 +290,7 @@ impl XaiClient {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         // This would return a request_id instead of a full response

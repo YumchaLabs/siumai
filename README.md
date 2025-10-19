@@ -103,6 +103,71 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 环境变量命名规则与清单见 `docs/ENV_VARS.md`。可参考示例：`examples/registry_basic.rs`。
 
+## Custom OpenAI-Compatible Providers
+
+Siumai's `.base_url()` + `.model()` API provides full flexibility for using **any** OpenAI-compatible provider, equivalent to Vercel AI SDK's `createOpenAICompatible`. This is perfect for:
+
+- Self-hosted OpenAI-compatible servers (vLLM, LocalAI, Ollama, etc.)
+- Custom proxy or gateway configurations
+- Any provider with an OpenAI-compatible API
+
+```rust
+use siumai::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Example 1: Self-hosted vLLM server
+    let vllm_client = LlmBuilder::new()
+        .openai()  // Use OpenAI-compatible interface
+        .api_key("not-needed")  // vLLM may not require a key
+        .base_url("http://localhost:8000/v1")  // Your vLLM server
+        .model("meta-llama/Llama-3.1-8B-Instruct")  // Model served by vLLM
+        .build()
+        .await?;
+
+    let resp = vllm_client.chat(vec![user!("Hello from vLLM!")]).await?;
+    println!("{}", resp.content_text().unwrap_or_default());
+
+    // Example 2: Custom OpenAI-compatible gateway
+    let gateway_client = LlmBuilder::new()
+        .openai()
+        .api_key(std::env::var("GATEWAY_API_KEY")?)
+        .base_url("https://my-gateway.example.com/v1")
+        .model("custom-model-name")
+        .temperature(0.7)
+        .build()
+        .await?;
+
+    let resp2 = gateway_client.chat(vec![user!("Hello from gateway!")]).await?;
+    println!("{}", resp2.content_text().unwrap_or_default());
+
+    // Example 3: Use any provider with OpenAI-compatible API
+    let together_client = LlmBuilder::new()
+        .openai()
+        .api_key(std::env::var("TOGETHER_API_KEY")?)
+        .base_url("https://api.together.xyz/v1")
+        .model("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo")
+        .build()
+        .await?;
+
+    let resp3 = together_client.chat(vec![user!("Hello from Together AI!")]).await?;
+    println!("{}", resp3.content_text().unwrap_or_default());
+
+    Ok(())
+}
+```
+
+**Key Features:**
+- ✅ **Full OpenAI API compatibility**: Works with any server implementing OpenAI's API spec
+- ✅ **Flexible configuration**: Override base URL and model for any use case
+- ✅ **All Siumai features**: Streaming, retries, middleware, interceptors all work seamlessly
+- ✅ **Type-safe**: Full Rust type safety and error handling
+
+**Supported out-of-the-box** (with built-in defaults):
+- DeepSeek, OpenRouter, Groq, xAI, SiliconFlow, Fireworks, Together AI, and more
+
+**Custom providers**: Use `.base_url()` + `.model()` for any other OpenAI-compatible service!
+
 ## Choose Your Style
 
 - Provider‑specific client (access to provider‑only features):

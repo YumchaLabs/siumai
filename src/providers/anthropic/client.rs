@@ -246,6 +246,7 @@ impl AnthropicClient {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         // Executors wiring
@@ -314,6 +315,7 @@ impl ChatCapability for AnthropicClient {
             http_config: None,
             web_search: None,
             stream: true,
+            telemetry: None,
         };
 
         let http = self.http_client.clone();

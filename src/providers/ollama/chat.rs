@@ -204,6 +204,7 @@ impl ChatCapability for OllamaChatCapability {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         self.chat(request).await
@@ -226,6 +227,7 @@ impl ChatCapability for OllamaChatCapability {
             http_config: None,
             web_search: None,
             stream: true,
+            telemetry: None,
         };
 
         // Create streaming capability
@@ -324,6 +326,7 @@ mod tests {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         let body = capability.build_chat_request_body(&request).unwrap();

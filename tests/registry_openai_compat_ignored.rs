@@ -20,6 +20,8 @@ async fn registry_openrouter_smoke() -> Result<(), Box<dyn std::error::Error>> {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
+            max_cache_entries: None,
+            client_ttl: None,
         }),
     );
     // Example model id for OpenRouter

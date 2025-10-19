@@ -78,6 +78,10 @@ secrecy = { version = "0.10", features = ["serde"] }
 
 # Retry mechanism
 backoff = { version = "0.4", features = ["tokio"] }
+lru = "0.16.2"
+
+# Optional dependencies for server adapters
+axum = { version = "0.8.4", optional = true }
 
 [features]
 # Default features - include all providers for convenience
@@ -86,8 +90,8 @@ default = ["all-providers"]
 # Enable structured JSON messages (MessageContent::Json)
 structured-messages = []
 
-# Enable server adapter examples (silences unexpected cfg warnings in examples)
-server-adapters = []
+# Enable server adapter helpers (includes Axum integration)
+server-adapters = ["dep:axum"]
 
 # Provider features - each provider can be enabled independently
 openai = []

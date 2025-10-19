@@ -1,11 +1,15 @@
 # Changelog
 
-## [0.11.0] - 2025-10-14
+## [0.11.0] - 2025-10-19
 
 ### Highlights (concise additions)
 - Middleware pipeline: wired `wrap_generate_async`/`wrap_stream_async` with `transform → pre_* → wrap_* → HTTP → post/on_event`, plus tests and docs.
+- **Middleware Override**: `LanguageModelMiddleware` now supports `override_provider_id()` and `override_model_id()` for dynamic routing (aligned with Vercel AI SDK's `wrapLanguageModel`).
+- **Registry LRU Cache**: `ProviderRegistryHandle` now features LRU cache with configurable capacity (`max_cache_entries`) and optional TTL (`client_ttl`) to prevent unbounded growth; includes concurrent access de-duplication.
+- **Orchestrator Advanced Tests**: Added comprehensive tests for usage aggregation precision, error injection after tool execution, mixed approval decisions (Approve/Deny), and concurrent tool call ordering.
+- **Server Adapters Enhancement**: Improved with Axum integration (`to_sse_response`, `to_text_stream`), enhanced `SseOptions` with presets (`development()`/`production()`/`minimal()`), configurable error masking, and comprehensive documentation.
+- **Telemetry & Observability**: New `telemetry` module with structured event tracking (SpanEvent, GenerationEvent, OrchestratorEvent, ToolExecutionEvent); Langfuse and Helicone exporter support; optional telemetry in Orchestrator and HttpChatExecutor via `TelemetryConfig`; automatic span tracking for all LLM requests; complete stream telemetry with automatic GenerationEvent emission on stream completion.
 - Orchestrator (streaming): added `generate_stream_owned` (tokio::spawn + mpsc) for multi‑step streaming with `on_chunk/on_step_finish/on_finish`; re‑enabled stream test.
-- Registry cache: per‑key client cache now supports optional TTL (`RegistryOptions::client_ttl`) and concurrent build de‑dup; added unit tests.
 - HTTP 401 retry: non‑stream chat path restores one‑shot 401 header rebuild + retry; `build_headers` changed to `Arc<..>` internally and providers updated.
 - Server adapters: feature renamed to `server-adapters`; examples declare `required-features` for cleaner builds.
 - Retry module layout: moved to `src/retry/{policy.rs, backoff.rs}` with `retry::policy` and `retry::backoff`; keep `retry_api` as the stable facade.
@@ -28,6 +32,11 @@
 - OpenAI Rerank now uses `ProviderHeaders::openai`; accepts `HttpConfig` for custom headers/tracing.
 
 ### Added
+- **Registry LRU Cache with TTL**:
+  - `ProviderRegistryHandle` now caches language model clients with LRU eviction (default: 100 entries).
+  - Configurable via `RegistryOptions::max_cache_entries` and `RegistryOptions::client_ttl`.
+  - Automatic expiration based on TTL; concurrent access de-duplication via async Mutex.
+  - Cache key includes provider and model ID to support middleware overrides correctly.
 - OpenAI native transformers: `OpenAiRequestTransformer`, `OpenAiResponseTransformer`, and Responses API transformers.
 - Streaming utilities: `SseEventConverter` and helpers to convert provider events to unified `ChatStreamEvent`s.
 - Files and Audio transformers/executors for consistent upload/STT/TTS flows.

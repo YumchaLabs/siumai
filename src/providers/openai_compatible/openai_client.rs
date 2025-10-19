@@ -292,6 +292,7 @@ impl ChatCapability for OpenAiCompatibleClient {
             http_config: Some(self.config.http_config.clone()),
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         // Instantiate executor
@@ -356,6 +357,7 @@ impl ChatCapability for OpenAiCompatibleClient {
             http_config: Some(self.config.http_config.clone()),
             web_search: None,
             stream: true,
+            telemetry: None,
         };
 
         // Stream executor using transformer-backed converter

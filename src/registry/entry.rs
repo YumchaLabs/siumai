@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
@@ -21,6 +22,10 @@ use crate::types::{
     ImageGenerationRequest, ImageGenerationResponse, SttRequest, SttResponse, Tool, TtsRequest,
     TtsResponse,
 };
+
+use lru::LruCache;
+use std::num::NonZeroUsize;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Provider factory trait - similar to Vercel AI SDK's ProviderV3
 ///
@@ -62,16 +67,45 @@ pub trait ProviderFactory: Send + Sync {
     fn provider_name(&self) -> &'static str;
 }
 
+/// Cache entry with TTL support
+struct CacheEntry {
+    client: Arc<dyn LlmClient>,
+    created_at: Instant,
+}
+
+impl CacheEntry {
+    fn new(client: Arc<dyn LlmClient>) -> Self {
+        Self {
+            client,
+            created_at: Instant::now(),
+        }
+    }
+
+    fn is_expired(&self, ttl: Option<Duration>) -> bool {
+        if let Some(ttl) = ttl {
+            self.created_at.elapsed() > ttl
+        } else {
+            false
+        }
+    }
+}
+
 /// Options for creating a provider registry handle.
 pub struct RegistryOptions {
     pub separator: char,
     pub language_model_middleware: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Maximum number of cached clients (LRU eviction when exceeded)
+    pub max_cache_entries: Option<usize>,
+    /// Time-to-live for cached clients (None = no expiration)
+    pub client_ttl: Option<Duration>,
 }
 
 /// Provider registry handle - aligned with Vercel AI SDK design
 ///
 /// Stores provider factories and delegates client creation to them.
 /// This makes the registry extensible and provider-agnostic.
+///
+/// Features LRU cache with optional TTL to prevent unbounded growth.
 pub struct ProviderRegistryHandle {
     /// Registered provider factories (provider_id -> factory)
     providers: HashMap<String, Arc<dyn ProviderFactory>>,
@@ -79,6 +113,11 @@ pub struct ProviderRegistryHandle {
     separator: char,
     /// Middlewares to apply to all language models
     pub(crate) middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// LRU cache for language model clients (key: "provider:model")
+    /// Uses async Mutex for concurrent access and per-key build de-duplication
+    language_model_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
+    /// TTL for cached clients
+    client_ttl: Option<Duration>,
 }
 
 impl ProviderRegistryHandle {
@@ -113,6 +152,9 @@ impl ProviderRegistryHandle {
 
     /// Resolve language model - returns a handle that delegates to the factory
     ///
+    /// Uses LRU cache with optional TTL to avoid rebuilding clients repeatedly.
+    /// Cache key is the full "provider:model" identifier.
+    ///
     /// # Example
     /// ```rust,no_run
     /// # use siumai::registry::create_provider_registry;
@@ -127,8 +169,13 @@ impl ProviderRegistryHandle {
 
         Ok(LanguageModelHandle {
             factory: factory.clone(),
+            provider_id,
             model_id,
             middlewares: self.middlewares.clone(),
+            registry: None, // Will be set if we need to support provider override
+            cache: self.language_model_cache.clone(),
+            cache_key: id.to_string(),
+            client_ttl: self.client_ttl,
         })
     }
 
@@ -198,15 +245,28 @@ pub fn create_provider_registry(
     providers: HashMap<String, Arc<dyn ProviderFactory>>,
     opts: Option<RegistryOptions>,
 ) -> ProviderRegistryHandle {
-    let (separator, middlewares) = if let Some(o) = opts {
-        (o.separator, o.language_model_middleware)
+    let (separator, middlewares, max_cache_entries, client_ttl) = if let Some(o) = opts {
+        (
+            o.separator,
+            o.language_model_middleware,
+            o.max_cache_entries,
+            o.client_ttl,
+        )
     } else {
-        (':', Vec::new())
+        (':', Vec::new(), None, None)
     };
+
+    // Create LRU cache with specified capacity (default: 100 entries)
+    let cache_capacity = max_cache_entries.unwrap_or(100);
+    let cache =
+        LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
+
     ProviderRegistryHandle {
         providers,
         separator,
         middlewares,
+        language_model_cache: Arc::new(TokioMutex::new(cache)),
+        client_ttl,
     }
 }
 
@@ -215,14 +275,66 @@ pub fn create_provider_registry(
 /// This handle stores a reference to the provider factory and delegates
 /// client creation to it. This aligns with Vercel AI SDK's design where
 /// the registry returns model instances that know how to create themselves.
+///
+/// Features LRU cache with TTL to avoid rebuilding clients on every call.
 #[derive(Clone)]
 pub struct LanguageModelHandle {
     /// Provider factory for creating clients
     factory: Arc<dyn ProviderFactory>,
-    /// Model ID to pass to the factory
+    /// Provider ID (e.g., "openai")
+    pub provider_id: String,
+    /// Model ID to pass to the factory (e.g., "gpt-4")
     pub model_id: String,
     /// Middlewares to apply to the client
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Registry handle for resolving overridden providers
+    registry: Option<Arc<ProviderRegistryHandle>>,
+    /// Shared LRU cache for clients
+    cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
+    /// Cache key for this handle ("provider:model")
+    cache_key: String,
+    /// TTL for cached clients
+    client_ttl: Option<Duration>,
+}
+
+impl LanguageModelHandle {
+    /// Get or create a cached client
+    ///
+    /// This method implements LRU cache with TTL:
+    /// 1. Check cache for existing client
+    /// 2. If found and not expired, return it
+    /// 3. If not found or expired, build new client and cache it
+    /// 4. LRU eviction happens automatically when cache is full
+    ///
+    /// Note: Cache key includes the potentially overridden model_id to ensure
+    /// correct caching when middleware overrides the model.
+    async fn get_or_create_client(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // Use provider_id + actual model_id as cache key
+        // This ensures middleware overrides are cached correctly
+        let cache_key = format!("{}:{}", self.provider_id, model_id);
+
+        let mut cache = self.cache.lock().await;
+
+        // Check if we have a cached client
+        if let Some(entry) = cache.get(&cache_key) {
+            if !entry.is_expired(self.client_ttl) {
+                // Cache hit - return cached client
+                return Ok(entry.client.clone());
+            }
+            // Expired - remove it
+            cache.pop(&cache_key);
+        }
+
+        // Cache miss or expired - build new client
+        drop(cache); // Release lock before async factory call
+        let client = self.factory.language_model(model_id).await?;
+
+        // Cache the new client
+        let mut cache = self.cache.lock().await;
+        cache.put(cache_key, CacheEntry::new(client.clone()));
+
+        Ok(client)
+    }
 }
 
 /// Implementation of ChatCapability for LanguageModelHandle
@@ -236,8 +348,18 @@ impl ChatCapability for LanguageModelHandle {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        // Build client from factory
-        let client = self.factory.language_model(&self.model_id).await?;
+        // Apply middleware overrides (aligned with Vercel AI SDK)
+        let model_id = if !self.middlewares.is_empty() {
+            crate::middleware::language_model::apply_model_id_override(
+                &self.middlewares,
+                &self.model_id,
+            )
+        } else {
+            self.model_id.clone()
+        };
+
+        // Get or create cached client with potentially overridden model_id
+        let client = self.get_or_create_client(&model_id).await?;
 
         // Apply middlewares if any
         if !self.middlewares.is_empty() {
@@ -257,8 +379,18 @@ impl ChatCapability for LanguageModelHandle {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        // Build client from factory
-        let client = self.factory.language_model(&self.model_id).await?;
+        // Apply middleware overrides (aligned with Vercel AI SDK)
+        let model_id = if !self.middlewares.is_empty() {
+            crate::middleware::language_model::apply_model_id_override(
+                &self.middlewares,
+                &self.model_id,
+            )
+        } else {
+            self.model_id.clone()
+        };
+
+        // Get or create cached client with potentially overridden model_id
+        let client = self.get_or_create_client(&model_id).await?;
 
         // Apply middlewares if any
         if !self.middlewares.is_empty() {
@@ -595,18 +727,124 @@ mod tests {
         let reg = create_provider_registry(providers, None);
         let handle = reg.language_model("testprov:model").unwrap();
 
-        // Each call builds a new client (no caching)
+        // First call builds a new client
         TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
         let resp = handle.chat(vec![]).await.unwrap();
         assert_eq!(resp.content_text().unwrap_or_default(), "ok");
         assert_eq!(
             TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "First call should build a new client"
+        );
+
+        // Second call uses cached client (LRU cache)
+        let resp = handle.chat(vec![]).await.unwrap();
+        assert_eq!(resp.content_text().unwrap_or_default(), "ok");
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "Second call should use cached client"
+        );
+    }
+
+    #[tokio::test]
+    async fn lru_cache_eviction() {
+        // Create registry with small cache (2 entries)
+        let mut providers = HashMap::new();
+        providers.insert(
+            "testprov".to_string(),
+            Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+        let reg = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                max_cache_entries: Some(2),
+                client_ttl: None,
+            }),
+        );
+
+        TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        // Create 3 different handles
+        let handle1 = reg.language_model("testprov:model1").unwrap();
+        let handle2 = reg.language_model("testprov:model2").unwrap();
+        let handle3 = reg.language_model("testprov:model3").unwrap();
+
+        // Use handle1 and handle2 (cache: [model1, model2])
+        handle1.chat(vec![]).await.unwrap();
+        handle2.chat(vec![]).await.unwrap();
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            2
+        );
+
+        // Use handle3 (cache: [model2, model3], model1 evicted)
+        handle3.chat(vec![]).await.unwrap();
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            3
+        );
+
+        // Use handle2 again (cache hit)
+        handle2.chat(vec![]).await.unwrap();
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            3
+        );
+
+        // Use handle1 again (cache miss, model1 was evicted)
+        handle1.chat(vec![]).await.unwrap();
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            4
+        );
+    }
+
+    #[tokio::test]
+    async fn ttl_expiration() {
+        use std::time::Duration;
+
+        // Create registry with TTL of 100ms
+        let mut providers = HashMap::new();
+        providers.insert(
+            "testprov".to_string(),
+            Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+        let reg = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                max_cache_entries: None,
+                client_ttl: Some(Duration::from_millis(100)),
+            }),
+        );
+
+        TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let handle = reg.language_model("testprov:model").unwrap();
+
+        // First call builds client
+        handle.chat(vec![]).await.unwrap();
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
             1
         );
 
-        // Second call also builds a new client
-        let resp = handle.chat(vec![]).await.unwrap();
-        assert_eq!(resp.content_text().unwrap_or_default(), "ok");
+        // Second call uses cached client (within TTL)
+        handle.chat(vec![]).await.unwrap();
+        assert_eq!(
+            TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        // Wait for TTL to expire
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Third call rebuilds client (TTL expired)
+        handle.chat(vec![]).await.unwrap();
         assert_eq!(
             TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
             2

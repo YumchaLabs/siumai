@@ -414,6 +414,7 @@ impl OpenAiClient {
                 http_config: None,
                 web_search: None,
                 stream: false,
+                telemetry: None,
             };
             let http = self.http_client.clone();
             let base = self.base_url.clone();
@@ -530,6 +531,7 @@ impl OpenAiClient {
                 http_config: None,
                 web_search: None,
                 stream: false,
+                telemetry: None,
             };
             let http = self.http_client.clone();
             let base = self.base_url.clone();
@@ -598,6 +600,7 @@ impl ChatCapability for OpenAiClient {
                 http_config: None,
                 web_search: None,
                 stream: true,
+                telemetry: None,
             };
             let http = self.http_client.clone();
             let base = self.base_url.clone();
@@ -700,6 +703,7 @@ impl ChatCapability for OpenAiClient {
                 http_config: None,
                 web_search: None,
                 stream: true,
+                telemetry: None,
             };
 
             let http = self.http_client.clone();
@@ -1898,6 +1902,7 @@ mod tests {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         // Test that the request body includes the correct model (via transformers)

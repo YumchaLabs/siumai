@@ -92,12 +92,32 @@ pub trait LanguageModelMiddleware: Send + Sync {
         next
     }
 
-    /// Optional provider override (not used in Iteration A).
+    /// Optional provider override.
+    ///
+    /// This allows middleware to override the provider ID used for routing.
+    /// Useful for testing, A/B testing, or forcing specific providers.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// fn override_provider_id(&self, _current: &str) -> Option<String> {
+    ///     Some("test-provider".to_string())
+    /// }
+    /// ```
     fn override_provider_id(&self, _current: &str) -> Option<String> {
         None
     }
 
-    /// Optional model override (not used in Iteration A).
+    /// Optional model override.
+    ///
+    /// This allows middleware to override the model ID used for routing.
+    /// Useful for testing, A/B testing, or forcing specific models.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// fn override_model_id(&self, _current: &str) -> Option<String> {
+    ///     Some("gpt-4".to_string())
+    /// }
+    /// ```
     fn override_model_id(&self, _current: &str) -> Option<String> {
         None
     }
@@ -172,6 +192,52 @@ pub fn apply_stream_event_chain(
     Ok(events)
 }
 
+/// Apply provider ID override from middlewares.
+///
+/// Middlewares are checked in order, and the first non-None override is used.
+/// This aligns with Vercel AI SDK's behavior where middleware can override the provider.
+///
+/// # Arguments
+/// * `middlewares` - The middleware chain
+/// * `current_provider_id` - The current provider ID (e.g., "openai")
+///
+/// # Returns
+/// The overridden provider ID, or the original if no middleware overrides it.
+pub fn apply_provider_id_override(
+    middlewares: &[Arc<dyn LanguageModelMiddleware>],
+    current_provider_id: &str,
+) -> String {
+    for mw in middlewares {
+        if let Some(overridden) = mw.override_provider_id(current_provider_id) {
+            return overridden;
+        }
+    }
+    current_provider_id.to_string()
+}
+
+/// Apply model ID override from middlewares.
+///
+/// Middlewares are checked in order, and the first non-None override is used.
+/// This aligns with Vercel AI SDK's behavior where middleware can override the model ID.
+///
+/// # Arguments
+/// * `middlewares` - The middleware chain
+/// * `current_model_id` - The current model ID (e.g., "gpt-4")
+///
+/// # Returns
+/// The overridden model ID, or the original if no middleware overrides it.
+pub fn apply_model_id_override(
+    middlewares: &[Arc<dyn LanguageModelMiddleware>],
+    current_model_id: &str,
+) -> String {
+    for mw in middlewares {
+        if let Some(overridden) = mw.override_model_id(current_model_id) {
+            return overridden;
+        }
+    }
+    current_model_id.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +310,53 @@ mod tests {
         ];
         let out = apply_post_generate_chain(&mws, &req, base).unwrap();
         assert_eq!(out.content_text().unwrap_or_default(), "x-a-b");
+    }
+
+    struct OverrideProvider(&'static str);
+    impl LanguageModelMiddleware for OverrideProvider {
+        fn override_provider_id(&self, _current: &str) -> Option<String> {
+            Some(self.0.to_string())
+        }
+    }
+
+    struct OverrideModel(&'static str);
+    impl LanguageModelMiddleware for OverrideModel {
+        fn override_model_id(&self, _current: &str) -> Option<String> {
+            Some(self.0.to_string())
+        }
+    }
+
+    #[test]
+    fn provider_id_override_applies_first_match() {
+        let mws: Vec<Arc<dyn LanguageModelMiddleware>> = vec![
+            Arc::new(OverrideProvider("provider-a")),
+            Arc::new(OverrideProvider("provider-b")), // This should be ignored
+        ];
+        let result = apply_provider_id_override(&mws, "original-provider");
+        assert_eq!(result, "provider-a");
+    }
+
+    #[test]
+    fn provider_id_override_returns_original_if_no_override() {
+        let mws: Vec<Arc<dyn LanguageModelMiddleware>> = vec![];
+        let result = apply_provider_id_override(&mws, "original-provider");
+        assert_eq!(result, "original-provider");
+    }
+
+    #[test]
+    fn model_id_override_applies_first_match() {
+        let mws: Vec<Arc<dyn LanguageModelMiddleware>> = vec![
+            Arc::new(OverrideModel("gpt-4")),
+            Arc::new(OverrideModel("gpt-3.5")), // This should be ignored
+        ];
+        let result = apply_model_id_override(&mws, "original-model");
+        assert_eq!(result, "gpt-4");
+    }
+
+    #[test]
+    fn model_id_override_returns_original_if_no_override() {
+        let mws: Vec<Arc<dyn LanguageModelMiddleware>> = vec![];
+        let result = apply_model_id_override(&mws, "original-model");
+        assert_eq!(result, "original-model");
     }
 }

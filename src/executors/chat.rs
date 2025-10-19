@@ -9,6 +9,10 @@ use crate::middleware::language_model::{
     apply_stream_event_chain, apply_transform_chain, try_pre_generate, try_pre_stream,
 };
 use crate::stream::ChatStream;
+use crate::telemetry::{
+    self,
+    events::{GenerationEvent, SpanEvent, TelemetryEvent},
+};
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
@@ -416,15 +420,53 @@ mod tests {
 #[async_trait::async_trait]
 impl ChatExecutor for HttpChatExecutor {
     async fn execute(&self, req: ChatRequest) -> Result<ChatResponse, LlmError> {
+        // Initialize telemetry if enabled
+        let trace_id = uuid::Uuid::new_v4().to_string();
+        let span_id = uuid::Uuid::new_v4().to_string();
+        let start_time = std::time::SystemTime::now();
+        let telemetry_config = req.telemetry.clone();
+
+        if let Some(ref telemetry) = telemetry_config {
+            if telemetry.enabled {
+                let span = SpanEvent::start(
+                    span_id.clone(),
+                    None,
+                    trace_id.clone(),
+                    "ai.executor.chat.execute".to_string(),
+                )
+                .with_attribute("provider_id", self.provider_id.clone())
+                .with_attribute("model", req.common_params.model.clone())
+                .with_attribute("stream", "false");
+
+                telemetry::emit(TelemetryEvent::SpanStart(span)).await;
+            }
+        }
+
         // Apply model-level parameter transforms
         let req = apply_transform_chain(&self.middlewares, req);
         // Try pre-generate short-circuit
         if let Some(decision) = try_pre_generate(&self.middlewares, &req) {
+            // Emit telemetry span end for short-circuit
+            if let Some(ref telemetry) = telemetry_config {
+                if telemetry.enabled {
+                    let span = SpanEvent::start(
+                        span_id.clone(),
+                        None,
+                        trace_id.clone(),
+                        "ai.executor.chat.execute".to_string(),
+                    )
+                    .end_ok()
+                    .with_attribute("short_circuit", "true");
+
+                    telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+                }
+            }
             return decision;
         }
 
         // Prepare owned dependencies for the async base closure
         let provider_id = self.provider_id.clone();
+        let provider_id_for_telemetry = provider_id.clone(); // Clone for telemetry use later
         let client = self.http_client.clone();
         let request_tx = self.request_transformer.clone();
         let response_tx = self.response_transformer.clone();
@@ -552,12 +594,102 @@ impl ChatExecutor for HttpChatExecutor {
             .fold(base, |next, mw| mw.wrap_generate_async(next));
 
         // Execute wrapped pipeline
-        let resp = wrapped(req.clone()).await?;
+        let result = wrapped(req.clone()).await;
+
+        // Emit telemetry events
+        if let Some(ref telemetry) = telemetry_config {
+            if telemetry.enabled {
+                match &result {
+                    Ok(response) => {
+                        // Emit span end event
+                        let duration = std::time::SystemTime::now().duration_since(start_time).ok();
+                        let span = SpanEvent::start(
+                            span_id.clone(),
+                            None,
+                            trace_id.clone(),
+                            "ai.executor.chat.execute".to_string(),
+                        )
+                        .end_ok()
+                        .with_attribute("finish_reason", format!("{:?}", response.finish_reason));
+
+                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+
+                        // Emit generation event
+                        let mut gen_event = GenerationEvent::new(
+                            uuid::Uuid::new_v4().to_string(),
+                            trace_id.clone(),
+                            provider_id_for_telemetry.clone(),
+                            req.common_params.model.clone(),
+                        );
+
+                        if telemetry.record_inputs {
+                            gen_event = gen_event.with_input(req.messages.clone());
+                        }
+
+                        if telemetry.record_outputs {
+                            gen_event = gen_event.with_output(response.clone());
+                        }
+
+                        if telemetry.record_usage {
+                            if let Some(usage) = &response.usage {
+                                gen_event = gen_event.with_usage(usage.clone());
+                            }
+                        }
+
+                        if let Some(reason) = &response.finish_reason {
+                            gen_event = gen_event.with_finish_reason(reason.clone());
+                        }
+
+                        if let Some(dur) = duration {
+                            gen_event = gen_event.with_duration(dur);
+                        }
+
+                        telemetry::emit(TelemetryEvent::Generation(gen_event)).await;
+                    }
+                    Err(error) => {
+                        // Emit error span
+                        let span = SpanEvent::start(
+                            span_id.clone(),
+                            None,
+                            trace_id.clone(),
+                            "ai.executor.chat.execute".to_string(),
+                        )
+                        .end_error(error.to_string());
+
+                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+                    }
+                }
+            }
+        }
+
         // Apply post-generate processors
+        let resp = result?;
         apply_post_generate_chain(&self.middlewares, &req, resp)
     }
 
     async fn execute_stream(&self, req: ChatRequest) -> Result<ChatStream, LlmError> {
+        // Initialize telemetry if enabled
+        let trace_id = uuid::Uuid::new_v4().to_string();
+        let span_id = uuid::Uuid::new_v4().to_string();
+        let start_time = std::time::SystemTime::now();
+        let telemetry_config = req.telemetry.clone();
+
+        if let Some(ref telemetry) = telemetry_config {
+            if telemetry.enabled {
+                let span = SpanEvent::start(
+                    span_id.clone(),
+                    None,
+                    trace_id.clone(),
+                    "ai.executor.chat.execute_stream".to_string(),
+                )
+                .with_attribute("provider_id", self.provider_id.clone())
+                .with_attribute("model", req.common_params.model.clone())
+                .with_attribute("stream", "true");
+
+                telemetry::emit(TelemetryEvent::SpanStart(span)).await;
+            }
+        }
+
         let stream_tx = self.stream_transformer.clone().ok_or_else(|| {
             LlmError::UnsupportedOperation("Streaming not supported by this executor".into())
         })?;
@@ -565,11 +697,27 @@ impl ChatExecutor for HttpChatExecutor {
         let req = apply_transform_chain(&self.middlewares, req);
         // Try pre-stream short-circuit
         if let Some(decision) = try_pre_stream(&self.middlewares, &req) {
+            // Emit telemetry span end for short-circuit
+            if let Some(ref telemetry) = telemetry_config {
+                if telemetry.enabled {
+                    let span = SpanEvent::start(
+                        span_id.clone(),
+                        None,
+                        trace_id.clone(),
+                        "ai.executor.chat.execute_stream".to_string(),
+                    )
+                    .end_ok()
+                    .with_attribute("short_circuit", "true");
+
+                    telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+                }
+            }
             return decision;
         }
 
         // Prepare owned dependencies for the async base closure
         let provider_id = self.provider_id.clone();
+        let provider_id_for_telemetry = provider_id.clone(); // Clone for telemetry use later
         let http = self.http_client.clone();
         let request_tx = self.request_transformer.clone();
         let stream_tx = stream_tx.clone();
@@ -807,6 +955,55 @@ impl ChatExecutor for HttpChatExecutor {
             .rev()
             .fold(base, |next, mw| mw.wrap_stream_async(next));
 
-        wrapped(req.clone()).await
+        let result = wrapped(req.clone()).await;
+
+        // Emit telemetry span end event and wrap stream with telemetry
+        if let Some(ref telemetry) = telemetry_config {
+            if telemetry.enabled {
+                match result {
+                    Ok(stream) => {
+                        let span = SpanEvent::start(
+                            span_id.clone(),
+                            None,
+                            trace_id.clone(),
+                            "ai.executor.chat.execute_stream".to_string(),
+                        )
+                        .end_ok()
+                        .with_attribute("stream_created", "true");
+
+                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+
+                        // Wrap the stream with telemetry tracking
+                        let wrapped_stream = crate::stream::wrap_stream_with_telemetry(
+                            stream,
+                            std::sync::Arc::new(telemetry.clone()),
+                            trace_id.clone(),
+                            provider_id_for_telemetry.clone(),
+                            req.common_params.model.clone(),
+                            req.messages.clone(),
+                        );
+
+                        Ok(wrapped_stream)
+                    }
+                    Err(error) => {
+                        let span = SpanEvent::start(
+                            span_id.clone(),
+                            None,
+                            trace_id.clone(),
+                            "ai.executor.chat.execute_stream".to_string(),
+                        )
+                        .end_error(error.to_string());
+
+                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+
+                        Err(error)
+                    }
+                }
+            } else {
+                result
+            }
+        } else {
+            result
+        }
     }
 }

@@ -107,6 +107,7 @@ pub mod registry;
 pub mod retry;
 pub mod retry_api;
 pub mod stream;
+pub mod telemetry;
 pub mod tracing;
 pub mod traits;
 pub mod types;

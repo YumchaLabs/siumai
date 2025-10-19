@@ -12,6 +12,10 @@ use async_trait::async_trait;
 
 use crate::error::LlmError;
 use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::telemetry::{
+    TelemetryConfig,
+    events::{GenerationEvent, OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
+};
 use crate::traits::ChatCapability;
 use crate::types::{
     ChatMessage, ChatResponse, FinishReason, MessageContent, Tool, ToolCall, Usage,
@@ -60,6 +64,8 @@ pub struct OrchestratorOptions {
     pub on_finish: Option<Arc<dyn Fn(&[StepResult]) + Send + Sync>>,
     /// Optional tool approval callback. Allows approve/deny/modify tool arguments.
     pub on_tool_approval: Option<Arc<dyn Fn(&str, &Value) -> ToolApproval + Send + Sync>>,
+    /// Optional telemetry configuration.
+    pub telemetry: Option<TelemetryConfig>,
 }
 
 impl Default for OrchestratorOptions {
@@ -69,6 +75,7 @@ impl Default for OrchestratorOptions {
             on_step_finish: None,
             on_finish: None,
             on_tool_approval: None,
+            telemetry: None,
         }
     }
 }
@@ -150,6 +157,11 @@ pub async fn generate(
     resolver: Option<&dyn ToolResolver>,
     opts: OrchestratorOptions,
 ) -> Result<(ChatResponse, Vec<StepResult>), LlmError> {
+    // Initialize telemetry if enabled
+    let trace_id = uuid::Uuid::new_v4().to_string();
+    let span_id = uuid::Uuid::new_v4().to_string();
+    let start_time = std::time::SystemTime::now();
+
     let mut history = messages;
     let mut steps: Vec<StepResult> = Vec::new();
     let max_steps = if opts.max_steps == 0 {
@@ -158,7 +170,22 @@ pub async fn generate(
         opts.max_steps
     };
 
-    for _ in 0..max_steps {
+    if let Some(ref telemetry) = opts.telemetry {
+        if telemetry.enabled {
+            let span = SpanEvent::start(
+                span_id.clone(),
+                None,
+                trace_id.clone(),
+                "ai.orchestrator.generate".to_string(),
+            )
+            .with_attribute("max_steps", max_steps.to_string())
+            .with_attribute("has_tools", tools.is_some().to_string());
+
+            crate::telemetry::emit(TelemetryEvent::SpanStart(span)).await;
+        }
+    }
+
+    for step_idx in 0..max_steps {
         let resp = model
             .chat_with_tools(history.clone(), tools.clone())
             .await?;
@@ -248,6 +275,41 @@ pub async fn generate(
             if let Some(cb) = &opts.on_finish {
                 cb(&steps);
             }
+
+            // Emit telemetry span end event
+            if let Some(ref telemetry) = opts.telemetry {
+                if telemetry.enabled {
+                    let total_usage = StepResult::merge_usage(&steps);
+                    let span = SpanEvent::start(
+                        span_id.clone(),
+                        None,
+                        trace_id.clone(),
+                        "ai.orchestrator.generate".to_string(),
+                    )
+                    .end_ok()
+                    .with_attribute("total_steps", steps.len().to_string())
+                    .with_attribute("finish_reason", format!("{:?}", resp.finish_reason));
+
+                    crate::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+
+                    // Emit orchestrator event
+                    let orch_event = OrchestratorEvent {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        trace_id: trace_id.clone(),
+                        timestamp: std::time::SystemTime::now(),
+                        total_steps: steps.len(),
+                        current_step: steps.len(),
+                        step_type: OrchestratorStepType::Completion,
+                        total_usage,
+                        total_duration: std::time::SystemTime::now()
+                            .duration_since(start_time)
+                            .ok(),
+                        metadata: std::collections::HashMap::new(),
+                    };
+                    crate::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+                }
+            }
+
             return Ok((resp, steps));
         }
     }
@@ -266,8 +328,56 @@ pub async fn generate(
         if let Some(cb) = &opts.on_finish {
             cb(&steps);
         }
+
+        // Emit telemetry span end event
+        if let Some(ref telemetry) = opts.telemetry {
+            if telemetry.enabled {
+                let total_usage = StepResult::merge_usage(&steps);
+                let span = SpanEvent::start(
+                    span_id.clone(),
+                    None,
+                    trace_id.clone(),
+                    "ai.orchestrator.generate".to_string(),
+                )
+                .end_ok()
+                .with_attribute("total_steps", steps.len().to_string())
+                .with_attribute("max_steps_reached", "true");
+
+                crate::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+
+                // Emit orchestrator event
+                let orch_event = OrchestratorEvent {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    trace_id: trace_id.clone(),
+                    timestamp: std::time::SystemTime::now(),
+                    total_steps: steps.len(),
+                    current_step: steps.len(),
+                    step_type: OrchestratorStepType::Completion,
+                    total_usage,
+                    total_duration: std::time::SystemTime::now().duration_since(start_time).ok(),
+                    metadata: std::collections::HashMap::new(),
+                };
+                crate::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+            }
+        }
+
         Ok((resp, steps))
     } else {
+        // Emit error telemetry
+        if let Some(ref telemetry) = opts.telemetry {
+            if telemetry.enabled {
+                let span = SpanEvent::start(
+                    span_id.clone(),
+                    None,
+                    trace_id.clone(),
+                    "ai.orchestrator.generate".to_string(),
+                )
+                .end_error("orchestrator: no steps produced".to_string());
+
+                crate::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            }
+        }
+
         Err(LlmError::InternalError(
             "orchestrator: no steps produced".into(),
         ))
@@ -283,6 +393,8 @@ pub struct OrchestratorStreamOptions {
     pub on_tool_approval: Option<Arc<dyn Fn(&str, &Value) -> ToolApproval + Send + Sync>>,
     /// Optional abort callback, invoked with steps produced so far.
     pub on_abort: Option<Arc<dyn Fn(&[StepResult]) + Send + Sync>>,
+    /// Optional telemetry configuration.
+    pub telemetry: Option<TelemetryConfig>,
 }
 
 impl Default for OrchestratorStreamOptions {
@@ -294,6 +406,7 @@ impl Default for OrchestratorStreamOptions {
             on_finish: None,
             on_tool_approval: None,
             on_abort: None,
+            telemetry: None,
         }
     }
 }
@@ -1601,5 +1714,460 @@ mod tests {
         assert_eq!(total.prompt_tokens, 11); // 10 + 0 + 1
         assert_eq!(total.completion_tokens, 9); // 2 + 4 + 3
         assert_eq!(total.total_tokens, 10 + 4 + 4); // sum of response totals
+    }
+
+    #[tokio::test]
+    async fn test_usage_aggregation_with_on_finish_callback() {
+        // Test that on_finish callback receives correct aggregated usage
+        struct UsageModel;
+        #[async_trait]
+        impl ChatCapability for UsageModel {
+            async fn chat_with_tools(
+                &self,
+                messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatResponse, LlmError> {
+                let tool_msgs = messages
+                    .iter()
+                    .filter(|m| matches!(m.role, crate::types::MessageRole::Tool))
+                    .count();
+                match tool_msgs {
+                    0 => {
+                        let mut r = ChatResponse::new(MessageContent::Text(String::new()));
+                        r.usage = Some(Usage::new(100, 20));
+                        r.tool_calls = Some(vec![ToolCall {
+                            id: "t1".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "tool1".into(),
+                                arguments: "{}".into(),
+                            }),
+                        }]);
+                        r.finish_reason = Some(FinishReason::ToolCalls);
+                        Ok(r)
+                    }
+                    _ => {
+                        let mut r = ChatResponse::new(MessageContent::Text("done".into()));
+                        r.usage = Some(Usage::new(50, 30));
+                        r.finish_reason = Some(FinishReason::Stop);
+                        Ok(r)
+                    }
+                }
+            }
+            async fn chat_stream(
+                &self,
+                _messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatStream, LlmError> {
+                Err(LlmError::InvalidParameter("not implemented".into()))
+            }
+        }
+        struct Noop;
+        #[async_trait]
+        impl ToolResolver for Noop {
+            async fn call_tool(
+                &self,
+                _: &str,
+                _a: serde_json::Value,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(serde_json::json!({}))
+            }
+        }
+
+        let captured_usage = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let captured_usage_clone = captured_usage.clone();
+
+        let opts = OrchestratorOptions {
+            max_steps: 5,
+            on_finish: Some(std::sync::Arc::new(move |steps: &[StepResult]| {
+                let total = StepResult::merge_usage(steps);
+                *captured_usage_clone.lock().unwrap() = total;
+            })),
+            ..Default::default()
+        };
+
+        let (_resp, _steps) = generate(
+            &UsageModel,
+            vec![ChatMessage::user("test").build()],
+            Some(vec![Tool::function(
+                "tool1".into(),
+                "".into(),
+                serde_json::json!({"type":"object"}),
+            )]),
+            Some(&Noop),
+            opts,
+        )
+        .await
+        .expect("generate");
+
+        let total = captured_usage.lock().unwrap().clone().expect("usage");
+        assert_eq!(total.prompt_tokens, 150); // 100 + 50
+        assert_eq!(total.completion_tokens, 50); // 20 + 30
+        assert_eq!(total.total_tokens, 100 + 80); // first step prompt + second step total
+    }
+
+    #[tokio::test]
+    async fn test_error_injection_after_second_step_tool() {
+        // Test error propagation when tool execution fails in second step
+        struct TwoStepModel;
+        #[async_trait]
+        impl ChatCapability for TwoStepModel {
+            async fn chat_with_tools(
+                &self,
+                messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatResponse, LlmError> {
+                let tool_msgs = messages
+                    .iter()
+                    .filter(|m| matches!(m.role, crate::types::MessageRole::Tool))
+                    .count();
+                match tool_msgs {
+                    0 => {
+                        let mut r = ChatResponse::new(MessageContent::Text(String::new()));
+                        r.usage = Some(Usage::new(10, 5));
+                        r.tool_calls = Some(vec![ToolCall {
+                            id: "t1".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "step1".into(),
+                                arguments: "{}".into(),
+                            }),
+                        }]);
+                        r.finish_reason = Some(FinishReason::ToolCalls);
+                        Ok(r)
+                    }
+                    1 => {
+                        let mut r = ChatResponse::new(MessageContent::Text(String::new()));
+                        r.usage = Some(Usage::new(5, 3));
+                        r.tool_calls = Some(vec![ToolCall {
+                            id: "t2".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "step2_fail".into(),
+                                arguments: "{}".into(),
+                            }),
+                        }]);
+                        r.finish_reason = Some(FinishReason::ToolCalls);
+                        Ok(r)
+                    }
+                    _ => {
+                        let mut r = ChatResponse::new(MessageContent::Text("recovered".into()));
+                        r.usage = Some(Usage::new(3, 2));
+                        r.finish_reason = Some(FinishReason::Stop);
+                        Ok(r)
+                    }
+                }
+            }
+            async fn chat_stream(
+                &self,
+                _messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatStream, LlmError> {
+                Err(LlmError::InvalidParameter("not implemented".into()))
+            }
+        }
+        struct FailingResolver;
+        #[async_trait]
+        impl ToolResolver for FailingResolver {
+            async fn call_tool(
+                &self,
+                name: &str,
+                _a: serde_json::Value,
+            ) -> Result<serde_json::Value, LlmError> {
+                if name == "step2_fail" {
+                    Err(LlmError::provider_error("test", "tool execution failed"))
+                } else {
+                    Ok(serde_json::json!({"status": "ok"}))
+                }
+            }
+        }
+
+        let (_resp, steps) = generate(
+            &TwoStepModel,
+            vec![ChatMessage::user("test").build()],
+            Some(vec![
+                Tool::function(
+                    "step1".into(),
+                    "".into(),
+                    serde_json::json!({"type":"object"}),
+                ),
+                Tool::function(
+                    "step2_fail".into(),
+                    "".into(),
+                    serde_json::json!({"type":"object"}),
+                ),
+            ]),
+            Some(&FailingResolver),
+            Default::default(),
+        )
+        .await
+        .expect("generate");
+
+        assert_eq!(steps.len(), 3);
+        // Check that error was captured in tool message
+        let step2_msgs = &steps[1].messages;
+        let tool_msg = step2_msgs
+            .iter()
+            .find(|m| matches!(m.role, crate::types::MessageRole::Tool))
+            .expect("tool message");
+        let content_text = match &tool_msg.content {
+            MessageContent::Text(text) => text,
+            _ => panic!("expected text content"),
+        };
+        assert!(content_text.contains("tool error"));
+    }
+
+    #[tokio::test]
+    async fn test_approval_mixed_approve_deny() {
+        // Test mixed approval decisions (some approved, some denied)
+        struct MultiToolModel;
+        #[async_trait]
+        impl ChatCapability for MultiToolModel {
+            async fn chat_with_tools(
+                &self,
+                messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatResponse, LlmError> {
+                let tool_msgs = messages
+                    .iter()
+                    .filter(|m| matches!(m.role, crate::types::MessageRole::Tool))
+                    .count();
+                if tool_msgs == 0 {
+                    let mut r = ChatResponse::new(MessageContent::Text(String::new()));
+                    r.usage = Some(Usage::new(10, 5));
+                    r.tool_calls = Some(vec![
+                        ToolCall {
+                            id: "t1".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "approved_tool".into(),
+                                arguments: r#"{"action":"read"}"#.into(),
+                            }),
+                        },
+                        ToolCall {
+                            id: "t2".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "denied_tool".into(),
+                                arguments: r#"{"action":"delete"}"#.into(),
+                            }),
+                        },
+                    ]);
+                    r.finish_reason = Some(FinishReason::ToolCalls);
+                    Ok(r)
+                } else {
+                    let mut r = ChatResponse::new(MessageContent::Text("done".into()));
+                    r.usage = Some(Usage::new(5, 3));
+                    r.finish_reason = Some(FinishReason::Stop);
+                    Ok(r)
+                }
+            }
+            async fn chat_stream(
+                &self,
+                _messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatStream, LlmError> {
+                Err(LlmError::InvalidParameter("not implemented".into()))
+            }
+        }
+        struct Noop;
+        #[async_trait]
+        impl ToolResolver for Noop {
+            async fn call_tool(
+                &self,
+                _: &str,
+                _a: serde_json::Value,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(serde_json::json!({"result": "executed"}))
+            }
+        }
+
+        let opts = OrchestratorOptions {
+            max_steps: 5,
+            on_tool_approval: Some(std::sync::Arc::new(
+                |name: &str, _args: &serde_json::Value| {
+                    if name == "denied_tool" {
+                        ToolApproval::Deny {
+                            reason: "dangerous operation not allowed".into(),
+                        }
+                    } else {
+                        ToolApproval::Approve(_args.clone())
+                    }
+                },
+            )),
+            ..Default::default()
+        };
+
+        let (_resp, steps) = generate(
+            &MultiToolModel,
+            vec![ChatMessage::user("test").build()],
+            Some(vec![
+                Tool::function(
+                    "approved_tool".into(),
+                    "".into(),
+                    serde_json::json!({"type":"object"}),
+                ),
+                Tool::function(
+                    "denied_tool".into(),
+                    "".into(),
+                    serde_json::json!({"type":"object"}),
+                ),
+            ]),
+            Some(&Noop),
+            opts,
+        )
+        .await
+        .expect("generate");
+
+        assert_eq!(steps.len(), 2);
+        // Check first step has 3 messages: assistant + 2 tool results
+        let step1_msgs = &steps[0].messages;
+        assert_eq!(step1_msgs.len(), 3); // assistant + approved_tool + denied_tool
+
+        // Find the denied tool message
+        let denied_msg = step1_msgs
+            .iter()
+            .find(|m| {
+                matches!(m.role, crate::types::MessageRole::Tool)
+                    && m.tool_call_id.as_deref() == Some("t2")
+            })
+            .expect("denied tool message");
+        let denied_text = match &denied_msg.content {
+            MessageContent::Text(text) => text,
+            _ => panic!("expected text content"),
+        };
+        assert!(denied_text.contains("denied"));
+        assert!(denied_text.contains("dangerous operation"));
+
+        // Find the approved tool message
+        let approved_msg = step1_msgs
+            .iter()
+            .find(|m| {
+                matches!(m.role, crate::types::MessageRole::Tool)
+                    && m.tool_call_id.as_deref() == Some("t1")
+            })
+            .expect("approved tool message");
+        let approved_text = match &approved_msg.content {
+            MessageContent::Text(text) => text,
+            _ => panic!("expected text content"),
+        };
+        assert!(approved_text.contains("executed"));
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_tool_calls_order() {
+        // Test that multiple tool calls in same step are executed in order
+        struct ConcurrentToolModel;
+        #[async_trait]
+        impl ChatCapability for ConcurrentToolModel {
+            async fn chat_with_tools(
+                &self,
+                messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatResponse, LlmError> {
+                let tool_msgs = messages
+                    .iter()
+                    .filter(|m| matches!(m.role, crate::types::MessageRole::Tool))
+                    .count();
+                if tool_msgs == 0 {
+                    let mut r = ChatResponse::new(MessageContent::Text(String::new()));
+                    r.usage = Some(Usage::new(10, 5));
+                    r.tool_calls = Some(vec![
+                        ToolCall {
+                            id: "t1".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "tool_a".into(),
+                                arguments: "{}".into(),
+                            }),
+                        },
+                        ToolCall {
+                            id: "t2".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "tool_b".into(),
+                                arguments: "{}".into(),
+                            }),
+                        },
+                        ToolCall {
+                            id: "t3".into(),
+                            r#type: "function".into(),
+                            function: Some(crate::types::tools::FunctionCall {
+                                name: "tool_c".into(),
+                                arguments: "{}".into(),
+                            }),
+                        },
+                    ]);
+                    r.finish_reason = Some(FinishReason::ToolCalls);
+                    Ok(r)
+                } else {
+                    let mut r = ChatResponse::new(MessageContent::Text("done".into()));
+                    r.usage = Some(Usage::new(5, 3));
+                    r.finish_reason = Some(FinishReason::Stop);
+                    Ok(r)
+                }
+            }
+            async fn chat_stream(
+                &self,
+                _messages: Vec<ChatMessage>,
+                _tools: Option<Vec<Tool>>,
+            ) -> Result<ChatStream, LlmError> {
+                Err(LlmError::InvalidParameter("not implemented".into()))
+            }
+        }
+        struct OrderTracker {
+            order: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        }
+        #[async_trait]
+        impl ToolResolver for OrderTracker {
+            async fn call_tool(
+                &self,
+                name: &str,
+                _a: serde_json::Value,
+            ) -> Result<serde_json::Value, LlmError> {
+                self.order.lock().unwrap().push(name.to_string());
+                Ok(serde_json::json!({"tool": name}))
+            }
+        }
+
+        let order = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let resolver = OrderTracker {
+            order: order.clone(),
+        };
+
+        let (_resp, steps) = generate(
+            &ConcurrentToolModel,
+            vec![ChatMessage::user("test").build()],
+            Some(vec![
+                Tool::function(
+                    "tool_a".into(),
+                    "".into(),
+                    serde_json::json!({"type":"object"}),
+                ),
+                Tool::function(
+                    "tool_b".into(),
+                    "".into(),
+                    serde_json::json!({"type":"object"}),
+                ),
+                Tool::function(
+                    "tool_c".into(),
+                    "".into(),
+                    serde_json::json!({"type":"object"}),
+                ),
+            ]),
+            Some(&resolver),
+            Default::default(),
+        )
+        .await
+        .expect("generate");
+
+        assert_eq!(steps.len(), 2);
+        // Check that tools were called in order
+        let call_order = order.lock().unwrap().clone();
+        assert_eq!(call_order, vec!["tool_a", "tool_b", "tool_c"]);
+
+        // Check that all tool messages are present in step 1
+        let step1_msgs = &steps[0].messages;
+        assert_eq!(step1_msgs.len(), 4); // assistant + 3 tool results
     }
 }

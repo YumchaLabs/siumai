@@ -340,6 +340,7 @@ impl ChatCapability for OllamaClient {
                 http_config: None,
                 web_search: None,
                 stream: false,
+                telemetry: None,
             };
             async move { self.chat_capability.chat(req).await }
         };
@@ -366,6 +367,7 @@ impl ChatCapability for OllamaClient {
             http_config: None,
             web_search: None,
             stream: true,
+            telemetry: None,
         };
 
         let headers = crate::providers::ollama::utils::build_headers(

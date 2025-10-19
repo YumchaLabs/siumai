@@ -83,6 +83,7 @@ impl ChatCapability for GeminiChatCapability {
             http_config: None,
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         let http = self.http_client.clone();
@@ -151,6 +152,7 @@ impl ChatCapability for GeminiChatCapability {
             http_config: None,
             web_search: None,
             stream: true,
+            telemetry: None,
         };
 
         let http = self.http_client.clone();

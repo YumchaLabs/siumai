@@ -10,12 +10,16 @@ use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_pro
 /// Create a registry with common defaults:
 /// - separator ':'
 /// - language model middlewares: default params + clamp top_p
+/// - LRU cache: 100 entries (default)
+/// - TTL: None (no expiration)
 pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     create_provider_registry(
         HashMap::new(),
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
+            max_cache_entries: None, // Use default (100)
+            client_ttl: None,        // No expiration
         }),
     )
 }
@@ -27,6 +31,8 @@ pub fn create_empty_registry() -> ProviderRegistryHandle {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: Vec::new(),
+            max_cache_entries: None, // Use default (100)
+            client_ttl: None,        // No expiration
         }),
     )
 }

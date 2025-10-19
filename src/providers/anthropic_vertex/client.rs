@@ -100,6 +100,7 @@ impl ChatCapability for VertexAnthropicClient {
             http_config: Some(self.config.http_config.clone()),
             web_search: None,
             stream: false,
+            telemetry: None,
         };
 
         let req_tx =
@@ -138,6 +139,7 @@ impl ChatCapability for VertexAnthropicClient {
             http_config: Some(self.config.http_config.clone()),
             web_search: None,
             stream: true,
+            telemetry: None,
         };
 
         let req_tx =
