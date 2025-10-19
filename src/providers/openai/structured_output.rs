@@ -185,6 +185,12 @@ impl StructuredOutputValidator {
                     "No text content found in multimodal response".to_string(),
                 ));
             }
+            #[cfg(feature = "structured-messages")]
+            crate::types::MessageContent::Json(v) => {
+                let s =
+                    serde_json::to_string(v).map_err(|e| LlmError::ParseError(e.to_string()))?;
+                return Self::validate_json_string(&s, schema);
+            }
         };
 
         Self::validate_json_string(content, schema)

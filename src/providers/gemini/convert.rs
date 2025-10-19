@@ -117,6 +117,13 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                 }
             }
         }
+        #[cfg(feature = "structured-messages")]
+        MessageContent::Json(v) => {
+            parts.push(Part::Text {
+                text: serde_json::to_string(v).unwrap_or_default(),
+                thought: None,
+            });
+        }
     }
 
     // Tool calls
@@ -138,6 +145,8 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
     if let Some(tool_call_id) = &message.tool_call_id {
         let response = match &message.content {
             MessageContent::Text(text) => serde_json::json!(text),
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(v) => v.clone(),
             _ => serde_json::json!({}),
         };
         parts.push(Part::FunctionResponse {
@@ -211,6 +220,8 @@ pub fn build_request_body(
                     })
                     .collect::<Vec<_>>()
                     .join(" "),
+                #[cfg(feature = "structured-messages")]
+                MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
             };
             if !system_text.is_empty() {
                 system_instruction = Some(Content {

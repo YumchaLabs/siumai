@@ -46,6 +46,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## 通过 Registry 使用 OpenAI-Compatible Provider（实验）
+
+以下示例展示两种方式来使用 Provider Registry（实验）按 `provider:model` 解析模型并自动挂载“模型级中间件”。
+
+```rust,no_run
+use siumai::registry::helpers::create_registry_with_defaults;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 方式 A：使用内置便捷函数（推荐）
+    let reg = create_registry_with_defaults();
+
+    // 2) 解析 "provider:model"
+    // 例如：OpenAI 原生 -> "openai:gpt-4o"；OpenAI-Compatible -> "openrouter:openai/gpt-4o-mini"
+    let lm = reg.language_model("openai:gpt-4o")?;
+
+    // 3) 发送对话（此处仅示意，需设置对应环境变量，例如 OPENAI_API_KEY）
+    let messages = vec![siumai::user!("Hello from registry!")];
+    let _resp = lm.chat(messages, None).await?;
+    Ok(())
+}
+```
+
+方式 B：自定义中间件
+```rust,no_run
+use siumai::registry::entry::{create_provider_registry, RegistryOptions};
+use siumai::middleware::samples::chain_default_and_clamp;
+use std::collections::HashMap;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 自定义中间件与分隔符
+    let reg = create_provider_registry(
+        HashMap::new(),
+        Some(RegistryOptions { separator: ':', language_model_middleware: chain_default_and_clamp() }),
+    );
+    let lm = reg.language_model("openai:gpt-4o")?;
+    let _resp = lm.chat(vec![siumai::user!("Hello")], None).await?;
+    Ok(())
+}
+```
+
+示例（OpenAI-Compatible）
+- DeepSeek：
+  - 环境变量：`DEEPSEEK_API_KEY`
+  - 代码：`let lm = reg.language_model("deepseek:deepseek-chat")?;`
+- OpenRouter：
+  - 环境变量：`OPENROUTER_API_KEY`
+  - 代码：`let lm = reg.language_model("openrouter:openai/gpt-4o-mini")?;`
+- SiliconFlow：
+  - 环境变量：`SILICONFLOW_API_KEY`
+  - 代码：`let lm = reg.language_model("siliconflow:deepseek-ai/DeepSeek-V3")?;`
+
+注意：若 provider 归属 OpenAI-Compatible（在 `src/providers/openai_compatible/config.rs` 列表中），Registry 会使用 `{PROVIDER_ID}_API_KEY` 从环境变量读取 Key 并自动构建客户端。
+
+环境变量命名规则与清单见 `docs/ENV_VARS.md`。可参考示例：`examples/registry_basic.rs`。
+
 ## Choose Your Style
 
 - Provider‑specific client (access to provider‑only features):
@@ -274,3 +331,12 @@ Licensed under either of
 - MIT license
 
 at your option.
+
+## Server Adapters Examples
+
+需要启用示例特性与 Provider：
+
+```
+cargo run --example axum_sse  --features "openai,server-adapters"
+cargo run --example actix_sse --features "openai,server-adapters"
+```

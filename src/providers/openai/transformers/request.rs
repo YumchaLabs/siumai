@@ -111,6 +111,10 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 Rule::MergeProviderParams {
                     strategy: ProviderParamsMergeStrategy::Flatten,
                 },
+                // Drop high-level structured_output hint for chat/completions path
+                Rule::Drop {
+                    field: "structured_output",
+                },
             ],
             merge_strategy: ProviderParamsMergeStrategy::Flatten,
         };
@@ -339,9 +343,20 @@ impl OpenAiResponsesRequestTransformer {
             let call_id = msg.tool_call_id.as_ref().ok_or_else(|| {
                 LlmError::InvalidInput("Tool message missing tool_call_id".into())
             })?;
+            // Prefer JSON output when structured content is used
+            #[cfg(feature = "structured-messages")]
+            if let MessageContent::Json(v) = &msg.content {
+                return Ok(serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output_json": v,
+                }));
+            }
             let output_text = match &msg.content {
                 MessageContent::Text(t) => t.clone(),
                 MessageContent::MultiModal(_) => String::new(),
+                #[cfg(feature = "structured-messages")]
+                MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
             };
             return Ok(serde_json::json!({
                 "type": "function_call_output",
@@ -377,6 +392,14 @@ impl OpenAiResponsesRequestTransformer {
                                 .push(serde_json::json!({ "type": "input_text", "text": text }));
                         }
                     }
+                }
+                #[cfg(feature = "structured-messages")]
+                MessageContent::Json(v) => {
+                    // Prefer native JSON input item for Responses API
+                    content_parts.push(serde_json::json!({
+                        "type": "input_json",
+                        "json": v
+                    }));
                 }
             }
             if let Some(tool_calls) = &msg.tool_calls {
@@ -422,8 +445,9 @@ impl OpenAiResponsesRequestTransformer {
                                 .push(serde_json::json!({ "type": "input_text", "text": text }));
                         }
                         ContentPart::Image { image_url, detail } => {
+                            // Responses API prefers `input_image` items
                             let mut image_part = serde_json::json!({
-                                "type": "image_url",
+                                "type": "input_image",
                                 "image_url": { "url": image_url }
                             });
                             if let Some(d) = detail {
@@ -433,11 +457,20 @@ impl OpenAiResponsesRequestTransformer {
                             content_parts.push(image_part);
                         }
                         ContentPart::Audio { audio_url, format } => {
-                            content_parts.push(serde_json::json!({ "type": "audio", "audio_url": audio_url, "format": format }));
+                            // Responses API prefers `input_audio` items
+                            content_parts.push(serde_json::json!({ "type": "input_audio", "audio_url": audio_url, "format": format }));
                         }
                     }
                 }
                 api_message["content"] = serde_json::Value::Array(content_parts);
+            }
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(v) => {
+                // Prefer native JSON input item for Responses API
+                api_message["content"] = serde_json::Value::Array(vec![serde_json::json!({
+                    "type": "input_json",
+                    "json": v
+                })]);
             }
         }
 
@@ -511,6 +544,46 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
                 Ok(body)
             }
+
+            fn post_process_chat(
+                &self,
+                req: &crate::types::ChatRequest,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                if let Some(pp) = &req.provider_params {
+                    if let Some(so) = pp
+                        .params
+                        .get("structured_output")
+                        .and_then(|v| v.as_object())
+                    {
+                        let mode = so.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
+                        let schema = so.get("schema");
+                        let name = so.get("schema_name").and_then(|v| v.as_str());
+                        // Prefer schema if provided
+                        if let Some(schema_v) = schema.cloned() {
+                            let rf = if let Some(n) = name {
+                                serde_json::json!({
+                                    "type": "json_schema",
+                                    "json_schema": {"name": n, "schema": schema_v, "strict": true}
+                                })
+                            } else {
+                                serde_json::json!({
+                                    "type": "json_object",
+                                    "json_schema": {"schema": schema_v, "strict": true}
+                                })
+                            };
+                            body["response_format"] = rf;
+                        } else if mode == "json" {
+                            body["response_format"] = serde_json::json!({"type":"json_object"});
+                        }
+                    }
+                }
+                // Safety: drop any leftover hint merged into body
+                if let Some(obj) = body.as_object_mut() {
+                    obj.remove("structured_output");
+                }
+                Ok(())
+            }
         }
         let hooks = ResponsesHooks;
         let profile = crate::transformers::request::MappingProfile {
@@ -577,5 +650,83 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
         let json = serde_json::json!({ "model": model, "input": input_value });
         Ok(json)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "structured-messages")]
+    #[test]
+    fn convert_message_json_maps_to_input_json() {
+        use crate::types::{ChatMessage, MessageContent, MessageMetadata, MessageRole};
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::Json(serde_json::json!({"a":1})),
+            metadata: MessageMetadata::default(),
+            tool_calls: None,
+            tool_call_id: None,
+        };
+        let v = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        // Expect content array with input_json item
+        let content = v
+            .get("content")
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap();
+        assert!(!content.is_empty());
+        let first = &content[0];
+        assert_eq!(
+            first.get("type").and_then(|t| t.as_str()).unwrap_or(""),
+            "input_json"
+        );
+        assert_eq!(
+            first
+                .get("json")
+                .unwrap()
+                .get("a")
+                .and_then(|x| x.as_i64())
+                .unwrap_or(0),
+            1
+        );
+    }
+
+    #[cfg(feature = "structured-messages")]
+    #[test]
+    fn convert_tool_output_json_maps_to_output_json() {
+        use crate::types::{ChatMessage, MessageContent, MessageMetadata, MessageRole};
+        let mut msg = ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::Json(serde_json::json!({"r":42})),
+            metadata: MessageMetadata::default(),
+            tool_calls: None,
+            tool_call_id: Some("call-1".into()),
+        };
+        let v = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        assert_eq!(
+            v.get("type").and_then(|t| t.as_str()).unwrap_or(""),
+            "function_call_output"
+        );
+        assert_eq!(
+            v.get("call_id").and_then(|x| x.as_str()).unwrap_or(""),
+            "call-1"
+        );
+        assert_eq!(
+            v.get("output_json")
+                .unwrap()
+                .get("r")
+                .and_then(|x| x.as_i64())
+                .unwrap_or(0),
+            42
+        );
+
+        // Fallback to output text for Text content
+        msg.content = MessageContent::Text("ok".into());
+        let v2 = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        assert_eq!(
+            v2.get("output").and_then(|x| x.as_str()).unwrap_or(""),
+            "ok"
+        );
     }
 }

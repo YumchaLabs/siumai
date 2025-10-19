@@ -17,6 +17,7 @@ use super::chat::GeminiChatCapability;
 use super::files::GeminiFiles;
 use super::models::GeminiModels;
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::utils::http_interceptor::HttpInterceptor;
 
@@ -44,6 +45,8 @@ pub struct GeminiClient {
     retry_options: Option<RetryOptions>,
     /// Optional HTTP interceptors applied to all chat requests
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares for chat
+    model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl Clone for GeminiClient {
@@ -60,6 +63,7 @@ impl Clone for GeminiClient {
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
             http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         }
     }
 }
@@ -141,6 +145,7 @@ impl GeminiClient {
             _tracing_guard: None,
             retry_options: None,
             http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         })
     }
 
@@ -455,9 +460,25 @@ impl GeminiClient {
     /// Install HTTP interceptors for all chat requests.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors.clone();
-        // Rebuild chat capability with interceptors
+        // Rebuild chat capability with interceptors and current middlewares
+        let mws = self.model_middlewares.clone();
         self.chat_capability =
-            GeminiChatCapability::new(self.config.clone(), self.http_client.clone(), interceptors);
+            GeminiChatCapability::new(self.config.clone(), self.http_client.clone(), interceptors)
+                .with_middlewares(mws);
+        self
+    }
+
+    /// Install model-level middlewares for chat requests.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares.clone();
+        // Rebuild chat capability preserving interceptors
+        let interceptors = self.http_interceptors.clone();
+        self.chat_capability =
+            GeminiChatCapability::new(self.config.clone(), self.http_client.clone(), interceptors)
+                .with_middlewares(middlewares);
         self
     }
 }

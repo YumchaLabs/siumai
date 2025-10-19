@@ -73,6 +73,8 @@ impl ExampleCustomProvider {
                             }).collect();
                             json!(content_parts)
                         }
+                        #[cfg(feature = "structured-messages")]
+                        MessageContent::Json(v) => json!(v),
                     }
                 })
             })

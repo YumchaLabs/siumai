@@ -11,6 +11,7 @@ use crate::types::ChatRequest;
 // use crate::transformers::request::RequestTransformer;
 // use crate::transformers::response::ResponseTransformer;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::stream::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, Tool};
@@ -27,6 +28,8 @@ pub struct GeminiChatCapability {
     http_client: HttpClient,
     /// Optional HTTP interceptors for chat requests
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares for chat requests
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl GeminiChatCapability {
@@ -40,7 +43,14 @@ impl GeminiChatCapability {
             config,
             http_client,
             interceptors,
+            middlewares: Vec::new(),
         }
+    }
+
+    /// Set model-level middlewares
+    pub fn with_middlewares(mut self, mws: Vec<Arc<dyn LanguageModelMiddleware>>) -> Self {
+        self.middlewares = mws;
+        self
     }
 
     /// Build the request body for Gemini API
@@ -115,10 +125,11 @@ impl ChatCapability for GeminiChatCapability {
                 .map(|h| h.stream_disable_compression)
                 .unwrap_or(true),
             interceptors: self.interceptors.clone(),
+            middlewares: self.middlewares.clone(),
             build_url: Box::new(move |_stream| {
                 crate::utils::url::join_url(&base, &format!("models/{}:generateContent", model))
             }),
-            build_headers: Box::new(headers_builder),
+            build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
         exec.execute(req).await
@@ -187,13 +198,14 @@ impl ChatCapability for GeminiChatCapability {
                 .map(|h| h.stream_disable_compression)
                 .unwrap_or(true),
             interceptors: self.interceptors.clone(),
+            middlewares: self.middlewares.clone(),
             build_url: Box::new(move |_stream| {
                 crate::utils::url::join_url(
                     &base,
                     &format!("models/{}:streamGenerateContent?alt=sse", model),
                 )
             }),
-            build_headers: Box::new(headers_builder),
+            build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
         exec.execute_stream(req).await

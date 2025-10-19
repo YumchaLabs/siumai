@@ -15,6 +15,7 @@ use crate::types::*;
 use super::api::GroqModels;
 use super::chat::GroqChatCapability;
 use super::config::GroqConfig;
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
@@ -112,6 +113,15 @@ impl GroqClient {
     /// Get chat capability
     pub fn chat_capability(&self) -> &GroqChatCapability {
         &self.chat_capability
+    }
+
+    /// Install model-level middlewares for chat requests.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.chat_capability = self.chat_capability.clone().with_middlewares(middlewares);
+        self
     }
 }
 

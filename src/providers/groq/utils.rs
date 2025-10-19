@@ -66,6 +66,10 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
                 }
                 serde_json::Value::Array(content_parts)
             }
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(v) => {
+                serde_json::Value::String(serde_json::to_string(v).unwrap_or_default())
+            }
         };
 
         let mut groq_message = serde_json::json!({

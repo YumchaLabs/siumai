@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 // removed: HashMap import not needed after legacy removal
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
 use crate::utils::http_interceptor::HttpInterceptor;
 
@@ -91,6 +92,8 @@ pub struct OpenAiCompatibleClient {
     retry_options: Option<RetryOptions>,
     /// Optional HTTP interceptors applied to all chat requests
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares
+    model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl OpenAiCompatibleClient {
@@ -112,6 +115,7 @@ impl OpenAiCompatibleClient {
             http_client,
             retry_options: None,
             http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         })
     }
 
@@ -133,6 +137,7 @@ impl OpenAiCompatibleClient {
             http_client,
             retry_options: None,
             http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         })
     }
 
@@ -146,6 +151,15 @@ impl OpenAiCompatibleClient {
     /// Install HTTP interceptors for all chat requests.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install model-level middlewares
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 
@@ -307,8 +321,9 @@ impl ChatCapability for OpenAiCompatibleClient {
             stream_transformer: None,
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-            build_headers: Box::new(headers_builder),
+            build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         });
 
@@ -377,8 +392,9 @@ impl ChatCapability for OpenAiCompatibleClient {
             stream_transformer: Some(Arc::new(stream_tx)),
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-            build_headers: Box::new(headers_builder),
+            build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         });
         exec.execute_stream(request).await

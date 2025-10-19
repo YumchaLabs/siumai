@@ -207,6 +207,11 @@ impl CacheAwareMessageBuilder {
                 }
                 message_json["content"] = serde_json::Value::Array(content_parts);
             }
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(v) => {
+                message_json["content"] =
+                    serde_json::Value::String(serde_json::to_string(v).unwrap_or_default());
+            }
         }
 
         Ok(message_json)

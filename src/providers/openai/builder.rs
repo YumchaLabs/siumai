@@ -57,6 +57,10 @@ pub struct OpenAiBuilder {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Enable lightweight HTTP debug logging interceptor
     http_debug: bool,
+    /// Responses API chaining id
+    responses_previous_response_id: Option<String>,
+    /// Responses API built-in tools
+    responses_built_in_tools: Vec<crate::types::OpenAiBuiltInTool>,
 }
 
 #[cfg(feature = "openai")]
@@ -80,6 +84,8 @@ impl OpenAiBuilder {
             use_responses_api: false,
             http_interceptors: inherited_interceptors,
             http_debug: inherited_debug,
+            responses_previous_response_id: None,
+            responses_built_in_tools: Vec::new(),
         }
     }
 
@@ -327,6 +333,24 @@ impl OpenAiBuilder {
         self
     }
 
+    /// Set previous response id for Responses API chaining.
+    pub fn responses_previous_response_id<S: Into<String>>(mut self, id: S) -> Self {
+        self.responses_previous_response_id = Some(id.into());
+        self
+    }
+
+    /// Add a built-in tool for Responses API.
+    pub fn responses_built_in_tool(mut self, tool: crate::types::OpenAiBuiltInTool) -> Self {
+        self.responses_built_in_tools.push(tool);
+        self
+    }
+
+    /// Add multiple built-in tools for Responses API.
+    pub fn responses_built_in_tools(mut self, tools: Vec<crate::types::OpenAiBuiltInTool>) -> Self {
+        self.responses_built_in_tools.extend(tools);
+        self
+    }
+
     /// Builds the `OpenAI` client
     pub async fn build(self) -> Result<OpenAiClient, LlmError> {
         let api_key = self
@@ -380,6 +404,14 @@ impl OpenAiBuilder {
 
         // Route to Responses API if explicitly enabled
         client = client.with_responses_api(self.use_responses_api);
+
+        // Apply Responses chaining id and built-in tools if provided
+        if let Some(prev) = self.responses_previous_response_id {
+            client = client.with_previous_response_id(prev);
+        }
+        if !self.responses_built_in_tools.is_empty() {
+            client = client.with_built_in_tools(self.responses_built_in_tools);
+        }
 
         // Install interceptors
         let mut interceptors = self.http_interceptors;

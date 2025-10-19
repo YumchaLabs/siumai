@@ -2,6 +2,14 @@
 
 ## [0.11.0] - 2025-10-14
 
+### Highlights (concise additions)
+- Middleware pipeline: wired `wrap_generate_async`/`wrap_stream_async` with `transform → pre_* → wrap_* → HTTP → post/on_event`, plus tests and docs.
+- Orchestrator (streaming): added `generate_stream_owned` (tokio::spawn + mpsc) for multi‑step streaming with `on_chunk/on_step_finish/on_finish`; re‑enabled stream test.
+- Registry cache: per‑key client cache now supports optional TTL (`RegistryOptions::client_ttl`) and concurrent build de‑dup; added unit tests.
+- HTTP 401 retry: non‑stream chat path restores one‑shot 401 header rebuild + retry; `build_headers` changed to `Arc<..>` internally and providers updated.
+- Server adapters: feature renamed to `server-adapters`; examples declare `required-features` for cleaner builds.
+- Retry module layout: moved to `src/retry/{policy.rs, backoff.rs}` with `retry::policy` and `retry::backoff`; keep `retry_api` as the stable facade.
+
 ### Changed
 - Core refactor introducing a clear Transformers + Executors architecture:
   - Transformers: request/response/stream/audio/files traits (`src/transformers/*`).

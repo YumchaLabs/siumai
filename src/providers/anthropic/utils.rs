@@ -61,6 +61,10 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
 
             Ok(serde_json::Value::Array(content_parts))
         }
+        #[cfg(feature = "structured-messages")]
+        MessageContent::Json(v) => Ok(serde_json::Value::String(
+            serde_json::to_string(v).unwrap_or_default(),
+        )),
     }
 }
 

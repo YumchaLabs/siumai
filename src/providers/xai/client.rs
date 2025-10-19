@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
@@ -127,6 +128,15 @@ impl XaiClient {
             http_config: self.chat_capability.http_config.clone(),
             web_search_config: WebSearchConfig::default(),
         }
+    }
+
+    /// Install model-level middlewares for chat requests.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.chat_capability = self.chat_capability.clone().with_middlewares(middlewares);
+        self
     }
 
     /// Update common parameters

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::error::LlmError;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::stream::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
@@ -28,6 +29,8 @@ pub struct VertexAnthropicClient {
     config: VertexAnthropicConfig,
     /// Optional HTTP interceptors applied to chat requests
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares
+    model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl VertexAnthropicClient {
@@ -36,6 +39,7 @@ impl VertexAnthropicClient {
             http_client,
             config,
             http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -110,8 +114,9 @@ impl ChatCapability for VertexAnthropicClient {
             stream_transformer: None,
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
             build_url: Box::new(self.build_url_fn(false)),
-            build_headers: Box::new(self.build_headers_fn()),
+            build_headers: std::sync::Arc::new(self.build_headers_fn()),
             before_send: None,
         };
         exec.execute(req).await
@@ -154,8 +159,9 @@ impl ChatCapability for VertexAnthropicClient {
             stream_transformer: Some(Arc::new(stream_tx)),
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
             build_url: Box::new(self.build_url_fn(true)),
-            build_headers: Box::new(self.build_headers_fn()),
+            build_headers: std::sync::Arc::new(self.build_headers_fn()),
             before_send: None,
         };
         exec.execute_stream(req).await
@@ -166,6 +172,15 @@ impl VertexAnthropicClient {
     /// Install HTTP interceptors for all chat requests.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install model-level middlewares for chat requests.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 }

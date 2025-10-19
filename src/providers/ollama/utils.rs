@@ -44,6 +44,8 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
                 .collect::<Vec<_>>()
                 .join(" ")
         }
+        #[cfg(feature = "structured-messages")]
+        crate::types::MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
     };
 
     let mut ollama_message = OllamaChatMessage {

@@ -106,7 +106,6 @@ pub mod providers;
 pub mod registry;
 pub mod retry;
 pub mod retry_api;
-pub mod retry_backoff;
 pub mod stream;
 pub mod tracing;
 pub mod traits;
@@ -117,7 +116,11 @@ pub mod web_search;
 
 // Refactor modules now part of the core (no feature gates)
 pub mod executors;
+pub mod highlevel;
+pub mod middleware;
+pub mod orchestrator;
 pub mod public;
+pub mod server_adapters;
 pub mod transformers;
 
 // Re-export main types and traits
@@ -155,6 +158,17 @@ pub use providers::openai::OpenAiBuilder;
 // Streaming
 pub use stream::ChatStreamHandle;
 pub use stream::{ChatStream, ChatStreamEvent};
+// High-level object generation
+pub use highlevel::object::{
+    GenerateMode, GenerateObjectOptions, OutputKind, StreamObjectEvent, StreamObjectOptions,
+    generate_object, stream_object,
+};
+#[cfg(feature = "openai")]
+pub use highlevel::object::{generate_object_openai, stream_object_openai};
+// Provider-agnostic auto (provider params hints)
+pub use highlevel::object::{generate_object_auto, stream_object_auto};
+// Server adapters
+pub use server_adapters::{sse_lines as chat_sse_lines, text_stream as chat_text_stream};
 
 // Web search (use types re-export)
 pub use types::{WebSearchConfig, WebSearchResult};

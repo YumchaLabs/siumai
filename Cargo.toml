@@ -23,6 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 lazy_static = "1.4"
 jsonwebtoken = { version = "9", default-features = true }
+jsonschema = "0.17"
 
 # Validation
 validator = { version = "0.20", features = ["derive"] }
@@ -82,6 +83,12 @@ backoff = { version = "0.4", features = ["tokio"] }
 # Default features - include all providers for convenience
 default = ["all-providers"]
 
+# Enable structured JSON messages (MessageContent::Json)
+structured-messages = []
+
+# Enable server adapter examples (silences unexpected cfg warnings in examples)
+server-adapters = []
+
 # Provider features - each provider can be enabled independently
 openai = []
 anthropic = []
@@ -116,6 +123,7 @@ rmcp = { version = "0.8.0", features = [
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 axum = "0.8.4"
+actix-web = "4"
 
 # Examples configuration
 [[example]]
@@ -169,6 +177,20 @@ path = "examples/03_advanced_features/tracing_monitoring.rs"
 [[example]]
 name = "custom_configurations"
 path = "examples/03_advanced_features/custom_configurations.rs"
+
+[[example]]
+name = "structured_messages"
+path = "examples/03_advanced_features/structured_messages.rs"
+
+[[example]]
+name = "axum_sse"
+path = "examples/07_server_adapters/axum_sse.rs"
+required-features = ["openai", "server-adapters"]
+
+[[example]]
+name = "actix_sse"
+path = "examples/07_server_adapters/actix_sse.rs"
+required-features = ["openai", "server-adapters"]
 
 [[example]]
 name = "multimodal_processing"

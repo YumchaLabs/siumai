@@ -241,6 +241,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 other => FinishReason::Other(other.to_string()),
             });
 
+        // Extract warnings and provider metadata if present
         Ok(ChatResponse {
             id: root
                 .get("id")

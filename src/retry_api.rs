@@ -30,8 +30,8 @@ use crate::types::ProviderType;
 use reqwest::header::HeaderMap;
 
 // Re-export core types for convenience
+pub use crate::retry::BackoffRetryExecutor;
 pub use crate::retry::RetryPolicy;
-pub use crate::retry_backoff::BackoffRetryExecutor;
 
 /// Retry backend selector
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +107,7 @@ where
     Fut: std::future::Future<Output = Result<T, LlmError>> + Send,
     T: Send,
 {
-    crate::retry_backoff::retry_with_backoff(operation).await
+    crate::retry::retry_with_backoff(operation).await
 }
 
 /// Recommended provider-aware retry (backoff-based)
@@ -120,7 +120,7 @@ where
     Fut: std::future::Future<Output = Result<T, LlmError>> + Send,
     T: Send,
 {
-    crate::retry_backoff::retry_for_provider_backoff(provider, operation).await
+    crate::retry::retry_for_provider_backoff(provider, operation).await
 }
 
 /// Retry with explicit options (backend selection)
@@ -133,9 +133,9 @@ where
     match options.backend {
         RetryBackend::Backoff => {
             if let Some(provider) = options.provider.as_ref() {
-                crate::retry_backoff::retry_for_provider_backoff(provider, operation).await
+                crate::retry::retry_for_provider_backoff(provider, operation).await
             } else {
-                crate::retry_backoff::retry_with_backoff(operation).await
+                crate::retry::retry_with_backoff(operation).await
             }
         }
         RetryBackend::Policy => {

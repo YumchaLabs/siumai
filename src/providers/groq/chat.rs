@@ -6,6 +6,7 @@ use async_trait::async_trait;
 // use std::time::Instant; // replaced by executor path
 
 use crate::error::LlmError;
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::stream::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::*;
@@ -25,6 +26,8 @@ pub struct GroqChatCapability {
     pub common_params: CommonParams,
     /// Optional HTTP interceptors for chat requests
     pub interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares for chat requests
+    pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl GroqChatCapability {
@@ -43,7 +46,14 @@ impl GroqChatCapability {
             http_config,
             common_params,
             interceptors: Vec::new(),
+            middlewares: Vec::new(),
         }
+    }
+
+    /// Set model-level middlewares for chat requests
+    pub fn with_middlewares(mut self, mws: Vec<Arc<dyn LanguageModelMiddleware>>) -> Self {
+        self.middlewares = mws;
+        self
     }
 }
 
@@ -80,8 +90,9 @@ impl ChatCapability for GroqChatCapability {
             stream_transformer: None,
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
+            middlewares: self.middlewares.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-            build_headers: Box::new(headers_builder),
+            build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
         exec.execute(request).await
@@ -124,8 +135,9 @@ impl ChatCapability for GroqChatCapability {
             stream_transformer: Some(std::sync::Arc::new(stream_tx)),
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
+            middlewares: self.middlewares.clone(),
             build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-            build_headers: Box::new(headers_builder),
+            build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
         exec.execute_stream(request).await

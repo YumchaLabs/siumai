@@ -143,4 +143,9 @@ pub fn global_registry() -> &'static Mutex<ProviderRegistryV2> {
 #[cfg(feature = "openai")]
 pub mod factory;
 
+/// Experimental registry entry (Iteration A): minimal handle + options
+pub mod entry;
+/// Convenience helpers to bootstrap registries with common defaults
+pub mod helpers;
+
 // External config loaders were removed to keep the core deterministic and simple.

@@ -52,3 +52,9 @@ pub fn make_cancellable_stream(
     };
     (Box::pin(s), handle)
 }
+
+/// Create a standalone cancel handle that can be shared across tasks.
+/// Useful for orchestrating complex pipelines which need a single abort signal.
+pub fn new_cancel_handle() -> CancelHandle {
+    CancelHandle::new(Arc::new(AtomicBool::new(false)))
+}

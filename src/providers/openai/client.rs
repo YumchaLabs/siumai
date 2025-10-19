@@ -17,6 +17,7 @@ use super::rerank::OpenAiRerank;
 use super::types::OpenAiSpecificParams;
 use super::utils::get_default_models;
 use crate::executors::chat::ChatExecutor;
+use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 
 /// `OpenAI` Client
@@ -56,6 +57,8 @@ pub struct OpenAiClient {
     retry_options: Option<RetryOptions>,
     /// Optional HTTP interceptors applied to all chat requests
     http_interceptors: Vec<std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    /// Optional model-level middlewares applied before provider mapping
+    model_middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl Clone for OpenAiClient {
@@ -80,6 +83,7 @@ impl Clone for OpenAiClient {
             web_search_config: self.web_search_config.clone(),
             retry_options: self.retry_options.clone(),
             http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: Vec::new(),
         }
     }
 }
@@ -113,6 +117,39 @@ impl std::fmt::Debug for OpenAiClient {
 }
 
 impl OpenAiClient {
+    /// Convenience: configure structured outputs using a JSON object schema.
+    /// Only applied to Responses API requests. For chat/completions, this is ignored.
+    pub fn with_json_object_schema(mut self, schema: serde_json::Value, strict: bool) -> Self {
+        let fmt = serde_json::json!({
+            "type": "json_object",
+            "json_schema": {
+                "schema": schema,
+                "strict": strict
+            }
+        });
+        self.specific_params.response_format = Some(fmt);
+        self
+    }
+
+    /// Convenience: configure structured outputs using a named JSON schema.
+    /// Only applied to Responses API requests.
+    pub fn with_json_named_schema<S: Into<String>>(
+        mut self,
+        name: S,
+        schema: serde_json::Value,
+        strict: bool,
+    ) -> Self {
+        let fmt = serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": name.into(),
+                "schema": schema,
+                "strict": strict
+            }
+        });
+        self.specific_params.response_format = Some(fmt);
+        self
+    }
     /// Build standard OpenAI JSON headers with optional org/project and tracing
     fn build_openai_headers(
         api_key: &secrecy::SecretString,
@@ -175,6 +212,7 @@ impl OpenAiClient {
             web_search_config: config.web_search_config,
             retry_options: None,
             http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -196,6 +234,8 @@ impl OpenAiClient {
         let http_client = reqwest::Client::new();
         Self::new(config, http_client)
     }
+
+    /// Set whether to use the Responses API (builder-style)
     /// Decide whether to use Responses API for current client config (auto routes gpt-5*)
     pub(crate) fn should_use_responses(&self) -> bool {
         let cfg = super::config::OpenAiConfig {
@@ -255,6 +295,24 @@ impl OpenAiClient {
         &self.common_params
     }
 
+    /// Set previous response id for Responses API chaining.
+    pub fn with_previous_response_id<S: Into<String>>(mut self, id: S) -> Self {
+        self.previous_response_id = Some(id.into());
+        self
+    }
+
+    /// Add a single built-in tool for Responses API.
+    pub fn with_built_in_tool(mut self, tool: crate::types::OpenAiBuiltInTool) -> Self {
+        self.built_in_tools.push(tool);
+        self
+    }
+
+    /// Add multiple built-in tools for Responses API.
+    pub fn with_built_in_tools(mut self, tools: Vec<crate::types::OpenAiBuiltInTool>) -> Self {
+        self.built_in_tools.extend(tools);
+        self
+    }
+
     /// Enable or disable the OpenAI Responses API routing.
     /// This toggles whether chat requests use `/responses` (when true)
     /// or `/chat/completions` (when false).
@@ -269,6 +327,15 @@ impl OpenAiClient {
         interceptors: Vec<std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
     ) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install model-level middlewares for chat requests.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 
@@ -358,6 +425,86 @@ impl OpenAiClient {
             let extra_headers = self.http_config.headers.clone();
             let headers_builder =
                 move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
+            let builtins = self.built_in_tools.clone();
+            let prev_id = self.previous_response_id.clone();
+            let response_format = self.specific_params.response_format.clone();
+            let before_send: Option<crate::executors::BeforeSendHook> = if !builtins.is_empty()
+                || prev_id.is_some()
+                || response_format.is_some()
+            {
+                let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                    let mut out = body.clone();
+                    // Merge built-in tools
+                    if !builtins.is_empty() {
+                        let mut arr = out
+                            .get("tools")
+                            .and_then(|v| v.as_array().cloned())
+                            .unwrap_or_default();
+                        for t in &builtins {
+                            arr.push(t.to_json());
+                        }
+                        // Deduplicate by key: function -> keep all; file_search -> include vector_store_ids + max_results + extras; others -> by type
+                        let mut dedup = Vec::new();
+                        let mut seen = std::collections::HashSet::new();
+                        for item in arr.into_iter() {
+                            let typ = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            if typ == "function" {
+                                dedup.push(item);
+                                continue;
+                            }
+                            let key = if typ == "file_search" {
+                                let mut parts = Vec::new();
+                                if let Some(ids) =
+                                    item.get("vector_store_ids").and_then(|v| v.as_array())
+                                {
+                                    let mut s: Vec<String> = ids
+                                        .iter()
+                                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                        .collect();
+                                    s.sort();
+                                    parts.push(format!("ids={}", s.join("|")));
+                                }
+                                if let Some(mr) = item.get("max_results").and_then(|v| v.as_u64()) {
+                                    parts.push(format!("mr={}", mr));
+                                }
+                                if let Some(obj) = item.as_object() {
+                                    let mut keys: Vec<&String> = obj.keys().collect();
+                                    keys.sort();
+                                    for k in keys {
+                                        if k == "type"
+                                            || k == "vector_store_ids"
+                                            || k == "max_results"
+                                        {
+                                            continue;
+                                        }
+                                        let val = obj.get(k).unwrap();
+                                        parts.push(format!("{}={}", k, val));
+                                    }
+                                }
+                                format!("file_search:{}", parts.join(","))
+                            } else {
+                                typ.to_string()
+                            };
+                            if seen.insert(key) {
+                                dedup.push(item);
+                            }
+                        }
+                        out["tools"] = serde_json::Value::Array(dedup);
+                    }
+                    // Previous response id (chaining)
+                    if let Some(id) = &prev_id {
+                        out["previous_response_id"] = serde_json::Value::String(id.clone());
+                    }
+                    // Structured output response format (if configured)
+                    if let Some(fmt) = &response_format {
+                        out["response_format"] = fmt.clone();
+                    }
+                    Ok(out)
+                };
+                Some(std::sync::Arc::new(hook))
+            } else {
+                None
+            };
             let exec = HttpChatExecutor {
                 provider_id: "openai_responses".to_string(),
                 http_client: http,
@@ -366,9 +513,10 @@ impl OpenAiClient {
                 stream_transformer: None,
                 stream_disable_compression: self.http_config.stream_disable_compression,
                 interceptors: self.http_interceptors.clone(),
+                middlewares: self.model_middlewares.clone(),
                 build_url: Box::new(move |_stream| format!("{}/responses", base)),
-                build_headers: Box::new(headers_builder),
-                before_send: None,
+                build_headers: std::sync::Arc::new(headers_builder),
+                before_send,
             };
             exec.execute(request).await
         } else {
@@ -401,8 +549,9 @@ impl OpenAiClient {
                 stream_transformer: None,
                 stream_disable_compression: self.http_config.stream_disable_compression,
                 interceptors: self.http_interceptors.clone(),
+                middlewares: self.model_middlewares.clone(),
                 build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-                build_headers: Box::new(headers_builder),
+                build_headers: std::sync::Arc::new(headers_builder),
                 before_send: None,
             };
             exec.execute(request).await
@@ -466,6 +615,66 @@ impl ChatCapability for OpenAiClient {
             let extra_headers = self.http_config.headers.clone();
             let headers_builder =
                 move || Self::build_openai_headers(&api_key, &org, &proj, &extra_headers);
+            let builtins = self.built_in_tools.clone();
+            let prev_id = self.previous_response_id.clone();
+            let response_format = self.specific_params.response_format.clone();
+            let before_send: Option<crate::executors::BeforeSendHook> = if !builtins.is_empty()
+                || prev_id.is_some()
+                || response_format.is_some()
+            {
+                let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                    let mut out = body.clone();
+                    if !builtins.is_empty() {
+                        let mut arr = out
+                            .get("tools")
+                            .and_then(|v| v.as_array().cloned())
+                            .unwrap_or_default();
+                        for t in &builtins {
+                            arr.push(t.to_json());
+                        }
+                        // Deduplicate by key (same rule as non-stream)
+                        let mut dedup = Vec::new();
+                        let mut seen = std::collections::HashSet::new();
+                        for item in arr.into_iter() {
+                            let typ = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            if typ == "function" {
+                                dedup.push(item);
+                                continue;
+                            }
+                            let key = if typ == "file_search" {
+                                if let Some(ids) =
+                                    item.get("vector_store_ids").and_then(|v| v.as_array())
+                                {
+                                    let mut s: Vec<String> = ids
+                                        .iter()
+                                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                        .collect();
+                                    s.sort();
+                                    format!("file_search:{}", s.join(","))
+                                } else {
+                                    typ.to_string()
+                                }
+                            } else {
+                                typ.to_string()
+                            };
+                            if seen.insert(key) {
+                                dedup.push(item);
+                            }
+                        }
+                        out["tools"] = serde_json::Value::Array(dedup);
+                    }
+                    if let Some(id) = &prev_id {
+                        out["previous_response_id"] = serde_json::Value::String(id.clone());
+                    }
+                    if let Some(fmt) = &response_format {
+                        out["response_format"] = fmt.clone();
+                    }
+                    Ok(out)
+                };
+                Some(std::sync::Arc::new(hook))
+            } else {
+                None
+            };
             let exec = HttpChatExecutor {
                 provider_id: "openai_responses".to_string(),
                 http_client: http,
@@ -474,9 +683,10 @@ impl ChatCapability for OpenAiClient {
                 stream_transformer: Some(std::sync::Arc::new(stream_tx)),
                 stream_disable_compression: self.http_config.stream_disable_compression,
                 interceptors: self.http_interceptors.clone(),
+                middlewares: self.model_middlewares.clone(),
                 build_url: Box::new(move |_stream| format!("{}/responses", base)),
-                build_headers: Box::new(headers_builder),
-                before_send: None,
+                build_headers: std::sync::Arc::new(headers_builder),
+                before_send,
             };
             exec.execute_stream(request).await
         } else {
@@ -534,8 +744,9 @@ impl ChatCapability for OpenAiClient {
                 stream_transformer: Some(std::sync::Arc::new(stream_tx)),
                 stream_disable_compression: self.http_config.stream_disable_compression,
                 interceptors: self.http_interceptors.clone(),
+                middlewares: self.model_middlewares.clone(),
                 build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-                build_headers: Box::new(headers_builder),
+                build_headers: std::sync::Arc::new(headers_builder),
                 before_send: None,
             };
             exec.execute_stream(request).await
@@ -1603,6 +1814,8 @@ mod tests {
     use crate::providers::openai::OpenAiConfig;
     use crate::providers::openai::transformers;
     use crate::transformers::request::RequestTransformer;
+    use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_openai_client_creation() {
@@ -1691,5 +1904,277 @@ mod tests {
         let tx = transformers::OpenAiRequestTransformer;
         let body = tx.transform_chat(&request).unwrap();
         assert_eq!(body["model"], "gpt-4-test");
+    }
+
+    #[test]
+    fn responses_builtins_and_previous_id_injected_non_stream() {
+        // Build config enabling Responses API with built-in web search and previous_response_id
+        let cfg = OpenAiConfig::new("test-key")
+            .with_model("gpt-4.1-mini")
+            .with_responses_api(true)
+            .with_built_in_tool(crate::types::OpenAiBuiltInTool::WebSearch)
+            .with_previous_response_id("resp_123");
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http);
+
+        // Interceptor to capture transformed JSON body and abort before HTTP send
+        struct Capture(Arc<Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+
+        let captured = Arc::new(Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![Arc::new(cap)]);
+
+        // Invoke non-stream chat, which should hit interceptor and abort
+        let req = vec![crate::types::ChatMessage::user("hi").build()];
+        let err = futures::executor::block_on(client.chat(req)).unwrap_err();
+        match err {
+            LlmError::InvalidParameter(s) => assert_eq!(s, "stop"),
+            other => panic!("unexpected: {:?}", other),
+        }
+
+        // Assert captured body contains previous_response_id and built-in tool
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        assert_eq!(
+            body.get("previous_response_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            "resp_123"
+        );
+        let tools = body
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            tools
+                .iter()
+                .any(|t| t.get("type").and_then(|s| s.as_str()) == Some("web_search_preview"))
+        );
+    }
+
+    #[test]
+    fn responses_builtins_dedup_non_stream() {
+        // Duplicate built-ins should be deduplicated by type
+        let cfg = OpenAiConfig::new("test-key")
+            .with_model("gpt-4.1-mini")
+            .with_responses_api(true)
+            .with_built_in_tools(vec![
+                crate::types::OpenAiBuiltInTool::WebSearch,
+                crate::types::OpenAiBuiltInTool::WebSearch,
+            ]);
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http);
+
+        struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+        let _ = futures::executor::block_on(
+            client.chat(vec![crate::types::ChatMessage::user("hi").build()]),
+        );
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        let tools = body
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let web_count = tools
+            .iter()
+            .filter(|t| t.get("type").and_then(|s| s.as_str()) == Some("web_search_preview"))
+            .count();
+        assert_eq!(web_count, 1, "duplicate built-ins must be deduplicated");
+    }
+
+    #[test]
+    fn responses_file_search_key_includes_max_results() {
+        // Two file_search entries with same ids but different max_results should NOT be deduplicated
+        let cfg = OpenAiConfig::new("test-key")
+            .with_model("gpt-4.1-mini")
+            .with_responses_api(true)
+            .with_built_in_tools(vec![
+                crate::types::OpenAiBuiltInTool::FileSearchOptions {
+                    vector_store_ids: Some(vec!["vs1".into()]),
+                    max_results: Some(10),
+                },
+                crate::types::OpenAiBuiltInTool::FileSearchOptions {
+                    vector_store_ids: Some(vec!["vs1".into()]),
+                    max_results: Some(20),
+                },
+            ]);
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http);
+
+        struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                _rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+        let _ = futures::executor::block_on(
+            client.chat(vec![crate::types::ChatMessage::user("hi").build()]),
+        );
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        let tools = body
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let files: Vec<_> = tools
+            .iter()
+            .filter(|t| t.get("type").and_then(|s| s.as_str()) == Some("file_search"))
+            .collect();
+        assert_eq!(
+            files.len(),
+            2,
+            "file_search entries with different max_results must both remain"
+        );
+        let mut maxes: Vec<u64> = files
+            .iter()
+            .filter_map(|t| t.get("max_results").and_then(|v| v.as_u64()))
+            .collect();
+        maxes.sort();
+        assert_eq!(maxes, vec![10, 20]);
+    }
+
+    #[test]
+    fn responses_response_format_injected_non_stream() {
+        let cfg = OpenAiConfig::new("test-key")
+            .with_model("gpt-4.1-mini")
+            .with_responses_api(true);
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http).with_json_object_schema(
+            serde_json::json!({
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"]
+            }),
+            true,
+        );
+
+        struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                _rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+        let _ = futures::executor::block_on(
+            client.chat(vec![crate::types::ChatMessage::user("hi").build()]),
+        );
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        let rf = body
+            .get("response_format")
+            .cloned()
+            .expect("has response_format");
+        assert_eq!(
+            rf.get("type").and_then(|v| v.as_str()).unwrap_or(""),
+            "json_object"
+        );
+        let sch = rf
+            .get("json_schema")
+            .and_then(|v| v.get("schema"))
+            .cloned()
+            .expect("schema present");
+        assert_eq!(
+            sch.get("type").and_then(|v| v.as_str()).unwrap_or(""),
+            "object"
+        );
+    }
+
+    #[test]
+    fn responses_response_format_injected_stream() {
+        let cfg = OpenAiConfig::new("test-key")
+            .with_model("gpt-4.1-mini")
+            .with_responses_api(true);
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http).with_json_named_schema(
+            "User",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"age": {"type": "integer"}},
+                "required": ["age"]
+            }),
+            true,
+        );
+
+        struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                _rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+        // trigger stream path
+        let _ = futures::executor::block_on(
+            client.chat_stream(vec![crate::types::ChatMessage::user("hi").build()], None),
+        );
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        let rf = body
+            .get("response_format")
+            .cloned()
+            .expect("has response_format");
+        assert_eq!(
+            rf.get("type").and_then(|v| v.as_str()).unwrap_or(""),
+            "json_schema"
+        );
+        let name = rf
+            .get("json_schema")
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert_eq!(name, "User");
     }
 }

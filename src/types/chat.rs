@@ -24,6 +24,9 @@ pub enum MessageContent {
     Text(String),
     /// Multimodal content
     MultiModal(Vec<ContentPart>),
+    /// Structured JSON content (optional feature)
+    #[cfg(feature = "structured-messages")]
+    Json(serde_json::Value),
 }
 
 impl MessageContent {
@@ -40,6 +43,8 @@ impl MessageContent {
                 }
                 None
             }
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(_) => None,
         }
     }
 
@@ -59,6 +64,8 @@ impl MessageContent {
                 }
                 result
             }
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
         }
     }
 }
@@ -158,6 +165,8 @@ impl ChatMessage {
                     None
                 }
             }),
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(_) => None,
         }
     }
 
@@ -188,6 +197,8 @@ impl ChatMessage {
         match &self.content {
             MessageContent::Text(text) => text.is_empty(),
             MessageContent::MultiModal(parts) => parts.is_empty(),
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(_) => false,
         }
     }
 
@@ -203,6 +214,8 @@ impl ChatMessage {
                     ContentPart::Audio { audio_url, .. } => audio_url.len(),
                 })
                 .sum(),
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(v) => serde_json::to_string(v).map(|s| s.len()).unwrap_or(0),
         }
     }
 
@@ -364,6 +377,14 @@ impl ChatMessageBuilder {
             }
             Some(MessageContent::MultiModal(ref mut parts)) => {
                 parts.push(image_part);
+            }
+            #[cfg(feature = "structured-messages")]
+            Some(MessageContent::Json(v)) => {
+                let text = serde_json::to_string(&v).unwrap_or_default();
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::Text { text },
+                    image_part,
+                ]));
             }
             None => {
                 self.content = Some(MessageContent::MultiModal(vec![image_part]));
@@ -603,6 +624,7 @@ pub struct ChatResponse {
     pub thinking: Option<String>,
     /// Provider-specific metadata
     pub metadata: HashMap<String, serde_json::Value>,
+    // Reserved for future: warnings/provider_metadata (kept in metadata for now)
 }
 
 impl ChatResponse {
