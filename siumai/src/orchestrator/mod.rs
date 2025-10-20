@@ -33,6 +33,10 @@ pub mod types;
 mod generate;
 mod stream;
 
+// Test modules
+#[cfg(test)]
+mod tests;
+
 // Re-export public types
 pub use agent::ToolLoopAgent;
 pub use prepare_step::{PrepareStepContext, PrepareStepFn, PrepareStepResult, ToolChoice};

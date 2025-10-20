@@ -148,37 +148,24 @@ impl ResponseTransformer for XaiResponseTransformer {
                 details: None,
             })?;
 
-        // Extract thinking content first
-        let mut thinking_content: Option<String> = choice.message.reasoning_content.clone();
+        // Extract thinking content from reasoning_content field only
+        // Tag extraction is handled by ExtractReasoningMiddleware
+        let thinking_content: Option<String> = choice.message.reasoning_content.clone();
 
         let content = if let Some(content) = choice.message.content {
             match content {
                 serde_json::Value::String(text) => {
-                    if thinking_content.is_none() && super::utils::contains_thinking_tags(&text) {
-                        thinking_content = super::utils::extract_thinking_content(&text);
-                        MessageContent::Text(super::utils::filter_thinking_content(&text))
-                    } else {
-                        MessageContent::Text(text)
-                    }
+                    // Don't extract tags here - let middleware handle it
+                    MessageContent::Text(text)
                 }
                 serde_json::Value::Array(parts) => {
                     let mut content_parts = Vec::new();
                     for part in parts {
                         if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                            if thinking_content.is_none()
-                                && super::utils::contains_thinking_tags(text)
-                            {
-                                thinking_content = super::utils::extract_thinking_content(text);
-                                let filtered = super::utils::filter_thinking_content(text);
-                                if !filtered.is_empty() {
-                                    content_parts
-                                        .push(crate::types::ContentPart::Text { text: filtered });
-                                }
-                            } else {
-                                content_parts.push(crate::types::ContentPart::Text {
-                                    text: text.to_string(),
-                                });
-                            }
+                            // Don't extract tags here - let middleware handle it
+                            content_parts.push(crate::types::ContentPart::Text {
+                                text: text.to_string(),
+                            });
                         }
                     }
                     MessageContent::MultiModal(content_parts)

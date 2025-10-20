@@ -205,7 +205,7 @@ impl GroqBuilder {
 
     /// Build the `Groq` client
     pub async fn build(mut self) -> Result<GroqClient, LlmError> {
-        // Try to get API key from environment if not set
+        // Step 1: Get API key (priority: parameter > environment variable)
         if self.config.api_key.is_empty()
             && let Ok(api_key) = std::env::var("GROQ_API_KEY")
         {
@@ -219,25 +219,23 @@ impl GroqBuilder {
         // Users should initialize tracing manually using siumai_extras::telemetry
         // or tracing_subscriber directly before creating the client.
 
-        // Create HTTP client
+        // Step 3: Save model_id before moving config
+        let model_id = self.config.common_params.model.clone();
+
+        // Step 4: Build HTTP client from config
         let mut client_builder = reqwest::Client::builder();
 
-        // Set timeouts
         if let Some(timeout) = self.config.http_config.timeout {
             client_builder = client_builder.timeout(timeout);
         }
         if let Some(connect_timeout) = self.config.http_config.connect_timeout {
             client_builder = client_builder.connect_timeout(connect_timeout);
         }
-
-        // Set proxy
         if let Some(proxy_url) = &self.config.http_config.proxy {
             let proxy = reqwest::Proxy::all(proxy_url)
                 .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
             client_builder = client_builder.proxy(proxy);
         }
-
-        // Set user agent
         if let Some(user_agent) = &self.config.http_config.user_agent {
             client_builder = client_builder.user_agent(user_agent);
         }
@@ -246,11 +244,14 @@ impl GroqBuilder {
             LlmError::ConfigurationError(format!("Failed to create HTTP client: {e}"))
         })?;
 
+        // Step 5: Create client
         let mut client = GroqClient::new(self.config, http_client);
+
+        // Step 6: Set tracing and retry
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
 
-        // Install interceptors
+        // Step 7: Install HTTP interceptors
         let mut interceptors = self.http_interceptors;
         if self.http_debug {
             interceptors.push(Arc::new(LoggingInterceptor));
@@ -258,6 +259,10 @@ impl GroqBuilder {
         if !interceptors.is_empty() {
             client = client.with_http_interceptors(interceptors);
         }
+
+        // Step 8: Install automatic middlewares
+        let middlewares = crate::middleware::build_auto_middlewares_vec("groq", &model_id);
+        client = client.with_model_middlewares(middlewares);
 
         Ok(client)
     }

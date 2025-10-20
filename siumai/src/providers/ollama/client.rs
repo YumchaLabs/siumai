@@ -3,15 +3,18 @@
 //! Main client that aggregates all Ollama capabilities.
 
 use async_trait::async_trait;
+use std::sync::Arc;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::middleware::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::{
     ChatCapability, EmbeddingCapability, LlmProvider, ModelListingCapability, ProviderCapabilities,
 };
 use crate::types::*;
+use crate::utils::http_interceptor::HttpInterceptor;
 
 use super::chat::OllamaChatCapability;
 use super::completion::OllamaCompletionCapability;
@@ -49,6 +52,10 @@ pub struct OllamaClient {
     _tracing_guard: Option<()>,
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to all chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares
+    model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl Clone for OllamaClient {
@@ -66,6 +73,8 @@ impl Clone for OllamaClient {
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
+            http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         }
     }
 }
@@ -138,6 +147,8 @@ impl OllamaClient {
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -166,6 +177,21 @@ impl OllamaClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+    }
+
+    /// Install HTTP interceptors for all chat requests.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install model-level middlewares for chat requests.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
+        self
     }
 
     /// Get common parameters
@@ -398,8 +424,8 @@ impl ChatCapability for OllamaClient {
             stream_transformer: None,
             json_stream_converter: Some(json_converter),
             stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
-            interceptors: vec![],
-            middlewares: vec![],
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
             build_url: Box::new(move |_stream| format!("{}/api/chat", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
@@ -437,13 +463,15 @@ impl ChatCapability for OllamaClient {
             stream_transformer: None,
             json_stream_converter: None,
             stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
-            interceptors: vec![],
-            middlewares: vec![],
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
             build_url: Box::new(move |_stream| format!("{}/api/chat", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
         if let Some(opts) = &self.retry_options {
+            let interceptors = self.http_interceptors.clone();
+            let middlewares = self.model_middlewares.clone();
             crate::retry_api::retry_with(
                 || {
                     let rq = request.clone();
@@ -452,6 +480,8 @@ impl ChatCapability for OllamaClient {
                     let params = self.ollama_params.clone();
                     let extra_headers = self.chat_capability.http_config.headers.clone();
                     let extra_headers_for_builder = extra_headers.clone();
+                    let interceptors = interceptors.clone();
+                    let middlewares = middlewares.clone();
                     let headers_builder = move || {
                         let extra_headers = extra_headers_for_builder.clone();
                         Box::pin(async move { super::utils::build_headers(&extra_headers) })
@@ -477,8 +507,8 @@ impl ChatCapability for OllamaClient {
                             stream_transformer: None,
                             json_stream_converter: None,
                             stream_disable_compression: false,
-                            interceptors: vec![],
-                            middlewares: vec![],
+                            interceptors,
+                            middlewares,
                             build_url: Box::new(move |_stream| format!("{}/api/chat", base)),
                             build_headers: std::sync::Arc::new(headers_builder),
                             before_send: None,

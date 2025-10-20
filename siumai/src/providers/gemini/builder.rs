@@ -371,6 +371,9 @@ impl GeminiBuilder {
             // No client-side validation needed
         }
 
+        // Save model before potentially moving it
+        let model_for_middleware = self.model.clone();
+
         if let Some(model) = self.model {
             config = config.with_model(model);
         }
@@ -434,6 +437,9 @@ impl GeminiBuilder {
         // Build HTTP client from base builder to inherit unified HTTP config
         let http_client = self.base.build_http_client()?;
 
+        // Save model from config before moving it
+        let model_id = config.model.clone();
+
         let mut client =
             crate::providers::gemini::GeminiClient::with_http_client(config, http_client)?;
         client.set_tracing_config(self.tracing_config);
@@ -447,6 +453,11 @@ impl GeminiBuilder {
         if !interceptors.is_empty() {
             client = client.with_http_interceptors(interceptors);
         }
+
+        // Install automatic middlewares based on provider and model
+        let final_model_id = model_for_middleware.as_deref().unwrap_or(&model_id);
+        let middlewares = crate::middleware::build_auto_middlewares_vec("gemini", final_model_id);
+        client = client.with_model_middlewares(middlewares);
 
         Ok(client)
     }

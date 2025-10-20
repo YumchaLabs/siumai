@@ -472,6 +472,9 @@ impl OpenAiCompatibleBuilder {
 
         config = config.with_http_config(final_http_config);
 
+        // Save model before moving config
+        let model_id = config.model.clone();
+
         // Create client with or without custom HTTP client
         let mut client = if let Some(http_client) = self.base.http_client {
             crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
@@ -492,6 +495,12 @@ impl OpenAiCompatibleBuilder {
         if !interceptors.is_empty() {
             client = client.with_http_interceptors(interceptors);
         }
+
+        // Install automatic middlewares based on provider and model
+        let middlewares =
+            crate::middleware::build_auto_middlewares_vec(&self.provider_id, &model_id);
+        client = client.with_model_middlewares(middlewares);
+
         Ok(client)
     }
 }

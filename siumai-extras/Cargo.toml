@@ -33,6 +33,17 @@ tracing-appender = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 
+# MCP integration (optional)
+rmcp = { version = "0.8", optional = true, features = [
+    "transport-io",
+    "transport-child-process",
+    "transport-sse-client-reqwest",
+    "transport-streamable-http-client-reqwest",
+    "macros",
+    "client",
+] }
+async-trait = { workspace = true, optional = true }
+
 [features]
 default = []
 
@@ -45,8 +56,11 @@ telemetry = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
 # Server adapters feature
 server = ["dep:axum", "dep:futures"]
 
+# MCP integration feature
+mcp = ["dep:rmcp", "dep:async-trait"]
+
 # Convenience feature to enable all extras
-all = ["schema", "telemetry", "server"]
+all = ["schema", "telemetry", "server", "mcp"]
 
 [dev-dependencies]
 tokio.workspace = true

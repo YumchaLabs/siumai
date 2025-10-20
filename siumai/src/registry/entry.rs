@@ -98,6 +98,9 @@ pub struct RegistryOptions {
     pub max_cache_entries: Option<usize>,
     /// Time-to-live for cached clients (None = no expiration)
     pub client_ttl: Option<Duration>,
+    /// Whether to automatically add model-specific middlewares (e.g., ExtractReasoningMiddleware)
+    /// based on provider and model ID. Default: true
+    pub auto_middleware: bool,
 }
 
 /// Provider registry handle - aligned with Vercel AI SDK design
@@ -118,6 +121,8 @@ pub struct ProviderRegistryHandle {
     language_model_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
     /// TTL for cached clients
     client_ttl: Option<Duration>,
+    /// Whether to automatically add model-specific middlewares
+    auto_middleware: bool,
 }
 
 impl ProviderRegistryHandle {
@@ -167,11 +172,19 @@ impl ProviderRegistryHandle {
         let (provider_id, model_id) = self.split_id(id)?;
         let factory = self.get_provider(&provider_id)?;
 
+        // Combine global middlewares with auto middlewares
+        let mut middlewares = self.middlewares.clone();
+        if self.auto_middleware {
+            let auto_middlewares =
+                crate::middleware::build_auto_middlewares_vec(&provider_id, &model_id);
+            middlewares.extend(auto_middlewares);
+        }
+
         Ok(LanguageModelHandle {
             factory: factory.clone(),
             provider_id,
             model_id,
-            middlewares: self.middlewares.clone(),
+            middlewares,
             registry: None, // Will be set if we need to support provider override
             cache: self.language_model_cache.clone(),
             cache_key: id.to_string(),
@@ -245,16 +258,18 @@ pub fn create_provider_registry(
     providers: HashMap<String, Arc<dyn ProviderFactory>>,
     opts: Option<RegistryOptions>,
 ) -> ProviderRegistryHandle {
-    let (separator, middlewares, max_cache_entries, client_ttl) = if let Some(o) = opts {
-        (
-            o.separator,
-            o.language_model_middleware,
-            o.max_cache_entries,
-            o.client_ttl,
-        )
-    } else {
-        (':', Vec::new(), None, None)
-    };
+    let (separator, middlewares, max_cache_entries, client_ttl, auto_middleware) =
+        if let Some(o) = opts {
+            (
+                o.separator,
+                o.language_model_middleware,
+                o.max_cache_entries,
+                o.client_ttl,
+                o.auto_middleware,
+            )
+        } else {
+            (':', Vec::new(), None, None, true) // auto_middleware defaults to true
+        };
 
     // Create LRU cache with specified capacity (default: 100 entries)
     let cache_capacity = max_cache_entries.unwrap_or(100);
@@ -267,6 +282,7 @@ pub fn create_provider_registry(
         middlewares,
         language_model_cache: Arc::new(TokioMutex::new(cache)),
         client_ttl,
+        auto_middleware,
     }
 }
 
@@ -771,6 +787,7 @@ mod tests {
                 language_model_middleware: Vec::new(),
                 max_cache_entries: Some(2),
                 client_ttl: None,
+                auto_middleware: false, // Disable for testing
             }),
         );
 
@@ -829,6 +846,7 @@ mod tests {
                 language_model_middleware: Vec::new(),
                 max_cache_entries: None,
                 client_ttl: Some(Duration::from_millis(100)),
+                auto_middleware: false, // Disable for testing
             }),
         );
 

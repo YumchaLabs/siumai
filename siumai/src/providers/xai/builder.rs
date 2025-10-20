@@ -188,35 +188,11 @@ impl XaiBuilder {
 
     /// Build the `xAI` client
     pub async fn build(self) -> Result<XaiClient, LlmError> {
-        // Validate configuration
-        self.config
-            .validate()
-            .map_err(|e| LlmError::InvalidInput(format!("Invalid xAI configuration: {e}")))?;
+        // Build HTTP client from base configuration
+        let http_client = reqwest::Client::new();
 
-        // Note: Tracing initialization has been moved to siumai-extras.
-        // Users should initialize tracing manually using siumai_extras::telemetry
-        // or tracing_subscriber directly before creating the client.
-
-        // Set default model if not specified
-        let mut config = self.config;
-        if config.common_params.model.is_empty() {
-            config.common_params.model = crate::providers::xai::models::popular::LATEST.to_string();
-        }
-
-        let mut client = XaiClient::new(config).await?;
-        client.set_tracing_config(self.tracing_config);
-        client.set_retry_options(self.retry_options.clone());
-
-        // Install interceptors
-        let mut interceptors = self.http_interceptors;
-        if self.http_debug {
-            interceptors.push(Arc::new(LoggingInterceptor));
-        }
-        if !interceptors.is_empty() {
-            client = client.with_http_interceptors(interceptors);
-        }
-
-        Ok(client)
+        // Delegate to build_with_client
+        self.build_with_client(http_client).await
     }
 
     /// Build the `xAI` client with a custom HTTP client
@@ -239,6 +215,9 @@ impl XaiBuilder {
             config.common_params.model = crate::providers::xai::models::popular::LATEST.to_string();
         }
 
+        // Save model before moving config
+        let model_id = config.common_params.model.clone();
+
         let mut client = XaiClient::with_http_client(config, http_client).await?;
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
@@ -251,6 +230,10 @@ impl XaiBuilder {
         if !interceptors.is_empty() {
             client = client.with_http_interceptors(interceptors);
         }
+
+        // Install automatic middlewares based on provider and model
+        let middlewares = crate::middleware::build_auto_middlewares_vec("xai", &model_id);
+        client = client.with_model_middlewares(middlewares);
 
         Ok(client)
     }

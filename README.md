@@ -28,7 +28,13 @@ Siumai (烧卖) is a **production-ready**, **type-safe** Rust library for workin
   - Real-time streaming with progress tracking
   - Automatic usage aggregation across steps
 - **Structured Outputs**: Provider-agnostic JSON schema validation and typed responses
-- **Middleware System**: Transform requests/responses at model level (parameter clamping, default injection, etc.)
+- **Advanced Middleware System**: Powerful middleware chain with automatic configuration
+  - **Named Middleware**: Each middleware has a unique name for easy management
+  - **Fluent Builder API**: Add, remove, replace, insert middlewares with chainable methods
+  - **Automatic Addition**: Middleware is automatically added based on provider and model
+  - **Reasoning Extraction**: Built-in middleware for extracting thinking/reasoning content
+  - **Tag Extractor**: Generic tag extraction from streaming text with zero content loss
+  - **Customizable**: Override defaults or add custom middlewares
 - **Observability**: Built-in tracing, telemetry exporters (Langfuse, Helicone), and performance metrics
 - **HTTP Interceptors**: Custom request/response hooks for logging, auth, and debugging
 - **Retry & Error Handling**: Unified retry facade with exponential backoff and structured error classification
@@ -420,8 +426,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Middleware
 
-- Simulate streaming middleware and example: docs/developer/simulate_streaming_middleware.md
-- Example code: examples/03_advanced_features/middleware_simulate_streaming.rs
+Siumai provides a powerful middleware system inspired by Cherry Studio and Vercel AI SDK:
+
+### Automatic Middleware Configuration
+
+Middleware is automatically added based on provider and model:
+
+```rust
+use siumai::middleware::auto::{build_auto_middlewares, MiddlewareConfig};
+
+// Automatic configuration
+let config = MiddlewareConfig::new("openai", "o1-preview");
+let builder = build_auto_middlewares(&config);
+let middlewares = builder.build();
+// ExtractReasoningMiddleware is automatically added for o1-preview
+```
+
+### Manual Middleware Builder
+
+Use the fluent builder API for custom configurations:
+
+```rust
+use siumai::middleware::{MiddlewareBuilder, presets::ExtractReasoningMiddleware};
+use std::sync::Arc;
+
+let mut builder = MiddlewareBuilder::new();
+builder
+    .add("extract-reasoning", Arc::new(ExtractReasoningMiddleware::default()))
+    .add("custom-middleware", Arc::new(MyCustomMiddleware));
+
+let middlewares = builder.build();
+```
+
+### Override Automatic Middlewares
+
+Remove or replace automatically added middlewares:
+
+```rust
+let mut builder = build_auto_middlewares(&config);
+
+// Remove automatic middleware
+builder.remove("extract-reasoning");
+
+// Or replace with custom configuration
+builder.replace(
+    "extract-reasoning",
+    Arc::new(ExtractReasoningMiddleware::for_model("gemini-2.5-pro")),
+);
+```
+
+### Built-in Middlewares
+
+- **ExtractReasoningMiddleware**: Extract thinking/reasoning content from responses
+  - Supports multiple tag formats: `<think>`, `<thought>`, `<reasoning>`, etc.
+  - Automatic tag selection based on model ID
+  - Three-layer fallback strategy (provider-extracted → metadata → tag extraction)
+
+### Examples
+
+- **Middleware Builder**: `examples/03-advanced-features/middleware_builder.rs`
+- **Simulate Streaming**: `examples/03_advanced_features/middleware_simulate_streaming.rs`
+
+### Documentation
+
+- **Implementation Summary**: `docs/MIDDLEWARE_IMPLEMENTATION_SUMMARY.md`
+- **Comparison with Cherry Studio**: `docs/MIDDLEWARE_COMPARISON.md`
+- **Thinking Extraction Design**: `docs/THINKING_EXTRACTION_DESIGN.md`
+- **Simulate Streaming**: `docs/developer/simulate_streaming_middleware.md`
 
 ## HTTP Interceptors (New)
 

@@ -24,34 +24,22 @@ pub struct StepResult {
 }
 
 impl StepResult {
-    /// Merge usage from all steps (helper on the first step result).
+    /// Merge usage from all steps.
+    ///
+    /// This follows Vercel AI SDK's approach: simply sum all usage fields across steps.
+    /// Each step's usage is treated independently and added together.
     pub fn merge_usage(steps: &[StepResult]) -> Option<Usage> {
         let mut acc: Option<Usage> = None;
-        for (idx, s) in steps.iter().enumerate() {
+        for s in steps.iter() {
             if let Some(u) = &s.usage {
                 match &mut acc {
                     Some(t) => {
-                        t.prompt_tokens += u.prompt_tokens;
-                        t.completion_tokens += u.completion_tokens;
-                        // For aggregated total_tokens, align with expectations:
-                        // treat the first step's total as its prompt_tokens only;
-                        // subsequent steps add their reported total_tokens.
-                        t.total_tokens += if idx == 0 {
-                            u.prompt_tokens
-                        } else {
-                            u.total_tokens
-                        };
-                        if let Some(c) = u.cached_tokens {
-                            t.cached_tokens = Some(t.cached_tokens.unwrap_or(0) + c);
-                        }
-                        if let Some(r) = u.reasoning_tokens {
-                            t.reasoning_tokens = Some(t.reasoning_tokens.unwrap_or(0) + r);
-                        }
+                        // Simple addition for all fields (Vercel AI style)
+                        t.merge(u);
                     }
                     None => {
-                        let mut first = u.clone();
-                        first.total_tokens = first.prompt_tokens; // first step: count prompt only
-                        acc = Some(first);
+                        // First step: clone directly without modification
+                        acc = Some(u.clone());
                     }
                 }
             }

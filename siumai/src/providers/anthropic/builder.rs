@@ -1,9 +1,10 @@
 use crate::params::AnthropicParams;
 use crate::providers::AnthropicClient;
 use crate::retry_api::RetryOptions;
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{CommonParams, HttpConfig, LlmBuilder, LlmError};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::sync::Arc;
 
 /// Anthropic-specific builder
 ///
@@ -19,10 +20,17 @@ pub struct AnthropicBuilder {
     http_config: HttpConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable lightweight HTTP debug logging interceptor
+    http_debug: bool,
 }
 
 impl AnthropicBuilder {
     pub fn new(base: LlmBuilder) -> Self {
+        // Inherit interceptors/debug from unified builder
+        let inherited_interceptors = base.http_interceptors.clone();
+        let inherited_debug = base.http_debug;
         Self {
             base,
             api_key: None,
@@ -33,6 +41,8 @@ impl AnthropicBuilder {
             http_config: HttpConfig::default(),
             tracing_config: None,
             retry_options: None,
+            http_interceptors: inherited_interceptors,
+            http_debug: inherited_debug,
         }
     }
 
@@ -161,6 +171,18 @@ impl AnthropicBuilder {
         self
     }
 
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
+        self
+    }
+
     /// Adds metadata
     pub fn metadata<K, V>(mut self, key: K, value: V) -> Self
     where
@@ -180,6 +202,7 @@ impl AnthropicBuilder {
 
     /// Builds the Anthropic client
     pub async fn build(self) -> Result<AnthropicClient, LlmError> {
+        // Step 1: Get API key (priority: parameter > environment variable)
         let api_key = self
             .api_key
             .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
@@ -187,6 +210,7 @@ impl AnthropicBuilder {
                 "Anthropic API key not provided".to_string(),
             ))?;
 
+        // Step 2: Get base URL (priority: parameter > default)
         let base_url = self
             .base_url
             .unwrap_or_else(|| "https://api.anthropic.com".to_string());
@@ -195,12 +219,11 @@ impl AnthropicBuilder {
         // Users should initialize tracing manually using siumai_extras::telemetry
         // or tracing_subscriber directly before creating the client.
 
-        let http_client = self.base.http_client.unwrap_or_else(|| {
-            reqwest::Client::builder()
-                .timeout(self.base.timeout.unwrap_or(Duration::from_secs(30)))
-                .build()
-                .unwrap()
-        });
+        // Step 3: Save model_id before moving common_params
+        let model_id = self.common_params.model.clone();
+
+        // Step 4: Build HTTP client (inherits all base configuration)
+        let http_client = self.base.build_http_client()?;
 
         // Convert AnthropicParams to AnthropicSpecificParams
         let specific_params = crate::providers::anthropic::types::AnthropicSpecificParams {
@@ -225,7 +248,7 @@ impl AnthropicBuilder {
             }),
         };
 
-        // Create AnthropicClient with the converted specific_params
+        // Step 5: Create client
         let mut client = AnthropicClient::new(
             api_key,
             base_url,
@@ -235,10 +258,23 @@ impl AnthropicBuilder {
             self.http_config,
         );
 
-        // Update the client with the specific params and tracing
+        // Step 6: Set tracing and retry
         client = client.with_specific_params(specific_params);
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
+
+        // Step 7: Install HTTP interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor));
+        }
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
+        }
+
+        // Step 8: Install automatic middlewares
+        let middlewares = crate::middleware::build_auto_middlewares_vec("anthropic", &model_id);
+        client = client.with_model_middlewares(middlewares);
 
         Ok(client)
     }

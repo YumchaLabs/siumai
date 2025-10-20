@@ -2733,9 +2733,11 @@ dependencies = [
 name = "siumai-extras"
 version = "0.11.0"
 dependencies = [
+ "async-trait",
  "axum",
  "futures",
  "jsonschema",
+ "rmcp",
  "serde",
  "serde_json",
  "siumai",

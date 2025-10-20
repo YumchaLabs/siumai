@@ -11,10 +11,72 @@
 
 ### Added
 
+- **Middleware System Enhancements** (inspired by Cherry Studio and Vercel AI SDK):
+  - **NamedMiddleware**: Each middleware has a unique name for identification and manipulation
+  - **MiddlewareBuilder**: Fluent API builder with methods:
+    - `add()`: Add middleware to the chain
+    - `remove()`: Remove middleware by name
+    - `replace()`: Replace middleware by name
+    - `insert_before()`: Insert middleware before a specific middleware
+    - `insert_after()`: Insert middleware after a specific middleware
+    - `has()`: Check if middleware exists
+    - `clear()`: Remove all middlewares
+  - **TagExtractor**: Generic tag extraction from streaming text
+    - State machine-based design for robust tag extraction
+    - `get_potential_start_index()`: Smart algorithm for detecting tags split across chunks
+    - Supports any XML-style tag pair (e.g., `<think>...</think>`)
+    - Zero content loss guarantee
+  - **ExtractReasoningMiddleware**: Extract reasoning/thinking content from LLM responses
+    - Preset tag configurations for different models:
+      - `<think>...</think>` - DeepSeek, Qwen (default)
+      - `<thought>...</thought>` - Gemini
+      - `<reasoning>...</reasoning>` - Some OpenAI models
+      - `<seed:think>...</seed:think>` - Seed models
+      - `<thinking>...</thinking>` - Generic
+    - Three-layer fallback strategy:
+      1. Provider-extracted: Check `response.thinking` field
+      2. Metadata: Check `response.metadata["thinking"]`
+      3. Tag extraction: Extract from response content
+    - Automatic tag selection based on model ID
+    - Configurable: can remove tags from response text
+  - **Automatic Middleware Addition**: Middleware is automatically added based on provider and model
+    - `build_auto_middlewares()`: Build middleware chain based on configuration
+    - `MiddlewareConfig`: Configuration for automatic middleware addition
+    - Smart defaults: reasoning extraction enabled for models that support it
+    - User can override: remove, replace, or insert custom middlewares
+  - **Examples**: `examples/03-advanced-features/middleware_builder.rs`
+  - **Documentation**:
+    - `docs/MIDDLEWARE_IMPLEMENTATION_SUMMARY.md`: Complete implementation summary
+    - `docs/MIDDLEWARE_COMPARISON.md`: Comparison with Cherry Studio and Vercel AI SDK
+    - `docs/THINKING_EXTRACTION_DESIGN.md`: Thinking extraction design details
+
 - **siumai-extras** package with optional features:
   - `schema`: JSON schema validation using `jsonschema` crate
   - `telemetry`: Advanced tracing subscriber configuration with `tracing-subscriber`
   - `server`: Server adapters for Axum and other web frameworks
+  - **`mcp`** (NEW): MCP (Model Context Protocol) integration for dynamic tool discovery
+    - **Core Implementation**:
+      - `McpToolResolver`: Implements `ToolResolver` trait for MCP tools
+      - Support for stdio, SSE, and HTTP transports via `rmcp` library (v0.8)
+      - Automatic tool discovery from MCP servers
+      - Type-safe tool execution with compile-time guarantees
+    - **Convenience Functions**:
+      - `mcp_tools_from_stdio()`: Connect to local MCP servers via stdio
+      - `mcp_tools_from_sse()`: Connect to remote MCP servers via SSE
+      - `mcp_tools_from_http()`: Connect to MCP servers via HTTP
+    - **Integration**:
+      - Seamless integration with Siumai's orchestrator
+      - Works with all Siumai-supported LLM providers (OpenAI, Anthropic, Google, etc.)
+      - Compatible with `ToolLoopAgent` for reusable agent patterns
+    - **Documentation**:
+      - Complete integration guide: `siumai/docs/guides/MCP_INTEGRATION.md`
+      - API reference: `siumai-extras/docs/MCP_FEATURE.md`
+      - Examples: `siumai/examples/05-integrations/mcp/`
+    - **Design Philosophy**:
+      - External integration (not in core library) following Vercel AI SDK's pattern
+      - Keeps core library lightweight and fast to compile
+      - Optional feature that users can opt-in as needed
+      - Based on industry-standard MCP protocol
 - Comprehensive module documentation:
   - `siumai/src/tracing/README.md`: Detailed documentation for the tracing module
   - `siumai/src/telemetry/README.md`: Detailed documentation for the telemetry module
@@ -139,6 +201,53 @@ use siumai_extras::server::axum::to_sse_response;
 // Add to Cargo.toml:
 // siumai-extras = { version = "0.11.1", features = ["server"] }
 ```
+
+#### MCP Integration (NEW)
+
+MCP integration is now available as an optional feature in `siumai-extras`:
+
+```toml
+[dependencies]
+siumai = { version = "0.11", features = ["openai"] }
+siumai-extras = { version = "0.11", features = ["mcp"] }
+```
+
+**Quick Start:**
+```rust
+use siumai::prelude::*;
+use siumai_extras::mcp::mcp_tools_from_stdio;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Connect to MCP server
+    let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
+
+    // 2. Create model
+    let model = Siumai::builder().openai().build().await?;
+
+    // 3. Use with orchestrator
+    let (response, _) = siumai::orchestrator::generate(
+        &model,
+        messages,
+        Some(tools),
+        Some(&resolver),
+        vec![siumai::orchestrator::step_count_is(10)],
+        Default::default(),
+    ).await?;
+
+    Ok(())
+}
+```
+
+**Supported Transports:**
+- **Stdio**: `mcp_tools_from_stdio("node server.js")` - Local development
+- **SSE**: `mcp_tools_from_sse("http://localhost:8080/sse")` - Remote servers
+- **HTTP**: `mcp_tools_from_http("http://localhost:3000/mcp")` - Stateless
+
+**Documentation:**
+- Integration guide: `siumai/docs/guides/MCP_INTEGRATION.md`
+- API reference: `siumai-extras/docs/MCP_FEATURE.md`
+- Examples: `siumai/examples/05-integrations/mcp/`
 
 ### Removed
 

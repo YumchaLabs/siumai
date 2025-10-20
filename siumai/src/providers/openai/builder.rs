@@ -353,6 +353,7 @@ impl OpenAiBuilder {
 
     /// Builds the `OpenAI` client
     pub async fn build(self) -> Result<OpenAiClient, LlmError> {
+        // Step 1: Get API key (priority: parameter > environment variable)
         let api_key = self
             .api_key
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())
@@ -360,6 +361,7 @@ impl OpenAiBuilder {
                 "OpenAI API key not provided".to_string(),
             ))?;
 
+        // Step 2: Get base URL (priority: parameter > default)
         let base_url = self
             .base_url
             .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
@@ -368,20 +370,16 @@ impl OpenAiBuilder {
         // Users should initialize tracing manually using siumai_extras::telemetry
         // or tracing_subscriber directly before creating the client.
 
-        let http_client = self.base.http_client.unwrap_or_else(|| {
-            let mut builder = reqwest::Client::builder().timeout(
-                self.base
-                    .timeout
-                    .unwrap_or(crate::defaults::http::REQUEST_TIMEOUT),
-            );
+        // Step 3: Save model_id before moving common_params
+        let model_id = self
+            .model
+            .clone()
+            .unwrap_or_else(|| self.common_params.model.clone());
 
-            if let Some(timeout) = self.http_config.timeout {
-                builder = builder.timeout(timeout);
-            }
+        // Step 4: Build HTTP client (inherits all base configuration)
+        let http_client = self.base.build_http_client()?;
 
-            builder.build().unwrap()
-        });
-
+        // Step 5: Create client
         let mut client = OpenAiClient::new_legacy(
             api_key,
             base_url,
@@ -393,11 +391,7 @@ impl OpenAiBuilder {
             self.project,
         );
 
-        // Note: Tracing initialization has been moved to siumai-extras.
-        // Users should initialize tracing manually using siumai_extras::telemetry
-        // or tracing_subscriber directly before creating the client.
-
-        // Apply retry options if provided
+        // Step 6: Set tracing and retry
         client.set_retry_options(self.retry_options.clone());
 
         // Route to Responses API if explicitly enabled
@@ -411,12 +405,16 @@ impl OpenAiBuilder {
             client = client.with_built_in_tools(self.responses_built_in_tools);
         }
 
-        // Install interceptors
+        // Step 7: Install HTTP interceptors
         let mut interceptors = self.http_interceptors;
         if self.http_debug {
             interceptors.push(Arc::new(LoggingInterceptor));
         }
         client = client.with_http_interceptors(interceptors);
+
+        // Step 8: Install automatic middlewares
+        let middlewares = crate::middleware::build_auto_middlewares_vec("openai", &model_id);
+        client = client.with_model_middlewares(middlewares);
 
         Ok(client)
     }

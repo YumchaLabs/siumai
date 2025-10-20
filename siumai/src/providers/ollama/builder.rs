@@ -1,6 +1,8 @@
 use crate::providers::ollama::config::OllamaParams;
 use crate::retry_api::RetryOptions;
+use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{CommonParams, HttpConfig, LlmBuilder, LlmError};
+use std::sync::Arc;
 
 /// Ollama-specific builder
 ///
@@ -15,11 +17,19 @@ pub struct OllamaBuilder {
     http_config: HttpConfig,
     tracing_config: Option<crate::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
+    /// Optional HTTP interceptors applied to chat requests
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Enable lightweight HTTP debug logging interceptor
+    http_debug: bool,
 }
 
 impl OllamaBuilder {
     /// Create a new Ollama builder
     pub fn new(base: LlmBuilder) -> Self {
+        // Inherit interceptors/debug from unified builder
+        let inherited_interceptors = base.http_interceptors.clone();
+        let inherited_debug = base.http_debug;
+
         Self {
             base,
             base_url: None,
@@ -29,6 +39,8 @@ impl OllamaBuilder {
             http_config: HttpConfig::default(),
             tracing_config: None,
             retry_options: None,
+            http_interceptors: inherited_interceptors,
+            http_debug: inherited_debug,
         }
     }
 
@@ -263,6 +275,18 @@ impl OllamaBuilder {
         self
     }
 
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.http_debug = enabled;
+        self
+    }
+
     /// Build the Ollama client
     pub async fn build(self) -> Result<crate::providers::ollama::OllamaClient, LlmError> {
         let base_url = self
@@ -272,6 +296,10 @@ impl OllamaBuilder {
         // Note: Tracing initialization has been moved to siumai-extras.
         // Users should initialize tracing manually using siumai_extras::telemetry
         // or tracing_subscriber directly before creating the client.
+
+        // Save model before moving common_params
+        let model_for_middleware = self.model.clone();
+        let model_from_common_params = self.common_params.model.clone();
 
         let mut config = crate::providers::ollama::OllamaConfig::builder()
             .base_url(base_url)
@@ -289,6 +317,22 @@ impl OllamaBuilder {
         let mut client = crate::providers::ollama::OllamaClient::new(config, http_client);
         client.set_tracing_config(self.tracing_config);
         client.set_retry_options(self.retry_options.clone());
+
+        // Step 7: Install HTTP interceptors
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor));
+        }
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
+        }
+
+        // Step 8: Install automatic middlewares based on provider and model
+        let model_id = model_for_middleware
+            .as_deref()
+            .unwrap_or(&model_from_common_params);
+        let middlewares = crate::middleware::build_auto_middlewares_vec("ollama", model_id);
+        client = client.with_model_middlewares(middlewares);
 
         Ok(client)
     }

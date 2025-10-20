@@ -179,5 +179,3 @@ impl ProviderAdapter for ConfigurableAdapter {
         self.supports_image_generation()
     }
 }
-
-
