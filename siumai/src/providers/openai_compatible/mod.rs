@@ -64,7 +64,7 @@ pub use config::{
 };
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
-pub use registry::{ConfigurableAdapter, ProviderConfig, ProviderRegistry, get_provider_adapter};
+pub use registry::{ConfigurableAdapter, ProviderConfig};
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
 // Test modules

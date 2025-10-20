@@ -1,4 +1,4 @@
-use super::registry::get_provider_adapter;
+use crate::registry::get_provider_adapter;
 use crate::retry_api::RetryOptions;
 use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{LlmBuilder, LlmError};

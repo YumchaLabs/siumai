@@ -6,6 +6,7 @@
 
 pub mod audio;
 pub mod files;
+pub mod hook_builder;
 pub mod request;
 pub mod response;
 pub mod stream;

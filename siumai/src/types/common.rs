@@ -335,6 +335,200 @@ impl ProviderParams {
             .with_param("candidate_count", 1)
             .with_param("top_k", 40)
     }
+
+    // ========================================================================
+    // Type-safe convenience methods for common provider-specific features
+    // ========================================================================
+
+    /// Enable OpenAI Responses API
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::openai_responses();
+    /// ```
+    pub fn openai_responses() -> Self {
+        Self::new().with_param("responses_api", true)
+    }
+
+    /// Disable OpenAI Responses API (use Chat Completions API)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::openai_chat();
+    /// ```
+    pub fn openai_chat() -> Self {
+        Self::new().with_param("responses_api", false)
+    }
+
+    /// Set OpenAI reasoning effort (for o1/o3 models)
+    ///
+    /// # Arguments
+    /// * `effort` - Reasoning effort level: "low", "medium", or "high"
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::openai_reasoning_effort("high");
+    /// ```
+    pub fn openai_reasoning_effort(effort: &str) -> Self {
+        Self::new().with_param("reasoning_effort", effort)
+    }
+
+    /// Enable Anthropic prompt caching with TTL
+    ///
+    /// # Arguments
+    /// * `ttl_seconds` - Time-to-live in seconds for cached prompts
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::anthropic_cache(300); // 5 minutes
+    /// ```
+    pub fn anthropic_cache(ttl_seconds: u32) -> Self {
+        Self::new().with_param(
+            "cache_control",
+            serde_json::json!({
+                "type": "ephemeral",
+                "ttl": ttl_seconds
+            }),
+        )
+    }
+
+    /// Enable Anthropic extended thinking with token budget
+    ///
+    /// # Arguments
+    /// * `budget_tokens` - Maximum tokens for thinking (128-32768)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::anthropic_thinking(5000);
+    /// ```
+    pub fn anthropic_thinking(budget_tokens: u32) -> Self {
+        Self::new().with_param(
+            "thinking",
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": budget_tokens
+            }),
+        )
+    }
+
+    /// Enable DeepSeek/SiliconFlow reasoning with token budget
+    ///
+    /// # Arguments
+    /// * `budget_tokens` - Maximum tokens for reasoning (128-32768)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::deepseek_reasoning(8192);
+    /// ```
+    pub fn deepseek_reasoning(budget_tokens: u32) -> Self {
+        Self::new().with_param("thinking_budget", budget_tokens)
+    }
+
+    /// Enable Gemini thinking with token budget
+    ///
+    /// # Arguments
+    /// * `budget_tokens` - Maximum tokens for thinking (-1 for dynamic, 0 to disable, >0 for fixed)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::gemini_thinking(1024);
+    /// ```
+    pub fn gemini_thinking(budget_tokens: i32) -> Self {
+        Self::new().with_param("thinking_budget", budget_tokens)
+    }
+
+    /// Enable Ollama thinking mode
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::ollama_thinking();
+    /// ```
+    pub fn ollama_thinking() -> Self {
+        Self::new().with_param("think", true)
+    }
+
+    /// Set Ollama keep-alive duration
+    ///
+    /// # Arguments
+    /// * `duration` - Duration string (e.g., "5m", "1h", "-1" for indefinite)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::ollama_keep_alive("10m");
+    /// ```
+    pub fn ollama_keep_alive(duration: &str) -> Self {
+        Self::new().with_param("keep_alive", duration)
+    }
+
+    /// Configure structured output with JSON schema
+    ///
+    /// Works with OpenAI, DeepSeek, and other compatible providers
+    ///
+    /// # Arguments
+    /// * `schema` - JSON schema for the output structure
+    /// * `name` - Name for the schema (optional, defaults to "response")
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    /// use serde_json::json;
+    ///
+    /// let schema = json!({
+    ///     "type": "object",
+    ///     "properties": {
+    ///         "name": {"type": "string"},
+    ///         "age": {"type": "number"}
+    ///     },
+    ///     "required": ["name", "age"]
+    /// });
+    ///
+    /// let params = ProviderParams::with_structured_output(schema, "person");
+    /// ```
+    pub fn with_structured_output(schema: serde_json::Value, name: &str) -> Self {
+        Self::new().with_param(
+            "structured_output",
+            serde_json::json!({
+                "mode": "schema",
+                "schema": schema,
+                "name": name
+            }),
+        )
+    }
+
+    /// Enable JSON mode (less strict than structured output)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::types::ProviderParams;
+    ///
+    /// let params = ProviderParams::json_mode();
+    /// ```
+    pub fn json_mode() -> Self {
+        Self::new().with_param(
+            "structured_output",
+            serde_json::json!({
+                "mode": "json"
+            }),
+        )
+    }
 }
 
 impl Default for ProviderParams {

@@ -9,8 +9,6 @@ use super::types::{FieldAccessor, FieldMappings, JsonFieldAccessor};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Provider configuration entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,79 +180,4 @@ impl ProviderAdapter for ConfigurableAdapter {
     }
 }
 
-/// Provider registry with built-in configurations
-pub struct ProviderRegistry {
-    providers: HashMap<String, ProviderConfig>,
-}
 
-impl ProviderRegistry {
-    /// Create a new registry with built-in providers
-    pub fn new() -> Self {
-        let mut registry = Self {
-            providers: HashMap::new(),
-        };
-
-        // Register built-in providers
-        registry.register_builtin_providers();
-        registry
-    }
-
-    /// Register built-in providers (inspired by Cherry Studio's config)
-    fn register_builtin_providers(&mut self) {
-        // Load all providers from the centralized config
-        let builtin_providers =
-            crate::providers::openai_compatible::config::get_builtin_providers();
-
-        for (id, config) in builtin_providers {
-            self.providers.insert(id, config);
-        }
-    }
-
-    /// Get provider configuration by ID
-    pub fn get_provider(&self, id: &str) -> Option<&ProviderConfig> {
-        self.providers.get(id)
-    }
-
-    /// Create adapter for provider
-    pub fn create_adapter(&self, provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
-        let config = self.get_provider(provider_id).ok_or_else(|| {
-            LlmError::ConfigurationError(format!("Unknown provider: {}", provider_id))
-        })?;
-
-        Ok(Arc::new(ConfigurableAdapter::new(config.clone())))
-    }
-
-    /// Register a custom provider
-    pub fn register_provider(&mut self, config: ProviderConfig) {
-        self.providers.insert(config.id.clone(), config);
-    }
-
-    /// List all available providers
-    pub fn list_providers(&self) -> Vec<&str> {
-        self.providers.keys().map(|s| s.as_str()).collect()
-    }
-}
-
-impl Default for ProviderRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// Global provider registry instance using OnceLock (Rust 1.70+)
-use std::sync::OnceLock;
-
-static PROVIDER_REGISTRY: OnceLock<std::sync::Mutex<ProviderRegistry>> = OnceLock::new();
-
-/// Get the global provider registry instance
-fn provider_registry() -> &'static std::sync::Mutex<ProviderRegistry> {
-    PROVIDER_REGISTRY.get_or_init(|| std::sync::Mutex::new(ProviderRegistry::new()))
-}
-
-/// Convenience function to get an adapter for a provider
-pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
-    provider_registry()
-        .lock()
-        .map_err(|_| LlmError::ConfigurationError("Failed to lock provider registry".to_string()))?
-        .create_adapter(provider_id)
-}
