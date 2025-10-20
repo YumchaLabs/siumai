@@ -6,7 +6,6 @@ use super::types::*;
 use crate::error::LlmError;
 use crate::types::*;
 use crate::utils::http_headers::ProviderHeaders;
-use regex::Regex;
 use reqwest::header::HeaderMap;
 
 /// Build HTTP headers for `OpenAI` API requests
@@ -168,24 +167,52 @@ pub fn contains_thinking_tags(content: &str) -> bool {
 
 /// Extract thinking content from `<think>...</think>` tags
 /// Returns the content inside the tags, or None if no valid tags found
+/// Uses simple string parsing instead of regex for better performance
 pub fn extract_thinking_content(content: &str) -> Option<String> {
-    let re = Regex::new(r"(?s)<think>(.*?)</think>").ok()?;
-    re.captures(content)
-        .and_then(|caps| caps.get(1))
-        .map(|m| m.as_str().trim().to_string())
-        .filter(|s| !s.is_empty())
+    let start_tag = "<think>";
+    let end_tag = "</think>";
+
+    let start_pos = content.find(start_tag)?;
+    let content_start = start_pos + start_tag.len();
+    let end_pos = content[content_start..].find(end_tag)?;
+
+    let thinking = content[content_start..content_start + end_pos].trim();
+    if thinking.is_empty() {
+        None
+    } else {
+        Some(thinking.to_string())
+    }
 }
 
 /// Filter out thinking content from text for display purposes
 /// Removes `<think>...</think>` tags and their content
+/// Uses simple string parsing instead of regex for better performance
 pub fn filter_thinking_content(content: &str) -> String {
-    match Regex::new(r"(?s)<think>.*?</think>") {
-        Ok(re) => re.replace_all(content, "").trim().to_string(),
-        Err(_) => {
-            // Fallback to simple string replacement if regex fails
-            content.to_string()
+    let start_tag = "<think>";
+    let end_tag = "</think>";
+
+    let mut result = String::new();
+    let mut remaining = content;
+
+    while let Some(start_pos) = remaining.find(start_tag) {
+        // Add content before the tag
+        result.push_str(&remaining[..start_pos]);
+
+        // Find the end tag
+        if let Some(end_pos) = remaining[start_pos..].find(end_tag) {
+            // Skip the thinking content and continue after the end tag
+            let skip_to = start_pos + end_pos + end_tag.len();
+            remaining = &remaining[skip_to..];
+        } else {
+            // No matching end tag, remove everything from start tag onwards
+            remaining = "";
+            break;
         }
     }
+
+    // Add any remaining content
+    result.push_str(remaining);
+    result.trim().to_string()
 }
 
 /// Extract content without thinking tags
@@ -241,5 +268,77 @@ mod tests {
             .with_model("gpt-4")
             .with_responses_api(true);
         assert!(should_route_responses(&cfg));
+    }
+
+    #[test]
+    fn test_extract_thinking_content() {
+        // Test basic extraction
+        let content = "Some text <think>This is thinking</think> more text";
+        assert_eq!(
+            extract_thinking_content(content),
+            Some("This is thinking".to_string())
+        );
+
+        // Test with newlines
+        let content = "Text <think>\nMultiline\nthinking\n</think> end";
+        assert_eq!(
+            extract_thinking_content(content),
+            Some("Multiline\nthinking".to_string())
+        );
+
+        // Test with no thinking tags
+        assert_eq!(extract_thinking_content("No tags here"), None);
+
+        // Test with empty thinking
+        assert_eq!(extract_thinking_content("<think></think>"), None);
+        assert_eq!(extract_thinking_content("<think>   </think>"), None);
+
+        // Test with only start tag
+        assert_eq!(extract_thinking_content("<think>No end tag"), None);
+    }
+
+    #[test]
+    fn test_filter_thinking_content() {
+        // Test basic filtering
+        let content = "Before <think>thinking</think> after";
+        assert_eq!(filter_thinking_content(content), "Before  after");
+
+        // Test multiple thinking blocks
+        let content = "A <think>t1</think> B <think>t2</think> C";
+        assert_eq!(filter_thinking_content(content), "A  B  C");
+
+        // Test with no thinking tags
+        let content = "No tags here";
+        assert_eq!(filter_thinking_content(content), "No tags here");
+
+        // Test with unclosed tag
+        let content = "Before <think>unclosed";
+        assert_eq!(filter_thinking_content(content), "Before");
+
+        // Test with nested-like content
+        let content = "A <think>B <think>C</think> D";
+        // Should remove from first <think> to first </think>
+        assert_eq!(filter_thinking_content(content), "A  D");
+    }
+
+    #[test]
+    fn test_contains_thinking_tags() {
+        assert!(contains_thinking_tags("<think>content</think>"));
+        assert!(contains_thinking_tags("text <think>"));
+        assert!(contains_thinking_tags("text </think>"));
+        assert!(!contains_thinking_tags("no tags"));
+        assert!(!contains_thinking_tags(""));
+    }
+
+    #[test]
+    fn test_extract_content_without_thinking() {
+        let content = "Before <think>thinking</think> after";
+        assert_eq!(extract_content_without_thinking(content), "Before  after");
+
+        let content = "No thinking tags";
+        assert_eq!(
+            extract_content_without_thinking(content),
+            "No thinking tags"
+        );
     }
 }

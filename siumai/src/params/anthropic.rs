@@ -6,7 +6,6 @@ use crate::LlmError;
 use crate::types::ProviderType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use validator::Validate;
 
 // Anthropic ParameterMapper removed; use Transformers for mapping/validation.
 
@@ -18,7 +17,7 @@ pub struct CacheControl {
 }
 
 /// Anthropic-specific parameter extensions
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AnthropicParams {
     /// Cache control
     pub cache_control: Option<CacheControl>,
@@ -48,9 +47,8 @@ impl super::common::ProviderParamsExt for AnthropicParams {
 impl AnthropicParams {
     /// Validate Anthropic-specific parameters
     pub fn validate_params(&self) -> Result<(), LlmError> {
-        use validator::Validate;
-        self.validate()
-            .map_err(|e| LlmError::InvalidParameter(e.to_string()))?;
+        // Currently no specific validation needed for Anthropic params
+        // All fields are optional and have no range constraints
         Ok(())
     }
 

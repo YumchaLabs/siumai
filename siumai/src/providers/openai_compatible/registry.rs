@@ -241,15 +241,19 @@ impl Default for ProviderRegistry {
     }
 }
 
-// Global provider registry instance
-lazy_static::lazy_static! {
-    pub static ref PROVIDER_REGISTRY: std::sync::Mutex<ProviderRegistry> =
-        std::sync::Mutex::new(ProviderRegistry::new());
+// Global provider registry instance using OnceLock (Rust 1.70+)
+use std::sync::OnceLock;
+
+static PROVIDER_REGISTRY: OnceLock<std::sync::Mutex<ProviderRegistry>> = OnceLock::new();
+
+/// Get the global provider registry instance
+fn provider_registry() -> &'static std::sync::Mutex<ProviderRegistry> {
+    PROVIDER_REGISTRY.get_or_init(|| std::sync::Mutex::new(ProviderRegistry::new()))
 }
 
 /// Convenience function to get an adapter for a provider
 pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
-    PROVIDER_REGISTRY
+    provider_registry()
         .lock()
         .map_err(|_| LlmError::ConfigurationError("Failed to lock provider registry".to_string()))?
         .create_adapter(provider_id)

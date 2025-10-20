@@ -2,9 +2,75 @@
 resolver = "2"
 members = ["siumai", "siumai-extras"]
 
-[workspace.metadata]
+[workspace.package]
+version = "0.11.0"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/YumchaLabs/siumai"
 homepage = "https://github.com/YumchaLabs/siumai"
+
+[workspace.dependencies]
+# Async traits
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart", "http2"] }
+
+# Async runtime
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "io-util", "net"] }
+futures = "0.3"
+
+# Streaming
+futures-util = "0.3"
+async-stream = "0.3"
+eventsource-stream = "0.2"
+tokio-util = "0.7"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "2.0"
+
+# UUID generation
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Tracing and observability
+tracing = "0.1"
+
+# Random number generation (for retry jitter)
+rand = "0.8"
+
+# URL encoding
+urlencoding = "2.1"
+infer = "0.19"
+
+# Security
+secrecy = { version = "0.10", features = ["serde"] }
+
+# Retry mechanism
+backoff = { version = "0.4", features = ["tokio"] }
+lru = "0.16.2"
+
+# Schema validation (for siumai-extras)
+jsonschema = "0.33"
+
+# Telemetry (for siumai-extras)
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "time", "chrono"] }
+tracing-appender = "0.2"
+
+# Server adapters (for siumai-extras)
+axum = "0.8.4"
+
+# Dev dependencies
+tokio-test = "0.4"
+mockito = "1.0"
+wiremock = "0.6"
+tracing-test = "0.2"
+tempfile = "3.0"

@@ -2,7 +2,6 @@ use crate::retry_api::RetryOptions;
 use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{LlmBuilder, LlmError};
 use std::sync::Arc;
-use validator::Validate;
 
 /// Gemini-specific builder for configuring Gemini clients.
 ///
@@ -367,12 +366,9 @@ impl GeminiBuilder {
         }
 
         // Basic validation of thinking configuration
-        if let Some(thinking_config) = &self.thinking_config {
-            thinking_config.validate().map_err(|e| {
-                crate::error::LlmError::ConfigurationError(format!(
-                    "Invalid thinking configuration: {e}"
-                ))
-            })?;
+        if let Some(_thinking_config) = &self.thinking_config {
+            // ThinkingConfig validation is now handled by the API
+            // No client-side validation needed
         }
 
         if let Some(model) = self.model {

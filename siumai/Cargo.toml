@@ -1,75 +1,66 @@
 [package]
 name = "siumai"
-version = "0.11.0"
-edition = "2024"
-authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 description = "A unified LLM interface library for Rust"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/YumchaLabs/siumai"
-homepage = "https://github.com/YumchaLabs/siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 documentation = "https://docs.rs/siumai"
-readme = "README.md"
+readme = "../README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "async"]
 categories = ["api-bindings"]
 
-exclude = ["docs/*", "siumai-extras"]
+exclude = ["../docs/*", "../siumai-extras"]
 
 [dependencies]
 # Async traits
-async-trait = "0.1"
+async-trait.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-lazy_static = "1.4"
-jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"], optional = true }
-
-# Validation
-validator = { version = "0.20", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
+jsonwebtoken = { workspace = true, optional = true }
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart", "http2"] }
+reqwest.workspace = true
 
 # Async runtime
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "io-util", "net"] }
-futures = "0.3"
+tokio.workspace = true
+futures.workspace = true
 
 # Streaming
-futures-util = "0.3"
-async-stream = "0.3"
-eventsource-stream = "0.2"
-tokio-util = "0.7"
+futures-util.workspace = true
+async-stream.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
 
 # Time handling
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # Error handling
-thiserror = "2.0"
-
-# Static assertions
-static_assertions = "1.1"
+thiserror.workspace = true
 
 # UUID generation
-uuid = { version = "1.0", features = ["v4", "serde"] }
+uuid.workspace = true
 
 # Tracing and observability
-tracing = "0.1"
+tracing.workspace = true
 
 # Random number generation (for retry jitter)
-rand = "0.8"
+rand.workspace = true
 
 # URL encoding
-urlencoding = "2.1"
-regex = "1.11.1"
-mime_guess = "2"
-infer = "0.8"
+urlencoding.workspace = true
+infer.workspace = true
 
 # Security
-secrecy = { version = "0.10", features = ["serde"] }
+secrecy.workspace = true
 
 # Retry mechanism
-backoff = { version = "0.4", features = ["tokio"] }
-lru = "0.16.2"
+backoff.workspace = true
+lru.workspace = true
 
 [features]
 # Default features - include all providers for convenience
@@ -93,11 +84,11 @@ gcp = ["dep:jsonwebtoken", "google"]
 all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq"]
 
 [dev-dependencies]
-tokio-test = "0.4"
-mockito = "1.0"
-wiremock = "0.6"
-tracing-test = "0.2"
-tempfile = "3.0"
+tokio-test.workspace = true
+mockito.workspace = true
+wiremock.workspace = true
+tracing-test.workspace = true
+tempfile.workspace = true
 futures-util = "0.3"
 tokio-util = "0.7"
 rmcp = { version = "0.8.0", features = [
@@ -118,187 +109,186 @@ axum = "0.8.4"
 actix-web = "4"
 
 # Examples configuration
+# Examples (0.11.0 refactored structure)
+# 01-quickstart
 [[example]]
-name = "quick_start"
-path = "examples/01_getting_started/quick_start.rs"
+name = "basic-chat"
+path = "examples/01-quickstart/basic-chat.rs"
 
 [[example]]
-name = "provider_comparison"
-path = "examples/01_getting_started/provider_comparison.rs"
+name = "streaming"
+path = "examples/01-quickstart/streaming.rs"
 
 [[example]]
-name = "chat_basics"
-path = "examples/02_core_features/chat_basics.rs"
+name = "provider-switching"
+path = "examples/01-quickstart/provider-switching.rs"
+
+# 02-core-api/chat
+[[example]]
+name = "simple-chat"
+path = "examples/02-core-api/chat/simple-chat.rs"
 
 [[example]]
-name = "streaming_chat"
-path = "examples/02_core_features/streaming_chat.rs"
+name = "chat-with-tools"
+path = "examples/02-core-api/chat/chat-with-tools.rs"
 
 [[example]]
-name = "unified_interface"
-path = "examples/02_core_features/unified_interface.rs"
+name = "chat-request"
+path = "examples/02-core-api/chat/chat-request.rs"
+
+# 02-core-api/streaming
+[[example]]
+name = "basic-stream"
+path = "examples/02-core-api/streaming/basic-stream.rs"
 
 [[example]]
-name = "error_handling"
-path = "examples/02_core_features/error_handling.rs"
+name = "stream-request"
+path = "examples/02-core-api/streaming/stream-request.rs"
 
 [[example]]
-name = "capability_detection"
-path = "examples/02_core_features/capability_detection.rs"
+name = "stream-with-cancel"
+path = "examples/02-core-api/streaming/stream-with-cancel.rs"
+
+# 02-core-api/tools
+[[example]]
+name = "function-calling"
+path = "examples/02-core-api/tools/function-calling.rs"
 
 [[example]]
-name = "embedding"
-path = "examples/02_core_features/embedding.rs"
+name = "tool-loop"
+path = "examples/02-core-api/tools/tool-loop.rs"
+
+# 02-core-api/multimodal
+[[example]]
+name = "vision"
+path = "examples/02-core-api/multimodal/vision.rs"
+
+# 03-advanced-features/provider-params
+[[example]]
+name = "structured-output"
+path = "examples/03-advanced-features/provider-params/structured-output.rs"
 
 [[example]]
-name = "batch_processing"
-path = "examples/03_advanced_features/batch_processing.rs"
+name = "reasoning-effort"
+path = "examples/03-advanced-features/provider-params/reasoning-effort.rs"
+
+# 03-advanced-features/request-building
+[[example]]
+name = "complex-request"
+path = "examples/03-advanced-features/request-building/complex-request.rs"
+
+# 03-advanced-features/middleware
+[[example]]
+name = "http-interceptor"
+path = "examples/03-advanced-features/middleware/http-interceptor.rs"
 
 [[example]]
-name = "custom_provider"
-path = "examples/03_advanced_features/custom_provider.rs"
+name = "advanced-middleware"
+path = "examples/03-advanced-features/middleware/advanced-middleware.rs"
+
+# 03-advanced-features/retry
+[[example]]
+name = "retry-config"
+path = "examples/03-advanced-features/retry/retry-config.rs"
+
+# 03-advanced-features/error-handling
+[[example]]
+name = "error-types"
+path = "examples/03-advanced-features/error-handling/error-types.rs"
+
+# 03-advanced-features/orchestrator
+[[example]]
+name = "basic-orchestrator"
+path = "examples/03-advanced-features/orchestrator/basic-orchestrator.rs"
 
 [[example]]
-name = "http_interceptor"
-path = "examples/03_advanced_features/http_interceptor.rs"
+name = "agent-pattern"
+path = "examples/03-advanced-features/orchestrator/agent-pattern.rs"
 
 [[example]]
-name = "tracing_monitoring"
-path = "examples/03_advanced_features/tracing_monitoring.rs"
+name = "stop-conditions"
+path = "examples/03-advanced-features/orchestrator/stop-conditions.rs"
 
 [[example]]
-name = "custom_configurations"
-path = "examples/03_advanced_features/custom_configurations.rs"
+name = "tool-approval"
+path = "examples/03-advanced-features/orchestrator/tool-approval.rs"
 
 [[example]]
-name = "structured_messages"
-path = "examples/03_advanced_features/structured_messages.rs"
+name = "streaming-orchestrator"
+path = "examples/03-advanced-features/orchestrator/streaming-orchestrator.rs"
+
+# 04-provider-specific/openai
+[[example]]
+name = "responses-api"
+path = "examples/04-provider-specific/openai/responses-api.rs"
+
+# 04-provider-specific/anthropic
+[[example]]
+name = "extended-thinking"
+path = "examples/04-provider-specific/anthropic/extended-thinking.rs"
 
 [[example]]
-name = "axum_sse"
-path = "examples/07_server_adapters/axum_sse.rs"
+name = "prompt-caching"
+path = "examples/04-provider-specific/anthropic/prompt-caching.rs"
+
+# 04-provider-specific/google
+[[example]]
+name = "grounding"
+path = "examples/04-provider-specific/google/grounding.rs"
+
+# 04-provider-specific/ollama
+[[example]]
+name = "local-models"
+path = "examples/04-provider-specific/ollama/local-models.rs"
+
+# 04-provider-specific/xai
+[[example]]
+name = "grok"
+path = "examples/04-provider-specific/xai/grok.rs"
+
+# 05-integrations/registry
+[[example]]
+name = "basic-registry"
+path = "examples/05-integrations/registry/basic-registry.rs"
+
+[[example]]
+name = "registry-with-cache"
+path = "examples/05-integrations/registry/registry-with-cache.rs"
+
+[[example]]
+name = "custom-middleware"
+path = "examples/05-integrations/registry/custom-middleware.rs"
+
+# 05-integrations/mcp
+[[example]]
+name = "stdio-client"
+path = "examples/05-integrations/mcp/stdio-client.rs"
+
+# 05-integrations/server-adapters
+[[example]]
+name = "axum-sse"
+path = "examples/05-integrations/server-adapters/axum-sse.rs"
 required-features = ["openai", "server-adapters"]
 
+# 05-integrations/telemetry
 [[example]]
-name = "actix_sse"
-path = "examples/07_server_adapters/actix_sse.rs"
+name = "basic-telemetry"
+path = "examples/05-integrations/telemetry/basic-telemetry.rs"
+required-features = ["openai", "telemetry"]
+
+# 06-applications
+[[example]]
+name = "chatbot"
+path = "examples/06-applications/chatbot.rs"
+
+[[example]]
+name = "code-assistant"
+path = "examples/06-applications/code-assistant.rs"
+
+[[example]]
+name = "api-server"
+path = "examples/06-applications/api-server.rs"
 required-features = ["openai", "server-adapters"]
-
-[[example]]
-name = "multimodal_processing"
-path = "examples/03_advanced_features/multimodal_processing.rs"
-
-[[example]]
-name = "middleware_simulate_streaming"
-path = "examples/03_advanced_features/middleware_simulate_streaming.rs"
-
-[[example]]
-name = "openai_response_api_http_mcp_client"
-path = "examples/04_providers/openai/openai_response_api_http_mcp_client.rs"
-
-[[example]]
-name = "openai_basic_chat"
-path = "examples/04_providers/openai/basic_chat.rs"
-
-[[example]]
-name = "simple_chatbot"
-path = "examples/05_use_cases/simple_chatbot.rs"
-
-[[example]]
-name = "convenience_methods"
-path = "examples/01_getting_started/convenience_methods.rs"
-
-[[example]]
-name = "anthropic_basic_chat"
-path = "examples/04_providers/anthropic/basic_chat.rs"
-
-[[example]]
-name = "google_basic_usage"
-path = "examples/04_providers/google/basic_usage.rs"
-
-[[example]]
-name = "google_embedding_task_types"
-path = "examples/04_providers/google/embedding_with_task_types.rs"
-
-[[example]]
-name = "ollama_basic_setup"
-path = "examples/04_providers/ollama/basic_setup.rs"
-
-[[example]]
-name = "ollama_thinking_and_tools"
-path = "examples/04_providers/ollama/thinking_and_tools.rs"
-
-[[example]]
-name = "openai_enhanced_features"
-path = "examples/04_providers/openai/enhanced_features.rs"
-
-[[example]]
-name = "openai_vision_processing"
-path = "examples/04_providers/openai/vision_processing.rs"
-
-[[example]]
-name = "siliconflow_showcase"
-path = "examples/04_providers/openai_compatible/siliconflow.rs"
-
-[[example]]
-name = "openai_responses_api"
-path = "examples/04_providers/openai/openai_responses_api.rs"
-
-[[example]]
-name = "api_integration"
-path = "examples/05_use_cases/api_integration.rs"
-
-[[example]]
-name = "code_assistant"
-path = "examples/05_use_cases/code_assistant.rs"
-
-[[example]]
-name = "sse_mcp_client"
-path = "examples/06_mcp_integration/sse_mcp_client.rs"
-
-[[example]]
-name = "streamable_http_mcp_client"
-path = "examples/06_mcp_integration/streamable_http_mcp_client.rs"
-
-[[example]]
-name = "content_generator"
-path = "examples/05_use_cases/content_generator.rs"
-
-[[example]]
-name = "reasoning"
-path = "examples/02_core_features/reasoning.rs"
-
-[[example]]
-name = "http_mcp_client"
-path = "examples/06_mcp_integration/http_mcp_client.rs"
-
-[[example]]
-name = "http_mcp_server"
-path = "examples/06_mcp_integration/http_mcp_server.rs"
-
-[[example]]
-name = "stdio_mcp_client"
-path = "examples/06_mcp_integration/stdio_mcp_client.rs"
-
-[[example]]
-name = "stdio_mcp_server"
-path = "examples/06_mcp_integration/stdio_mcp_server.rs"
-
-[[example]]
-name = "sse_mcp_server"
-path = "examples/06_mcp_integration/sse_mcp_server.rs"
-
-[[example]]
-name = "streamable_http_mcp_server"
-path = "examples/06_mcp_integration/streamable_http_mcp_server.rs"
-
-[[example]]
-name = "image_generation_showcase"
-path = "examples/04_providers/openai/image_generation_showcase.rs"
-
-[[example]]
-name = "siliconflow_usage_examples"
-path = "examples/04_providers/siliconflow/usage_examples.rs"
 
 # The profile that 'dist' will build with
 [profile.dist]

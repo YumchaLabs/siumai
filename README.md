@@ -20,7 +20,13 @@ Siumai (烧卖) is a **production-ready**, **type-safe** Rust library for workin
 
 ### 🚀 **Production Features**
 - **First-Class Streaming**: SSE with multi-event emission (start/delta/usage/end), cancellation, and backpressure
-- **Tool Calling & Orchestration**: Multi-step tool execution with automatic retry and approval workflows
+- **Advanced Orchestration**: Multi-step tool calling with flexible control flow
+  - Flexible stop conditions (step count, tool calls, custom predicates)
+  - Dynamic step preparation (modify tools, messages, system prompts per step)
+  - Reusable agent abstraction with builder pattern
+  - Tool approval workflow (approve/modify/deny dangerous operations)
+  - Real-time streaming with progress tracking
+  - Automatic usage aggregation across steps
 - **Structured Outputs**: Provider-agnostic JSON schema validation and typed responses
 - **Middleware System**: Transform requests/responses at model level (parameter clamping, default injection, etc.)
 - **Observability**: Built-in tracing, telemetry exporters (Langfuse, Helicone), and performance metrics
@@ -567,8 +573,8 @@ impl CustomProvider for MyProvider {
 }
 ```
 
-- Example: `examples/03_advanced_features/custom_provider.rs`
-- Guide: `src/custom_provider/guide.rs`
+- Example: `siumai/examples/03_advanced_features/custom_provider.rs`
+- Guide: `siumai/src/custom_provider/guide.rs`
 
 ## 🎯 Feature Highlights
 
@@ -577,70 +583,87 @@ impl CustomProvider for MyProvider {
 - **Parallel Tools**: Execute multiple tools concurrently
 - **Custom Tools**: Define your own tools with type-safe schemas
 - **Streaming Tools**: Stream tool call results in real-time
-- See: `examples/orchestrator_*.rs`, `src/orchestrator/`
+- See: `siumai/examples/orchestrator_*.rs`, `siumai/src/orchestrator/`
 
 ### 📊 **Structured Outputs**
 - **Provider-Agnostic**: Same API works across OpenAI, Anthropic, Gemini, etc.
 - **JSON Schema**: Validate responses against JSON schemas
 - **Typed Responses**: Generate Rust structs from LLM responses
 - **Streaming Objects**: Stream structured data incrementally
-- See: `docs/OBJECT_API_AND_OPENAI_STRUCTURED_OUTPUT.md`, `examples/highlevel/`
+- See: `docs/OBJECT_API_AND_OPENAI_STRUCTURED_OUTPUT.md`, `siumai/examples/highlevel/`
 
 ### 🎨 **Multimodal Support**
 - **Vision**: Image understanding across providers
 - **Audio**: Text-to-speech (TTS) and speech-to-text (STT)
 - **Image Generation**: DALL-E, Imagen, and more
 - **File Management**: Upload, list, retrieve, and delete files
-- See: `examples/04_providers/*/vision_*.rs`, `examples/04_providers/*/audio_*.rs`
+- See: `siumai/examples/04_providers/*/vision_*.rs`, `siumai/examples/04_providers/*/audio_*.rs`
 
 ### 🔄 **Middleware & Customization**
 - **Model-Level Middleware**: Transform requests/responses before execution
 - **Parameter Clamping**: Automatically adjust parameters to provider limits
 - **Default Injection**: Set default values for missing parameters
 - **Custom Middleware**: Implement your own transformation logic
-- See: `src/middleware/`, `examples/03_advanced_features/middleware_*.rs`
+- See: `siumai/src/middleware/`, `siumai/examples/03_advanced_features/middleware_*.rs`
 
 ### 📡 **Observability**
 - **Tracing**: Built-in `tracing` instrumentation for debugging
 - **Telemetry**: Export events to Langfuse, Helicone, and other platforms
 - **Performance Metrics**: Track latency, throughput, and error rates
 - **W3C Trace Context**: Propagate trace IDs across services (`SIUMAI_W3C_TRACE=1`)
-- See: `src/tracing/README.md`, `src/telemetry/README.md`, `docs/developer/performance_module.md`
+- See: `siumai/src/tracing/README.md`, `siumai/src/telemetry/README.md`, `docs/developer/performance_module.md`
 
 ### 🔌 **HTTP Interceptors**
 - **Request/Response Hooks**: Intercept and modify HTTP traffic
 - **Logging**: Built-in `LoggingInterceptor` for debugging
 - **Custom Auth**: Implement custom authentication logic
 - **SSE Events**: Hook into streaming events
-- See: `src/utils/http_interceptor.rs`, `docs/http-interceptor-best-practices.md`
+- See: `siumai/src/utils/http_interceptor.rs`, `docs/http-interceptor-best-practices.md`
 
 ### 🌐 **Provider Registry**
 - **Dynamic Discovery**: Discover and instantiate providers at runtime
 - **Model Resolution**: Resolve `provider:model` strings to clients
 - **Middleware Injection**: Attach middleware to specific models
 - **Environment Variables**: Auto-configure from env vars
-- See: `src/registry/`, `examples/registry_*.rs`, `docs/ENV_VARS.md`
+- See: `siumai/src/registry/`, `siumai/examples/registry_*.rs`, `docs/ENV_VARS.md`
 
 ## 📚 Advanced Topics
 
 - **Vertex AI**: Bearer/ADC authentication, publishers, billing headers → `docs/`
 - **Files & Audio**: Executors/transformers with consistent headers and tracing → `docs/` and provider modules
 - **OpenAI-Compatible**: Adapter architecture and field mapping → `docs/openai-compatible-architecture.md`
-- **Custom Providers**: Implement your own provider → `src/custom_provider/guide.rs`, `examples/03_advanced_features/custom_provider.rs`
+- **Custom Providers**: Implement your own provider → `siumai/src/custom_provider/guide.rs`, `siumai/examples/03_advanced_features/custom_provider.rs`
 - **HTTP Interceptors**: Best practices and examples → `docs/http-interceptor-best-practices.md`
 - **Code Organization**: Module structure and patterns → `docs/developer/code_organization.md`
 
 ## Examples
 
-See the `examples/` directory for getting started, core features, providers, advanced features, and MCP integration.
+See the `siumai/examples/` directory for comprehensive examples organized by complexity:
+
+- **01-quickstart/** - Get started in minutes (3 examples)
+- **02-core-api/** - Core API methods (9 examples)
+- **03-advanced-features/** - Advanced features including orchestrator (12 examples)
+- **04-provider-specific/** - Provider-unique features (6 examples)
+- **05-integrations/** - Registry, MCP, telemetry (6 examples)
+- **06-applications/** - Complete applications (3 examples)
 
 Common commands:
 
 ```bash
-cargo run --example quick_start
-cargo run --example streaming_chat
-cargo run --example custom_provider
+# Quick start
+cargo run --example basic-chat --features openai
+cargo run --example streaming --features openai
+
+# Multi-step tool calling (NEW in 0.11.0)
+cargo run --example basic-orchestrator --features openai
+cargo run --example agent-pattern --features openai
+
+# Provider-specific features
+cargo run --example extended-thinking --features anthropic
+cargo run --example grounding --features google
 ```
+
+See [examples/README.md](siumai/examples/README.md) for the complete learning path.
 
 ## Changelog & Migration
 

@@ -4,10 +4,6 @@
 
 use thiserror::Error;
 
-// Static assertions to ensure error types are Send + Sync
-// This is important for async code and multi-threading
-static_assertions::assert_impl_all!(LlmError: Send, Sync, Clone);
-
 /// Error category for better error handling and recovery strategies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorCategory {
@@ -570,5 +566,23 @@ mod tests {
         let rate_limit = LlmError::RateLimitError("Too many requests".to_string());
         let suggestions = rate_limit.recovery_suggestions();
         assert!(suggestions.iter().any(|s| s.contains("backoff")));
+    }
+
+    // Compile-time trait checks (replacement for static_assertions)
+    // These functions are never called, but they ensure LlmError implements the required traits
+    #[allow(dead_code)]
+    fn assert_send<T: Send>() {}
+    #[allow(dead_code)]
+    fn assert_sync<T: Sync>() {}
+    #[allow(dead_code)]
+    fn assert_clone<T: Clone>() {}
+
+    #[test]
+    fn test_llm_error_traits() {
+        // These calls ensure LlmError implements Send, Sync, and Clone
+        // If any trait is not implemented, this will fail to compile
+        assert_send::<LlmError>();
+        assert_sync::<LlmError>();
+        assert_clone::<LlmError>();
     }
 }

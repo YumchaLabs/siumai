@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use validator::Validate;
 
 /// Provider type enumeration
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,21 +47,18 @@ impl ProviderType {
 }
 
 /// Common AI parameters
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CommonParams {
     /// Model name
-    #[validate(length(min = 1, message = "Model name cannot be empty"))]
     pub model: String,
 
     /// Temperature parameter (must be non-negative)
-    #[validate(range(min = 0.0, message = "Temperature must be non-negative"))]
     pub temperature: Option<f32>,
 
     /// Maximum output tokens
     pub max_tokens: Option<u32>,
 
     /// `top_p` parameter
-    #[validate(range(min = 0.0, max = 1.0, message = "top_p must be between 0.0 and 1.0"))]
     pub top_p: Option<f32>,
 
     /// Stop sequences
@@ -125,9 +121,31 @@ impl CommonParams {
 
     /// Validate common parameters
     pub fn validate_params(&self) -> Result<(), crate::error::LlmError> {
-        use validator::Validate;
-        self.validate()
-            .map_err(|e| crate::error::LlmError::InvalidParameter(e.to_string()))?;
+        // Validate model name
+        if self.model.is_empty() {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "Model name cannot be empty".to_string(),
+            ));
+        }
+
+        // Validate temperature (must be non-negative)
+        if let Some(temp) = self.temperature {
+            if temp < 0.0 {
+                return Err(crate::error::LlmError::InvalidParameter(
+                    "Temperature must be non-negative".to_string(),
+                ));
+            }
+        }
+
+        // Validate top_p (must be between 0.0 and 1.0)
+        if let Some(top_p) = self.top_p {
+            if !(0.0..=1.0).contains(&top_p) {
+                return Err(crate::error::LlmError::InvalidParameter(
+                    "top_p must be between 0.0 and 1.0".to_string(),
+                ));
+            }
+        }
+
         Ok(())
     }
 

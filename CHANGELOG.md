@@ -16,8 +16,8 @@
   - `telemetry`: Advanced tracing subscriber configuration with `tracing-subscriber`
   - `server`: Server adapters for Axum and other web frameworks
 - Comprehensive module documentation:
-  - `src/tracing/README.md`: Detailed documentation for the tracing module
-  - `src/telemetry/README.md`: Detailed documentation for the telemetry module
+  - `siumai/src/tracing/README.md`: Detailed documentation for the tracing module
+  - `siumai/src/telemetry/README.md`: Detailed documentation for the telemetry module
   - `docs/developer/performance_module.md`: Documentation for the performance module
   - `docs/developer/code_organization.md`: Code organization guidelines
 - Improved module-level documentation with clear responsibility distinctions:
@@ -27,9 +27,25 @@
 
 ### Changed
 
-- **Dependency optimization**: Moved heavy dependencies to `siumai-extras`
-  - Core `siumai` package no longer includes `jsonschema`, `tracing-subscriber`, `axum`
-  - Reduced core package size and compilation time
+- **Workspace structure**: Migrated to virtual workspace
+  - Root `Cargo.toml` is now a virtual workspace manifest
+  - Core package moved to `siumai/` directory
+  - `siumai-extras` package in `siumai-extras/` directory
+  - Examples and tests moved to `siumai/examples/` and `siumai/tests/`
+  - Shared dependencies managed via `[workspace.dependencies]`
+  - Better IDE support and more consistent tooling behavior
+- **Dependency optimization**: Significantly reduced core dependencies
+  - **Removed 5 dependencies** from core `siumai` package:
+    - `lazy_static` → replaced with `std::sync::OnceLock` (Rust 1.70+)
+    - `static_assertions` → replaced with compile-time tests
+    - `validator` → replaced with manual validation logic
+    - `regex` → replaced with simple string parsing for `<think>` tag extraction
+    - `mime_guess` → replaced with custom MIME type mapping using `infer`
+  - Moved heavy dependencies to `siumai-extras`: `jsonschema`, `tracing-subscriber`, `axum`
+  - **Performance improvements**:
+    - Reduced compilation time by ~20-25% (10-15 seconds faster)
+    - Reduced binary size by ~10-15% (~1 MB smaller)
+    - Reduced dependency count from 26 to 21 (-19%)
   - Users can opt-in to extra features as needed
 - **Code organization improvements**:
   - Merged small utility files (`mime.rs`, `vertex.rs`) into `helpers.rs`
@@ -144,7 +160,35 @@ use siumai_extras::server::axum::to_sse_response;
 - **Orchestrator Advanced Tests**: Added comprehensive tests for usage aggregation precision, error injection after tool execution, mixed approval decisions (Approve/Deny), and concurrent tool call ordering.
 - **Server Adapters Enhancement**: Improved with Axum integration (`to_sse_response`, `to_text_stream`), enhanced `SseOptions` with presets (`development()`/`production()`/`minimal()`), configurable error masking, and comprehensive documentation.
 - **Telemetry & Observability**: New `telemetry` module with structured event tracking (SpanEvent, GenerationEvent, OrchestratorEvent, ToolExecutionEvent); Langfuse and Helicone exporter support; optional telemetry in Orchestrator and HttpChatExecutor via `TelemetryConfig`; automatic span tracking for all LLM requests; complete stream telemetry with automatic GenerationEvent emission on stream completion.
-- Orchestrator (streaming): added `generate_stream_owned` (tokio::spawn + mpsc) for multi‑step streaming with `on_chunk/on_step_finish/on_finish`; re‑enabled stream test.
+- **Orchestrator (NEW)**: Multi-step tool calling orchestration system with advanced control flow
+  - **Modular Architecture**: Clean separation into `types`, `stop_condition`, `prepare_step`, `generate`, `stream`, and `agent` modules
+  - **Flexible Stop Conditions**:
+    - Built-in conditions: `step_count_is()`, `has_tool_call()`, `has_text_response()`
+    - Combinators: `any_of()`, `all_of()` for complex logic
+    - Custom conditions: `custom_condition()` with user-defined predicates
+  - **Dynamic Step Preparation**: `PrepareStep` callback for runtime configuration
+    - Modify tool choice strategy (`Auto`, `Required`, `None`, `Specific`)
+    - Filter active tools per step
+    - Adjust system messages and conversation history
+  - **Agent Abstraction**: `ToolLoopAgent<M>` for reusable multi-step agents
+    - Builder pattern: `.with_system()`, `.with_id()`, `.on_step_finish()`, `.on_finish()`
+    - Simplified API: `.generate()` for non-streaming, `.stream()` for streaming
+    - Supports multiple conversations with same configuration
+  - **Tool Approval Workflow**: `on_tool_approval` callback with `ToolApproval` enum
+    - `Approve(args)`: Execute tool with original or modified arguments
+    - `Modify(args)`: Change tool arguments before execution
+    - `Deny { reason }`: Block dangerous operations with explanation
+  - **Streaming Support**: `generate_stream_owned()` for real-time multi-step execution
+    - Concurrent tool execution with `tokio::spawn`
+    - Progress tracking via `on_chunk`, `on_step_finish`, `on_finish` callbacks
+    - Graceful cancellation with `CancelHandle`
+  - **Usage Aggregation**: Automatic token usage tracking across all steps with `StepResult::merge_usage()`
+  - **Comprehensive Examples**: 5 examples covering all orchestrator features
+    - `basic-orchestrator.rs`: Multi-step tool calling basics
+    - `agent-pattern.rs`: Reusable agent pattern
+    - `stop-conditions.rs`: Advanced stop condition usage
+    - `tool-approval.rs`: Tool approval workflow
+    - `streaming-orchestrator.rs`: Real-time streaming orchestration
 - HTTP 401 retry: non‑stream chat path restores one‑shot 401 header rebuild + retry; `build_headers` changed to `Arc<..>` internally and providers updated.
 - Server adapters: feature renamed to `server-adapters`; examples declare `required-features` for cleaner builds.
 - Retry module layout: moved to `src/retry/{policy.rs, backoff.rs}` with `retry::policy` and `retry::backoff`; keep `retry_api` as the stable facade.

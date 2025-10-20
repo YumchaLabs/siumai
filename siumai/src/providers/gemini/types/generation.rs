@@ -155,7 +155,7 @@ impl GenerationConfig {
 ///
 /// Note: Different models have different thinking capabilities. The API will
 /// return appropriate errors if unsupported configurations are used.
-#[derive(Debug, Clone, Serialize, Deserialize, validator::Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThinkingConfig {
     /// Thinking budget in tokens.
     /// - Set to -1 for dynamic thinking (model decides when and how much to think)

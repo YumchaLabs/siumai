@@ -571,6 +571,44 @@ impl ChatRequestBuilder {
         self
     }
 
+    // Convenience methods for common parameters
+
+    /// Set the model name
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.common_params.model = model.into();
+        self
+    }
+
+    /// Set the temperature (0.0 to 2.0)
+    pub fn temperature(mut self, temperature: f32) -> Self {
+        self.common_params.temperature = Some(temperature);
+        self
+    }
+
+    /// Set the maximum number of tokens to generate
+    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
+        self.common_params.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// Set the top_p sampling parameter
+    pub fn top_p(mut self, top_p: f32) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
+    /// Set stop sequences
+    pub fn stop_sequences(mut self, sequences: Vec<String>) -> Self {
+        self.common_params.stop_sequences = Some(sequences);
+        self
+    }
+
+    /// Set the random seed for reproducibility
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.common_params.seed = Some(seed);
+        self
+    }
+
     /// Set provider-specific parameters
     pub fn provider_params(mut self, params: ProviderParams) -> Self {
         self.provider_params = Some(params);

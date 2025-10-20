@@ -54,7 +54,6 @@ pub enum SortOrder {
     /// Descending order
     Desc,
 }
-use validator::Validate;
 
 use crate::error::LlmError;
 use crate::types::ProviderType;
@@ -62,7 +61,7 @@ use crate::types::ProviderType;
 // OpenAI ParameterMapper removed; use Transformers for mapping/validation.
 
 /// OpenAI-specific parameter extensions
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenAiParams {
     /// Response format
     pub response_format: Option<ResponseFormat>,
@@ -83,11 +82,9 @@ pub struct OpenAiParams {
     pub user: Option<String>,
 
     /// Frequency penalty (-2.0 to 2.0) - OpenAI standard range
-    #[validate(range(min = -2.0, max = 2.0, message = "Frequency penalty must be between -2.0 and 2.0"))]
     pub frequency_penalty: Option<f32>,
 
     /// Presence penalty (-2.0 to 2.0) - OpenAI standard range
-    #[validate(range(min = -2.0, max = 2.0, message = "Presence penalty must be between -2.0 and 2.0"))]
     pub presence_penalty: Option<f32>,
 
     /// Logit bias
@@ -225,9 +222,24 @@ impl super::common::ProviderParamsExt for OpenAiParams {
 impl OpenAiParams {
     /// Validate OpenAI-specific parameters
     pub fn validate_params(&self) -> Result<(), LlmError> {
-        use validator::Validate;
-        self.validate()
-            .map_err(|e| LlmError::InvalidParameter(e.to_string()))?;
+        // Validate frequency_penalty (-2.0 to 2.0)
+        if let Some(penalty) = self.frequency_penalty {
+            if !(-2.0..=2.0).contains(&penalty) {
+                return Err(LlmError::InvalidParameter(
+                    "Frequency penalty must be between -2.0 and 2.0".to_string(),
+                ));
+            }
+        }
+
+        // Validate presence_penalty (-2.0 to 2.0)
+        if let Some(penalty) = self.presence_penalty {
+            if !(-2.0..=2.0).contains(&penalty) {
+                return Err(LlmError::InvalidParameter(
+                    "Presence penalty must be between -2.0 and 2.0".to_string(),
+                ));
+            }
+        }
+
         Ok(())
     }
 
