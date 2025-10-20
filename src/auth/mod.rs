@@ -2,17 +2,18 @@
 //! This module defines a minimal trait to supply Bearer tokens (e.g., for Vertex AI).
 
 use crate::error::LlmError;
+use async_trait::async_trait;
 
-/// A synchronous Bearer token provider.
+/// An async Bearer token provider.
 ///
 /// Notes:
-/// - The interface is intentionally synchronous to integrate with existing
-///   header-builder call sites which are not async.
-/// - Implementations may perform caching internally and refresh tokens
+/// - The interface is async to allow for network calls without blocking.
+/// - Implementations should perform caching internally and refresh tokens
 ///   when necessary.
+#[async_trait]
 pub trait TokenProvider: Send + Sync {
     /// Returns an access token string suitable for the `Authorization: Bearer <token>` header.
-    fn token(&self) -> Result<String, LlmError>;
+    async fn token(&self) -> Result<String, LlmError>;
 }
 
 /// A simple static token provider useful for tests and basic scenarios where
@@ -30,11 +31,14 @@ impl StaticTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for StaticTokenProvider {
-    fn token(&self) -> Result<String, LlmError> {
+    async fn token(&self) -> Result<String, LlmError> {
         Ok(self.token.clone())
     }
 }
 
+#[cfg(feature = "gcp")]
 pub mod adc;
+#[cfg(feature = "gcp")]
 pub mod service_account;

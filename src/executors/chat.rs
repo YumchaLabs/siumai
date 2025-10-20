@@ -48,7 +48,7 @@ pub struct HttpChatExecutor {
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     // Strategy hooks
     pub build_url: Box<dyn Fn(bool) -> String + Send + Sync>,
-    pub build_headers: Arc<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
+    pub build_headers: Arc<dyn (Fn() -> Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>) + Send + Sync>,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
 }
@@ -217,7 +217,7 @@ mod tests {
             interceptors: vec![],
             middlewares: vec![std::sync::Arc::new(Outer), std::sync::Arc::new(Inner)],
             build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(|| Ok(reqwest::header::HeaderMap::new())),
+            build_headers: Arc::new(|| Box::pin(async { Ok(reqwest::header::HeaderMap::new()) })),
             before_send: None,
         };
 
@@ -296,7 +296,7 @@ mod tests {
             interceptors: vec![],
             middlewares: vec![Arc::new(Outer), Arc::new(Inner)],
             build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(|| Ok(reqwest::header::HeaderMap::new())),
+            build_headers: Arc::new(|| Box::pin(async { Ok(reqwest::header::HeaderMap::new()) })),
             before_send: None,
         };
 
@@ -619,14 +619,14 @@ impl ChatExecutor for HttpChatExecutor {
         // Pre-compute URL and initial headers (provider/base-level). Request-level headers are merged later per-request.
         let url = (self.build_url)(false);
         let build_headers = self.build_headers.clone();
-        let headers_initial = (build_headers)()?;
+        let headers_initial = (build_headers)().await?;
         let headers_for_interceptors_initial = headers_initial.clone();
 
         // Base async generator (no post_generate here)
         let base: Arc<GenerateAsyncFn> = Arc::new(move |req_in: ChatRequest| {
             let url = url.clone();
             let headers_initial = headers_initial.clone();
-            let headers_for_interceptors_initial = headers_for_interceptors_initial.clone();
+            let _headers_for_interceptors_initial = headers_for_interceptors_initial.clone();
             let client = client.clone();
             let request_tx = request_tx.clone();
             let response_tx = response_tx.clone();
@@ -682,7 +682,7 @@ impl ChatExecutor for HttpChatExecutor {
                         let status = resp.status();
                         if status.as_u16() == 401 {
                             // Rebuild headers and retry once
-                            let headers_retry = (build_headers2)()?;
+                            let headers_retry = (build_headers2)().await?;
                             let headers_retry = {
                                 let mut h = headers_retry;
                                 if let Some(hc) = &req_in.http_config {
@@ -844,7 +844,7 @@ impl ChatExecutor for HttpChatExecutor {
         // Initialize telemetry if enabled
         let trace_id = uuid::Uuid::new_v4().to_string();
         let span_id = uuid::Uuid::new_v4().to_string();
-        let start_time = std::time::SystemTime::now();
+        let _start_time = std::time::SystemTime::now();
         let telemetry_config = req.telemetry.clone();
 
         if let Some(ref telemetry) = telemetry_config {
@@ -902,7 +902,7 @@ impl ChatExecutor for HttpChatExecutor {
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
         let url = (self.build_url)(true);
-        let headers_base = (self.build_headers)()?;
+        let headers_base = (self.build_headers)().await?;
         let disable_compression = self.stream_disable_compression;
         let middlewares = self.middlewares.clone();
 

@@ -17,7 +17,7 @@ pub struct HttpAudioExecutor {
     pub http_client: reqwest::Client,
     pub transformer: Arc<dyn AudioTransformer>,
     pub build_base_url: Box<dyn Fn() -> String + Send + Sync>,
-    pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
+    pub build_headers: Box<dyn (Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<HeaderMap, LlmError>> + Send>>) + Send + Sync>,
 }
 
 #[async_trait::async_trait]
@@ -29,7 +29,7 @@ impl AudioExecutor for HttpAudioExecutor {
             (self.build_base_url)(),
             self.transformer.tts_endpoint()
         );
-        let headers = (self.build_headers)()?;
+        let headers = (self.build_headers)().await?;
 
         let builder = self.http_client.post(url).headers(headers);
         let resp = match body {
@@ -62,7 +62,7 @@ impl AudioExecutor for HttpAudioExecutor {
             (self.build_base_url)(),
             self.transformer.stt_endpoint()
         );
-        let headers = (self.build_headers)()?;
+        let headers = (self.build_headers)().await?;
 
         let builder = self.http_client.post(url).headers(headers);
         let resp = match body {

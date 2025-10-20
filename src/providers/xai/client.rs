@@ -250,7 +250,15 @@ impl ChatCapability for XaiClient {
         let custom_headers = self.chat_capability.http_config.headers.clone();
         let req_tx = super::transformers::XaiRequestTransformer;
         let resp_tx = super::transformers::XaiResponseTransformer;
-        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
+        let headers_builder = move || {
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&api_key, &custom_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
         let exec = HttpChatExecutor {
             provider_id: "xai".to_string(),
             http_client: http,
@@ -281,7 +289,15 @@ impl ChatCapability for XaiClient {
             provider_id: "xai".to_string(),
             inner,
         };
-        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
+        let headers_builder = move || {
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&api_key, &custom_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
         let exec = HttpChatExecutor {
             provider_id: "xai".to_string(),
             http_client: http,

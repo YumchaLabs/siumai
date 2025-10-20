@@ -8,10 +8,9 @@
 use std::sync::Arc;
 
 use crate::error::LlmError;
-use crate::traits::{ChatCapability, ChatExtensions};
+use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ProviderParams, Tool, Usage};
 use futures::Stream;
-use jsonschema::JSONSchema;
 use serde::de::DeserializeOwned;
 use std::pin::Pin;
 
@@ -184,11 +183,11 @@ fn try_parse_validate_deserialize<T: DeserializeOwned>(
 
     if let Some(s) = schema {
         if s.is_object() {
-            let compiled = JSONSchema::compile(s)
+            let compiled = jsonschema::validator_for(s)
                 .map_err(|e| LlmError::InvalidParameter(format!("Invalid JSON Schema: {}", e)))?;
-            if let Err(errors) = compiled.validate(&value) {
+            if compiled.validate(&value).is_err() {
                 let mut msgs = Vec::new();
-                for err in errors {
+                for err in compiled.iter_errors(&value) {
                     msgs.push(format!("{} at {}", err, err.instance_path));
                     if msgs.len() >= 3 {
                         break;

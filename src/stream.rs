@@ -558,8 +558,6 @@ impl Stream for TelemetryStreamWrapper {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        use futures::StreamExt;
-
         let poll_result = Pin::new(&mut self.inner).poll_next(cx);
 
         match &poll_result {

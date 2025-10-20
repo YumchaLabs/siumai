@@ -258,10 +258,16 @@ impl AnthropicClient {
             self.specific_params.clone(),
         ));
         let resp_tx = super::transformers::AnthropicResponseTransformer;
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
-            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let exec = Arc::new(HttpChatExecutor {
             provider_id: "anthropic".to_string(),
@@ -333,10 +339,16 @@ impl ChatCapability for AnthropicClient {
             provider_id: "anthropic".to_string(),
             inner: stream_converter,
         };
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
-            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let exec = Arc::new(HttpChatExecutor {
             provider_id: "anthropic".to_string(),
@@ -365,10 +377,16 @@ impl ChatCapability for AnthropicClient {
             self.specific_params.clone(),
         ));
         let resp_tx = super::transformers::AnthropicResponseTransformer;
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
-            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let exec = std::sync::Arc::new(HttpChatExecutor {
             provider_id: "anthropic".to_string(),
@@ -403,10 +421,16 @@ impl ChatCapability for AnthropicClient {
             provider_id: "anthropic".to_string(),
             inner: stream_converter,
         };
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
-            let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let exec = std::sync::Arc::new(HttpChatExecutor {
             provider_id: "anthropic".to_string(),

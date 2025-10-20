@@ -82,7 +82,6 @@ impl LanguageModelMiddleware for SimulateStreamingMiddleware {
                 let s = next(req).await?;
                 let mut saw_delta = false;
                 let stream = async_stream::try_stream! {
-                    use crate::types::MessageContent;
                     use crate::types::ChatResponse;
                     let mut final_resp: Option<ChatResponse> = None;
                     let mut inner = s;

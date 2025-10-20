@@ -311,8 +311,18 @@ impl ChatCapability for OpenAiCompatibleClient {
         let adapter_headers_map = self.config.adapter.custom_headers();
         let http_extra = self.config.http_config.headers.clone();
         let cfg_custom = self.config.custom_headers.clone();
+        let api_key_clone = api_key.clone();
+        let http_extra_clone = http_extra.clone();
+        let cfg_custom_clone = cfg_custom.clone();
+        let adapter_headers_map_clone = adapter_headers_map.clone();
         let headers_builder = move || {
-            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            let api_key = api_key_clone.clone();
+            let http_extra = http_extra_clone.clone();
+            let cfg_custom = cfg_custom_clone.clone();
+            let adapter_headers_map = adapter_headers_map_clone.clone();
+            Box::pin(async move {
+                Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let exec = std::sync::Arc::new(HttpChatExecutor {
             provider_id: provider_id.clone(),
@@ -381,8 +391,18 @@ impl ChatCapability for OpenAiCompatibleClient {
             provider_id: provider_id.clone(),
             inner: std_adapter,
         };
+        let api_key_clone = api_key.clone();
+        let http_extra_clone = http_extra.clone();
+        let cfg_custom_clone = cfg_custom.clone();
+        let adapter_headers_map_clone = adapter_headers_map.clone();
         let headers_builder = move || {
-            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            let api_key = api_key_clone.clone();
+            let http_extra = http_extra_clone.clone();
+            let cfg_custom = cfg_custom_clone.clone();
+            let adapter_headers_map = adapter_headers_map_clone.clone();
+            Box::pin(async move {
+                Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let exec = std::sync::Arc::new(HttpChatExecutor {
             provider_id: provider_id.clone(),
@@ -423,8 +443,18 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
             config: self.config.clone(),
             adapter: self.config.adapter.clone(),
         };
+        let api_key_clone = api_key.clone();
+        let http_extra_clone = http_extra.clone();
+        let cfg_custom_clone = cfg_custom.clone();
+        let adapter_headers_map_clone = adapter_headers_map.clone();
         let headers_builder = move || {
-            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            let api_key = api_key_clone.clone();
+            let http_extra = http_extra_clone.clone();
+            let cfg_custom = cfg_custom_clone.clone();
+            let adapter_headers_map = adapter_headers_map_clone.clone();
+            Box::pin(async move {
+                Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -661,8 +691,18 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
             config: self.config.clone(),
             adapter: self.config.adapter.clone(),
         };
+        let api_key_clone = api_key.clone();
+        let http_extra_clone = http_extra.clone();
+        let cfg_custom_clone = cfg_custom.clone();
+        let adapter_headers_map_clone = adapter_headers_map.clone();
         let headers_builder = move || {
-            Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            let api_key = api_key_clone.clone();
+            let http_extra = http_extra_clone.clone();
+            let cfg_custom = cfg_custom_clone.clone();
+            let adapter_headers_map = adapter_headers_map_clone.clone();
+            Box::pin(async move {
+                Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(

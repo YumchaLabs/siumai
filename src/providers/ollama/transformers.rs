@@ -6,7 +6,7 @@ use crate::error::LlmError;
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer,
 };
-use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, ToolCall, Usage};
+use crate::types::{ChatRequest, ChatResponse, FinishReason, Usage};
 
 #[derive(Clone)]
 pub struct OllamaRequestTransformer {

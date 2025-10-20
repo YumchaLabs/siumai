@@ -193,7 +193,15 @@ impl ChatCapability for GroqClient {
         let custom_headers = self.config.http_config.headers.clone();
         let req_tx = super::transformers::GroqRequestTransformer;
         let resp_tx = super::transformers::GroqResponseTransformer;
-        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
+        let headers_builder = move || {
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&api_key, &custom_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
         let exec = HttpChatExecutor {
             provider_id: "groq".to_string(),
             http_client: http,
@@ -224,7 +232,15 @@ impl ChatCapability for GroqClient {
             provider_id: "groq".to_string(),
             inner,
         };
-        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
+        let headers_builder = move || {
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&api_key, &custom_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
         let exec = HttpChatExecutor {
             provider_id: "groq".to_string(),
             http_client: http,
@@ -262,7 +278,15 @@ impl AudioCapability for GroqClient {
         let api_key = self.config.api_key.clone();
         let custom_headers = self.config.http_config.headers.clone();
         let transformer = super::transformers::GroqAudioTransformer;
-        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
+        let headers_builder = move || {
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&api_key, &custom_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
         let exec = HttpAudioExecutor {
             provider_id: "groq".to_string(),
             http_client: http,
@@ -290,7 +314,15 @@ impl AudioCapability for GroqClient {
         let api_key = self.config.api_key.clone();
         let custom_headers = self.config.http_config.headers.clone();
         let transformer = super::transformers::GroqAudioTransformer;
-        let headers_builder = move || super::utils::build_headers(&api_key, &custom_headers);
+        let api_key_clone = api_key.clone();
+        let custom_headers_clone = custom_headers.clone();
+        let headers_builder = move || {
+            let api_key = api_key_clone.clone();
+            let custom_headers = custom_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&api_key, &custom_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
         let exec = HttpAudioExecutor {
             provider_id: "groq".to_string(),
             http_client: http,

@@ -892,10 +892,9 @@ impl SiumaiBuilder {
 
     /// Use Application Default Credentials as Gemini (Vertex AI) token source.
     /// This is a convenience method that sets an ADC-based TokenProvider internally.
-    #[cfg(feature = "google")]
+    #[cfg(all(feature = "google", feature = "gcp"))]
     pub fn with_gemini_adc(mut self) -> Self {
-        let http = reqwest::blocking::Client::new();
-        let adc = crate::auth::adc::AdcTokenProvider::new(http);
+        let adc = crate::auth::adc::AdcTokenProvider::default_client();
         self.gemini_token_provider = Some(std::sync::Arc::new(adc));
         self
     }

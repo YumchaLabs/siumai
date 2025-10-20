@@ -34,7 +34,7 @@ pub struct HttpImageExecutor {
     pub request_transformer: Arc<dyn RequestTransformer>,
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub build_url: Box<dyn Fn() -> String + Send + Sync>,
-    pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
+    pub build_headers: Box<dyn (Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<HeaderMap, LlmError>> + Send>>) + Send + Sync>,
     /// Optional external parameter transformer (plugin-like), applied to JSON bodies only
     pub before_send: Option<crate::executors::BeforeSendHook>,
 }
@@ -48,7 +48,7 @@ impl ImageExecutor for HttpImageExecutor {
         let url = (self.build_url)();
         let build_and_send = || async {
             let body0 = self.request_transformer.transform_image(&req)?;
-            let headers0 = (self.build_headers)()?;
+            let headers0 = (self.build_headers)().await?;
             let body0 = if let Some(cb) = &self.before_send {
                 cb(&body0)?
             } else {
@@ -99,7 +99,7 @@ impl ImageExecutor for HttpImageExecutor {
         let url = (self.build_url)();
         let build_and_send = || async {
             let body0 = self.request_transformer.transform_image_edit(&req)?;
-            let headers0 = (self.build_headers)()?;
+            let headers0 = (self.build_headers)().await?;
             let builder0 = self.http_client.post(&url).headers(headers0);
             let resp0 = match body0 {
                 ImageHttpBody::Json(json) => builder0.json(&json).send().await,
@@ -141,7 +141,7 @@ impl ImageExecutor for HttpImageExecutor {
         let url = (self.build_url)();
         let build_and_send = || async {
             let body0 = self.request_transformer.transform_image_variation(&req)?;
-            let headers0 = (self.build_headers)()?;
+            let headers0 = (self.build_headers)().await?;
             let builder0 = self.http_client.post(&url).headers(headers0);
             let resp0 = match body0 {
                 ImageHttpBody::Json(json) => builder0.json(&json).send().await,

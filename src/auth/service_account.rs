@@ -3,8 +3,12 @@
 //! This provider implements the OAuth 2.0 JWT Bearer grant flow using a Service Account
 //! private key to obtain an access token from Google's token endpoint. Tokens are cached
 //! in-memory and refreshed before expiration.
+//!
+//! Note: Uses async reqwest client internally but provides a sync interface via
+//! tokio::task::block_in_place to avoid requiring blocking feature.
 
 use crate::error::LlmError;
+#[cfg(feature = "gcp")]
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Condvar, Mutex};
@@ -71,9 +75,12 @@ struct CachedToken {
 }
 
 /// Service Account based token provider with in-memory caching.
+///
+/// Uses async reqwest client internally but provides sync interface.
+#[derive(Clone)]
 pub struct ServiceAccountTokenProvider {
     creds: ServiceAccountCredentials,
-    http: reqwest::blocking::Client,
+    http: reqwest::Client,
     cache: Arc<Mutex<Option<CachedToken>>>,
     subject: Option<String>,
     assertion_override: Option<String>,
@@ -83,11 +90,11 @@ pub struct ServiceAccountTokenProvider {
 
 impl ServiceAccountTokenProvider {
     /// Create a new provider.
-    /// - `http` can be a shared reqwest client.
+    /// - `http` can be a shared async reqwest client.
     /// - `subject` is optional user to impersonate (rarely needed).
     pub fn new(
         creds: ServiceAccountCredentials,
-        http: reqwest::blocking::Client,
+        http: reqwest::Client,
         subject: Option<String>,
     ) -> Self {
         Self {
@@ -103,7 +110,7 @@ impl ServiceAccountTokenProvider {
     /// Constructor to bypass cryptographic signing and inject a prebuilt assertion (primarily for tests).
     pub fn new_with_assertion_override(
         creds: ServiceAccountCredentials,
-        http: reqwest::blocking::Client,
+        http: reqwest::Client,
         subject: Option<String>,
         assertion: String,
     ) -> Self {
@@ -153,7 +160,7 @@ impl ServiceAccountTokenProvider {
     }
 
     /// Perform JWT Bearer grant to obtain a new access token.
-    fn fetch_new_token(&self) -> Result<String, LlmError> {
+    async fn fetch_new_token(&self) -> Result<String, LlmError> {
         // Build JWT claims
         let now = chrono::Utc::now().timestamp();
         let scope = self.scope_string();
@@ -191,6 +198,7 @@ impl ServiceAccountTokenProvider {
             .post(aud)
             .form(&form)
             .send()
+            .await
             .map_err(|e| LlmError::HttpError(format!("Token endpoint request failed: {e}")))?;
 
         let resp = resp
@@ -199,6 +207,7 @@ impl ServiceAccountTokenProvider {
 
         let tr: TokenResponse = resp
             .json()
+            .await
             .map_err(|e| LlmError::ParseError(format!("Failed to parse token response: {e}")))?;
 
         self.cache_token(tr.access_token.clone(), tr.expires_in);
@@ -206,38 +215,53 @@ impl ServiceAccountTokenProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::auth::TokenProvider for ServiceAccountTokenProvider {
-    fn token(&self) -> Result<String, LlmError> {
+    async fn token(&self) -> Result<String, LlmError> {
         if let Some(tok) = self.get_cached_token() {
             return Ok(tok);
         }
         // Prevent thundering herd: single fetch, others wait
         let (lock, cvar) = &*self.refreshing;
-        // Fast path: attempt to become the refesher
-        {
+
+        // Fast path: attempt to become the refresher
+        let should_refresh = {
             let mut refreshing = lock.lock().unwrap();
             if !*refreshing {
                 *refreshing = true;
-                drop(refreshing);
-                let res = self.fetch_new_token();
-                let mut refreshing = lock.lock().unwrap();
-                *refreshing = false;
-                cvar.notify_all();
-                return res;
+                true
+            } else {
+                false
+            }
+        };
+
+        if should_refresh {
+            let res = self.fetch_new_token().await;
+            let mut refreshing = lock.lock().unwrap();
+            *refreshing = false;
+            cvar.notify_all();
+            return res;
+        }
+
+        // Wait for the in-flight refresh to complete
+        {
+            let mut refreshing = lock.lock().unwrap();
+            while *refreshing {
+                refreshing = cvar.wait(refreshing).unwrap();
             }
         }
-        // Wait for the in-flight refresh to complete
-        let mut refreshing = lock.lock().unwrap();
-        while *refreshing {
-            refreshing = cvar.wait(refreshing).unwrap();
-        }
+
         if let Some(tok) = self.get_cached_token() {
             return Ok(tok);
         }
+
         // As a fallback, fetch again (rare race)
-        *refreshing = true;
-        drop(refreshing);
-        let res = self.fetch_new_token();
+        {
+            let mut refreshing = lock.lock().unwrap();
+            *refreshing = true;
+        }
+
+        let res = self.fetch_new_token().await;
         let mut refreshing = lock.lock().unwrap();
         *refreshing = false;
         cvar.notify_all();

@@ -14,7 +14,7 @@ use crate::error::LlmError;
 use crate::stream::{ChatStream, ChatStreamEvent};
 use crate::telemetry::{
     TelemetryConfig,
-    events::{GenerationEvent, OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
+    events::{OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
 };
 use crate::traits::ChatCapability;
 use crate::types::{
@@ -29,11 +29,11 @@ fn validate_args_with_schema(schema: &Value, instance: &Value) -> Result<(), Str
     if !schema.is_object() {
         return Ok(());
     }
-    match jsonschema::JSONSchema::compile(schema) {
+    match jsonschema::validator_for(schema) {
         Ok(compiled) => {
-            if let Err(errors) = compiled.validate(instance) {
+            if compiled.validate(instance).is_err() {
                 let mut msgs = Vec::new();
-                for err in errors {
+                for err in compiled.iter_errors(instance) {
                     msgs.push(format!("{} at {}", err, err.instance_path));
                     if msgs.len() >= 3 {
                         break;
@@ -185,7 +185,7 @@ pub async fn generate(
         }
     }
 
-    for step_idx in 0..max_steps {
+    for _step_idx in 0..max_steps {
         let resp = model
             .chat_with_tools(history.clone(), tools.clone())
             .await?;

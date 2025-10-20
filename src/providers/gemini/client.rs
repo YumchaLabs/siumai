@@ -542,15 +542,21 @@ impl ChatCapability for GeminiClient {
             .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
+        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp
-                && let Ok(tok) = tp.token()
-            {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-            let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            Ok(headers)
+            let extra = base_extra.clone();
+            let tp = tp.clone();
+            let api_key = api_key_clone.clone();
+            Box::pin(async move {
+                let mut extra = extra;
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         };
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
@@ -600,15 +606,21 @@ impl ChatCapability for GeminiClient {
             .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
+        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp
-                && let Ok(tok) = tp.token()
-            {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-            let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            Ok(headers)
+            let extra = base_extra.clone();
+            let tp = tp.clone();
+            let api_key = api_key_clone.clone();
+            Box::pin(async move {
+                let mut extra = extra;
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let headers = crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         };
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
@@ -669,17 +681,22 @@ impl EmbeddingCapability for GeminiClient {
             .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
+        let api_key_for_headers = api_key.clone();
         let headers_builder = move || {
             let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp
-                && let Ok(tok) = tp.token()
-            {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let tp = tp.clone();
+            let api_key = api_key_for_headers.clone();
+            Box::pin(async move {
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let build_url = move |r: &EmbeddingRequest| {
             if r.input.len() == 1 {
@@ -775,11 +792,17 @@ impl EmbeddingExtensions for GeminiClient {
             .clone()
             .map(|c| c.headers)
             .unwrap_or_default();
+        let api_key_for_headers = api_key.clone();
+        let extra_for_headers = extra.clone();
         let headers_builder = move || {
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let api_key = api_key_for_headers.clone();
+            let extra = extra_for_headers.clone();
+            Box::pin(async move {
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let build_url = move |r: &EmbeddingRequest| {
             if r.input.len() == 1 {
@@ -860,23 +883,30 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
             config: self.config.clone(),
         };
         // Merge extra custom headers (e.g., Vertex AI Bearer auth)
-        let mut extra = self
+        let base_extra = self
             .config
             .http_config
             .clone()
             .map(|c| c.headers)
             .unwrap_or_default();
-        if let Some(ref tp) = self.config.token_provider
-            && let Ok(tok) = tp.token()
-        {
-            extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-        }
+        let tp = self.config.token_provider.clone();
+        let api_key_for_headers = api_key.clone();
         let headers_builder = move || {
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            // Inject tracing headers
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let mut extra = base_extra.clone();
+            let tp = tp.clone();
+            let api_key = api_key_for_headers.clone();
+            Box::pin(async move {
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                // Inject tracing headers
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
         };
         let base_clone_for_url = base.clone();
         let model_clone_for_url = model.clone();

@@ -375,7 +375,13 @@ impl ChatCapability for OllamaClient {
         let base = self.base_url.clone();
         let params = self.ollama_params.clone();
         let extra_headers = self.chat_capability.http_config.headers.clone();
-        let headers_builder = move || super::utils::build_headers(&extra_headers);
+        let extra_headers_clone = extra_headers.clone();
+        let headers_builder = move || {
+            let extra_headers = extra_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&extra_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
         let req_tx = super::transformers::OllamaRequestTransformer { params };
         let resp_tx = super::transformers::OllamaResponseTransformer;
         let json_converter: std::sync::Arc<dyn crate::utils::streaming::JsonEventConverter> =
@@ -406,7 +412,13 @@ impl ChatCapability for OllamaClient {
         };
         let resp_tx = super::transformers::OllamaResponseTransformer;
         let extra_headers = self.chat_capability.http_config.headers.clone();
-        let headers_builder = move || super::utils::build_headers(&extra_headers);
+        let extra_headers_clone = extra_headers.clone();
+        let headers_builder = move || {
+            let extra_headers = extra_headers_clone.clone();
+            Box::pin(async move {
+                super::utils::build_headers(&extra_headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+        };
 
         let exec = HttpChatExecutor {
             provider_id: "ollama".to_string(),
@@ -429,7 +441,13 @@ impl ChatCapability for OllamaClient {
                 let base = self.base_url.clone();
                 let params = self.ollama_params.clone();
                 let extra_headers = self.chat_capability.http_config.headers.clone();
-                let headers_builder = move || super::utils::build_headers(&extra_headers);
+                let extra_headers_for_builder = extra_headers.clone();
+                let headers_builder = move || {
+                    let extra_headers = extra_headers_for_builder.clone();
+                    Box::pin(async move {
+                        super::utils::build_headers(&extra_headers)
+                    }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>> + Send>>
+                };
                 async move {
                     let req_tx = super::transformers::OllamaRequestTransformer { params };
                     let resp_tx = super::transformers::OllamaResponseTransformer;

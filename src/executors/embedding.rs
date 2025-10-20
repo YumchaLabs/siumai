@@ -18,7 +18,7 @@ pub struct HttpEmbeddingExecutor {
     pub request_transformer: Arc<dyn RequestTransformer>,
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub build_url: Box<dyn Fn(&EmbeddingRequest) -> String + Send + Sync>,
-    pub build_headers: Box<dyn Fn() -> Result<HeaderMap, LlmError> + Send + Sync>,
+    pub build_headers: Box<dyn (Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<HeaderMap, LlmError>> + Send>>) + Send + Sync>,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
 }
@@ -28,7 +28,7 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
     async fn execute(&self, req: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
         let body = self.request_transformer.transform_embedding(&req)?;
         let url = (self.build_url)(&req);
-        let headers = (self.build_headers)()?;
+        let headers = (self.build_headers)().await?;
 
         let body = if let Some(cb) = &self.before_send {
             cb(&body)?
@@ -48,7 +48,7 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
             let status = resp.status();
             if status.as_u16() == 401 {
                 let url = (self.build_url)(&req);
-                let headers = (self.build_headers)()?;
+                let headers = (self.build_headers)().await?;
                 self.http_client
                     .post(url)
                     .headers(headers)

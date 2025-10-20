@@ -45,12 +45,15 @@ impl VertexAnthropicClient {
 
     fn build_headers_fn(
         &self,
-    ) -> impl Fn() -> Result<reqwest::header::HeaderMap, LlmError> + Send + Sync + 'static {
+    ) -> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>> + Send + Sync + 'static {
         let extra = self.config.http_config.headers.clone();
         move || {
-            let mut headers = crate::utils::http_headers::ProviderHeaders::vertex_bearer(&extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let extra = extra.clone();
+            Box::pin(async move {
+                let mut headers = crate::utils::http_headers::ProviderHeaders::vertex_bearer(&extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         }
     }
 
@@ -193,7 +196,7 @@ impl VertexAnthropicClient {
 impl ModelListingCapability for VertexAnthropicClient {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let url = self.models_url();
-        let headers = (self.build_headers_fn())()?;
+        let headers = (self.build_headers_fn())().await?;
         let resp = self
             .http_client
             .get(url.clone())
@@ -204,7 +207,7 @@ impl ModelListingCapability for VertexAnthropicClient {
         let resp = if !resp.status().is_success() {
             let status = resp.status();
             if status.as_u16() == 401 {
-                let headers = (self.build_headers_fn())()?;
+                let headers = (self.build_headers_fn())().await?;
                 self.http_client
                     .get(url)
                     .headers(headers)
@@ -288,7 +291,7 @@ impl ModelListingCapability for VertexAnthropicClient {
         // Attempt to fetch a specific model; if endpoint is unavailable, fallback to minimal info
         let url =
             crate::utils::url::join_url(&self.config.base_url, &format!("models/{}", model_id));
-        let headers = (self.build_headers_fn())()?;
+        let headers = (self.build_headers_fn())().await?;
         let resp = self
             .http_client
             .get(url.clone())

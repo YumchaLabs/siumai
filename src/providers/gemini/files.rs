@@ -95,17 +95,23 @@ impl FileManagementCapability for GeminiFiles {
             .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
+        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp
-                && let Ok(tok) = tp.token()
-            {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let extra = base_extra.clone();
+            let tp = tp.clone();
+            let api_key = api_key_clone.clone();
+            Box::pin(async move {
+                let mut extra = extra;
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         };
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
@@ -133,17 +139,23 @@ impl FileManagementCapability for GeminiFiles {
             .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
+        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp
-                && let Ok(tok) = tp.token()
-            {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let extra = base_extra.clone();
+            let tp = tp.clone();
+            let api_key = api_key_clone.clone();
+            Box::pin(async move {
+                let mut extra = extra;
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         };
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
@@ -171,17 +183,23 @@ impl FileManagementCapability for GeminiFiles {
             .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
+        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp
-                && let Ok(tok) = tp.token()
-            {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let extra = base_extra.clone();
+            let tp = tp.clone();
+            let api_key = api_key_clone.clone();
+            Box::pin(async move {
+                let mut extra = extra;
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         };
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
@@ -208,11 +226,17 @@ impl FileManagementCapability for GeminiFiles {
             .clone()
             .map(|c| c.headers)
             .unwrap_or_default();
+        let api_key_clone = api_key.clone();
+        let extra_clone = extra.clone();
         let headers_builder = move || {
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let api_key = api_key_clone.clone();
+            let extra = extra_clone.clone();
+            Box::pin(async move {
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         };
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
@@ -240,17 +264,23 @@ impl FileManagementCapability for GeminiFiles {
             .map(|c| c.headers)
             .unwrap_or_default();
         let tp = self.config.token_provider.clone();
+        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            if let Some(ref tp) = tp
-                && let Ok(tok) = tp.token()
-            {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(headers)
+            let extra = base_extra.clone();
+            let tp = tp.clone();
+            let api_key = api_key_clone.clone();
+            Box::pin(async move {
+                let mut extra = extra;
+                if let Some(ref tp) = tp {
+                    if let Ok(tok) = tp.token().await {
+                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                    }
+                }
+                let mut headers =
+                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>>
         };
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
