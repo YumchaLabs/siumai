@@ -1,8 +1,8 @@
 //! Chat Request - Using client.chat_request() (Recommended ⭐)
 //!
-//! This example demonstrates the recommended way to use chat API in 0.11.0+.
-//! ChatRequest preserves all enhanced fields: provider_params, http_config,
-//! web_search, and telemetry.
+//! This example demonstrates the recommended way to use chat API in 0.12.0+.
+//! ChatRequest supports all features: provider_options, http_config,
+//! and telemetry.
 //!
 //! ## Why use chat_request?
 //! - ✅ Full control over all request parameters
@@ -46,14 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client.chat_request(request).await?;
     println!("AI: {}\n", response.content_text().unwrap());
 
-    // Method 3: With provider-specific parameters
-    println!("Method 3: With provider params");
-    let provider_params =
-        ProviderParams::new().with_param("frequency_penalty", serde_json::json!(0.5));
-
+    // Method 3: With multiple parameters
+    println!("Method 3: With multiple parameters");
     let request = ChatRequest::builder()
         .message(user!("Tell me a joke"))
-        .provider_params(provider_params)
+        .temperature(0.9)
+        .max_tokens(100)
         .build();
 
     let response = client.chat_request(request).await?;

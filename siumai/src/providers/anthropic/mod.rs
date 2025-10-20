@@ -7,6 +7,7 @@ pub mod cache;
 pub mod client;
 pub mod model_constants;
 pub mod models;
+pub mod spec;
 pub mod streaming;
 pub mod thinking;
 pub mod transformers;

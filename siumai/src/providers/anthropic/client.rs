@@ -10,6 +10,7 @@ use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 // use crate::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::params::AnthropicParams;
+use crate::provider_core::ProviderSpec;
 use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
 use crate::traits::*;
@@ -236,37 +237,28 @@ impl AnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        // Unified ChatRequest
+        // Build unified request
         let request = ChatRequest {
             messages,
             tools,
             common_params: self.common_params.clone(),
-            provider_params: None,
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
-        // Executors wiring
+        // Route via ProviderSpec
+        let ctx = crate::provider_core::ProviderContext::new(
+            "anthropic",
+            self.base_url.clone(),
+            Some(self.api_key.clone()),
+            self.http_config.headers.clone(),
+        );
+        let spec = crate::providers::anthropic::spec::AnthropicSpec;
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let base = self.base_url.clone();
-        let api_key = self.api_key.clone();
-        let custom_headers = self.http_config.headers.clone();
-        let req_tx = super::transformers::AnthropicRequestTransformer::new(Some(
-            self.specific_params.clone(),
-        ));
-        let resp_tx = super::transformers::AnthropicResponseTransformer;
-        let api_key_clone = api_key.clone();
-        let custom_headers_clone = custom_headers.clone();
+        let ctx_for_headers = ctx.clone();
         let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move {
-                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
+            let ctx = ctx_for_headers.clone();
+            Box::pin(async move { spec.build_headers(&ctx) })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<
@@ -275,17 +267,21 @@ impl AnthropicClient {
                     >,
                 >
         };
+        let ctx_for_url = ctx.clone();
+        let build_url = move |stream: bool, req: &crate::types::ChatRequest| {
+            spec.chat_url(stream, req, &ctx_for_url)
+        };
         let exec = Arc::new(HttpChatExecutor {
             provider_id: "anthropic".to_string(),
             http_client: http,
-            request_transformer: Arc::new(req_tx),
-            response_transformer: Arc::new(resp_tx),
-            stream_transformer: None,
-            json_stream_converter: None,
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            stream_transformer: bundle.stream,
+            json_stream_converter: bundle.json,
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_url: Box::new(build_url),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         });
@@ -324,37 +320,24 @@ impl ChatCapability for AnthropicClient {
             messages,
             tools,
             common_params: self.common_params.clone(),
-            provider_params: None,
-            http_config: None,
-            web_search: None,
             stream: true,
-            telemetry: None,
+            ..Default::default()
         };
 
+        // Route via ProviderSpec
+        let ctx = crate::provider_core::ProviderContext::new(
+            "anthropic",
+            self.base_url.clone(),
+            Some(self.api_key.clone()),
+            self.http_config.headers.clone(),
+        );
+        let spec = crate::providers::anthropic::spec::AnthropicSpec;
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let base = self.base_url.clone();
-        let api_key = self.api_key.clone();
-        let custom_headers = self.http_config.headers.clone();
-        let req_tx = super::transformers::AnthropicRequestTransformer::new(Some(
-            self.specific_params.clone(),
-        ));
-        let resp_tx = super::transformers::AnthropicResponseTransformer;
-        let stream_converter =
-            super::streaming::AnthropicEventConverter::new(self.anthropic_params.clone());
-        let stream_tx = super::transformers::AnthropicStreamChunkTransformer {
-            provider_id: "anthropic".to_string(),
-            inner: stream_converter,
-        };
-        let api_key_clone = api_key.clone();
-        let custom_headers_clone = custom_headers.clone();
+        let ctx_for_headers = ctx.clone();
         let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move {
-                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
+            let ctx = ctx_for_headers.clone();
+            Box::pin(async move { spec.build_headers(&ctx) })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<
@@ -363,17 +346,21 @@ impl ChatCapability for AnthropicClient {
                     >,
                 >
         };
+        let ctx_for_url = ctx.clone();
+        let build_url = move |stream: bool, req: &crate::types::ChatRequest| {
+            spec.chat_url(stream, req, &ctx_for_url)
+        };
         let exec = Arc::new(HttpChatExecutor {
             provider_id: "anthropic".to_string(),
             http_client: http,
-            request_transformer: Arc::new(req_tx),
-            response_transformer: Arc::new(resp_tx),
-            stream_transformer: Some(Arc::new(stream_tx)),
-            json_stream_converter: None,
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            stream_transformer: bundle.stream,
+            json_stream_converter: bundle.json,
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_url: Box::new(build_url),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         });
@@ -418,7 +405,7 @@ impl ChatCapability for AnthropicClient {
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_url: Box::new(move |_stream, _req| format!("{}/v1/messages", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         });
@@ -469,7 +456,7 @@ impl ChatCapability for AnthropicClient {
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/v1/messages", base)),
+            build_url: Box::new(move |_stream, _req| format!("{}/v1/messages", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         });

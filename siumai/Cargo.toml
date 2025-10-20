@@ -290,18 +290,24 @@ name = "basic-telemetry"
 path = "examples/05-integrations/telemetry/basic-telemetry.rs"
 required-features = ["openai", "telemetry"]
 
-# 06-applications
+# 06-extensibility
+[[example]]
+name = "custom-provider-options"
+path = "examples/06-extensibility/custom-provider-options.rs"
+required-features = ["xai"]
+
+# 07-applications
 [[example]]
 name = "chatbot"
-path = "examples/06-applications/chatbot.rs"
+path = "examples/07-applications/chatbot.rs"
 
 [[example]]
 name = "code-assistant"
-path = "examples/06-applications/code-assistant.rs"
+path = "examples/07-applications/code-assistant.rs"
 
 [[example]]
 name = "api-server"
-path = "examples/06-applications/api-server.rs"
+path = "examples/07-applications/api-server.rs"
 required-features = ["openai", "server-adapters"]
 
 # The profile that 'dist' will build with

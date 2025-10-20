@@ -12,7 +12,7 @@ use siumai::orchestrator::{
     has_tool_call, step_count_is,
 };
 use siumai::prelude::*;
-use siumai::types::{Tool, ToolFunction};
+use siumai::types::Tool;
 
 // Tool resolver with a "finalAnswer" tool
 struct ResearchResolver;

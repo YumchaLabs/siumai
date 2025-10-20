@@ -379,31 +379,27 @@ impl OpenAiBuilder {
         // Step 4: Build HTTP client (inherits all base configuration)
         let http_client = self.base.build_http_client()?;
 
-        // Step 5: Create client
-        let mut client = OpenAiClient::new_legacy(
-            api_key,
+        // Step 5: Create client via unified OpenAiConfig (Spec-based path)
+        let mut cfg = crate::providers::openai::OpenAiConfig {
+            api_key: secrecy::SecretString::from(api_key),
             base_url,
-            http_client,
-            self.common_params,
-            self.openai_params,
-            self.http_config,
-            self.organization,
-            self.project,
-        );
+            organization: self.organization,
+            project: self.project,
+            common_params: self.common_params,
+            openai_params: self.openai_params,
+            http_config: self.http_config,
+            web_search_config: crate::types::WebSearchConfig::default(),
+        };
 
-        // Step 6: Set tracing and retry
+        // Ensure model is set if provided separately
+        if let Some(m) = &self.model {
+            cfg.common_params.model = m.clone();
+        }
+
+        let mut client = OpenAiClient::new(cfg, http_client);
+
+        // Step 6: Set retry
         client.set_retry_options(self.retry_options.clone());
-
-        // Route to Responses API if explicitly enabled
-        client = client.with_responses_api(self.use_responses_api);
-
-        // Apply Responses chaining id and built-in tools if provided
-        if let Some(prev) = self.responses_previous_response_id {
-            client = client.with_previous_response_id(prev);
-        }
-        if !self.responses_built_in_tools.is_empty() {
-            client = client.with_built_in_tools(self.responses_built_in_tools);
-        }
 
         // Step 7: Install HTTP interceptors
         let mut interceptors = self.http_interceptors;

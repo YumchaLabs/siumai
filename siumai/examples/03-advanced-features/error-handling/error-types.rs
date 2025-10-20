@@ -44,8 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match client.chat(vec![user!("Hello")]).await {
             Ok(_) => println!("  Unexpected success"),
             Err(e) => match e {
-                LlmError::ApiError { status, message } => {
-                    println!("  API Error - Status: {}, Message: {}", status, message);
+                LlmError::ApiError { code, message, .. } => {
+                    println!("  API Error - Code: {}, Message: {}", code, message);
                 }
                 _ => println!("  Other error: {:?}", e),
             },
@@ -67,14 +67,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  ✅ Success: {}", response.content_text().unwrap());
             }
             Err(e) => match e {
-                LlmError::ApiError { status, message } => {
-                    println!("  ❌ API Error: {} - {}", status, message);
+                LlmError::ApiError { code, message, .. } => {
+                    println!("  ❌ API Error: {} - {}", code, message);
                 }
-                LlmError::NetworkError(msg) => {
-                    println!("  ❌ Network Error: {}", msg);
+                LlmError::HttpError(msg) => {
+                    println!("  ❌ HTTP Error: {}", msg);
                 }
-                LlmError::RateLimitError { retry_after } => {
-                    println!("  ❌ Rate Limited. Retry after: {:?}", retry_after);
+                LlmError::RateLimitError(msg) => {
+                    println!("  ❌ Rate Limited: {}", msg);
                 }
                 _ => {
                     println!("  ❌ Other Error: {:?}", e);

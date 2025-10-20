@@ -69,10 +69,13 @@ impl VertexAnthropicClient {
         }
     }
 
-    fn build_url_fn(&self, _stream: bool) -> impl Fn(bool) -> String + Send + Sync + 'static {
+    fn build_url_fn(
+        &self,
+        _stream: bool,
+    ) -> impl Fn(bool, &crate::types::ChatRequest) -> String + Send + Sync + 'static {
         let base = self.config.base_url.clone();
         let model = self.config.model.clone();
-        move |is_stream| {
+        move |is_stream, _req: &crate::types::ChatRequest| {
             if is_stream {
                 crate::utils::url::join_url(
                     &base,
@@ -111,11 +114,8 @@ impl ChatCapability for VertexAnthropicClient {
                 model: self.config.model.clone(),
                 ..Default::default()
             },
-            provider_params: None,
             http_config: Some(self.config.http_config.clone()),
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
         let req_tx =
@@ -151,11 +151,9 @@ impl ChatCapability for VertexAnthropicClient {
                 model: self.config.model.clone(),
                 ..Default::default()
             },
-            provider_params: None,
             http_config: Some(self.config.http_config.clone()),
-            web_search: None,
             stream: true,
-            telemetry: None,
+            ..Default::default()
         };
 
         let req_tx =

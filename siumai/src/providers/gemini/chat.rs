@@ -12,6 +12,7 @@ use crate::types::ChatRequest;
 // use crate::transformers::response::ResponseTransformer;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_core::ProviderSpec;
 use crate::stream::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, Tool};
@@ -79,45 +80,41 @@ impl ChatCapability for GeminiChatCapability {
                 model: self.config.model.clone(),
                 ..Default::default()
             },
-            provider_params: None,
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
         let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let model = self.config.model.clone();
-        let api_key = self.config.api_key.clone();
+        let spec = crate::providers::gemini::spec::GeminiSpec;
+        let ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.clone()),
+            self.config
+                .http_config
+                .clone()
+                .map(|c| c.headers)
+                .unwrap_or_default(),
+        );
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let http0 = http.clone();
+        let ctx_for_headers = ctx.clone();
         let tp = self.config.token_provider.clone();
-        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let extra = base_extra.clone();
+            let mut ctx = ctx_for_headers.clone();
             let tp = tp.clone();
-            let api_key = api_key_clone.clone();
             Box::pin(async move {
-                let mut extra = extra;
-                if let Some(ref tp) = tp {
+                if let Some(tp) = tp {
                     if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                        ctx.http_extra_headers
+                            .insert("Authorization".to_string(), format!("Bearer {tok}"));
                     }
                 }
-                let headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                Ok(headers)
+                spec.build_headers(&ctx)
             })
                 as std::pin::Pin<
                     Box<
@@ -127,9 +124,11 @@ impl ChatCapability for GeminiChatCapability {
                     >,
                 >
         };
+        let ctx_for_url = ctx.clone();
+        let build_url = move |stream: bool, r: &ChatRequest| spec.chat_url(stream, r, &ctx_for_url);
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
-            http_client: http,
+            http_client: http0,
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: None,
@@ -142,9 +141,7 @@ impl ChatCapability for GeminiChatCapability {
                 .unwrap_or(true),
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(move |_stream| {
-                crate::utils::url::join_url(&base, &format!("models/{}:generateContent", model))
-            }),
+            build_url: Box::new(build_url),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
@@ -163,17 +160,22 @@ impl ChatCapability for GeminiChatCapability {
                 model: self.config.model.clone(),
                 ..Default::default()
             },
-            provider_params: None,
-            http_config: None,
-            web_search: None,
             stream: true,
-            telemetry: None,
+            ..Default::default()
         };
 
         let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let model = self.config.model.clone();
-        let api_key = self.config.api_key.clone();
+        let spec = crate::providers::gemini::spec::GeminiSpec;
+        let ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.clone()),
+            self.config
+                .http_config
+                .clone()
+                .map(|c| c.headers)
+                .unwrap_or_default(),
+        );
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
@@ -185,28 +187,20 @@ impl ChatCapability for GeminiChatCapability {
             provider_id: "gemini".to_string(),
             inner: converter,
         };
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let http0 = http.clone();
+        let ctx_for_headers = ctx.clone();
         let tp = self.config.token_provider.clone();
-        let api_key_clone = api_key.clone();
         let headers_builder = move || {
-            let extra = base_extra.clone();
+            let mut ctx = ctx_for_headers.clone();
             let tp = tp.clone();
-            let api_key = api_key_clone.clone();
             Box::pin(async move {
-                let mut extra = extra;
-                if let Some(ref tp) = tp {
+                if let Some(tp) = tp {
                     if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
+                        ctx.http_extra_headers
+                            .insert("Authorization".to_string(), format!("Bearer {tok}"));
                     }
                 }
-                let headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                Ok(headers)
+                spec.build_headers(&ctx)
             })
                 as std::pin::Pin<
                     Box<
@@ -216,9 +210,11 @@ impl ChatCapability for GeminiChatCapability {
                     >,
                 >
         };
+        let ctx_for_url = ctx.clone();
+        let build_url = move |stream: bool, r: &ChatRequest| spec.chat_url(stream, r, &ctx_for_url);
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
-            http_client: http,
+            http_client: http0,
             request_transformer: Arc::new(req_tx),
             response_transformer: Arc::new(resp_tx),
             stream_transformer: Some(Arc::new(stream_tx)),
@@ -231,12 +227,7 @@ impl ChatCapability for GeminiChatCapability {
                 .unwrap_or(true),
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(move |_stream| {
-                crate::utils::url::join_url(
-                    &base,
-                    &format!("models/{}:streamGenerateContent?alt=sse", model),
-                )
-            }),
+            build_url: Box::new(build_url),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };

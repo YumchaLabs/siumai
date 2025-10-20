@@ -69,6 +69,7 @@ pub mod transformers;
 // Future capability modules (placeholders)
 pub mod models;
 pub mod moderation;
+pub mod spec;
 
 // Model constants module
 pub mod model_constants;

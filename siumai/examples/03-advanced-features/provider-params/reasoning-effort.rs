@@ -1,7 +1,7 @@
 //! Reasoning Effort - Control thinking depth
 //!
-//! This example shows how to use ProviderParams to control reasoning effort.
-//! Supported by: OpenAI o1/o3 models, Anthropic extended thinking.
+//! This example shows how to use type-safe provider options to control reasoning effort.
+//! Supported by: OpenAI o1/o3 models, xAI Grok models.
 //!
 //! ## Run
 //! ```bash
@@ -9,6 +9,7 @@
 //! ```
 
 use siumai::prelude::*;
+use siumai::types::{OpenAiOptions, ReasoningEffort};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,19 +20,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // Set reasoning effort
-    let provider_params =
-        ProviderParams::new().with_param("reasoning_effort", serde_json::json!("high"));
+    println!("🧠 Reasoning Effort Example\n");
 
+    // ✅ New API: Use type-safe OpenAiOptions with reasoning_effort
     let request = ChatRequest::builder()
         .message(user!("Solve this logic puzzle: If all bloops are razzies and all razzies are lazzies, are all bloops definitely lazzies?"))
-        .provider_params(provider_params)
+        .openai_options(
+            OpenAiOptions::new()
+                .with_reasoning_effort(ReasoningEffort::High)
+        )
         .build();
 
     let response = client.chat_request(request).await?;
 
-    println!("AI (with high reasoning effort):");
+    println!("🤖 AI (with high reasoning effort):");
     println!("{}", response.content_text().unwrap());
+    println!();
+
+    println!("💡 Migration Note:");
+    println!("   Old API: ProviderParams::new().with_param(\"reasoning_effort\", json!(\"high\"))");
+    println!("   New API: OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::High)");
+    println!("   Benefits: Type-safe enum, compile-time validation, no typos!");
 
     Ok(())
 }

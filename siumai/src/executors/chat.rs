@@ -47,7 +47,8 @@ pub struct HttpChatExecutor {
     /// Optional model-level middlewares (transform ChatRequest before mapping)
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     // Strategy hooks
-    pub build_url: Box<dyn Fn(bool) -> String + Send + Sync>,
+    /// Build URL dynamically by stream flag and original ChatRequest
+    pub build_url: Box<dyn Fn(bool, &crate::types::ChatRequest) -> String + Send + Sync>,
     pub build_headers: Arc<
         dyn (Fn() -> Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>)
             + Send
@@ -120,7 +121,7 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(AppendSuffix)],
-            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
             build_headers: Arc::new(|| {
                 Box::pin(async move { Ok(reqwest::header::HeaderMap::new()) })
                     as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
@@ -223,7 +224,7 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![std::sync::Arc::new(Outer), std::sync::Arc::new(Inner)],
-            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
             build_headers: Arc::new(|| Box::pin(async { Ok(reqwest::header::HeaderMap::new()) })),
             before_send: None,
         };
@@ -302,7 +303,7 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(Outer), Arc::new(Inner)],
-            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
             build_headers: Arc::new(|| Box::pin(async { Ok(reqwest::header::HeaderMap::new()) })),
             before_send: None,
         };
@@ -351,7 +352,7 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(PreMw)],
-            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
             build_headers: Arc::new(|| {
                 Box::pin(async move { Ok(reqwest::header::HeaderMap::new()) })
                     as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
@@ -414,7 +415,7 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(PreMwStream)],
-            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
             build_headers: std::sync::Arc::new(|| {
                 Box::pin(async move { Ok(reqwest::header::HeaderMap::new()) })
                     as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
@@ -481,7 +482,7 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![Arc::new(interceptor)],
             middlewares: vec![],
-            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
             build_headers: Arc::new(headers_builder),
             before_send: None,
         };
@@ -549,7 +550,7 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![Arc::new(interceptor)],
             middlewares: vec![],
-            build_url: Box::new(|_| "http://127.0.0.1/never".to_string()),
+            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
             build_headers: Arc::new(headers_builder),
             before_send: None,
         };
@@ -632,7 +633,7 @@ impl ChatExecutor for HttpChatExecutor {
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
         // Pre-compute URL and initial headers (provider/base-level). Request-level headers are merged later per-request.
-        let url = (self.build_url)(false);
+        let url = (self.build_url)(false, &req);
         let build_headers = self.build_headers.clone();
         let headers_initial = (build_headers)().await?;
         let headers_for_interceptors_initial = headers_initial.clone();
@@ -916,7 +917,7 @@ impl ChatExecutor for HttpChatExecutor {
         let json_tx = json_tx_opt.clone();
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
-        let url = (self.build_url)(true);
+        let url = (self.build_url)(true, &req);
         let headers_base = (self.build_headers)().await?;
         let disable_compression = self.stream_disable_compression;
         let middlewares = self.middlewares.clone();

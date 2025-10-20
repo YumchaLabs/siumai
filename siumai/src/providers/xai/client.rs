@@ -276,7 +276,7 @@ impl ChatCapability for XaiClient {
             stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.chat_capability.middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_url: Box::new(move |_stream, _req| format!("{}/chat/completions", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
@@ -320,7 +320,7 @@ impl ChatCapability for XaiClient {
             stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.chat_capability.middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_url: Box::new(move |_stream, _req| format!("{}/chat/completions", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
@@ -346,13 +346,7 @@ impl XaiClient {
             messages,
             tools: None,
             common_params: self.common_params.clone(),
-            provider_params: Some(ProviderParams {
-                params: provider_params,
-            }),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
         self.chat_capability.chat_request(request).await
@@ -363,20 +357,11 @@ impl XaiClient {
         &self,
         messages: Vec<ChatMessage>,
     ) -> Result<String, LlmError> {
-        let mut provider_params = std::collections::HashMap::new();
-        provider_params.insert("deferred".to_string(), serde_json::Value::Bool(true));
-
         let request = ChatRequest {
             messages,
             tools: None,
             common_params: self.common_params.clone(),
-            provider_params: Some(ProviderParams {
-                params: provider_params,
-            }),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
         // This would return a request_id instead of a full response

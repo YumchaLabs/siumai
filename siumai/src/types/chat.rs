@@ -1,8 +1,7 @@
 //! Chat-related types and message handling
 
-use super::common::{CommonParams, FinishReason, HttpConfig, ProviderParams, Usage};
+use super::common::{CommonParams, FinishReason, HttpConfig, Usage};
 use super::tools::{Tool, ToolCall};
-use super::web_search::WebSearchConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -421,12 +420,14 @@ pub struct ChatRequest {
     pub tools: Option<Vec<Tool>>,
     /// Common parameters (for backward compatibility)
     pub common_params: CommonParams,
-    /// Provider-specific parameters
-    pub provider_params: Option<ProviderParams>,
-    /// HTTP configuration (for backward compatibility)
+
+    /// Provider-specific options (type-safe!)
+    #[serde(default)]
+    pub provider_options: crate::types::ProviderOptions,
+
+    /// HTTP configuration
     pub http_config: Option<HttpConfig>,
-    /// Web search configuration
-    pub web_search: Option<WebSearchConfig>,
+
     /// Stream the response
     pub stream: bool,
     /// Optional telemetry configuration
@@ -441,9 +442,8 @@ impl ChatRequest {
             messages,
             tools: None,
             common_params: CommonParams::default(),
-            provider_params: None,
+            provider_options: crate::types::ProviderOptions::None,
             http_config: None,
-            web_search: None,
             stream: false,
             telemetry: None,
         }
@@ -490,21 +490,100 @@ impl ChatRequest {
         self
     }
 
-    /// Set provider-specific parameters
-    pub fn with_provider_params(mut self, params: ProviderParams) -> Self {
-        self.provider_params = Some(params);
+    // ============================================================================
+    // 🎯 NEW: Type-safe provider options (v0.12+)
+    // ============================================================================
+
+    /// Set provider-specific options (type-safe!)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use siumai::types::{ChatRequest, ProviderOptions, XaiOptions, XaiSearchParameters};
+    ///
+    /// let req = ChatRequest::new(messages)
+    ///     .with_provider_options(ProviderOptions::Xai(
+    ///         XaiOptions::new().with_default_search()
+    ///     ));
+    /// ```
+    pub fn with_provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
+        self.provider_options = options;
+        self
+    }
+
+    /// Convenience: Set OpenAI-specific options
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use siumai::types::{ChatRequest, OpenAiOptions};
+    ///
+    /// let req = ChatRequest::new(messages)
+    ///     .with_openai_options(
+    ///         OpenAiOptions::new().with_web_search()
+    ///     );
+    /// ```
+    pub fn with_openai_options(mut self, options: crate::types::OpenAiOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::OpenAi(options);
+        self
+    }
+
+    /// Convenience: Set xAI-specific options
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use siumai::types::{ChatRequest, XaiOptions};
+    ///
+    /// let req = ChatRequest::new(messages)
+    ///     .with_xai_options(
+    ///         XaiOptions::new().with_default_search()
+    ///     );
+    /// ```
+    pub fn with_xai_options(mut self, options: crate::types::XaiOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Xai(options);
+        self
+    }
+
+    /// Convenience: Set Anthropic-specific options
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use siumai::types::{ChatRequest, AnthropicOptions, PromptCachingConfig};
+    ///
+    /// let req = ChatRequest::new(messages)
+    ///     .with_anthropic_options(
+    ///         AnthropicOptions::new()
+    ///             .with_prompt_caching(PromptCachingConfig::default())
+    ///     );
+    /// ```
+    pub fn with_anthropic_options(mut self, options: crate::types::AnthropicOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Anthropic(options);
+        self
+    }
+
+    /// Convenience: Set Gemini-specific options
+    pub fn with_gemini_options(mut self, options: crate::types::GeminiOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Gemini(options);
+        self
+    }
+
+    /// Convenience: Set Groq-specific options
+    pub fn with_groq_options(mut self, options: crate::types::GroqOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Groq(options);
+        self
+    }
+
+    /// Convenience: Set Ollama-specific options
+    pub fn with_ollama_options(mut self, options: crate::types::OllamaOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Ollama(options);
         self
     }
 
     /// Set HTTP configuration
     pub fn with_http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = Some(config);
-        self
-    }
-
-    /// Enable web search
-    pub fn with_web_search(mut self, config: WebSearchConfig) -> Self {
-        self.web_search = Some(config);
         self
     }
 }
@@ -515,9 +594,8 @@ pub struct ChatRequestBuilder {
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     common_params: CommonParams,
-    provider_params: Option<ProviderParams>,
+    provider_options: crate::types::ProviderOptions,
     http_config: Option<HttpConfig>,
-    web_search: Option<WebSearchConfig>,
     stream: bool,
 }
 
@@ -528,9 +606,8 @@ impl ChatRequestBuilder {
             messages: Vec::new(),
             tools: None,
             common_params: CommonParams::default(),
-            provider_params: None,
+            provider_options: crate::types::ProviderOptions::None,
             http_config: None,
-            web_search: None,
             stream: false,
         }
     }
@@ -609,9 +686,49 @@ impl ChatRequestBuilder {
         self
     }
 
-    /// Set provider-specific parameters
-    pub fn provider_params(mut self, params: ProviderParams) -> Self {
-        self.provider_params = Some(params);
+    // ============================================================================
+    // 🎯 NEW: Type-safe provider options (v0.12+)
+    // ============================================================================
+
+    /// Set provider-specific options (type-safe!)
+    pub fn provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
+        self.provider_options = options;
+        self
+    }
+
+    /// Convenience: Set OpenAI-specific options
+    pub fn openai_options(mut self, options: crate::types::OpenAiOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::OpenAi(options);
+        self
+    }
+
+    /// Convenience: Set xAI-specific options
+    pub fn xai_options(mut self, options: crate::types::XaiOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Xai(options);
+        self
+    }
+
+    /// Convenience: Set Anthropic-specific options
+    pub fn anthropic_options(mut self, options: crate::types::AnthropicOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Anthropic(options);
+        self
+    }
+
+    /// Convenience: Set Gemini-specific options
+    pub fn gemini_options(mut self, options: crate::types::GeminiOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Gemini(options);
+        self
+    }
+
+    /// Convenience: Set Groq-specific options
+    pub fn groq_options(mut self, options: crate::types::GroqOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Groq(options);
+        self
+    }
+
+    /// Convenience: Set Ollama-specific options
+    pub fn ollama_options(mut self, options: crate::types::OllamaOptions) -> Self {
+        self.provider_options = crate::types::ProviderOptions::Ollama(options);
         self
     }
 
@@ -621,21 +738,14 @@ impl ChatRequestBuilder {
         self
     }
 
-    /// Enable web search
-    pub fn web_search(mut self, config: WebSearchConfig) -> Self {
-        self.web_search = Some(config);
-        self
-    }
-
     /// Build the chat request
     pub fn build(self) -> ChatRequest {
         ChatRequest {
             messages: self.messages,
             tools: self.tools,
             common_params: self.common_params,
-            provider_params: self.provider_params,
+            provider_options: self.provider_options,
             http_config: self.http_config,
-            web_search: self.web_search,
             stream: self.stream,
             telemetry: None,
         }

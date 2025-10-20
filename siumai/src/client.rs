@@ -315,8 +315,6 @@ pub struct ClientConfig {
     pub http_config: HttpConfig,
     /// Common Parameters (temperature, max_tokens, etc.)
     pub common_params: CommonParams,
-    /// Provider-specific Parameters
-    pub provider_params: ProviderParams,
 }
 
 impl ClientConfig {
@@ -327,7 +325,6 @@ impl ClientConfig {
             base_url,
             http_config: HttpConfig::default(),
             common_params: CommonParams::default(),
-            provider_params: ProviderParams::default(),
         }
     }
 
@@ -340,12 +337,6 @@ impl ClientConfig {
     /// Sets the common parameters
     pub fn with_common_params(mut self, params: CommonParams) -> Self {
         self.common_params = params;
-        self
-    }
-
-    /// Sets the provider parameters
-    pub fn with_provider_params(mut self, params: ProviderParams) -> Self {
-        self.provider_params = params;
         self
     }
 }

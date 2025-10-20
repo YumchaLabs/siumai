@@ -49,6 +49,7 @@ pub mod default_models;
 pub mod openai_client;
 pub mod openai_config;
 pub mod registry;
+pub mod spec;
 pub mod streaming;
 pub mod transformers;
 pub mod types;

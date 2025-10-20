@@ -144,10 +144,6 @@ pub enum Rule {
         max: usize,
         message: &'static str,
     },
-    /// Merge provider params using strategy (applied last)
-    MergeProviderParams {
-        strategy: ProviderParamsMergeStrategy,
-    },
 }
 
 /// Provider request hooks for complex mappings not easily expressed via rules
@@ -392,37 +388,6 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         Ok(())
     }
 
-    fn merge_provider_params(
-        body: &mut serde_json::Value,
-        req: &crate::types::ChatRequest,
-        strategy: &ProviderParamsMergeStrategy,
-    ) {
-        let Some(pp) = &req.provider_params else {
-            return;
-        };
-        match strategy {
-            ProviderParamsMergeStrategy::Flatten => {
-                if let Some(obj) = body.as_object_mut() {
-                    for (k, v) in &pp.params {
-                        obj.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-            ProviderParamsMergeStrategy::Namespace(ns) => {
-                if let Some(obj) = body.as_object_mut() {
-                    let entry = obj
-                        .entry((*ns).to_string())
-                        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-                    if let serde_json::Value::Object(nsobj) = entry {
-                        for (k, v) in &pp.params {
-                            nsobj.insert(k.clone(), v.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn apply_rules(
         &self,
         req: &crate::types::ChatRequest,
@@ -466,16 +431,6 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                     max,
                     message,
                 } => Self::validate_max_len(body, field, *max, message)?,
-                Rule::MergeProviderParams { .. } => {
-                    // Applied later
-                }
-            }
-        }
-
-        // Merge provider params
-        for r in &self.profile.rules {
-            if let Rule::MergeProviderParams { strategy } = r {
-                Self::merge_provider_params(body, req, strategy);
             }
         }
 
@@ -519,33 +474,6 @@ impl<H: ProviderRequestHooks> RequestTransformer for GenericRequestTransformer<H
         // Build via hooks
         let mut body = self.hooks.build_base_embedding_body(req)?;
 
-        // Apply only provider_params merge rule if present
-        for r in &self.profile.rules {
-            if let Rule::MergeProviderParams { strategy } = r {
-                match strategy {
-                    ProviderParamsMergeStrategy::Flatten => {
-                        if let Some(obj) = body.as_object_mut() {
-                            for (k, v) in &req.provider_params {
-                                obj.insert(k.clone(), v.clone());
-                            }
-                        }
-                    }
-                    ProviderParamsMergeStrategy::Namespace(ns) => {
-                        if let Some(obj) = body.as_object_mut() {
-                            let entry = obj.entry((*ns).to_string()).or_insert_with(|| {
-                                serde_json::Value::Object(serde_json::Map::new())
-                            });
-                            if let serde_json::Value::Object(nsobj) = entry {
-                                for (k, v) in &req.provider_params {
-                                    nsobj.insert(k.clone(), v.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // Post-process
         self.hooks.post_process_embedding(req, &mut body)?;
 
@@ -568,33 +496,6 @@ impl<H: ProviderRequestHooks> RequestTransformer for GenericRequestTransformer<H
         req: &crate::types::ImageGenerationRequest,
     ) -> Result<serde_json::Value, LlmError> {
         let mut body = self.hooks.build_base_image_body(req)?;
-
-        // Merge provider params if configured
-        for r in &self.profile.rules {
-            if let Rule::MergeProviderParams { strategy } = r {
-                match strategy {
-                    ProviderParamsMergeStrategy::Flatten => {
-                        if let Some(obj) = body.as_object_mut() {
-                            for (k, v) in &req.extra_params {
-                                obj.insert(k.clone(), v.clone());
-                            }
-                        }
-                    }
-                    ProviderParamsMergeStrategy::Namespace(ns) => {
-                        if let Some(obj) = body.as_object_mut() {
-                            let entry = obj.entry((*ns).to_string()).or_insert_with(|| {
-                                serde_json::Value::Object(serde_json::Map::new())
-                            });
-                            if let serde_json::Value::Object(nsobj) = entry {
-                                for (k, v) in &req.extra_params {
-                                    nsobj.insert(k.clone(), v.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // Post-process image
         self.hooks.post_process_image(req, &mut body)?;

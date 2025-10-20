@@ -321,11 +321,7 @@ mod groq_tests {
                 model: "llama-3.3-70b-versatile".into(),
                 ..Default::default()
             },
-            provider_params: None,
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
         let body = tx.transform_chat(&req).unwrap();
         assert_eq!(body["model"], "llama-3.3-70b-versatile");

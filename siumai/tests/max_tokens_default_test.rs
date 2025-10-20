@@ -3,7 +3,7 @@
 //! Tests to ensure all providers handle max_tokens defaults correctly.
 
 use siumai::transformers::request::RequestTransformer;
-use siumai::types::{ChatRequest, CommonParams};
+use siumai::types::{ChatRequest, CommonParams, ProviderOptions};
 
 #[test]
 fn test_anthropic_max_tokens_default() {
@@ -24,10 +24,11 @@ fn test_anthropic_max_tokens_default() {
         messages: vec![],
         tools: None,
         common_params: params_without_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
+        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
@@ -48,10 +49,11 @@ fn test_anthropic_max_tokens_default() {
         messages: vec![],
         tools: None,
         common_params: params_with_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
+        telemetry: None,
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
@@ -77,10 +79,10 @@ fn test_openai_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_without_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
@@ -101,10 +103,10 @@ fn test_openai_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_with_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
@@ -141,10 +143,10 @@ fn test_gemini_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_without_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
@@ -170,10 +172,10 @@ fn test_gemini_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_with_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
@@ -199,10 +201,10 @@ fn test_ollama_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_without_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
@@ -223,10 +225,10 @@ fn test_ollama_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_with_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
@@ -252,10 +254,10 @@ fn test_groq_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_without_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
@@ -276,10 +278,10 @@ fn test_groq_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_with_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
@@ -305,10 +307,10 @@ fn test_xai_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_without_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
@@ -329,10 +331,10 @@ fn test_xai_max_tokens_optional() {
         messages: vec![],
         tools: None,
         common_params: params_with_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
@@ -360,10 +362,10 @@ async fn test_anthropic_validation_requires_max_tokens() {
         messages: vec![],
         tools: None,
         common_params: params_without_max_tokens,
-        provider_params: None,
+        provider_options: ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 

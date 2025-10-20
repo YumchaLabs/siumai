@@ -232,19 +232,9 @@ pub fn is_responses_model(model: &str) -> bool {
     m.starts_with("gpt-5")
 }
 
-/// Decide whether to route to Responses API given OpenAI config
-/// Rules:
-/// - Explicit flag use_responses_api takes precedence
-/// - Auto: models matching is_responses_model (currently only gpt-5*)
-pub fn should_route_responses(cfg: &super::config::OpenAiConfig) -> bool {
-    // 默认仅在显式开启时走 Responses API，不再根据模型名自动切换。
-    cfg.use_responses_api
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::openai::config::OpenAiConfig;
 
     #[test]
     fn test_is_responses_model_only_gpt5() {
@@ -254,20 +244,6 @@ mod tests {
         assert!(!is_responses_model("gpt-4o"));
         assert!(!is_responses_model("o1"));
         assert!(!is_responses_model(""));
-    }
-
-    #[test]
-    fn test_should_route_responses_explicit_only() {
-        let cfg = OpenAiConfig::new("test").with_model("gpt-4o");
-        assert!(!should_route_responses(&cfg));
-
-        let cfg = OpenAiConfig::new("test").with_model("gpt-5-mini");
-        assert!(!should_route_responses(&cfg));
-
-        let cfg = OpenAiConfig::new("test")
-            .with_model("gpt-4")
-            .with_responses_api(true);
-        assert!(should_route_responses(&cfg));
     }
 
     #[test]

@@ -26,10 +26,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .insert("X-Custom-Header".to_string(), "custom-value".to_string());
     http_config.timeout = Some(Duration::from_secs(30));
 
-    let provider_params = ProviderParams::new()
-        .with_param("frequency_penalty", json!(0.5))
-        .with_param("presence_penalty", json!(0.3));
-
     let tools = vec![Tool::function(
         "search".to_string(),
         "Search for information".to_string(),
@@ -42,6 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     )];
 
+    // ✅ Build complex request with all features
     let request = ChatRequest::builder()
         .message(system!("You are a helpful assistant"))
         .message(user!("What's the latest news about Rust?"))
@@ -49,7 +46,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .temperature(0.7)
         .max_tokens(1000)
         .tools(tools)
-        .provider_params(provider_params)
         .http_config(http_config)
         .build();
 

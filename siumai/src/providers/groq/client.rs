@@ -219,7 +219,7 @@ impl ChatCapability for GroqClient {
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.chat_capability.middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_url: Box::new(move |_stream, _req| format!("{}/chat/completions", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };
@@ -263,7 +263,7 @@ impl ChatCapability for GroqClient {
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.chat_capability.middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
+            build_url: Box::new(move |_stream, _req| format!("{}/chat/completions", base)),
             build_headers: std::sync::Arc::new(headers_builder),
             before_send: None,
         };

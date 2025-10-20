@@ -12,7 +12,7 @@ use siumai::orchestrator::{
     OrchestratorOptions, ToolApproval, ToolResolver, generate, step_count_is,
 };
 use siumai::prelude::*;
-use siumai::types::{Tool, ToolFunction};
+use siumai::types::Tool;
 use std::sync::Arc;
 
 // Tool resolver with potentially dangerous operations

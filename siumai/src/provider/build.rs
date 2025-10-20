@@ -1,7 +1,7 @@
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
-use crate::types::{HttpConfig, ProviderParams, ProviderType};
+use crate::types::{HttpConfig, ProviderType};
 use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use std::sync::Arc;
 
@@ -196,51 +196,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         };
     }
 
-    // Build provider-specific parameters
-    let mut provider_params = match provider_type {
-        ProviderType::Anthropic => {
-            let mut params = ProviderParams::anthropic();
-
-            // Map unified reasoning parameters to Anthropic-specific parameters
-            if let Some(budget) = reasoning_budget {
-                params = params.with_param("thinking_budget", budget as u32);
-            }
-
-            Some(params)
-        }
-        ProviderType::Gemini => {
-            let mut params = ProviderParams::gemini();
-
-            // Map unified reasoning parameters to Gemini-specific parameters
-            if let Some(budget) = reasoning_budget {
-                params = params.with_param("thinking_budget", budget as u32);
-            }
-
-            Some(params)
-        }
-        ProviderType::Ollama => {
-            let mut params = ProviderParams::new();
-
-            // Map unified reasoning to Ollama thinking
-            if reasoning_enabled.unwrap_or(false) {
-                params = params.with_param("think", true);
-            }
-
-            Some(params)
-        }
-        _ => {
-            // For other providers, no specific parameters for now
-            None
-        }
-    };
-
-    // Merge user-provided provider params (override defaults)
-    if let Some(extra) = builder.user_provider_params.clone() {
-        provider_params = Some(match provider_params {
-            Some(p) => p.merge(extra),
-            None => extra,
-        });
-    }
+    // TODO: Migrate to provider_options
+    // Provider-specific parameters are now handled via provider_options in ChatRequest
+    // This builder-level provider_params logic needs to be refactored
+    let _reasoning_budget = reasoning_budget; // Suppress unused warning
+    let _reasoning_enabled = reasoning_enabled; // Suppress unused warning
 
     // Validation moved to Transformers within Executors; skip pre-validation here
 
@@ -284,7 +244,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 built_http_client.clone(),
                 common_params.clone(),
                 http_config.clone(),
-                provider_params.clone(),
+                None, // provider_params removed
                 organization.clone(),
                 project.clone(),
                 builder.tracing_config.clone(),
@@ -370,7 +330,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     built_http_client.clone(),
                     common_params.clone(),
                     http_config.clone(),
-                    provider_params.clone(),
+                    None, // provider_params removed
                     builder.tracing_config.clone(),
                     interceptors.clone(),
                 )
@@ -417,7 +377,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 built_http_client.clone(),
                 common_params.clone(),
                 http_config.clone(),
-                provider_params.clone(),
+                None, // provider_params removed
                 #[cfg(feature = "google")]
                 builder.gemini_token_provider.clone(),
                 #[cfg(not(feature = "google"))]
@@ -436,7 +396,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 built_http_client.clone(),
                 common_params.clone(),
                 http_config.clone(),
-                provider_params.clone(),
+                None, // provider_params removed
                 builder.tracing_config.clone(),
                 interceptors.clone(),
             )
@@ -450,7 +410,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 built_http_client.clone(),
                 common_params.clone(),
                 http_config.clone(),
-                provider_params.clone(),
+                None, // provider_params removed
                 builder.tracing_config.clone(),
             )
             .await?
@@ -464,7 +424,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 built_http_client.clone(),
                 common_params.clone(),
                 http_config.clone(),
-                provider_params.clone(),
+                None, // provider_params removed
                 builder.tracing_config.clone(),
                 interceptors.clone(),
             )
@@ -481,7 +441,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     built_http_client.clone(),
                     common_params.clone(),
                     http_config.clone(),
-                    provider_params.clone(),
+                    None, // provider_params removed
                     builder.tracing_config.clone(),
                     interceptors.clone(),
                 )

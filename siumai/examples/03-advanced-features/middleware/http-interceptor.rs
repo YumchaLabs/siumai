@@ -9,25 +9,37 @@
 //! ```
 
 use siumai::prelude::*;
+use siumai::utils::{HttpInterceptor, HttpRequestContext};
 use std::sync::Arc;
 
 #[derive(Clone)]
 struct LoggingInterceptor;
 
-#[async_trait::async_trait]
 impl HttpInterceptor for LoggingInterceptor {
-    async fn before_request(&self, request: &HttpRequest) -> Result<(), LlmError> {
+    fn on_before_send(
+        &self,
+        ctx: &HttpRequestContext,
+        builder: reqwest::RequestBuilder,
+        _body: &serde_json::Value,
+        headers: &reqwest::header::HeaderMap,
+    ) -> Result<reqwest::RequestBuilder, LlmError> {
         println!("📤 Outgoing request:");
-        println!("   URL: {}", request.url);
-        println!("   Method: {}", request.method);
-        println!("   Headers: {} headers", request.headers.len());
-        Ok(())
+        println!("   Provider: {}", ctx.provider_id);
+        println!("   URL: {}", ctx.url);
+        println!("   Stream: {}", ctx.stream);
+        println!("   Headers: {} headers", headers.len());
+        Ok(builder)
     }
 
-    async fn after_response(&self, response: &HttpResponse) -> Result<(), LlmError> {
+    fn on_response(
+        &self,
+        ctx: &HttpRequestContext,
+        response: &reqwest::Response,
+    ) -> Result<(), LlmError> {
         println!("📥 Incoming response:");
-        println!("   Status: {}", response.status);
-        println!("   Body size: {} bytes", response.body.len());
+        println!("   Provider: {}", ctx.provider_id);
+        println!("   Status: {}", response.status());
+        println!("   Headers: {} headers", response.headers().len());
         Ok(())
     }
 }
@@ -40,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .openai()
         .api_key(&std::env::var("OPENAI_API_KEY")?)
         .model("gpt-4o-mini")
-        .http_interceptor(interceptor)
+        .with_http_interceptor(interceptor)
         .build()
         .await?;
 

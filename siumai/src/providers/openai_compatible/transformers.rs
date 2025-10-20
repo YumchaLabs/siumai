@@ -64,36 +64,7 @@ impl RequestTransformer for CompatRequestTransformer {
             body["tools"] = serde_json::to_value(tools)?;
         }
 
-        // Structured output hint → response_format (json_object/json_schema + strict)
-        if let Some(pp) = &req.provider_params {
-            if let Some(so) = pp
-                .params
-                .get("structured_output")
-                .and_then(|v| v.as_object())
-            {
-                let mut rf: Option<serde_json::Value> = None;
-                if let Some(schema_v) = so.get("schema") {
-                    if let Some(n) = so.get("name").and_then(|v| v.as_str()) {
-                        rf = Some(serde_json::json!({
-                            "type": "json_schema",
-                            "json_schema": {"name": n, "schema": schema_v, "strict": true}
-                        }));
-                    } else {
-                        rf = Some(serde_json::json!({
-                            "type": "json_schema",
-                            "json_schema": {"schema": schema_v, "strict": true}
-                        }));
-                    }
-                } else if let Some(t) = so.get("type").and_then(|v| v.as_str()) {
-                    if t.eq_ignore_ascii_case("json") || t.eq_ignore_ascii_case("json_object") {
-                        rf = Some(serde_json::json!({"type": "json_object"}));
-                    }
-                }
-                if let Some(val) = rf {
-                    body["response_format"] = val;
-                }
-            }
-        }
+        // Structured output is now handled via provider_options in ProviderSpec::chat_before_send()
 
         // Let adapter transform
         self.adapter
@@ -402,41 +373,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn structured_output_maps_to_response_format() {
-        let cfg = OpenAiCompatibleConfig::new(
-            "dummy",
-            "sk-",
-            "https://example.com/v1",
-            std::sync::Arc::new(DummyAdapter),
-        )
-        .with_model("test-model");
-        let tx = CompatRequestTransformer {
-            config: cfg,
-            adapter: std::sync::Arc::new(DummyAdapter),
-        };
-        let req = ChatRequest {
-            messages: vec![crate::types::ChatMessage::user("hi").build()],
-            tools: None,
-            common_params: crate::types::CommonParams {
-                model: "test-model".into(),
-                ..Default::default()
-            },
-            provider_params: Some(crate::types::ProviderParams::new().with_param(
-                "structured_output",
-                serde_json::json!({"schema": {"type":"object"}}),
-            )),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
-        };
-        let body = tx.transform_chat(&req).unwrap();
-        assert_eq!(
-            body.get("response_format")
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("json_schema")
-        );
-    }
+    // Test for structured_output via provider_params has been removed
+    // as this functionality is now handled via provider_options
 }

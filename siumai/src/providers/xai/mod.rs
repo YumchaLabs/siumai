@@ -40,6 +40,7 @@ pub mod builder;
 pub mod client;
 pub mod config;
 pub mod models;
+pub mod spec;
 pub mod types;
 pub mod utils;
 

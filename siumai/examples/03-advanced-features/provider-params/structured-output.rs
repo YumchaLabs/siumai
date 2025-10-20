@@ -1,6 +1,6 @@
 //! Structured Output - Cross-provider JSON schema support
 //!
-//! This example demonstrates using ProviderParams for structured output.
+//! This example demonstrates using type-safe provider options for structured output.
 //! Works across OpenAI, Anthropic, and Google with unified API.
 //!
 //! ## Run
@@ -10,6 +10,7 @@
 
 use serde_json::json;
 use siumai::prelude::*;
+use siumai::types::{OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,6 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .model("gpt-4o-mini")
         .build()
         .await?;
+
+    println!("📝 Structured Output Example\n");
 
     // Define JSON schema
     let schema = json!({
@@ -31,23 +34,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "items": {"type": "string"}
             }
         },
-        "required": ["name", "age", "hobbies"]
+        "required": ["name", "age", "hobbies"],
+        "additionalProperties": false
     });
 
-    // Use ProviderParams for structured output
-    let provider_params = ProviderParams::new().with_structured_output(schema, "person_info");
+    // ✅ New API: Use type-safe OpenAiOptions with ResponsesApiConfig
+    let response_format = json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": "person_info",
+            "strict": true,
+            "schema": schema
+        }
+    });
 
-    let request = ChatRequest::builder()
-        .message(user!(
-            "Generate a profile for a fictional software engineer"
-        ))
-        .provider_params(provider_params)
-        .build();
+    let request =
+        ChatRequest::builder()
+            .message(user!(
+                "Generate a profile for a fictional software engineer"
+            ))
+            .openai_options(OpenAiOptions::new().with_responses_api(
+                ResponsesApiConfig::new().with_response_format(response_format),
+            ))
+            .build();
 
     let response = client.chat_request(request).await?;
 
-    println!("Structured Output:");
+    println!("✅ Structured Output:");
     println!("{}", response.content_text().unwrap());
+    println!();
+
+    println!("💡 Migration Note:");
+    println!("   Old API: ProviderParams::new().with_structured_output(schema, name)");
+    println!("   New API: OpenAiOptions::new().with_response_format(ResponseFormat {{ ... }})");
+    println!("   Benefits: Type safety, IDE autocomplete, compile-time validation");
 
     Ok(())
 }

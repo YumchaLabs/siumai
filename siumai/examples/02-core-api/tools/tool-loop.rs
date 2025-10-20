@@ -23,20 +23,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let tools = vec![json!({
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "Get weather for a location",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {"type": "string"}
-                },
-                "required": ["location"]
-            }
-        }
-    })];
+    let tools = vec![Tool::function(
+        "get_weather".to_string(),
+        "Get weather for a location".to_string(),
+        json!({
+            "type": "object",
+            "properties": {
+                "location": {"type": "string"}
+            },
+            "required": ["location"]
+        }),
+    )];
 
     // Initial request
     let mut messages = vec![user!("What's the weather in Paris?")];
@@ -50,20 +47,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check for tool calls
     if let Some(tool_calls) = &response.tool_calls {
-        println!("🔧 AI requested tool call: {}\n", tool_calls[0].name);
+        if let Some(function) = &tool_calls[0].function {
+            println!("🔧 AI requested tool call: {}\n", function.name);
+        }
 
         // Add assistant message with tool call
-        messages.push(response.message.clone());
+        messages.push(
+            ChatMessage::assistant("")
+                .with_tool_calls(tool_calls.clone())
+                .build(),
+        );
 
         // Execute tool (simulated)
         let tool_result = json!({"temperature": 18, "condition": "Sunny"});
         println!("🌤️  Tool result: {}\n", tool_result);
 
         // Add tool result message
-        messages.push(ChatMessage::tool_result(
-            &tool_calls[0].id,
-            &tool_result.to_string(),
-        ));
+        messages.push(ChatMessage::tool(tool_result.to_string(), tool_calls[0].id.clone()).build());
 
         // Get final response
         let request = ChatRequest::builder()

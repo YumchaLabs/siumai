@@ -3,7 +3,7 @@
 //! Contains common utilities and helper functions for parameter processing.
 
 use crate::error::LlmError;
-use crate::types::{CommonParams, ProviderParams, ProviderType};
+use crate::types::{CommonParams, ProviderType};
 
 /// Type-safe extensions for provider-specific parameters
 pub trait ProviderParamsExt {
@@ -116,22 +116,8 @@ impl ParameterMapper {
         json
     }
 
-    /// Merges provider-specific parameters into base JSON
-    /// Skips null values to prevent API errors
-    pub fn merge_provider_params(
-        mut base: serde_json::Value,
-        provider: &ProviderParams,
-    ) -> serde_json::Value {
-        if let serde_json::Value::Object(ref mut base_obj) = base {
-            for (key, value) in &provider.params {
-                // Skip null values to prevent API errors
-                if !value.is_null() {
-                    base_obj.insert(key.clone(), value.clone());
-                }
-            }
-        }
-        base
-    }
+    // merge_provider_params has been removed in v0.12.0
+    // Use provider-specific options instead
 
     /// Converts stop sequences to the appropriate format for a provider
     pub fn map_stop_sequences(
@@ -232,39 +218,6 @@ mod tests {
         assert_eq!(json["seed"], 42);
     }
 
-    #[test]
-    fn test_merge_provider_params_skips_null_values() {
-        use std::collections::HashMap;
-
-        // Create base JSON
-        let base = serde_json::json!({
-            "model": "gpt-4",
-            "temperature": 0.7
-        });
-
-        // Create provider params with null values
-        let mut params_map = HashMap::new();
-        params_map.insert("parallel_tool_calls".to_string(), serde_json::Value::Null);
-        params_map.insert("frequency_penalty".to_string(), serde_json::json!(0.1));
-        params_map.insert("presence_penalty".to_string(), serde_json::Value::Null);
-
-        let provider_params = ProviderParams { params: params_map };
-
-        // Merge parameters
-        let result = ParameterMapper::merge_provider_params(base, &provider_params);
-
-        // Verify null values are skipped
-        assert!(
-            !result
-                .as_object()
-                .unwrap()
-                .contains_key("parallel_tool_calls")
-        );
-        assert!(!result.as_object().unwrap().contains_key("presence_penalty"));
-
-        // Verify non-null values are included
-        assert_eq!(result["frequency_penalty"], 0.1);
-        assert_eq!(result["model"], "gpt-4");
-        assert_eq!(result["temperature"], 0.7);
-    }
+    // Test for merge_provider_params has been removed
+    // as this functionality is now handled via provider_options
 }

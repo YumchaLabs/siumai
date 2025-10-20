@@ -20,24 +20,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // Define tools
-    let tools = vec![json!({
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "Get the current weather for a location",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The city name, e.g. San Francisco"
-                    }
-                },
-                "required": ["location"]
-            }
-        }
-    })];
+    // Define tools using Tool::function()
+    let tools = vec![Tool::function(
+        "get_weather".to_string(),
+        "Get the current weather for a location".to_string(),
+        json!({
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "The city name, e.g. San Francisco"
+                }
+            },
+            "required": ["location"]
+        }),
+    )];
 
     // Chat with tools
     let response = client
@@ -48,7 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tool_calls) = &response.tool_calls {
         println!("🔧 Tool calls:");
         for call in tool_calls {
-            println!("  - {}: {}", call.name, call.arguments);
+            if let Some(function) = &call.function {
+                println!("  - {}: {}", function.name, function.arguments);
+            }
         }
     } else {
         println!("AI: {}", response.content_text().unwrap_or_default());

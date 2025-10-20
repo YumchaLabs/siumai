@@ -27,9 +27,6 @@ use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
 ///     openai_params: Default::default(),
 ///     http_config: Default::default(),
 ///     web_search_config: Default::default(),
-///     use_responses_api: false,
-///     previous_response_id: None,
-///     built_in_tools: Vec::new(),
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -57,15 +54,6 @@ pub struct OpenAiConfig {
 
     /// Web search configuration
     pub web_search_config: WebSearchConfig,
-
-    /// Whether to use Responses API instead of Chat Completions API
-    pub use_responses_api: bool,
-
-    /// Previous response ID for chaining responses (Responses API only)
-    pub previous_response_id: Option<String>,
-
-    /// Built-in tools for Responses API
-    pub built_in_tools: Vec<crate::types::OpenAiBuiltInTool>,
 }
 
 impl OpenAiConfig {
@@ -86,9 +74,6 @@ impl OpenAiConfig {
             openai_params: OpenAiParams::default(),
             http_config: HttpConfig::default(),
             web_search_config: WebSearchConfig::default(),
-            use_responses_api: false,
-            previous_response_id: None,
-            built_in_tools: Vec::new(),
         }
     }
 
@@ -164,30 +149,6 @@ impl OpenAiConfig {
         self
     }
 
-    /// Enable Responses API instead of Chat Completions API.
-    pub const fn with_responses_api(mut self, use_responses: bool) -> Self {
-        self.use_responses_api = use_responses;
-        self
-    }
-
-    /// Set previous response ID for chaining responses.
-    pub fn with_previous_response_id<S: Into<String>>(mut self, response_id: S) -> Self {
-        self.previous_response_id = Some(response_id.into());
-        self
-    }
-
-    /// Add a built-in tool for Responses API.
-    pub fn with_built_in_tool(mut self, tool: crate::types::OpenAiBuiltInTool) -> Self {
-        self.built_in_tools.push(tool);
-        self
-    }
-
-    /// Add multiple built-in tools for Responses API.
-    pub fn with_built_in_tools(mut self, tools: Vec<crate::types::OpenAiBuiltInTool>) -> Self {
-        self.built_in_tools.extend(tools);
-        self
-    }
-
     /// Get the authorization header value.
     ///
     /// # Returns
@@ -233,14 +194,6 @@ impl OpenAiConfig {
         // Project header
         if let Some(project) = &self.project {
             headers.insert("OpenAI-Project".to_string(), project.clone());
-        }
-
-        // Beta header required for Responses API
-        if self.use_responses_api {
-            headers.insert(
-                "OpenAI-Beta".to_string(),
-                "responses-2024-12-17".to_string(),
-            );
         }
 
         headers
@@ -304,9 +257,6 @@ impl Default for OpenAiConfig {
             openai_params: OpenAiParams::default(),
             http_config: HttpConfig::default(),
             web_search_config: WebSearchConfig::default(),
-            use_responses_api: false,
-            previous_response_id: None,
-            built_in_tools: Vec::new(),
         }
     }
 }

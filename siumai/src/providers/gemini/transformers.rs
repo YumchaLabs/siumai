@@ -78,88 +78,11 @@ impl RequestTransformer for GeminiRequestTransformer {
 
             fn post_process_chat(
                 &self,
-                req: &ChatRequest,
-                body: &mut serde_json::Value,
+                _req: &ChatRequest,
+                _body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                // Structured output hints via provider_params. Map into generationConfig.
-                if let Some(pp) = &req.provider_params {
-                    if let Some(so) = pp
-                        .params
-                        .get("structured_output")
-                        .and_then(|v| v.as_object())
-                    {
-                        let mut mime = "application/json".to_string();
-                        // Enum output special-case
-                        if let Some(out) = so.get("output").and_then(|v| v.as_str()) {
-                            if out.eq_ignore_ascii_case("enum") {
-                                mime = "text/x.enum".to_string();
-                            }
-                        }
-                        let schema_opt = so.get("schema").cloned().or_else(|| {
-                            // If enum with values provided, synthesize schema
-                            so.get("enum").and_then(|arr| arr.as_array()).map(|vals| {
-                                let strings: Vec<String> = vals
-                                    .iter()
-                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                    .collect();
-                                serde_json::json!({"type": "STRING", "enum": strings})
-                            })
-                        });
-                        // Ensure generationConfig object exists
-                        if !body.get("generationConfig").is_some() {
-                            body["generationConfig"] = serde_json::json!({});
-                        }
-                        body["generationConfig"]["responseMimeType"] = serde_json::json!(mime);
-                        if let Some(schema) = schema_opt {
-                            body["generationConfig"]["responseSchema"] = schema;
-                        }
-                    }
-                }
-                // Remove any merged hint at top-level to avoid unknown field
-                if let Some(obj) = body.as_object_mut() {
-                    obj.remove("structured_output");
-                }
-                // Map provider_params.function_calling -> toolConfig.functionCallingConfig
-                if let Some(pp) = &req.provider_params
-                    && let Some(fc) = pp
-                        .params
-                        .get("function_calling")
-                        .and_then(|v| v.as_object())
-                {
-                    let mut cfg = super::types::FunctionCallingConfig {
-                        mode: None,
-                        allowed_function_names: None,
-                    };
-                    if let Some(mode_str) = fc.get("mode").and_then(|v| v.as_str()) {
-                        let mode = match mode_str.to_ascii_uppercase().as_str() {
-                            "AUTO" => super::types::FunctionCallingMode::Auto,
-                            "ANY" => super::types::FunctionCallingMode::Any,
-                            "NONE" => super::types::FunctionCallingMode::None,
-                            _ => super::types::FunctionCallingMode::Unspecified,
-                        };
-                        cfg.mode = Some(mode);
-                    }
-                    if let Some(arr) = fc
-                        .get("allowed")
-                        .and_then(|v| v.as_array())
-                        .or_else(|| fc.get("allowed_function_names").and_then(|v| v.as_array()))
-                    {
-                        let names: Vec<String> = arr
-                            .iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect();
-                        if !names.is_empty() {
-                            cfg.allowed_function_names = Some(names);
-                        }
-                    }
-                    // Write toolConfig.functionCallingConfig
-                    let tool_cfg = super::types::ToolConfig {
-                        function_calling_config: Some(cfg),
-                    };
-                    body["toolConfig"] = serde_json::to_value(tool_cfg).map_err(|e| {
-                        LlmError::ParseError(format!("Serialize tool config failed: {e}"))
-                    })?;
-                }
+                // All provider-specific features are now handled via provider_options
+                // in ProviderSpec::chat_before_send()
                 Ok(())
             }
         }

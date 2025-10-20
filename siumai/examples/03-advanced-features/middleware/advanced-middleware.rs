@@ -97,7 +97,7 @@ impl LanguageModelMiddleware for CachingMiddleware {
     fn pre_generate(&self, req: &ChatRequest) -> Option<Result<ChatResponse, LlmError>> {
         // Check if this request matches our cache key
         if let Some(last_msg) = req.messages.last() {
-            if let Some(text) = last_msg.content.as_text() {
+            if let Some(text) = last_msg.content.text() {
                 if text.contains(&self.cache_key) {
                     println!("💾 [Cache] Cache hit! Returning cached response");
                     return Some(Ok(ChatResponse::new(MessageContent::Text(

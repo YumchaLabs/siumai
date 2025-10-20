@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::error::LlmError;
 use crate::traits::ChatCapability;
-use crate::types::{ChatMessage, ChatRequest, ChatResponse, ProviderParams, Tool, Usage};
+use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool, Usage};
 use futures::Stream;
 use serde::de::DeserializeOwned;
 use std::pin::Pin;
@@ -581,9 +581,10 @@ fn build_chat_request_with_hints(
             );
         }
     }
-    let params =
-        ProviderParams::new().with_param("structured_output", serde_json::Value::Object(hint));
-    req = req.with_provider_params(params).with_streaming(stream);
+    // TODO: Migrate to provider_options
+    // This highlevel API needs to be refactored to use provider-specific options
+    // instead of the deprecated provider_params
+    req = req.with_streaming(stream);
     req
 }
 
@@ -611,28 +612,108 @@ pub async fn stream_object_auto<T: DeserializeOwned + Send + 'static>(
 
 #[cfg(feature = "openai")]
 /// Generate a typed object using OpenAI Responses API structured outputs when possible.
-/// This helper configures the client clone with `response_format` and routes via `/responses`.
+/// This helper creates a ChatRequest with appropriate provider_options for structured output.
 pub async fn generate_object_openai<T: DeserializeOwned>(
     client: &crate::providers::openai::OpenAiClient,
     messages: Vec<crate::types::ChatMessage>,
     tools: Option<Vec<crate::types::Tool>>,
     opts: GenerateObjectOptions,
 ) -> Result<(T, crate::types::ChatResponse), crate::error::LlmError> {
-    let mut configured = client.clone();
+    // Build a ChatRequest with provider_options for structured output
+    use crate::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+
+    let mut request = ChatRequest::new(messages);
+    if let Some(t) = tools {
+        request.tools = Some(t);
+    }
+
     if let Some(schema) = opts.schema.clone() {
-        configured = configured.with_responses_api(true);
-        if let Some(name) = opts.schema_name.clone() {
-            configured = configured.with_json_named_schema(name, schema, true);
+        // Build response_format JSON
+        let response_format = if let Some(name) = opts.schema_name.clone() {
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": name,
+                    "strict": true,
+                    "schema": schema
+                }
+            })
         } else {
-            configured = configured.with_json_object_schema(schema, true);
+            serde_json::json!({
+                "type": "json_object",
+                "json_schema": {
+                    "name": "response",
+                    "strict": true,
+                    "schema": schema
+                }
+            })
+        };
+
+        request =
+            request.with_openai_options(OpenAiOptions::new().with_responses_api(
+                ResponsesApiConfig::new().with_response_format(response_format),
+            ));
+    }
+
+    // Call chat_request and parse the response
+    let resp = client.chat_request(request).await?;
+
+    // Extract text content (prefer tool call arguments if present)
+    let mut text = if let Some(calls) = resp.get_tool_calls() {
+        if let Some(first) = calls.first() {
+            if let Some(func) = &first.function {
+                func.arguments.clone()
+            } else {
+                resp.content_text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default()
+            }
+        } else {
+            resp.content_text()
+                .map(|s| s.to_string())
+                .unwrap_or_default()
+        }
+    } else {
+        resp.content_text()
+            .map(|s| s.to_string())
+            .unwrap_or_default()
+    };
+
+    if text.is_empty() {
+        return Err(crate::error::LlmError::ParseError(
+            "No content for object generation".into(),
+        ));
+    }
+
+    // Parse and repair with retries
+    let mut rounds = 0usize;
+    loop {
+        match try_parse_validate_deserialize::<T>(&text, opts.schema.as_ref(), &opts.output) {
+            Ok(obj) => return Ok((obj, resp)),
+            Err(e) => {
+                if rounds >= opts.max_repair_rounds {
+                    return Err(e);
+                }
+                if let Some(repair) = &opts.repair_text {
+                    if let Some(next) = repair(&text) {
+                        text = next;
+                        rounds += 1;
+                        continue;
+                    }
+                } else if let Some(next) = default_repair_text(&text) {
+                    text = next;
+                    rounds += 1;
+                    continue;
+                }
+                return Err(e);
+            }
         }
     }
-    generate_object(&configured, messages, tools, opts).await
 }
 
 #[cfg(feature = "openai")]
 /// Stream a typed object using OpenAI Responses API structured outputs when possible.
-/// Configures a client clone similarly to `generate_object_openai`.
+/// Creates a ChatRequest with appropriate provider_options for structured output.
 pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
     client: &crate::providers::openai::OpenAiClient,
     messages: Vec<crate::types::ChatMessage>,
@@ -642,16 +723,123 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
     Pin<Box<dyn Stream<Item = Result<StreamObjectEvent<T>, crate::error::LlmError>> + Send>>,
     crate::error::LlmError,
 > {
-    let mut configured = client.clone();
-    if let Some(schema) = opts.schema.clone() {
-        configured = configured.with_responses_api(true);
-        if let Some(name) = opts.schema_name.clone() {
-            configured = configured.with_json_named_schema(name, schema, true);
-        } else {
-            configured = configured.with_json_object_schema(schema, true);
-        }
+    // Build a ChatRequest with provider_options for structured output
+    use crate::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+
+    let mut request = ChatRequest::new(messages);
+    if let Some(t) = tools {
+        request.tools = Some(t);
     }
-    stream_object(&configured, messages, tools, opts).await
+    request.stream = true;
+
+    if let Some(schema) = opts.schema.clone() {
+        // Build response_format JSON
+        let response_format = if let Some(name) = opts.schema_name.clone() {
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": name,
+                    "strict": true,
+                    "schema": schema
+                }
+            })
+        } else {
+            serde_json::json!({
+                "type": "json_object",
+                "json_schema": {
+                    "name": "response",
+                    "strict": true,
+                    "schema": schema
+                }
+            })
+        };
+
+        request =
+            request.with_openai_options(OpenAiOptions::new().with_responses_api(
+                ResponsesApiConfig::new().with_response_format(response_format),
+            ));
+    }
+
+    // Stream and process events
+    let mut stream = client.chat_stream_request(request).await?;
+    let schema = opts.schema.clone();
+    let output = opts.output.clone();
+    let repair = opts.repair_text.clone();
+    let max_rounds = opts.max_repair_rounds;
+    let emit_partial = opts.emit_partial_object;
+
+    let s = async_stream::try_stream! {
+        use futures::StreamExt;
+        let mut acc = String::new();
+        let mut final_resp: Option<ChatResponse> = None;
+        let mut last_partial: Option<serde_json::Value> = None;
+
+        while let Some(item) = stream.next().await {
+            match item? {
+                crate::stream::ChatStreamEvent::ContentDelta { delta, .. } => {
+                    acc.push_str(&delta);
+                    yield StreamObjectEvent::TextDelta { delta };
+                    if emit_partial {
+                        if let Some(slice) = extract_balanced_json_slice(&acc) {
+                            let cand = strip_trailing_commas(slice);
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cand) {
+                                let changed = match &last_partial {
+                                    Some(prev) => prev != &v,
+                                    None => true,
+                                };
+                                if changed {
+                                    last_partial = Some(v.clone());
+                                    yield StreamObjectEvent::PartialObject { partial: v };
+                                }
+                            }
+                        }
+                    }
+                }
+                crate::stream::ChatStreamEvent::StreamEnd { response } => {
+                    final_resp = Some(response);
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        let resp = final_resp.ok_or_else(|| LlmError::ParseError("No final response".into()))?;
+        let mut text = resp.content_text().map(|s| s.to_string()).unwrap_or_else(|| acc.clone());
+        if text.is_empty() {
+            text = acc;
+        }
+
+        // Parse and repair
+        let mut rounds = 0usize;
+        loop {
+            match try_parse_validate_deserialize::<T>(&text, schema.as_ref(), &output) {
+                Ok(obj) => {
+                    yield StreamObjectEvent::Final { object: obj, response: resp };
+                    break;
+                }
+                Err(e) => {
+                    if rounds >= max_rounds {
+                        Err(e)?;
+                        break;
+                    }
+                    if let Some(repair_fn) = &repair {
+                        if let Some(next) = repair_fn(&text) {
+                            text = next;
+                            rounds += 1;
+                            continue;
+                        }
+                    } else if let Some(next) = default_repair_text(&text) {
+                        text = next;
+                        rounds += 1;
+                        continue;
+                    }
+                    Err(e)?;
+                    break;
+                }
+            }
+        }
+    };
+    Ok(Box::pin(s))
 }
 
 #[cfg(test)]

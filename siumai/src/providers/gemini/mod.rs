@@ -40,6 +40,7 @@ pub mod convert;
 pub mod files;
 pub mod model_constants;
 pub mod models;
+pub mod spec;
 pub mod streaming;
 pub mod transformers;
 pub mod types;

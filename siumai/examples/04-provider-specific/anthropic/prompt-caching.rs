@@ -25,8 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let large_context = "This is a large document that will be cached...".repeat(100);
 
     // Mark system message for caching
-    let system_msg =
-        ChatMessage::system(&large_context).with_cache_control(CacheControl::ephemeral());
+    let system_msg = ChatMessage::system(&large_context)
+        .cache_control(CacheControl::Ephemeral)
+        .build();
 
     // First request - will create cache
     println!("First request (creating cache)...");
@@ -36,7 +37,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("AI: {}\n", response1.content_text().unwrap());
     if let Some(usage) = &response1.usage {
-        println!("Cache creation tokens: {:?}\n", usage.cache_creation_tokens);
+        println!("Usage: {:?}", usage);
+        if let Some(cache_creation) = response1.metadata.get("cache_creation_input_tokens") {
+            println!("Cache creation tokens: {:?}\n", cache_creation);
+        }
     }
 
     // Second request - will use cache
@@ -47,8 +51,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("AI: {}\n", response2.content_text().unwrap());
     if let Some(usage) = &response2.usage {
-        println!("Cache read tokens: {:?}", usage.cache_read_tokens);
-        println!("💰 Cost savings from caching!");
+        println!("Usage: {:?}", usage);
+        if let Some(cache_read) = response2.metadata.get("cache_read_input_tokens") {
+            println!("Cache read tokens: {:?}", cache_read);
+            println!("💰 Cost savings from caching!");
+        }
     }
 
     Ok(())

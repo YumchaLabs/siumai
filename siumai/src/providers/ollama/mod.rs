@@ -43,6 +43,7 @@
 pub mod client;
 pub mod config;
 pub mod model_constants;
+pub mod spec;
 pub mod transformers;
 pub mod types;
 pub mod utils;

@@ -140,6 +140,7 @@ async fn test_model_id_override() {
             language_model_middleware: vec![Arc::new(OverrideModelMiddleware)],
             max_cache_entries: None,
             client_ttl: None,
+            auto_middleware: true,
         }),
     );
 
@@ -215,6 +216,7 @@ async fn test_multiple_middlewares_first_override_wins() {
             ],
             max_cache_entries: None,
             client_ttl: None,
+            auto_middleware: true,
         }),
     );
 

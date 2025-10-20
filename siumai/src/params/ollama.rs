@@ -3,7 +3,7 @@
 //! Maps common parameters to Ollama-specific format.
 
 use crate::error::LlmError;
-use crate::types::{CommonParams, ProviderParams};
+use crate::types::CommonParams;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -52,65 +52,8 @@ impl OllamaParameterMapper {
         ollama_params
     }
 
-    pub fn merge_provider_params(
-        &self,
-        mut base: Value,
-        provider_params: &ProviderParams,
-    ) -> Value {
-        // Extract Ollama-specific parameters from the generic ProviderParams
-        if let Some(keep_alive) = provider_params.get::<String>("keep_alive") {
-            base["keep_alive"] = json!(keep_alive);
-        }
-
-        if let Some(raw) = provider_params.get::<bool>("raw") {
-            base["raw"] = json!(raw);
-        }
-
-        if let Some(format) = provider_params.get::<String>("format") {
-            base["format"] = json!(format);
-        }
-
-        if let Some(stop) = provider_params.get::<Vec<String>>("stop") {
-            base["stop"] = json!(stop);
-        }
-
-        if let Some(numa) = provider_params.get::<bool>("numa") {
-            base["numa"] = json!(numa);
-        }
-
-        if let Some(num_ctx) = provider_params.get::<u32>("num_ctx") {
-            base["num_ctx"] = json!(num_ctx);
-        }
-
-        if let Some(num_batch) = provider_params.get::<u32>("num_batch") {
-            base["num_batch"] = json!(num_batch);
-        }
-
-        if let Some(num_gpu) = provider_params.get::<u32>("num_gpu") {
-            base["num_gpu"] = json!(num_gpu);
-        }
-
-        if let Some(main_gpu) = provider_params.get::<u32>("main_gpu") {
-            base["main_gpu"] = json!(main_gpu);
-        }
-
-        if let Some(use_mmap) = provider_params.get::<bool>("use_mmap") {
-            base["use_mmap"] = json!(use_mmap);
-        }
-
-        if let Some(num_thread) = provider_params.get::<u32>("num_thread") {
-            base["num_thread"] = json!(num_thread);
-        }
-
-        // Merge any additional parameters from the generic params
-        for (key, value) in &provider_params.params {
-            if base.get(key).is_none() {
-                base[key] = value.clone();
-            }
-        }
-
-        base
-    }
+    // merge_provider_params has been removed in v0.12.0
+    // Use OllamaOptions instead
 
     pub fn validate_params(&self, params: &Value) -> Result<(), LlmError> {
         // Validate temperature

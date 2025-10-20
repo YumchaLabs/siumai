@@ -8,6 +8,7 @@ use crate::error::LlmError;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::provider_core::{ProviderContext, ProviderSpec};
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
 use crate::stream::ChatStream;
@@ -97,6 +98,145 @@ pub struct OpenAiCompatibleClient {
 }
 
 impl OpenAiCompatibleClient {
+    /// Execute a non-stream chat via ProviderSpec
+    async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let spec = crate::providers::openai_compatible::spec::OpenAiCompatibleSpec;
+        // Merge custom headers from HttpConfig + config.custom_headers + adapter.custom_headers
+        let mut extra_headers: std::collections::HashMap<String, String> =
+            self.config.http_config.headers.clone();
+        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
+                                hm: &reqwest::header::HeaderMap| {
+            for (name, value) in hm.iter() {
+                if let Ok(val) = value.to_str() {
+                    dst.insert(name.as_str().to_string(), val.to_string());
+                }
+            }
+        };
+        merge_header_map(&mut extra_headers, &self.config.custom_headers);
+        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
+
+        let ctx = ProviderContext::new(
+            self.config.provider_id.clone(),
+            self.config.base_url.clone(),
+            Some(self.config.api_key.clone()),
+            extra_headers,
+        );
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
+        let http = self.http_client.clone();
+        let ctx_for_headers = ctx.clone();
+        let headers_builder = move || {
+            let ctx = ctx_for_headers.clone();
+            Box::pin(async move { spec.build_headers(&ctx) })
+                as std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<
+                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
+                            > + Send,
+                    >,
+                >
+        };
+        let ctx_for_url = ctx.clone();
+        let build_url =
+            move |stream: bool, req: &ChatRequest| spec.chat_url(stream, req, &ctx_for_url);
+        let exec = std::sync::Arc::new(HttpChatExecutor {
+            provider_id: self.config.provider_id.clone(),
+            http_client: http,
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            stream_transformer: bundle.stream,
+            json_stream_converter: bundle.json,
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
+            build_url: Box::new(build_url),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        });
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let reqc = request.clone();
+                    let exec = exec.clone();
+                    async move { exec.execute(reqc).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            exec.execute(request).await
+        }
+    }
+
+    /// Execute a stream chat via ProviderSpec
+    async fn chat_stream_request_via_spec(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStream, LlmError> {
+        let spec = crate::providers::openai_compatible::spec::OpenAiCompatibleSpec;
+        let mut extra_headers: std::collections::HashMap<String, String> =
+            self.config.http_config.headers.clone();
+        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
+                                hm: &reqwest::header::HeaderMap| {
+            for (name, value) in hm.iter() {
+                if let Ok(val) = value.to_str() {
+                    dst.insert(name.as_str().to_string(), val.to_string());
+                }
+            }
+        };
+        merge_header_map(&mut extra_headers, &self.config.custom_headers);
+        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
+
+        let ctx = ProviderContext::new(
+            self.config.provider_id.clone(),
+            self.config.base_url.clone(),
+            Some(self.config.api_key.clone()),
+            extra_headers,
+        );
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
+        let http = self.http_client.clone();
+        let ctx_for_headers = ctx.clone();
+        let headers_builder = move || {
+            let ctx = ctx_for_headers.clone();
+            Box::pin(async move { spec.build_headers(&ctx) })
+                as std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<
+                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
+                            > + Send,
+                    >,
+                >
+        };
+        let ctx_for_url = ctx.clone();
+        let build_url =
+            move |stream: bool, req: &ChatRequest| spec.chat_url(stream, req, &ctx_for_url);
+        let exec = std::sync::Arc::new(HttpChatExecutor {
+            provider_id: self.config.provider_id.clone(),
+            http_client: http,
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            stream_transformer: bundle.stream,
+            json_stream_converter: bundle.json,
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
+            interceptors: self.http_interceptors.clone(),
+            middlewares: self.model_middlewares.clone(),
+            build_url: Box::new(build_url),
+            build_headers: std::sync::Arc::new(headers_builder),
+            before_send: None,
+        });
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let reqc = request.clone();
+                    let exec = exec.clone();
+                    async move { exec.execute_stream(reqc).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            exec.execute_stream(request).await
+        }
+    }
     /// Create a new OpenAI compatible client
     pub async fn new(config: OpenAiCompatibleConfig) -> Result<Self, LlmError> {
         // Validate configuration
@@ -288,77 +428,12 @@ impl ChatCapability for OpenAiCompatibleClient {
             messages,
             tools,
             common_params: self.config.common_params.clone(),
-            provider_params: None,
             http_config: Some(self.config.http_config.clone()),
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
-        // Instantiate executor
-        let request_tx = super::transformers::CompatRequestTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
-        };
-        let response_tx = super::transformers::CompatResponseTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
-        };
-        let provider_id = self.config.provider_id.clone();
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
-        let adapter_headers_map = self.config.adapter.custom_headers();
-        let http_extra = self.config.http_config.headers.clone();
-        let cfg_custom = self.config.custom_headers.clone();
-        let api_key_clone = api_key.clone();
-        let http_extra_clone = http_extra.clone();
-        let cfg_custom_clone = cfg_custom.clone();
-        let adapter_headers_map_clone = adapter_headers_map.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let http_extra = http_extra_clone.clone();
-            let cfg_custom = cfg_custom_clone.clone();
-            let adapter_headers_map = adapter_headers_map_clone.clone();
-            Box::pin(async move {
-                Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let exec = std::sync::Arc::new(HttpChatExecutor {
-            provider_id: provider_id.clone(),
-            http_client: http,
-            request_transformer: Arc::new(request_tx),
-            response_transformer: Arc::new(response_tx),
-            stream_transformer: None,
-            json_stream_converter: None,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-            build_headers: std::sync::Arc::new(headers_builder),
-            before_send: None,
-        });
-
-        if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let reqc = req.clone();
-                    let exec = exec.clone();
-                    async move { exec.execute(reqc).await }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            exec.execute(req).await
-        }
+        // Execute via ProviderSpec
+        self.chat_request_via_spec(req).await
     }
 
     async fn chat_stream(
@@ -371,71 +446,13 @@ impl ChatCapability for OpenAiCompatibleClient {
             messages,
             tools,
             common_params: self.config.common_params.clone(),
-            provider_params: None,
             http_config: Some(self.config.http_config.clone()),
-            web_search: None,
             stream: true,
-            telemetry: None,
+            ..Default::default()
         };
 
-        // Stream executor using transformer-backed converter
-        let provider_id = self.config.provider_id.clone();
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
-        let adapter_headers_map = self.config.adapter.custom_headers();
-        let http_extra = self.config.http_config.headers.clone();
-        let cfg_custom = self.config.custom_headers.clone();
-        let request_tx = super::transformers::CompatRequestTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
-        };
-        let std_adapter = super::streaming::OpenAiCompatibleEventConverter::new(
-            self.config.clone(),
-            self.config.adapter.clone(),
-        );
-        let stream_tx = super::transformers::CompatStreamChunkTransformer {
-            provider_id: provider_id.clone(),
-            inner: std_adapter,
-        };
-        let api_key_clone = api_key.clone();
-        let http_extra_clone = http_extra.clone();
-        let cfg_custom_clone = cfg_custom.clone();
-        let adapter_headers_map_clone = adapter_headers_map.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let http_extra = http_extra_clone.clone();
-            let cfg_custom = cfg_custom_clone.clone();
-            let adapter_headers_map = adapter_headers_map_clone.clone();
-            Box::pin(async move {
-                Self::build_json_headers(&api_key, &http_extra, &cfg_custom, &adapter_headers_map)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let exec = std::sync::Arc::new(HttpChatExecutor {
-            provider_id: provider_id.clone(),
-            http_client: http,
-            request_transformer: Arc::new(request_tx),
-            response_transformer: Arc::new(super::transformers::CompatResponseTransformer {
-                config: self.config.clone(),
-                adapter: self.config.adapter.clone(),
-            }),
-            stream_transformer: Some(Arc::new(stream_tx)),
-            json_stream_converter: None,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |_stream| format!("{}/chat/completions", base)),
-            build_headers: std::sync::Arc::new(headers_builder),
-            before_send: None,
-        });
-        exec.execute_stream(request).await
+        // Execute via ProviderSpec
+        self.chat_stream_request_via_spec(request).await
     }
 }
 

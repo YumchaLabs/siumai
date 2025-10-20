@@ -19,13 +19,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // Create message with image
-    let message = ChatMessage::user_with_images(
-        "What's in this image? Describe it in detail.",
-        vec![ImageContent::from_url(
-            "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Rust_programming_language_black_logo.svg/1200px-Rust_programming_language_black_logo.svg.png",
-        )],
-    );
+    // Create message with image using builder pattern
+    let message = ChatMessage::user("What's in this image? Describe it in detail.")
+        .with_image(
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Rust_programming_language_black_logo.svg/1200px-Rust_programming_language_black_logo.svg.png".to_string(),
+            Some("high".to_string()),
+        )
+        .build();
 
     let response = client.chat(vec![message]).await?;
 

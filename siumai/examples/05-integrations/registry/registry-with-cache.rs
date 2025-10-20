@@ -26,6 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             language_model_middleware: vec![],
             max_cache_entries: Some(10), // Cache up to 10 clients
             client_ttl: Some(Duration::from_secs(300)), // 5 minute TTL
+            auto_middleware: true,
         }),
     );
 

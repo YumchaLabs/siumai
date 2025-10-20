@@ -586,8 +586,6 @@ pub struct SiumaiBuilder {
     reasoning_budget: Option<i32>,
     // Unified retry configuration
     retry_options: Option<RetryOptions>,
-    // Optional provider-specific parameters provided by the user
-    user_provider_params: Option<ProviderParams>,
     /// Optional HTTP interceptors applied to chat requests (unified interface)
     pub(crate) http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data)
@@ -617,7 +615,6 @@ impl SiumaiBuilder {
             reasoning_enabled: None,
             reasoning_budget: None,
             retry_options: None,
-            user_provider_params: None,
             http_interceptors: Vec::new(),
             http_debug: false,
             #[cfg(feature = "google")]
@@ -652,23 +649,7 @@ impl SiumaiBuilder {
             "openrouter" => ProviderType::Custom("openrouter".to_string()),
             _ => ProviderType::Custom(name.clone()),
         });
-        // Also set Responses API toggle automatically for known aliases
-        #[cfg(feature = "openai")]
-        {
-            if name == "openai-chat" {
-                let params = ProviderParams::new().with_param("responses_api", false);
-                self.user_provider_params = Some(match self.user_provider_params.take() {
-                    Some(p) => p.merge(params),
-                    None => params,
-                });
-            } else if name == "openai-responses" {
-                let params = ProviderParams::new().with_param("responses_api", true);
-                self.user_provider_params = Some(match self.user_provider_params.take() {
-                    Some(p) => p.merge(params),
-                    None => params,
-                });
-            }
-        }
+        // Responses API routing is now handled via provider_options in ChatRequest
         self
     }
 
@@ -686,15 +667,8 @@ impl SiumaiBuilder {
         self
     }
 
-    /// Attach provider-specific parameters (advanced usage)
-    /// Use namespaced keys where applicable, e.g.:
-    /// - "responses_api": true (OpenAI Responses API)
-    /// - "thinking_budget": 4096 (Anthropic/Gemini)
-    /// - "think": true (Ollama)
-    pub fn with_provider_params(mut self, params: ProviderParams) -> Self {
-        self.user_provider_params = Some(params);
-        self
-    }
+    // with_provider_params has been removed in v0.12.0
+    // Use provider-specific options in ChatRequest instead
 
     /// Set the model
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {

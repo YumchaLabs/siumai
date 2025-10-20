@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(api_key) = std::env::var("GOOGLE_API_KEY") {
         println!("🤖 Google (Gemini 2.0 Flash):");
         let client = Siumai::builder()
-            .google()
+            .gemini()
             .api_key(&api_key)
             .model("gemini-2.0-flash-exp")
             .build()

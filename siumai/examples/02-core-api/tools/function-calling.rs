@@ -21,34 +21,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Define tools
     let tools = vec![
-        json!({
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "description": "Get current weather for a location",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string", "description": "City name"}
-                    },
-                    "required": ["location"]
-                }
-            }
-        }),
-        json!({
-            "type": "function",
-            "function": {
-                "name": "calculate",
-                "description": "Perform mathematical calculations",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "expression": {"type": "string", "description": "Math expression"}
-                    },
-                    "required": ["expression"]
-                }
-            }
-        }),
+        Tool::function(
+            "get_weather".to_string(),
+            "Get current weather for a location".to_string(),
+            json!({
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string", "description": "City name"}
+                },
+                "required": ["location"]
+            }),
+        ),
+        Tool::function(
+            "calculate".to_string(),
+            "Perform mathematical calculations".to_string(),
+            json!({
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "Math expression"}
+                },
+                "required": ["expression"]
+            }),
+        ),
     ];
 
     // Request with tools
@@ -63,9 +57,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tool_calls) = &response.tool_calls {
         println!("🔧 AI wants to call {} tool(s):\n", tool_calls.len());
         for call in tool_calls {
-            println!("  Function: {}", call.name);
-            println!("  Arguments: {}", call.arguments);
-            println!();
+            if let Some(function) = &call.function {
+                println!("  Function: {}", function.name);
+                println!("  Arguments: {}", function.arguments);
+                println!();
+            }
         }
     } else {
         println!("AI: {}", response.content_text().unwrap_or_default());

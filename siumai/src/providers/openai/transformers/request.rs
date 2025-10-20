@@ -68,41 +68,11 @@ impl RequestTransformer for OpenAiRequestTransformer {
 
             fn post_process_chat(
                 &self,
-                req: &ChatRequest,
-                body: &mut serde_json::Value,
+                _req: &ChatRequest,
+                _body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                // Map structured_output provider hint to OpenAI chat `response_format`
-                if let Some(pp) = &req.provider_params {
-                    if let Some(so) = pp
-                        .params
-                        .get("structured_output")
-                        .and_then(|v| v.as_object())
-                    {
-                        let mode = so.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
-                        let schema = so.get("schema");
-                        let name = so.get("schema_name").and_then(|v| v.as_str());
-                        if let Some(schema_v) = schema.cloned() {
-                            let rf = if let Some(n) = name {
-                                serde_json::json!({
-                                    "type": "json_schema",
-                                    "json_schema": {"name": n, "schema": schema_v, "strict": true}
-                                })
-                            } else {
-                                serde_json::json!({
-                                    "type": "json_object",
-                                    "json_schema": {"schema": schema_v, "strict": true}
-                                })
-                            };
-                            body["response_format"] = rf;
-                        } else if mode == "json" {
-                            body["response_format"] = serde_json::json!({"type":"json_object"});
-                        }
-                    }
-                }
-                // Drop leftover hint if merged by rules
-                if let Some(obj) = body.as_object_mut() {
-                    obj.remove("structured_output");
-                }
+                // All provider-specific features are now handled via provider_options
+                // in ProviderSpec::chat_before_send()
                 Ok(())
             }
         }
@@ -146,14 +116,6 @@ impl RequestTransformer for OpenAiRequestTransformer {
                     field: "tools",
                     max: 128,
                     message: "OpenAI supports maximum 128 tools per request",
-                },
-                // Flatten provider_params into the top-level body
-                Rule::MergeProviderParams {
-                    strategy: ProviderParamsMergeStrategy::Flatten,
-                },
-                // Drop high-level structured_output hint for chat/completions path
-                Rule::Drop {
-                    field: "structured_output",
                 },
             ],
             merge_strategy: ProviderParamsMergeStrategy::Flatten,
@@ -199,12 +161,7 @@ impl RequestTransformer for OpenAiRequestTransformer {
         let hooks = OpenAiEmbeddingHooks;
         let profile = MappingProfile {
             provider_id: "openai",
-            rules: vec![
-                // Flatten provider params into top-level for embeddings
-                Rule::MergeProviderParams {
-                    strategy: ProviderParamsMergeStrategy::Flatten,
-                },
-            ],
+            rules: vec![],
             merge_strategy: ProviderParamsMergeStrategy::Flatten,
         };
         let generic = GenericRequestTransformer { profile, hooks };
@@ -264,12 +221,7 @@ impl RequestTransformer for OpenAiRequestTransformer {
         let hooks = OpenAiImageHooks;
         let profile = MappingProfile {
             provider_id: "openai",
-            rules: vec![
-                // Flatten provider params for image generation as well
-                Rule::MergeProviderParams {
-                    strategy: ProviderParamsMergeStrategy::Flatten,
-                },
-            ],
+            rules: vec![],
             merge_strategy: ProviderParamsMergeStrategy::Flatten,
         };
         let generic = GenericRequestTransformer { profile, hooks };
@@ -370,52 +322,8 @@ impl RequestTransformer for OpenAiRequestTransformer {
     }
 }
 
-#[cfg(test)]
-mod mapping_tests {
-    use super::*;
-    use crate::types::{ChatMessage, ChatRequest, ProviderParams};
-
-    #[test]
-    fn chat_transform_injects_response_format_from_structured_output_named() {
-        let tx = OpenAiRequestTransformer;
-        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
-        req.common_params.model = "gpt-4o-mini".into();
-        let mut hint = serde_json::Map::new();
-        hint.insert("mode".into(), serde_json::json!("auto"));
-        hint.insert("schema_name".into(), serde_json::json!("User"));
-        hint.insert("schema".into(), serde_json::json!({"type":"object"}));
-        req = req.with_provider_params(
-            ProviderParams::new().with_param("structured_output", serde_json::Value::Object(hint)),
-        );
-        let body = tx.transform_chat(&req).expect("ok");
-        assert_eq!(
-            body.get("response_format")
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("json_schema")
-        );
-    }
-
-    #[test]
-    fn chat_transform_injects_response_format_from_structured_output_object() {
-        let tx = OpenAiRequestTransformer;
-        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
-        req.common_params.model = "gpt-4o-mini".into();
-        let mut hint = serde_json::Map::new();
-        hint.insert("mode".into(), serde_json::json!("auto"));
-        hint.insert("schema".into(), serde_json::json!({"type":"object"}));
-        req = req.with_provider_params(
-            ProviderParams::new().with_param("structured_output", serde_json::Value::Object(hint)),
-        );
-        let body = tx.transform_chat(&req).expect("ok");
-        assert_eq!(
-            body.get("response_format")
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("json_object")
-        );
-    }
-}
+// Tests for structured_output via provider_params have been removed
+// as this functionality is now handled via provider_options in ProviderSpec::chat_before_send()
 
 /// Request transformer for OpenAI Responses API
 #[derive(Clone)]
@@ -634,59 +542,24 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
             fn post_process_chat(
                 &self,
-                req: &crate::types::ChatRequest,
-                body: &mut serde_json::Value,
+                _req: &crate::types::ChatRequest,
+                _body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                if let Some(pp) = &req.provider_params {
-                    if let Some(so) = pp
-                        .params
-                        .get("structured_output")
-                        .and_then(|v| v.as_object())
-                    {
-                        let mode = so.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
-                        let schema = so.get("schema");
-                        let name = so.get("schema_name").and_then(|v| v.as_str());
-                        // Prefer schema if provided
-                        if let Some(schema_v) = schema.cloned() {
-                            let rf = if let Some(n) = name {
-                                serde_json::json!({
-                                    "type": "json_schema",
-                                    "json_schema": {"name": n, "schema": schema_v, "strict": true}
-                                })
-                            } else {
-                                serde_json::json!({
-                                    "type": "json_object",
-                                    "json_schema": {"schema": schema_v, "strict": true}
-                                })
-                            };
-                            body["response_format"] = rf;
-                        } else if mode == "json" {
-                            body["response_format"] = serde_json::json!({"type":"json_object"});
-                        }
-                    }
-                }
-                // Safety: drop any leftover hint merged into body
-                if let Some(obj) = body.as_object_mut() {
-                    obj.remove("structured_output");
-                }
+                // All provider-specific features are now handled via provider_options
+                // in ProviderSpec::chat_before_send()
                 Ok(())
             }
         }
         let hooks = ResponsesHooks;
         let profile = crate::transformers::request::MappingProfile {
             provider_id: "openai_responses",
-            rules: vec![
-                crate::transformers::request::Rule::Range {
-                    field: "temperature",
-                    min: 0.0,
-                    max: 2.0,
-                    mode: crate::transformers::request::RangeMode::Error,
-                    message: None,
-                },
-                crate::transformers::request::Rule::MergeProviderParams {
-                    strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
-                },
-            ],
+            rules: vec![crate::transformers::request::Rule::Range {
+                field: "temperature",
+                min: 0.0,
+                max: 2.0,
+                mode: crate::transformers::request::RangeMode::Error,
+                message: None,
+            }],
             merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
         let generic = crate::transformers::request::GenericRequestTransformer { profile, hooks };

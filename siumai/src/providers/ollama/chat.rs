@@ -75,44 +75,18 @@ impl OllamaChatCapability {
             self.ollama_params.options.as_ref(),
         );
 
-        // Build format from either request.provider_params.structured_output or client params
-        let format = {
-            // First, prefer request-level structured output hint
-            let from_req = request.provider_params.as_ref().and_then(|pp| {
-                pp.params
-                    .get("structured_output")
-                    .and_then(|v| v.as_object())
-                    .map(|so| {
-                        if let Some(schema) = so.get("schema") {
-                            // If schema provided, pass the schema directly
-                            schema.clone()
-                        } else if let Some(t) = so.get("type").and_then(|v| v.as_str()) {
-                            if t.eq_ignore_ascii_case("json")
-                                || t.eq_ignore_ascii_case("json_object")
-                            {
-                                serde_json::Value::String("json".to_string())
-                            } else {
-                                serde_json::Value::Null
-                            }
-                        } else {
-                            serde_json::Value::Null
-                        }
-                    })
-            });
-            if let Some(val) = from_req {
-                if !val.is_null() { Some(val) } else { None }
-            } else if let Some(format_str) = &self.ollama_params.format {
-                if format_str == "json" {
-                    Some(serde_json::Value::String("json".to_string()))
-                } else {
-                    match serde_json::from_str(format_str) {
-                        Ok(schema) => Some(schema),
-                        Err(_) => Some(serde_json::Value::String(format_str.clone())),
-                    }
-                }
+        // Build format from client params (provider_params is deprecated)
+        let format = if let Some(format_str) = &self.ollama_params.format {
+            if format_str == "json" {
+                Some(serde_json::Value::String("json".to_string()))
             } else {
-                None
+                match serde_json::from_str(format_str) {
+                    Ok(schema) => Some(schema),
+                    Err(_) => Some(serde_json::Value::String(format_str.clone())),
+                }
             }
+        } else {
+            None
         };
 
         // Determine thinking behavior
@@ -225,11 +199,7 @@ impl ChatCapability for OllamaChatCapability {
                 model: "llama3.2".to_string(), // Default model
                 ..Default::default()
             },
-            provider_params: None,
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
         self.chat(request).await
@@ -248,11 +218,8 @@ impl ChatCapability for OllamaChatCapability {
                 model: "llama3.2".to_string(), // Default model
                 ..Default::default()
             },
-            provider_params: None,
-            http_config: None,
-            web_search: None,
             stream: true,
-            telemetry: None,
+            ..Default::default()
         };
 
         // Create streaming capability
@@ -347,11 +314,7 @@ mod tests {
             }],
             tools: None,
             common_params,
-            provider_params: None,
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
+            ..Default::default()
         };
 
         let body = capability.build_chat_request_body(&request).unwrap();
@@ -404,48 +367,6 @@ mod tests {
         assert!(response.metadata.contains_key("total_duration_ms"));
     }
 
-    #[test]
-    fn test_structured_output_mapping_from_provider_params() {
-        let capability = OllamaChatCapability::new(
-            "http://localhost:11434".to_string(),
-            reqwest::Client::new(),
-            HttpConfig::default(),
-            OllamaParams::default(),
-        );
-
-        // schema mapping
-        let mut pp = crate::types::ProviderParams::new();
-        pp = pp.with_param(
-            "structured_output",
-            serde_json::json!({"schema": {"type":"object","properties":{}}}),
-        );
-        let request = ChatRequest {
-            messages: vec![ChatMessage::user("hi").build()],
-            tools: None,
-            common_params: CommonParams {
-                model: "llama3.2".into(),
-                ..Default::default()
-            },
-            provider_params: Some(pp),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
-        };
-        let body = capability.build_chat_request_body(&request).unwrap();
-        assert!(body.format.is_some());
-
-        // json mode mapping
-        let pp2 = crate::types::ProviderParams::new()
-            .with_param("structured_output", serde_json::json!({"type": "json"}));
-        let req2 = ChatRequest {
-            provider_params: Some(pp2),
-            ..request.clone()
-        };
-        let body2 = capability.build_chat_request_body(&req2).unwrap();
-        assert_eq!(
-            body2.format,
-            Some(serde_json::Value::String("json".to_string()))
-        );
-    }
+    // Test for structured_output via provider_params has been removed
+    // as this functionality is now handled via provider_options
 }

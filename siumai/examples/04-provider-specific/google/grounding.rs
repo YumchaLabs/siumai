@@ -13,7 +13,7 @@ use siumai::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Siumai::builder()
-        .google()
+        .gemini()
         .api_key(&std::env::var("GOOGLE_API_KEY")?)
         .model("gemini-2.0-flash-exp")
         .build()
@@ -21,15 +21,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("🌐 Google Grounding Example\n");
 
-    // Enable web search grounding
-    let web_search = WebSearchConfig {
+    // Enable web search grounding via provider_options
+    let gemini_options = GeminiOptions::new().with_search_grounding(SearchGroundingConfig {
         enabled: true,
-        dynamic_retrieval_threshold: Some(0.3),
-    };
+        dynamic_retrieval_config: Some(DynamicRetrievalConfig {
+            mode: DynamicRetrievalMode::ModeDynamic,
+            dynamic_threshold: Some(0.3),
+        }),
+    });
 
     let request = ChatRequest::builder()
         .message(user!("What are the latest developments in Rust 1.85?"))
-        .web_search(web_search)
+        .gemini_options(gemini_options)
         .build();
 
     let response = client.chat_request(request).await?;
@@ -37,12 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("AI (with web search):");
     println!("{}\n", response.content_text().unwrap());
 
-    // Check for grounding metadata
-    if let Some(metadata) = response.grounding_metadata {
-        println!("🔍 Grounding sources:");
-        for source in metadata.sources {
-            println!("  - {}", source.url);
-        }
+    // Check for grounding metadata in provider metadata
+    if let Some(grounding) = response.metadata.get("grounding_metadata") {
+        println!("🔍 Grounding metadata:");
+        println!("{}", serde_json::to_string_pretty(grounding).unwrap());
     }
 
     Ok(())

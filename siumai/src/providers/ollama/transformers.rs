@@ -46,34 +46,18 @@ impl RequestTransformer for OllamaRequestTransformer {
             self.params.options.as_ref(),
         ));
 
-        // Structured output / format
-        let mut format_val: Option<serde_json::Value> = None;
-        if let Some(pp) = &req.provider_params {
-            if let Some(so) = pp
-                .params
-                .get("structured_output")
-                .and_then(|v| v.as_object())
-            {
-                if let Some(schema) = so.get("schema") {
-                    format_val = Some(schema.clone());
-                } else if let Some(t) = so.get("type").and_then(|v| v.as_str()) {
-                    if t.eq_ignore_ascii_case("json") || t.eq_ignore_ascii_case("json_object") {
-                        format_val = Some(serde_json::Value::String("json".to_string()));
-                    }
-                }
+        // Structured output / format - now handled via provider_options
+        let format_val: Option<serde_json::Value> = if let Some(fmt) = &self.params.format {
+            if fmt == "json" {
+                Some(serde_json::Value::String("json".to_string()))
+            } else if let Ok(schema) = serde_json::from_str::<serde_json::Value>(fmt) {
+                Some(schema)
+            } else {
+                Some(serde_json::Value::String(fmt.clone()))
             }
-        }
-        if format_val.is_none() {
-            if let Some(fmt) = &self.params.format {
-                if fmt == "json" {
-                    format_val = Some(serde_json::Value::String("json".to_string()));
-                } else if let Ok(schema) = serde_json::from_str::<serde_json::Value>(fmt) {
-                    format_val = Some(schema);
-                } else {
-                    format_val = Some(serde_json::Value::String(fmt.clone()));
-                }
-            }
-        }
+        } else {
+            None
+        };
 
         // Thinking mode
         let think = self.params.think.or_else(|| {

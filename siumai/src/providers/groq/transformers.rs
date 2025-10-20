@@ -119,42 +119,11 @@ impl RequestTransformer for GroqRequestTransformer {
             }
             fn post_process_chat(
                 &self,
-                req: &ChatRequest,
+                _req: &ChatRequest,
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                // Map structured_output provider hint to OpenAI-compatible response_format for Groq
-                if let Some(pp) = &req.provider_params {
-                    if let Some(so) = pp
-                        .params
-                        .get("structured_output")
-                        .and_then(|v| v.as_object())
-                    {
-                        let mut rf: Option<serde_json::Value> = None;
-                        if let Some(schema_v) = so.get("schema") {
-                            if let Some(n) = so.get("name").and_then(|v| v.as_str()) {
-                                rf = Some(serde_json::json!({
-                                    "type": "json_schema",
-                                    "json_schema": {"name": n, "schema": schema_v, "strict": true}
-                                }));
-                            } else {
-                                rf = Some(serde_json::json!({
-                                    "type": "json_schema",
-                                    "json_schema": {"schema": schema_v, "strict": true}
-                                }));
-                            }
-                        } else if let Some(t) = so.get("type").and_then(|v| v.as_str()) {
-                            if t.eq_ignore_ascii_case("json")
-                                || t.eq_ignore_ascii_case("json_object")
-                            {
-                                rf = Some(serde_json::json!({"type": "json_object"}));
-                            }
-                        }
-                        if let Some(val) = rf {
-                            body["response_format"] = val;
-                        }
-                    }
-                }
-
+                // All provider-specific features are now handled via provider_options
+                // in ProviderSpec::chat_before_send()
                 super::utils::validate_groq_params(body)?;
                 Ok(())
             }
@@ -176,9 +145,6 @@ impl RequestTransformer for GroqRequestTransformer {
                     max: 1.0,
                     mode: crate::transformers::request::RangeMode::Error,
                     message: None,
-                },
-                crate::transformers::request::Rule::MergeProviderParams {
-                    strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
                 },
             ],
             merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
@@ -299,78 +265,5 @@ impl StreamChunkTransformer for GroqStreamChunkTransformer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::{
-        ChatMessage, ChatRequest, CommonParams, MessageContent, MessageRole, ProviderParams,
-    };
-
-    #[test]
-    fn maps_structured_output_to_response_format_schema() {
-        let tx = GroqRequestTransformer;
-        let request = ChatRequest {
-            messages: vec![ChatMessage {
-                role: MessageRole::User,
-                content: MessageContent::Text("hi".into()),
-                metadata: Default::default(),
-                tool_calls: None,
-                tool_call_id: None,
-            }],
-            tools: None,
-            common_params: CommonParams {
-                model: "llama3-70b".into(),
-                ..Default::default()
-            },
-            provider_params: Some(ProviderParams::new().with_param(
-                "structured_output",
-                serde_json::json!({"schema": {"type":"object"}}),
-            )),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
-        };
-        let body = tx.transform_chat(&request).expect("ok");
-        assert_eq!(
-            body.get("response_format")
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("json_schema")
-        );
-    }
-
-    #[test]
-    fn maps_structured_output_to_response_format_json_object() {
-        let tx = GroqRequestTransformer;
-        let request = ChatRequest {
-            messages: vec![ChatMessage {
-                role: MessageRole::User,
-                content: MessageContent::Text("hi".into()),
-                metadata: Default::default(),
-                tool_calls: None,
-                tool_call_id: None,
-            }],
-            tools: None,
-            common_params: CommonParams {
-                model: "llama3-70b".into(),
-                ..Default::default()
-            },
-            provider_params: Some(
-                ProviderParams::new()
-                    .with_param("structured_output", serde_json::json!({"type": "json"})),
-            ),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
-        };
-        let body = tx.transform_chat(&request).expect("ok");
-        assert_eq!(
-            body.get("response_format")
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("json_object")
-        );
-    }
-}
+// Tests for structured_output via provider_params have been removed
+// as this functionality is now handled via provider_options in ProviderSpec::chat_before_send()

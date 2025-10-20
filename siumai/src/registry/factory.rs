@@ -7,7 +7,7 @@
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::types::{CommonParams, HttpConfig, ProviderParams};
+use crate::types::{CommonParams, HttpConfig};
 use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
@@ -19,7 +19,7 @@ pub async fn build_openai_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     _http_config: HttpConfig,
-    provider_params: Option<ProviderParams>,
+    _provider_params: Option<()>, // Removed ProviderParams
     organization: Option<String>,
     project: Option<String>,
     _tracing_config: Option<crate::tracing::TracingConfig>,
@@ -40,13 +40,6 @@ pub async fn build_openai_client(
     }
     if let Some(proj) = project {
         config = config.with_project(proj);
-    }
-
-    // Apply provider-specific toggles (e.g., Responses API)
-    if let Some(ref params) = provider_params
-        && let Some(use_responses) = params.get::<bool>("responses_api")
-    {
-        config = config.with_responses_api(use_responses);
     }
 
     let mut client = crate::providers::openai::OpenAiClient::new(config, http_client);
@@ -70,7 +63,7 @@ pub async fn build_openai_compatible_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
-    _provider_params: Option<ProviderParams>,
+    _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -146,17 +139,12 @@ pub async fn build_anthropic_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
-    provider_params: Option<ProviderParams>,
+    _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    // Extract Anthropic-specific parameters from provider_params
-    let mut anthropic_params = crate::params::AnthropicParams::default();
-    if let Some(ref params) = provider_params
-        && let Some(budget) = params.get::<u32>("thinking_budget")
-    {
-        anthropic_params.thinking_budget = Some(budget);
-    }
+    // Provider-specific parameters are now handled via provider_options in ChatRequest
+    let anthropic_params = crate::params::AnthropicParams::default();
 
     let mut client = crate::providers::anthropic::AnthropicClient::new(
         api_key,
@@ -186,7 +174,7 @@ pub async fn build_gemini_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
-    provider_params: Option<ProviderParams>,
+    _provider_params: Option<()>, // Removed ProviderParams
     #[allow(unused_variables)] gemini_token_provider: Option<
         std::sync::Arc<dyn crate::auth::TokenProvider>,
     >,
@@ -229,12 +217,7 @@ pub async fn build_gemini_client(
         client = client.with_http_interceptors(interceptors);
     }
 
-    // Apply thinking budget if provided
-    if let Some(ref params) = provider_params
-        && let Some(budget) = params.get::<i32>("thinking_budget")
-    {
-        client = client.with_thinking_budget(budget);
-    }
+    // Provider-specific parameters are now handled via provider_options in ChatRequest
 
     // Note: Tracing initialization has been moved to siumai-extras.
     // Users should initialize tracing manually using siumai_extras::telemetry
@@ -273,18 +256,14 @@ pub async fn build_ollama_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
-    provider_params: Option<ProviderParams>,
+    _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::tracing::TracingConfig>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use crate::providers::ollama::OllamaClient;
     use crate::providers::ollama::config::{OllamaConfig, OllamaParams};
 
-    let mut ollama_params = OllamaParams::default();
-    if let Some(ref params) = provider_params
-        && let Some(think) = params.get::<bool>("think")
-    {
-        ollama_params.think = Some(think);
-    }
+    // Provider-specific parameters are now handled via provider_options in ChatRequest
+    let ollama_params = OllamaParams::default();
 
     let config = OllamaConfig {
         base_url,

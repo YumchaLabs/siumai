@@ -120,6 +120,7 @@ pub mod executors;
 pub mod highlevel;
 pub mod middleware;
 pub mod orchestrator;
+pub mod provider_core;
 pub mod public;
 pub mod server_adapters;
 pub mod transformers;

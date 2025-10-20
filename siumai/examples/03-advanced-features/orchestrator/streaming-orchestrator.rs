@@ -11,8 +11,7 @@
 use futures::StreamExt;
 use siumai::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 use siumai::prelude::*;
-use siumai::stream::StreamEvent;
-use siumai::types::{Tool, ToolFunction};
+use siumai::types::{ChatStreamEvent, Tool, ToolFunction};
 
 // Simple tool resolver
 struct NewsResolver;
@@ -121,25 +120,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while let Some(event) = stream.next().await {
         match event {
-            Ok(StreamEvent::Delta { delta, .. }) => {
-                if let Some(content) = delta.content {
-                    print!("{}", content);
-                    current_text.push_str(&content);
-                    std::io::Write::flush(&mut std::io::stdout())?;
-                }
+            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
+                print!("{}", delta);
+                current_text.push_str(&delta);
+                std::io::Write::flush(&mut std::io::stdout())?;
             }
-            Ok(StreamEvent::ToolCallDelta { delta, .. }) => {
-                if let Some(name) = delta.function.name {
-                    println!("\n  [Tool call: {}]", name);
-                }
+            Ok(ChatStreamEvent::ToolCallDelta {
+                function_name: Some(name),
+                ..
+            }) => {
+                println!("\n  [Tool call: {}]", name);
             }
-            Ok(StreamEvent::Done { .. }) => {
-                println!("\n  [Stream chunk complete]");
+            Ok(ChatStreamEvent::StreamEnd { .. }) => {
+                println!("\n  [Stream complete]");
             }
             Err(e) => {
                 eprintln!("\nStream error: {}", e);
                 break;
             }
+            _ => {}
         }
     }
 
@@ -156,7 +155,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\nStep {}:", i + 1);
         println!("  Tool calls: {}", step.tool_calls.len());
         for tc in &step.tool_calls {
-            println!("    - {}", tc.function.name);
+            if let Some(function) = &tc.function {
+                println!("    - {}", function.name);
+            }
         }
         if let Some(usage) = &step.usage {
             println!(

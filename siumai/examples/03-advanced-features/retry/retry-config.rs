@@ -8,23 +8,30 @@
 //! ```
 
 use siumai::prelude::*;
+use siumai::retry_api::{RetryOptions, RetryPolicy};
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Configure retry behavior
-    let retry_config = RetryConfig {
-        max_retries: 3,
-        initial_delay_ms: 1000,
-        max_delay_ms: 10000,
-        exponential_base: 2.0,
-        jitter: true,
+    // Configure retry behavior using RetryPolicy
+    let retry_policy = RetryPolicy::default()
+        .with_max_attempts(3)
+        .with_initial_delay(Duration::from_millis(1000))
+        .with_max_delay(Duration::from_secs(10))
+        .with_backoff_multiplier(2.0)
+        .with_jitter(true);
+
+    let retry_options = RetryOptions {
+        backend: siumai::retry_api::RetryBackend::Policy,
+        provider: None,
+        policy: Some(retry_policy),
     };
 
     let client = Siumai::builder()
         .openai()
         .api_key(&std::env::var("OPENAI_API_KEY")?)
         .model("gpt-4o-mini")
-        .retry_config(retry_config)
+        .with_retry(retry_options)
         .build()
         .await?;
 

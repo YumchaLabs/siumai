@@ -97,61 +97,11 @@ impl RequestTransformer for AnthropicRequestTransformer {
 
             fn post_process_chat(
                 &self,
-                req: &ChatRequest,
-                body: &mut serde_json::Value,
+                _req: &ChatRequest,
+                _body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                // Map structured_output provider hint to Anthropic-style response_format when present
-                if let Some(pp) = &req.provider_params {
-                    if let Some(so) = pp
-                        .params
-                        .get("structured_output")
-                        .and_then(|v| v.as_object())
-                    {
-                        // Build response_format similar to OpenAI shape, which Anthropic supports for JSON schema
-                        let mut rf: Option<serde_json::Value> = None;
-                        if let Some(schema_v) = so.get("schema") {
-                            // Optional name
-                            if let Some(n) = so.get("name").and_then(|v| v.as_str()) {
-                                rf = Some(serde_json::json!({
-                                    "type": "json_schema",
-                                    "json_schema": {"name": n, "schema": schema_v, "strict": true}
-                                }));
-                            } else {
-                                rf = Some(serde_json::json!({
-                                    "type": "json_schema",
-                                    "json_schema": {"schema": schema_v, "strict": true}
-                                }));
-                            }
-                        } else if let Some(t) = so.get("type").and_then(|v| v.as_str()) {
-                            if t.eq_ignore_ascii_case("json")
-                                || t.eq_ignore_ascii_case("json_object")
-                            {
-                                rf = Some(serde_json::json!({"type": "json_object"}));
-                            }
-                        }
-                        if let Some(rf_val) = rf {
-                            body["response_format"] = rf_val;
-                        }
-                    }
-                }
-
-                // Merge provider params with filtered keys to avoid overriding core fields
-                if let Some(pp) = &req.provider_params
-                    && let Some(obj) = body.as_object_mut()
-                {
-                    for (k, v) in &pp.params {
-                        if k == "model"
-                            || k == "messages"
-                            || k == "stream"
-                            || k == "structured_output"
-                        {
-                            continue;
-                        }
-                        if !v.is_null() {
-                            obj.insert(k.clone(), v.clone());
-                        }
-                    }
-                }
+                // All provider-specific features are now handled via provider_options
+                // in ProviderSpec::chat_before_send()
                 Ok(())
             }
         }
@@ -250,83 +200,5 @@ impl StreamChunkTransformer for AnthropicStreamChunkTransformer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::{ChatMessage, ChatRequest, CommonParams, MessageContent, MessageRole};
-
-    #[test]
-    fn transforms_structured_output_to_response_format_schema() {
-        let tx = AnthropicRequestTransformer::new(None);
-        let mut so = serde_json::Map::new();
-        so.insert(
-            "schema".to_string(),
-            serde_json::json!({"type":"object","properties":{"x":{"type":"string"}}}),
-        );
-        let request = ChatRequest {
-            messages: vec![ChatMessage {
-                role: MessageRole::User,
-                content: MessageContent::Text("hi".into()),
-                metadata: Default::default(),
-                tool_calls: None,
-                tool_call_id: None,
-            }],
-            tools: None,
-            common_params: CommonParams {
-                model: "claude-3.5".into(),
-                max_tokens: Some(32),
-                ..Default::default()
-            },
-            provider_params: Some(
-                crate::types::ProviderParams::new()
-                    .with_param("structured_output", serde_json::Value::Object(so)),
-            ),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
-        };
-        let body = tx.transform_chat(&request).expect("transform ok");
-        assert_eq!(
-            body.get("response_format")
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("json_schema")
-        );
-    }
-
-    #[test]
-    fn transforms_structured_output_to_response_format_json_object() {
-        let tx = AnthropicRequestTransformer::new(None);
-        let so = serde_json::json!({"type": "json"});
-        let request = ChatRequest {
-            messages: vec![ChatMessage {
-                role: MessageRole::User,
-                content: MessageContent::Text("hi".into()),
-                metadata: Default::default(),
-                tool_calls: None,
-                tool_call_id: None,
-            }],
-            tools: None,
-            common_params: CommonParams {
-                model: "claude-3.5".into(),
-                max_tokens: Some(32),
-                ..Default::default()
-            },
-            provider_params: Some(
-                crate::types::ProviderParams::new().with_param("structured_output", so),
-            ),
-            http_config: None,
-            web_search: None,
-            stream: false,
-            telemetry: None,
-        };
-        let body = tx.transform_chat(&request).expect("transform ok");
-        assert_eq!(
-            body.get("response_format")
-                .and_then(|v| v.get("type"))
-                .and_then(|v| v.as_str()),
-            Some("json_object")
-        );
-    }
-}
+// Tests for structured_output via provider_params have been removed
+// as this functionality is now handled via provider_options in ProviderSpec::chat_before_send()

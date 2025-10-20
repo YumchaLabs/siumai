@@ -22,6 +22,7 @@ async fn registry_openrouter_smoke() -> Result<(), Box<dyn std::error::Error>> {
             language_model_middleware: chain_default_and_clamp(),
             max_cache_entries: None,
             client_ttl: None,
+            auto_middleware: true,
         }),
     );
     // Example model id for OpenRouter
