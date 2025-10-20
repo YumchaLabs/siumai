@@ -1,0 +1,60 @@
+[package]
+name = "siumai-extras"
+version = "0.10.3"
+edition = "2024"
+authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
+description = "Optional utilities for siumai: schema validation, telemetry, and server adapters"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/YumchaLabs/siumai"
+homepage = "https://github.com/YumchaLabs/siumai"
+documentation = "https://docs.rs/siumai-extras"
+readme = "README.md"
+keywords = ["llm", "ai", "validation", "telemetry", "server"]
+categories = ["api-bindings", "web-programming"]
+
+[dependencies]
+# Core siumai dependency (with default features to include all providers)
+siumai = { version = "0.10.3", path = "../" }
+
+# Common dependencies
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+# Schema validation (optional)
+jsonschema = { version = "0.33", optional = true }
+
+# Telemetry (optional)
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "json",
+    "fmt",
+    "time",
+    "chrono",
+], optional = true }
+tracing-appender = { version = "0.2", optional = true }
+
+# Server adapters (optional)
+axum = { version = "0.8.4", optional = true }
+futures = { version = "0.3", optional = true }
+
+[features]
+default = []
+
+# Schema validation feature
+schema = ["dep:jsonschema"]
+
+# Telemetry feature
+telemetry = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
+
+# Server adapters feature
+server = ["dep:axum", "dep:futures"]
+
+# Convenience feature to enable all extras
+all = ["schema", "telemetry", "server"]
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+tokio-test = "0.4"
+

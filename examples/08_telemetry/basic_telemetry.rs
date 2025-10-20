@@ -100,6 +100,8 @@ impl ToolResolver for SimpleToolResolver {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing for debugging
+    // Note: This function is deprecated. For production use, consider using siumai-extras::telemetry
+    #[allow(deprecated)]
     siumai::tracing::init_default_tracing()?;
 
     println!("🚀 Telemetry Example\n");

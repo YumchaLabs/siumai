@@ -4,25 +4,99 @@
 [![Documentation](https://docs.rs/siumai/badge.svg)](https://docs.rs/siumai)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
-Siumai (烧卖) is a unified, type‑safe Rust library for working with multiple LLM providers through a consistent API. It features capability‑based traits, robust streaming, and flexible HTTP configuration.
+Siumai (烧卖) is a **production-ready**, **type-safe** Rust library for working with multiple LLM providers through a unified API. Built with a clean **Transformers + Executors** architecture, it provides first-class support for streaming, tool calling, structured outputs, and advanced features like middleware, orchestration, and observability.
 
-## Why Siumai
+## ✨ Why Siumai
 
-- Multi‑provider: OpenAI, Anthropic, Google Gemini, Ollama, Groq, xAI, and more
-- Capability‑oriented: chat, streaming, vision, embeddings, files, audio
-- Type‑safe builders and shared parameters with provider extensions
-- First‑class streaming with start/delta/usage/end events and cancellation
-- HTTP customization: custom `reqwest::Client`, headers, proxy, interceptors
-- Unified retry facade and structured error classification
+### 🎯 **Unified Multi-Provider Interface**
+- **8+ Providers**: OpenAI, Anthropic, Google Gemini, Ollama, Groq, xAI, DeepSeek, OpenRouter, and any OpenAI-compatible service
+- **Consistent API**: Write once, switch providers with a single line change
+- **Provider-Specific Features**: Access unique capabilities (Anthropic thinking, Gemini code execution, etc.) through unified interfaces
 
-## Quick Start
+### 🏗️ **Clean Architecture**
+- **Transformers + Executors**: Modular design separating request/response transformation from HTTP execution
+- **Capability Traits**: Type-safe capability discovery (Chat, Streaming, Vision, Embeddings, Audio, Files, Tools)
+- **Easy to Extend**: Add new providers by implementing transformers—no core code changes needed
+
+### 🚀 **Production Features**
+- **First-Class Streaming**: SSE with multi-event emission (start/delta/usage/end), cancellation, and backpressure
+- **Tool Calling & Orchestration**: Multi-step tool execution with automatic retry and approval workflows
+- **Structured Outputs**: Provider-agnostic JSON schema validation and typed responses
+- **Middleware System**: Transform requests/responses at model level (parameter clamping, default injection, etc.)
+- **Observability**: Built-in tracing, telemetry exporters (Langfuse, Helicone), and performance metrics
+- **HTTP Interceptors**: Custom request/response hooks for logging, auth, and debugging
+- **Retry & Error Handling**: Unified retry facade with exponential backoff and structured error classification
+
+### 📦 **Flexible & Lightweight**
+- **Feature Flags**: Include only the providers you need to reduce compile time and binary size
+- **Optional Extras**: Separate `siumai-extras` package for heavy dependencies (JSON schema, telemetry, server adapters)
+- **Async-First**: Built on `tokio` with full async/await support
+
+## 🏗️ Architecture Overview
+
+Siumai is built on a clean, modular architecture that separates concerns and makes it easy to extend:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     User API Layer                          │
+│  (Siumai, Provider, LlmBuilder, ChatRequest, etc.)         │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   Capability Traits                         │
+│  (ChatCapability, EmbeddingCapability, AudioCapability...)  │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  Middleware Layer                           │
+│  (Parameter transformation, defaults, validation)           │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   Executors Layer                           │
+│  (HttpChatExecutor, HttpEmbeddingExecutor, etc.)           │
+│  - HTTP orchestration                                       │
+│  - Header building, retry, tracing                         │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  Transformers Layer                         │
+│  (RequestTransformer, ResponseTransformer, etc.)           │
+│  - Provider-specific request/response mapping              │
+│  - Streaming event conversion                              │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   Provider Clients                          │
+│  (OpenAI, Anthropic, Gemini, Ollama, Groq, xAI...)        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+- **Traits**: Define capabilities (chat, streaming, vision, etc.) that providers can implement
+- **Transformers**: Convert between unified types and provider-specific formats
+- **Executors**: Handle HTTP execution, headers, retry, and tracing
+- **Middleware**: Transform requests/responses at the model level
+- **Orchestrator**: Coordinate multi-step tool calling workflows
+- **Registry**: Discover and instantiate providers dynamically
+
+### Why This Architecture?
+
+✅ **Separation of Concerns**: Each layer has a single responsibility
+✅ **Easy to Extend**: Add new providers by implementing transformers
+✅ **Testable**: Mock any layer for unit testing
+✅ **Maintainable**: Changes to one provider don't affect others
+✅ **Type-Safe**: Rust's type system ensures correctness at compile time
+
+## 🚀 Quick Start
 
 Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-siumai = "0.10"
-tokio = { version = "1.0", features = ["full"] }
+siumai = "0.11"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 ```
 
 Hello world (unified interface):
@@ -395,20 +469,22 @@ Notes
 
 Interceptors receive hooks: `on_before_send`, `on_response`, `on_error`, and `on_sse_event` for streaming. See `src/utils/http_interceptor.rs`.
 
-## Providers & Features
+## 📦 Providers & Features
+
+### Core Package (`siumai`)
 
 Enable only what you need to reduce compile time and binary size:
 
 ```toml
 [dependencies]
 # One provider
-siumai = { version = "0.10", features = ["openai"] }
+siumai = { version = "0.11", features = ["openai"] }
 
 # Multiple providers
-siumai = { version = "0.10", features = ["openai", "anthropic", "google"] }
+siumai = { version = "0.11", features = ["openai", "anthropic", "google"] }
 
 # All providers (default)
-siumai = { version = "0.10", features = ["all-providers"] }
+siumai = { version = "0.11", features = ["all-providers"] }
 ```
 
 | Feature           | Description                                  |
@@ -419,7 +495,32 @@ siumai = { version = "0.10", features = ["all-providers"] }
 | `ollama`          | Local models via Ollama                        |
 | `xai`             | xAI Grok                                      |
 | `groq`            | Groq (fast inference)                         |
-| `all-providers`   | Include all supported providers               |
+| `all-providers`   | Include all supported providers (default)     |
+| `gcp`             | Google Cloud Platform authentication          |
+
+### Extras Package (`siumai-extras`)
+
+Optional features for advanced use cases (separate package to keep core lightweight):
+
+```toml
+[dependencies]
+siumai = "0.11"
+siumai-extras = { version = "0.11", features = ["schema", "telemetry", "server"] }
+```
+
+| Feature      | Description                                           |
+|--------------|-------------------------------------------------------|
+| `schema`     | JSON schema validation with `jsonschema` crate        |
+| `telemetry`  | Advanced tracing subscriber configuration             |
+| `server`     | Server adapters (Axum SSE, etc.)                      |
+| `all`        | All extras features                                   |
+
+**Why separate packages?**
+- **Smaller binaries**: Core package has minimal dependencies
+- **Faster compilation**: Only include heavy dependencies when needed
+- **Flexibility**: Mix and match features based on your use case
+
+See [Migration Guide](CHANGELOG.md#0110---2025-01-xx) for upgrading from 0.10.x.
 
 ## Configuration (HTTP, Headers, Proxy)
 
@@ -469,13 +570,65 @@ impl CustomProvider for MyProvider {
 - Example: `examples/03_advanced_features/custom_provider.rs`
 - Guide: `src/custom_provider/guide.rs`
 
-## Advanced Topics (Pointers)
+## 🎯 Feature Highlights
 
-- Vertex AI (Bearer/ADC, publishers, billing headers): see `docs/` (enterprise details moved out of README)
-- Files & Audio executors/transformers with consistent headers and tracing: see `docs/` and provider modules
-- OpenAI‑compatible adapters and field mapping: see `docs/openai-compatible-architecture.md`
-- Tracing and W3C `traceparent`: enable by `SIUMAI_W3C_TRACE=1`
-- HTTP Interceptors best practices: see `docs/http-interceptor-best-practices.md`
+### 🔧 **Tool Calling & Orchestration**
+- **Multi-Step Execution**: Automatic tool calling with retry and approval workflows
+- **Parallel Tools**: Execute multiple tools concurrently
+- **Custom Tools**: Define your own tools with type-safe schemas
+- **Streaming Tools**: Stream tool call results in real-time
+- See: `examples/orchestrator_*.rs`, `src/orchestrator/`
+
+### 📊 **Structured Outputs**
+- **Provider-Agnostic**: Same API works across OpenAI, Anthropic, Gemini, etc.
+- **JSON Schema**: Validate responses against JSON schemas
+- **Typed Responses**: Generate Rust structs from LLM responses
+- **Streaming Objects**: Stream structured data incrementally
+- See: `docs/OBJECT_API_AND_OPENAI_STRUCTURED_OUTPUT.md`, `examples/highlevel/`
+
+### 🎨 **Multimodal Support**
+- **Vision**: Image understanding across providers
+- **Audio**: Text-to-speech (TTS) and speech-to-text (STT)
+- **Image Generation**: DALL-E, Imagen, and more
+- **File Management**: Upload, list, retrieve, and delete files
+- See: `examples/04_providers/*/vision_*.rs`, `examples/04_providers/*/audio_*.rs`
+
+### 🔄 **Middleware & Customization**
+- **Model-Level Middleware**: Transform requests/responses before execution
+- **Parameter Clamping**: Automatically adjust parameters to provider limits
+- **Default Injection**: Set default values for missing parameters
+- **Custom Middleware**: Implement your own transformation logic
+- See: `src/middleware/`, `examples/03_advanced_features/middleware_*.rs`
+
+### 📡 **Observability**
+- **Tracing**: Built-in `tracing` instrumentation for debugging
+- **Telemetry**: Export events to Langfuse, Helicone, and other platforms
+- **Performance Metrics**: Track latency, throughput, and error rates
+- **W3C Trace Context**: Propagate trace IDs across services (`SIUMAI_W3C_TRACE=1`)
+- See: `src/tracing/README.md`, `src/telemetry/README.md`, `docs/developer/performance_module.md`
+
+### 🔌 **HTTP Interceptors**
+- **Request/Response Hooks**: Intercept and modify HTTP traffic
+- **Logging**: Built-in `LoggingInterceptor` for debugging
+- **Custom Auth**: Implement custom authentication logic
+- **SSE Events**: Hook into streaming events
+- See: `src/utils/http_interceptor.rs`, `docs/http-interceptor-best-practices.md`
+
+### 🌐 **Provider Registry**
+- **Dynamic Discovery**: Discover and instantiate providers at runtime
+- **Model Resolution**: Resolve `provider:model` strings to clients
+- **Middleware Injection**: Attach middleware to specific models
+- **Environment Variables**: Auto-configure from env vars
+- See: `src/registry/`, `examples/registry_*.rs`, `docs/ENV_VARS.md`
+
+## 📚 Advanced Topics
+
+- **Vertex AI**: Bearer/ADC authentication, publishers, billing headers → `docs/`
+- **Files & Audio**: Executors/transformers with consistent headers and tracing → `docs/` and provider modules
+- **OpenAI-Compatible**: Adapter architecture and field mapping → `docs/openai-compatible-architecture.md`
+- **Custom Providers**: Implement your own provider → `src/custom_provider/guide.rs`, `examples/03_advanced_features/custom_provider.rs`
+- **HTTP Interceptors**: Best practices and examples → `docs/http-interceptor-best-practices.md`
+- **Code Organization**: Module structure and patterns → `docs/developer/code_organization.md`
 
 ## Examples
 
@@ -502,11 +655,46 @@ Licensed under either of
 
 at your option.
 
-## Server Adapters Examples
+## 🌐 Server Adapters
 
-需要启用示例特性与 Provider：
+Siumai provides server adapters for building LLM-powered APIs with popular Rust web frameworks.
 
+### Axum SSE Example
+
+```rust
+use siumai::prelude::*;
+use siumai_extras::server::axum::to_sse_response;
+use axum::{routing::post, Router};
+
+async fn chat_handler() -> impl axum::response::IntoResponse {
+    let client = Siumai::builder()
+        .openai()
+        .api_key(std::env::var("OPENAI_API_KEY").unwrap())
+        .model("gpt-4o-mini")
+        .build()
+        .await
+        .unwrap();
+
+    let stream = client
+        .chat_stream(vec![user!("Hello!")], None)
+        .await
+        .unwrap();
+
+    to_sse_response(stream)
+}
+
+#[tokio::main]
+async fn main() {
+    let app = Router::new().route("/chat", post(chat_handler));
+    // ... run server
+}
 ```
-cargo run --example axum_sse  --features "openai,server-adapters"
-cargo run --example actix_sse --features "openai,server-adapters"
+
+**Run examples:**
+
+```bash
+# Requires siumai-extras with server feature
+cargo run --example axum_sse --features "openai"
 ```
+
+See: `examples/server/`, `siumai-extras/src/server/`

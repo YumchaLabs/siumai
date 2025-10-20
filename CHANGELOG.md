@@ -1,5 +1,135 @@
 # Changelog
 
+## [0.11.0] - 2025-01-XX
+
+### Breaking Changes
+
+- **BREAKING**: Removed deprecated tracing subscriber initialization functions
+  - Removed `init_tracing`, `init_default_tracing`, `init_debug_tracing`, `init_production_tracing`, `init_performance_tracing`, `init_tracing_from_env` from `siumai::tracing`
+  - Removed `OutputFormat` and `TracingConfig` from `siumai` root exports
+  - These functions were deprecated in v0.10.3 and have been moved to `siumai-extras::telemetry`
+
+### Added
+
+- **siumai-extras** package with optional features:
+  - `schema`: JSON schema validation using `jsonschema` crate
+  - `telemetry`: Advanced tracing subscriber configuration with `tracing-subscriber`
+  - `server`: Server adapters for Axum and other web frameworks
+- Comprehensive module documentation:
+  - `src/tracing/README.md`: Detailed documentation for the tracing module
+  - `src/telemetry/README.md`: Detailed documentation for the telemetry module
+  - `docs/developer/performance_module.md`: Documentation for the performance module
+  - `docs/developer/code_organization.md`: Code organization guidelines
+- Improved module-level documentation with clear responsibility distinctions:
+  - `tracing`: Internal logging for developers (stdout, files)
+  - `telemetry`: External event export to platforms (Langfuse, Helicone)
+  - `performance`: Performance metrics collection and monitoring
+
+### Changed
+
+- **Dependency optimization**: Moved heavy dependencies to `siumai-extras`
+  - Core `siumai` package no longer includes `jsonschema`, `tracing-subscriber`, `axum`
+  - Reduced core package size and compilation time
+  - Users can opt-in to extra features as needed
+- **Code organization improvements**:
+  - Merged small utility files (`mime.rs`, `vertex.rs`) into `helpers.rs`
+  - Unified file naming conventions across the codebase
+  - Documented facade pattern and module organization guidelines
+- **Async transformation**: Converted authentication system from synchronous to asynchronous
+  - Removed `reqwest/blocking` dependency
+  - Optimized `tokio` features to minimal subset
+
+### Migration Guide
+
+#### Tracing Subscriber Initialization
+
+**Before (v0.10.3 and earlier):**
+```rust
+use siumai::tracing::{init_default_tracing, init_debug_tracing, TracingConfig, OutputFormat};
+
+// Initialize with default configuration
+init_default_tracing()?;
+
+// Or with custom configuration
+let config = TracingConfig::builder()
+    .log_level_str("debug")?
+    .output_format(OutputFormat::Json)
+    .build();
+init_tracing(config)?;
+```
+
+**After (v0.11.0):**
+
+Option 1: Use `siumai-extras::telemetry` for advanced configuration:
+```rust
+use siumai_extras::telemetry;
+
+// Add to Cargo.toml:
+// siumai-extras = { version = "0.11.1", features = ["telemetry"] }
+
+// Initialize with default configuration
+telemetry::init_default()?;
+
+// Or with custom configuration
+let config = telemetry::SubscriberConfig::builder()
+    .log_level_str("debug")?
+    .output_format(telemetry::OutputFormat::Json)
+    .build();
+telemetry::init_subscriber(config)?;
+```
+
+Option 2: Use `tracing-subscriber` directly for simple cases:
+```rust
+// Add to Cargo.toml:
+// tracing-subscriber = "0.3"
+
+// Simple console logging
+tracing_subscriber::fmt::init();
+```
+
+#### JSON Schema Validation
+
+**Before:**
+```rust
+// Schema validation was not available in core siumai
+```
+
+**After:**
+```rust
+use siumai_extras::schema;
+
+// Add to Cargo.toml:
+// siumai-extras = { version = "0.11.1", features = ["schema"] }
+
+// Validate JSON against schema
+schema::validate_json(&instance, &schema)?;
+
+// Or use the validator for multiple validations
+let validator = schema::SchemaValidator::new(&schema)?;
+validator.validate(&instance)?;
+```
+
+#### Server Adapters (Axum)
+
+**Before:**
+```rust
+use siumai::server_adapters::axum::to_sse_response;
+```
+
+**After:**
+```rust
+use siumai_extras::server::axum::to_sse_response;
+
+// Add to Cargo.toml:
+// siumai-extras = { version = "0.11.1", features = ["server"] }
+```
+
+### Removed
+
+- Deprecated tracing subscriber initialization functions (moved to `siumai-extras`)
+- `src/tracing/subscriber.rs` module (functionality moved to `siumai-extras::telemetry`)
+- Heavy dependencies from core package (`jsonschema`, `tracing-subscriber`, `axum`)
+
 ## [0.11.0] - 2025-10-19
 
 ### Highlights (concise additions)
