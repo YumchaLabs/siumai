@@ -70,24 +70,6 @@ impl VertexAnthropicClient {
         }
     }
 
-    fn build_url_fn(
-        &self,
-        _stream: bool,
-    ) -> impl Fn(bool, &crate::types::ChatRequest) -> String + Send + Sync + 'static {
-        let base = self.config.base_url.clone();
-        let model = self.config.model.clone();
-        move |is_stream, _req: &crate::types::ChatRequest| {
-            if is_stream {
-                crate::utils::url::join_url(
-                    &base,
-                    &format!("models/{}:streamRawPredict?alt=sse", model),
-                )
-            } else {
-                crate::utils::url::join_url(&base, &format!("models/{}:rawPredict", model))
-            }
-        }
-    }
-
     fn models_url(&self) -> String {
         crate::utils::url::join_url(&self.config.base_url, "models")
     }

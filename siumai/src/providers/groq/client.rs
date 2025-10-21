@@ -428,12 +428,6 @@ impl AudioCapability for GroqClient {
 }
 
 impl GroqClient {
-    /// Set the tracing guard to keep tracing system active
-    /// NOTE: Tracing subscriber functionality has been moved to siumai-extras
-    pub(crate) fn set_tracing_guard(&mut self, guard: Option<()>) {
-        self._tracing_guard = guard;
-    }
-
     /// Set the tracing configuration
     pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
         self.tracing_config = config;

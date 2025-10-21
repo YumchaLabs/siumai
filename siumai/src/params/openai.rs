@@ -282,8 +282,6 @@ pub struct OpenAiParamsBuilder {
     web_search_options: Option<serde_json::Value>,
     prediction: Option<serde_json::Value>,
     verbosity: Option<Verbosity>,
-    function_call: Option<serde_json::Value>,
-    functions: Option<Vec<serde_json::Value>>,
 }
 
 impl OpenAiParamsBuilder {

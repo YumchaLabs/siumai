@@ -6,6 +6,7 @@ use std::sync::{
 use serde_json::json;
 use siumai::error::LlmError;
 use siumai::executors::files::{FilesExecutor, HttpFilesExecutor};
+use siumai::provider_core::{ProviderContext, ProviderSpec};
 use siumai::transformers::files::{FilesHttpBody, FilesTransformer};
 use siumai::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
@@ -72,30 +73,67 @@ impl FilesTransformer for TestFilesTransformer {
     }
 }
 
-fn headers_builder_factory(
+// Test ProviderSpec that returns different headers based on counter
+struct TestFilesSpec {
     counter: Arc<AtomicUsize>,
-) -> impl Fn() -> std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>,
-> + Send
-+ Sync
-+ 'static {
-    move || {
-        let counter = counter.clone();
-        Box::pin(async move {
-            use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-            let n = counter.fetch_add(1, Ordering::SeqCst);
-            let token = if n == 0 { "bad" } else { "ok" };
-            let mut h = HeaderMap::new();
-            h.insert(
-                HeaderName::from_static("authorization"),
-                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
-            );
-            h.insert(
-                HeaderName::from_static("content-type"),
-                HeaderValue::from_static("application/json"),
-            );
-            Ok(h)
-        })
+}
+
+impl ProviderSpec for TestFilesSpec {
+    fn id(&self) -> &'static str {
+        "test"
+    }
+
+    fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
+        siumai::traits::ProviderCapabilities::new()
+    }
+
+    fn build_headers(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> Result<reqwest::header::HeaderMap, LlmError> {
+        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+        let n = self.counter.fetch_add(1, Ordering::SeqCst);
+        let token = if n == 0 { "bad" } else { "ok" };
+        let mut h = HeaderMap::new();
+        h.insert(
+            HeaderName::from_static("authorization"),
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+        h.insert(
+            HeaderName::from_static("content-type"),
+            HeaderValue::from_static("application/json"),
+        );
+        Ok(h)
+    }
+
+    fn chat_url(
+        &self,
+        _stream: bool,
+        _req: &siumai::types::ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> String {
+        unreachable!("chat not used in this test")
+    }
+
+    fn choose_chat_transformers(
+        &self,
+        _req: &siumai::types::ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> siumai::provider_core::ChatTransformers {
+        unreachable!("chat not used in this test")
+    }
+
+    fn files_base_url(&self, ctx: &ProviderContext) -> String {
+        ctx.base_url.trim_end_matches('/').to_string()
+    }
+
+    fn choose_files_transformer(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> siumai::transformers::files::FilesTransformer {
+        siumai::transformers::files::FilesTransformer {
+            transformer: Arc::new(TestFilesTransformer),
+        }
     }
 }
 
@@ -183,15 +221,16 @@ async fn files_executor_retries_on_401_list_retrieve_delete_upload_content() {
         .await;
 
     let counter = Arc::new(AtomicUsize::new(0));
+    let spec = Arc::new(TestFilesSpec {
+        counter: counter.clone(),
+    });
+    let ctx = ProviderContext::new("test", server.uri(), None, Default::default());
     let files = HttpFilesExecutor {
         provider_id: "test".to_string(),
         http_client: reqwest::Client::new(),
         transformer: Arc::new(TestFilesTransformer),
-        build_base_url: Box::new({
-            let base = server.uri();
-            move || base.clone()
-        }),
-        build_headers: Box::new(headers_builder_factory(counter.clone())),
+        provider_spec: spec,
+        provider_context: ctx,
     };
 
     // list

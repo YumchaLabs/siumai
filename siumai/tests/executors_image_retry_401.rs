@@ -6,6 +6,7 @@ use std::sync::{
 use serde_json::json;
 use siumai::error::LlmError;
 use siumai::executors::image::{HttpImageExecutor, ImageExecutor};
+use siumai::provider_core::{ImageTransformers, ProviderContext, ProviderSpec};
 use siumai::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
@@ -73,30 +74,70 @@ impl ResponseTransformer for TestRespTx {
     }
 }
 
-fn headers_builder_factory(
+// Test ProviderSpec that returns different headers based on counter
+struct TestImageSpec {
     counter: Arc<AtomicUsize>,
-) -> impl Fn() -> std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>,
-> + Send
-+ Sync
-+ 'static {
-    move || {
-        let counter = counter.clone();
-        Box::pin(async move {
-            use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-            let n = counter.fetch_add(1, Ordering::SeqCst);
-            let token = if n == 0 { "bad" } else { "ok" };
-            let mut h = HeaderMap::new();
-            h.insert(
-                HeaderName::from_static("authorization"),
-                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
-            );
-            h.insert(
-                HeaderName::from_static("content-type"),
-                HeaderValue::from_static("application/json"),
-            );
-            Ok(h)
-        })
+    base_url: String,
+}
+
+impl ProviderSpec for TestImageSpec {
+    fn id(&self) -> &'static str {
+        "test"
+    }
+
+    fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
+        siumai::traits::ProviderCapabilities::new()
+    }
+
+    fn build_headers(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> Result<reqwest::header::HeaderMap, LlmError> {
+        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+        let n = self.counter.fetch_add(1, Ordering::SeqCst);
+        let token = if n == 0 { "bad" } else { "ok" };
+        let mut h = HeaderMap::new();
+        h.insert(
+            HeaderName::from_static("authorization"),
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+        h.insert(
+            HeaderName::from_static("content-type"),
+            HeaderValue::from_static("application/json"),
+        );
+        Ok(h)
+    }
+
+    fn chat_url(
+        &self,
+        _stream: bool,
+        _req: &siumai::types::ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> String {
+        unreachable!("chat not used in this test")
+    }
+
+    fn choose_chat_transformers(
+        &self,
+        _req: &siumai::types::ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> siumai::provider_core::ChatTransformers {
+        unreachable!("chat not used in this test")
+    }
+
+    fn image_url(&self, _req: &ImageGenerationRequest, _ctx: &ProviderContext) -> String {
+        format!("{}/image", self.base_url)
+    }
+
+    fn choose_image_transformers(
+        &self,
+        _req: &ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> ImageTransformers {
+        ImageTransformers {
+            request: Arc::new(TestReqTx),
+            response: Arc::new(TestRespTx),
+        }
     }
 }
 
@@ -121,17 +162,16 @@ async fn image_executor_retries_on_401() {
         .await;
 
     let counter = Arc::new(AtomicUsize::new(0));
+    let spec = Arc::new(TestImageSpec {
+        counter: counter.clone(),
+        base_url: server.uri(),
+    });
+    let ctx = ProviderContext::new("test", server.uri(), None, Default::default());
     let exec = HttpImageExecutor {
         provider_id: "test".to_string(),
         http_client: reqwest::Client::new(),
-        request_transformer: Arc::new(TestReqTx),
-        response_transformer: Arc::new(TestRespTx),
-        build_url: Box::new({
-            let base = server.uri();
-            move || format!("{}/image", base)
-        }),
-        build_headers: Box::new(headers_builder_factory(counter)),
-        before_send: None,
+        provider_spec: spec,
+        provider_context: ctx,
     };
 
     // execute

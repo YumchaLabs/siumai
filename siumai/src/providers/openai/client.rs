@@ -141,22 +141,7 @@ impl OpenAiClient {
         self.specific_params.response_format = Some(fmt);
         self
     }
-    /// Build standard OpenAI JSON headers with optional org/project and tracing
-    fn build_openai_headers(
-        api_key: &secrecy::SecretString,
-        organization: &Option<String>,
-        project: &Option<String>,
-        custom_headers: &std::collections::HashMap<String, String>,
-    ) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
-            api_key.expose_secret(),
-            organization.as_deref(),
-            project.as_deref(),
-            custom_headers,
-        )?;
-        crate::utils::http_headers::inject_tracing_headers(&mut headers);
-        Ok(headers)
-    }
+
     /// Creates a new `OpenAI` client with configuration and HTTP client
     pub fn new(config: super::OpenAiConfig, http_client: reqwest::Client) -> Self {
         let specific_params = OpenAiSpecificParams {
@@ -202,12 +187,6 @@ impl OpenAiClient {
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
         }
-    }
-
-    /// Set the tracing guard to keep tracing system active
-    /// NOTE: Tracing subscriber functionality has been moved to siumai-extras
-    pub(crate) fn set_tracing_guard(&mut self, guard: Option<()>) {
-        self._tracing_guard = guard;
     }
 
     /// Set the tracing configuration
@@ -1043,8 +1022,6 @@ impl ImageGenerationCapability for OpenAiClient {
         let api_key = self.api_key.clone();
         let org = self.organization.clone();
         let proj = self.project.clone();
-        let req_tx = super::transformers::OpenAiRequestTransformer;
-        let resp_tx = super::transformers::OpenAiResponseTransformer;
         let base_clone = base.clone();
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -1125,8 +1102,6 @@ impl ImageGenerationCapability for OpenAiClient {
         let api_key = self.api_key.clone();
         let org = self.organization.clone();
         let proj = self.project.clone();
-        let req_tx = super::transformers::OpenAiRequestTransformer;
-        let resp_tx = super::transformers::OpenAiResponseTransformer;
         let base_clone = base.clone();
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
