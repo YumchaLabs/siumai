@@ -4,6 +4,7 @@
 //!
 //! - **Schema Validation** (`schema` feature): JSON Schema validation for structured outputs
 //! - **Telemetry** (`telemetry` feature): Advanced tracing and logging with `tracing-subscriber`
+//! - **OpenTelemetry** (`opentelemetry` feature): Full observability with distributed tracing and metrics
 //! - **Server Adapters** (`server` feature): Axum integration for streaming responses
 //! - **MCP Integration** (`mcp` feature): Model Context Protocol integration for dynamic tool discovery
 //!
@@ -11,6 +12,7 @@
 //!
 //! - `schema` - Enable JSON Schema validation utilities
 //! - `telemetry` - Enable tracing subscriber and logging utilities
+//! - `opentelemetry` - Enable OpenTelemetry distributed tracing and metrics
 //! - `server` - Enable server adapter utilities (Axum)
 //! - `mcp` - Enable MCP (Model Context Protocol) integration
 //! - `all` - Enable all features
@@ -59,6 +61,18 @@ pub mod schema;
 /// Telemetry and tracing utilities
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
+
+/// OpenTelemetry integration
+#[cfg(feature = "opentelemetry")]
+pub mod otel;
+
+/// Metrics collection
+#[cfg(feature = "opentelemetry")]
+pub mod metrics;
+
+/// OpenTelemetry middleware
+#[cfg(feature = "opentelemetry")]
+pub mod otel_middleware;
 
 /// Server adapter utilities
 #[cfg(feature = "server")]

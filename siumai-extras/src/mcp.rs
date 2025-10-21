@@ -77,14 +77,18 @@
 //! ```
 
 use async_trait::async_trait;
-use rmcp::client::{Client, ClientBuilder};
-use rmcp::transport::{ChildProcessTransport, SseClientTransport, StreamableHttpClientTransport};
+use rmcp::{
+    model::CallToolRequestParam,
+    service::{Peer, RoleClient, RunningService, Service, ServiceExt},
+    transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess},
+};
 use serde_json::Value;
 use siumai::error::LlmError;
 use siumai::orchestrator::ToolResolver;
 use siumai::types::Tool;
+use std::sync::Arc;
 
-/// MCP tool resolver that executes tools via an MCP client.
+/// MCP tool resolver that executes tools via an MCP service.
 ///
 /// This struct implements Siumai's `ToolResolver` trait, allowing MCP tools
 /// to be used seamlessly with Siumai's orchestrator and agents.
@@ -93,32 +97,37 @@ use siumai::types::Tool;
 ///
 /// ```rust,ignore
 /// use siumai_extras::mcp::McpToolResolver;
-/// use rmcp::client::ClientBuilder;
-/// use rmcp::transport::ChildProcessTransport;
+/// use rmcp::{ServiceExt, transport::{TokioChildProcess, ConfigureCommandExt}};
+/// use tokio::process::Command;
 ///
-/// let transport = ChildProcessTransport::new("node server.js")?;
-/// let client = ClientBuilder::new(transport).build().await?;
-/// let resolver = McpToolResolver::new(client);
+/// let service = ()
+///     .serve(TokioChildProcess::new(Command::new("uvx").configure(|cmd| {
+///         cmd.arg("mcp-server-git");
+///     }))?)
+///     .await?;
+/// let resolver = McpToolResolver::new(service);
 /// ```
 pub struct McpToolResolver {
-    client: Client,
+    service: Arc<Peer<RoleClient>>,
 }
 
 impl McpToolResolver {
-    /// Create a new MCP tool resolver from an existing MCP client.
+    /// Create a new MCP tool resolver from an existing MCP service.
     ///
     /// # Arguments
     ///
-    /// * `client` - An initialized MCP client
+    /// * `service` - An initialized MCP service (RunningService or Peer)
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// let client = ClientBuilder::new(transport).build().await?;
-    /// let resolver = McpToolResolver::new(client);
+    /// let service = ().serve(transport).await?;
+    /// let resolver = McpToolResolver::new(service);
     /// ```
-    pub fn new(client: Client) -> Self {
-        Self { client }
+    pub fn new<S: Service<RoleClient>>(service: RunningService<RoleClient, S>) -> Self {
+        Self {
+            service: Arc::new(service.peer().clone()),
+        }
     }
 
     /// Create a new MCP tool resolver from a stdio command.
@@ -134,17 +143,42 @@ impl McpToolResolver {
     /// ```rust,ignore
     /// let resolver = McpToolResolver::from_stdio("node server.js").await?;
     /// ```
+    /// Create a new MCP tool resolver from a stdio command.
+    ///
+    /// This is a convenience method that creates a stdio transport and service.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to execute (e.g., "node server.js" or "uvx mcp-server-git")
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let resolver = McpToolResolver::from_stdio("uvx mcp-server-git").await?;
+    /// ```
     pub async fn from_stdio(command: &str) -> Result<Self, LlmError> {
-        let transport = ChildProcessTransport::new(command).map_err(|e| {
+        // Parse command into program and args
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.is_empty() {
+            return Err(LlmError::InvalidInput("Empty command".to_string()));
+        }
+
+        let program = parts[0];
+        let args = &parts[1..];
+
+        let mut cmd = tokio::process::Command::new(program);
+        cmd.args(args);
+
+        let transport = TokioChildProcess::new(cmd).map_err(|e| {
             LlmError::InternalError(format!("Failed to create stdio transport: {}", e))
         })?;
 
-        let client = ClientBuilder::new(transport)
-            .build()
+        let service = ()
+            .serve(transport)
             .await
-            .map_err(|e| LlmError::InternalError(format!("Failed to create MCP client: {}", e)))?;
+            .map_err(|e| LlmError::InternalError(format!("Failed to create MCP service: {}", e)))?;
 
-        Ok(Self::new(client))
+        Ok(Self::new(service))
     }
 
     /// Create a new MCP tool resolver from an SSE endpoint.
@@ -159,16 +193,16 @@ impl McpToolResolver {
     /// let resolver = McpToolResolver::from_sse("http://localhost:8080/sse").await?;
     /// ```
     pub async fn from_sse(url: &str) -> Result<Self, LlmError> {
-        let transport = SseClientTransport::new(url).map_err(|e| {
+        let transport = SseClientTransport::start(url).await.map_err(|e| {
             LlmError::InternalError(format!("Failed to create SSE transport: {}", e))
         })?;
 
-        let client = ClientBuilder::new(transport)
-            .build()
+        let service = ()
+            .serve(transport)
             .await
-            .map_err(|e| LlmError::InternalError(format!("Failed to create MCP client: {}", e)))?;
+            .map_err(|e| LlmError::InternalError(format!("Failed to create MCP service: {}", e)))?;
 
-        Ok(Self::new(client))
+        Ok(Self::new(service))
     }
 
     /// Create a new MCP tool resolver from an HTTP endpoint.
@@ -183,16 +217,14 @@ impl McpToolResolver {
     /// let resolver = McpToolResolver::from_http("http://localhost:3000/mcp").await?;
     /// ```
     pub async fn from_http(url: &str) -> Result<Self, LlmError> {
-        let transport = StreamableHttpClientTransport::new(url).map_err(|e| {
-            LlmError::InternalError(format!("Failed to create HTTP transport: {}", e))
-        })?;
+        let transport = StreamableHttpClientTransport::from_uri(url);
 
-        let client = ClientBuilder::new(transport)
-            .build()
+        let service = ()
+            .serve(transport)
             .await
-            .map_err(|e| LlmError::InternalError(format!("Failed to create MCP client: {}", e)))?;
+            .map_err(|e| LlmError::InternalError(format!("Failed to create MCP service: {}", e)))?;
 
-        Ok(Self::new(client))
+        Ok(Self::new(service))
     }
 
     /// Get the list of available tools from the MCP server.
@@ -209,17 +241,20 @@ impl McpToolResolver {
     /// ```
     pub async fn list_tools(&self) -> Result<Vec<Tool>, LlmError> {
         let mcp_tools = self
-            .client
-            .list_tools()
+            .service
+            .list_tools(Default::default())
             .await
             .map_err(|e| LlmError::InternalError(format!("Failed to list MCP tools: {}", e)))?;
 
         let tools = mcp_tools
+            .tools
             .into_iter()
-            .map(|t| Tool {
-                name: t.name,
-                description: Some(t.description.unwrap_or_default()),
-                parameters: t.input_schema,
+            .map(|t| {
+                Tool::function(
+                    t.name.to_string(),
+                    t.description.map(|d| d.to_string()).unwrap_or_default(),
+                    serde_json::to_value(&*t.input_schema).unwrap_or(serde_json::json!({})),
+                )
             })
             .collect();
 
@@ -230,12 +265,17 @@ impl McpToolResolver {
 #[async_trait]
 impl ToolResolver for McpToolResolver {
     async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, LlmError> {
-        let result = self.client.call_tool(name, arguments).await.map_err(|e| {
-            LlmError::ToolExecutionError(format!("MCP tool execution failed: {}", e))
-        })?;
+        let result = self
+            .service
+            .call_tool(CallToolRequestParam {
+                name: name.to_string().into(),
+                arguments: arguments.as_object().cloned(),
+            })
+            .await
+            .map_err(|e| LlmError::InternalError(format!("MCP tool execution failed: {}", e)))?;
 
         // Convert MCP result to JSON value
-        // MCP returns a ToolResult with content array
+        // MCP returns a CallToolResult with content array
         Ok(serde_json::to_value(result).map_err(|e| {
             LlmError::InternalError(format!("Failed to serialize MCP result: {}", e))
         })?)

@@ -291,6 +291,81 @@ impl OllamaClient {
         let version_response: super::types::OllamaVersionResponse = response.json().await?;
         Ok(version_response.version)
     }
+
+    /// Create provider context for this client
+    fn create_context(&self) -> crate::provider_core::ProviderContext {
+        crate::provider_core::ProviderContext::new(
+            "ollama",
+            self.base_url.clone(),
+            None,
+            self.chat_capability.http_config.headers.clone(),
+        )
+    }
+
+    /// Create chat executor using the builder pattern
+    fn create_chat_executor(
+        &self,
+        spec: Arc<dyn crate::provider_core::ProviderSpec>,
+        ctx: crate::provider_core::ProviderContext,
+        request: &ChatRequest,
+    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::executors::chat::ChatExecutorBuilder;
+
+        let bundle = spec.choose_chat_transformers(request, &ctx);
+
+        ChatExecutorBuilder::new("ollama", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(
+                self.chat_capability.http_config.stream_disable_compression,
+            )
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone())
+            .build()
+    }
+
+    /// Execute chat request via spec (unified implementation)
+    async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::ChatExecutor;
+
+        let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
+        let ctx = self.create_context();
+        let exec = self.create_chat_executor(spec, ctx, &request);
+
+        if let Some(opts) = &self.retry_options {
+            let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
+            let ctx = self.create_context();
+            crate::retry_api::retry_with(
+                || {
+                    let rq = request.clone();
+                    let exec = self.create_chat_executor(spec.clone(), ctx.clone(), &rq);
+                    async move { exec.execute(rq).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            exec.execute(request).await
+        }
+    }
+
+    /// Execute streaming chat request via spec (unified implementation)
+    async fn chat_stream_request_via_spec(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStream, LlmError> {
+        // Use streaming capability directly with full request mapping
+        let headers = crate::providers::ollama::utils::build_headers(
+            &self.chat_capability.http_config.headers,
+        )?;
+        let body = self.chat_capability.build_chat_request_body(&request)?;
+        let url = format!("{}/api/chat", self.base_url);
+        self.streaming_capability
+            .clone()
+            .create_chat_stream(url, headers, body)
+            .await
+    }
 }
 
 #[async_trait]
@@ -367,91 +442,11 @@ impl ChatCapability for OllamaClient {
     }
 
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
-        let http = self.http_client.clone();
-        let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
-        let ctx = crate::provider_core::ProviderContext::new(
-            "ollama",
-            self.base_url.clone(),
-            None,
-            self.chat_capability.http_config.headers.clone(),
-        );
-        let req_tx = super::transformers::OllamaRequestTransformer {
-            params: self.ollama_params.clone(),
-        };
-        let resp_tx = super::transformers::OllamaResponseTransformer;
-
-        let exec = HttpChatExecutor {
-            provider_id: "ollama".to_string(),
-            http_client: http,
-            request_transformer: std::sync::Arc::new(req_tx),
-            response_transformer: std::sync::Arc::new(resp_tx),
-            stream_transformer: None,
-            json_stream_converter: None,
-            stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send: None,
-        };
-        if let Some(opts) = &self.retry_options {
-            let interceptors = self.http_interceptors.clone();
-            let middlewares = self.model_middlewares.clone();
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let http = self.http_client.clone();
-                    let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
-                    let ctx = crate::provider_core::ProviderContext::new(
-                        "ollama",
-                        self.base_url.clone(),
-                        None,
-                        self.chat_capability.http_config.headers.clone(),
-                    );
-                    let params = self.ollama_params.clone();
-                    let interceptors = interceptors.clone();
-                    let middlewares = middlewares.clone();
-
-                    async move {
-                        let req_tx = super::transformers::OllamaRequestTransformer { params };
-                        let resp_tx = super::transformers::OllamaResponseTransformer;
-                        let exec2 = HttpChatExecutor {
-                            provider_id: "ollama".to_string(),
-                            http_client: http,
-                            request_transformer: std::sync::Arc::new(req_tx),
-                            response_transformer: std::sync::Arc::new(resp_tx),
-                            stream_transformer: None,
-                            json_stream_converter: None,
-                            stream_disable_compression: false,
-                            interceptors,
-                            middlewares,
-                            provider_spec: spec,
-                            provider_context: ctx,
-                            before_send: None,
-                        };
-                        exec2.execute(rq).await
-                    }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            exec.execute(request).await
-        }
+        self.chat_request_via_spec(request).await
     }
 
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        // Use streaming capability directly with full request mapping
-        let headers = crate::providers::ollama::utils::build_headers(
-            &self.chat_capability.http_config.headers,
-        )?;
-        let body = self.chat_capability.build_chat_request_body(&request)?;
-        let url = format!("{}/api/chat", self.base_url);
-        self.streaming_capability
-            .clone()
-            .create_chat_stream(url, headers, body)
-            .await
+        self.chat_stream_request_via_spec(request).await
     }
 }
 

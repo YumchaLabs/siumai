@@ -29,6 +29,14 @@ tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 tracing-appender = { workspace = true, optional = true }
 
+# OpenTelemetry (optional)
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+opentelemetry-stdout = { workspace = true, optional = true }
+once_cell = { workspace = true, optional = true }
+
 # Server adapters (optional)
 axum = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
@@ -43,6 +51,7 @@ rmcp = { version = "0.8", optional = true, features = [
     "client",
 ] }
 async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["process"] }
 
 [features]
 default = []
@@ -50,17 +59,28 @@ default = []
 # Schema validation feature
 schema = ["dep:jsonschema"]
 
-# Telemetry feature
+# Telemetry feature (basic tracing)
 telemetry = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
+
+# OpenTelemetry feature (full observability with traces and metrics)
+opentelemetry = [
+    "telemetry",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-semantic-conventions",
+    "dep:opentelemetry-stdout",
+    "dep:once_cell",
+]
 
 # Server adapters feature
 server = ["dep:axum", "dep:futures"]
 
 # MCP integration feature
-mcp = ["dep:rmcp", "dep:async-trait"]
+mcp = ["dep:rmcp", "dep:async-trait", "dep:tokio"]
 
 # Convenience feature to enable all extras
-all = ["schema", "telemetry", "server", "mcp"]
+all = ["schema", "telemetry", "opentelemetry", "server", "mcp"]
 
 [dev-dependencies]
 tokio.workspace = true

@@ -15,7 +15,7 @@
 //! use axum::{Router, routing::get, response::sse::Sse};
 //! use siumai_extras::server::axum::to_sse_response;
 //! use siumai::server_adapters::SseOptions;
-//! use siumai::stream::ChatStream;
+//! use siumai::streaming::ChatStream;
 //!
 //! async fn chat_handler(stream: ChatStream) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
 //!     to_sse_response(stream, SseOptions::production())
@@ -36,7 +36,7 @@ use futures::{Stream, StreamExt};
 
 use siumai::error::LlmError;
 use siumai::server_adapters::SseOptions;
-use siumai::stream::{ChatStream, ChatStreamEvent};
+use siumai::streaming::{ChatStream, ChatStreamEvent};
 
 /// Convert a `ChatStream` into an Axum SSE response.
 ///
@@ -58,7 +58,7 @@ use siumai::stream::{ChatStream, ChatStreamEvent};
 /// use axum::response::sse::Sse;
 /// use siumai_extras::server::axum::to_sse_response;
 /// use siumai::server_adapters::SseOptions;
-/// use siumai::stream::ChatStream;
+/// use siumai::streaming::ChatStream;
 ///
 /// async fn handler(stream: ChatStream) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
 ///     to_sse_response(stream, SseOptions::production())
@@ -134,6 +134,11 @@ pub fn to_sse_response(
                     .unwrap_or_else(|_| r#"{"error":"internal error"}"#.to_string());
                 Some(Event::default().event("error").data(data_str))
             }
+            Ok(ChatStreamEvent::Custom { event_type, data }) => {
+                // Forward custom events as-is
+                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+                Some(Event::default().event(&event_type).data(data_str))
+            }
             Err(e) => {
                 let msg = if opts.mask_errors {
                     opts.masked_error_message
@@ -176,7 +181,7 @@ pub fn to_sse_response(
 /// use axum::response::Response;
 /// use axum::body::Body;
 /// use siumai_extras::server::axum::to_text_stream;
-/// use siumai::stream::ChatStream;
+/// use siumai::streaming::ChatStream;
 ///
 /// async fn handler(stream: ChatStream) -> Response<Body> {
 ///     let text_stream = to_text_stream(stream);

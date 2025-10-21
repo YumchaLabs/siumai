@@ -7,11 +7,11 @@ use secrecy::SecretString;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+use crate::executors::chat::HttpChatExecutor;
 // use crate::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::params::AnthropicParams;
-use crate::provider_core::ProviderSpec;
+
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::*;
@@ -229,6 +229,61 @@ impl AnthropicClient {
 }
 
 impl AnthropicClient {
+    /// Create provider context for this client
+    fn create_context(&self) -> crate::provider_core::ProviderContext {
+        use secrecy::ExposeSecret;
+        crate::provider_core::ProviderContext::new(
+            "anthropic",
+            self.base_url.clone(),
+            Some(self.api_key.expose_secret().to_string()),
+            self.http_config.headers.clone(),
+        )
+    }
+
+    /// Create chat executor using the builder pattern
+    fn create_chat_executor(
+        &self,
+        spec: Arc<dyn crate::provider_core::ProviderSpec>,
+        ctx: crate::provider_core::ProviderContext,
+        request: &ChatRequest,
+    ) -> Arc<HttpChatExecutor> {
+        use crate::executors::chat::ChatExecutorBuilder;
+
+        let bundle = spec.choose_chat_transformers(request, &ctx);
+
+        ChatExecutorBuilder::new("anthropic", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone())
+            .build()
+    }
+
+    /// Execute chat request via spec (unified implementation)
+    async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::ChatExecutor;
+
+        let spec = Arc::new(crate::providers::anthropic::spec::AnthropicSpec::new());
+        let ctx = self.create_context();
+        let exec = self.create_chat_executor(spec, ctx, &request);
+        exec.execute(request).await
+    }
+
+    /// Execute streaming chat request via spec (unified implementation)
+    async fn chat_stream_request_via_spec(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStream, LlmError> {
+        use crate::executors::chat::ChatExecutor;
+
+        let spec = Arc::new(crate::providers::anthropic::spec::AnthropicSpec::new());
+        let ctx = self.create_context();
+        let exec = self.create_chat_executor(spec, ctx, &request);
+        exec.execute_stream(request).await
+    }
+
     async fn chat_with_tools_inner(
         &self,
         messages: Vec<ChatMessage>,
@@ -242,33 +297,7 @@ impl AnthropicClient {
             ..Default::default()
         };
 
-        // Route via ProviderSpec
-        use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
-            "anthropic",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        );
-        let spec = Arc::new(crate::providers::anthropic::spec::AnthropicSpec::new());
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let exec = Arc::new(HttpChatExecutor {
-            provider_id: "anthropic".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send: None,
-        });
-        exec.execute(request).await
+        self.chat_request_via_spec(request).await
     }
 }
 
@@ -307,215 +336,15 @@ impl ChatCapability for AnthropicClient {
             ..Default::default()
         };
 
-        // Route via ProviderSpec
-        use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
-            "anthropic",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        );
-        let spec = Arc::new(crate::providers::anthropic::spec::AnthropicSpec::new());
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let exec = Arc::new(HttpChatExecutor {
-            provider_id: "anthropic".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send: None,
-        });
-        exec.execute_stream(request).await
+        self.chat_stream_request_via_spec(request).await
     }
 
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
-        use secrecy::ExposeSecret;
-
-        // Create a simple spec for this legacy method
-        struct SimpleAnthropicSpec {
-            base_url: String,
-            api_key: String,
-            custom_headers: std::collections::HashMap<String, String>,
-            specific_params: super::types::AnthropicSpecificParams,
-        }
-
-        impl crate::provider_core::ProviderSpec for SimpleAnthropicSpec {
-            fn id(&self) -> &'static str {
-                "anthropic"
-            }
-            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
-                crate::traits::ProviderCapabilities::new()
-            }
-            fn build_headers(
-                &self,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> Result<reqwest::header::HeaderMap, LlmError> {
-                super::utils::build_headers(&self.api_key, &self.custom_headers)
-            }
-            fn chat_url(
-                &self,
-                _stream: bool,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> String {
-                format!("{}/v1/messages", self.base_url)
-            }
-            fn choose_chat_transformers(
-                &self,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                crate::provider_core::ChatTransformers {
-                    request: std::sync::Arc::new(
-                        super::transformers::AnthropicRequestTransformer::new(Some(
-                            self.specific_params.clone(),
-                        )),
-                    ),
-                    response: std::sync::Arc::new(
-                        super::transformers::AnthropicResponseTransformer,
-                    ),
-                    stream: None,
-                    json: None,
-                }
-            }
-        }
-
-        let spec = Arc::new(SimpleAnthropicSpec {
-            base_url: self.base_url.clone(),
-            api_key: self.api_key.expose_secret().to_string(),
-            custom_headers: self.http_config.headers.clone(),
-            specific_params: self.specific_params.clone(),
-        });
-
-        let ctx = crate::provider_core::ProviderContext::new(
-            "anthropic",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        );
-
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let exec = std::sync::Arc::new(HttpChatExecutor {
-            provider_id: "anthropic".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send: None,
-        });
-        exec.execute(request).await
+        self.chat_request_via_spec(request).await
     }
 
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
-        use secrecy::ExposeSecret;
-
-        // Create a simple spec for this legacy method
-        struct SimpleAnthropicStreamSpec {
-            base_url: String,
-            api_key: String,
-            custom_headers: std::collections::HashMap<String, String>,
-            specific_params: super::types::AnthropicSpecificParams,
-            anthropic_params: crate::params::AnthropicParams,
-        }
-
-        impl crate::provider_core::ProviderSpec for SimpleAnthropicStreamSpec {
-            fn id(&self) -> &'static str {
-                "anthropic"
-            }
-            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
-                crate::traits::ProviderCapabilities::new()
-            }
-            fn build_headers(
-                &self,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> Result<reqwest::header::HeaderMap, LlmError> {
-                super::utils::build_headers(&self.api_key, &self.custom_headers)
-            }
-            fn chat_url(
-                &self,
-                _stream: bool,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> String {
-                format!("{}/v1/messages", self.base_url)
-            }
-            fn choose_chat_transformers(
-                &self,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                let stream_converter =
-                    super::streaming::AnthropicEventConverter::new(self.anthropic_params.clone());
-                let stream_tx = super::transformers::AnthropicStreamChunkTransformer {
-                    provider_id: "anthropic".to_string(),
-                    inner: stream_converter,
-                };
-                crate::provider_core::ChatTransformers {
-                    request: std::sync::Arc::new(
-                        super::transformers::AnthropicRequestTransformer::new(Some(
-                            self.specific_params.clone(),
-                        )),
-                    ),
-                    response: std::sync::Arc::new(
-                        super::transformers::AnthropicResponseTransformer,
-                    ),
-                    stream: Some(std::sync::Arc::new(stream_tx)),
-                    json: None,
-                }
-            }
-        }
-
-        let spec = Arc::new(SimpleAnthropicStreamSpec {
-            base_url: self.base_url.clone(),
-            api_key: self.api_key.expose_secret().to_string(),
-            custom_headers: self.http_config.headers.clone(),
-            specific_params: self.specific_params.clone(),
-            anthropic_params: self.anthropic_params.clone(),
-        });
-
-        let ctx = crate::provider_core::ProviderContext::new(
-            "anthropic",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        );
-
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let exec = std::sync::Arc::new(HttpChatExecutor {
-            provider_id: "anthropic".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send: None,
-        });
-        exec.execute_stream(request).await
+        self.chat_stream_request_via_spec(request).await
     }
 }
 

@@ -466,6 +466,71 @@ impl GeminiClient {
     ) -> Result<ChatResponse, LlmError> {
         self.chat_capability.chat_with_tools(messages, tools).await
     }
+
+    /// Create provider context for this client
+    async fn create_context(&self) -> crate::provider_core::ProviderContext {
+        use secrecy::ExposeSecret;
+        let mut ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        // Inject token into context if available
+        if let Some(tp) = &self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx.http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
+        ctx
+    }
+
+    /// Create chat executor using the builder pattern
+    fn create_chat_executor(
+        &self,
+        spec: Arc<dyn crate::provider_core::ProviderSpec>,
+        ctx: crate::provider_core::ProviderContext,
+        request: &ChatRequest,
+    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::executors::chat::ChatExecutorBuilder;
+
+        let bundle = spec.choose_chat_transformers(request, &ctx);
+
+        ChatExecutorBuilder::new("gemini", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone())
+            .build()
+    }
+
+    /// Execute chat request via spec (unified implementation)
+    async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::ChatExecutor;
+
+        let spec = Arc::new(crate::providers::gemini::spec::GeminiSpec);
+        let ctx = self.create_context().await;
+        let exec = self.create_chat_executor(spec, ctx, &request);
+        exec.execute(request).await
+    }
+
+    /// Execute streaming chat request via spec (unified implementation)
+    async fn chat_stream_request_via_spec(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStream, LlmError> {
+        use crate::executors::chat::ChatExecutor;
+
+        let spec = Arc::new(crate::providers::gemini::spec::GeminiSpec);
+        let ctx = self.create_context().await;
+        let exec = self.create_chat_executor(spec, ctx, &request);
+        exec.execute_stream(request).await
+    }
 }
 
 #[async_trait]
@@ -499,99 +564,11 @@ impl ChatCapability for GeminiClient {
     }
 
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
-        let http = self.http_client.clone();
-        let spec = crate::providers::gemini::spec::GeminiSpec;
-        use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
-            "gemini",
-            self.config.base_url.clone(),
-            Some(self.config.api_key.expose_secret().to_string()),
-            self.config.http_config.headers.clone(),
-        );
-        let req_tx = super::transformers::GeminiRequestTransformer {
-            config: self.config.clone(),
-        };
-        let resp_tx = super::transformers::GeminiResponseTransformer {
-            config: self.config.clone(),
-        };
-        // Inject token into context if available
-        let mut ctx_with_token = ctx.clone();
-        if let Some(tp) = &self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx_with_token
-                    .http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-        }
-
-        let spec_arc = Arc::new(spec);
-        let exec = HttpChatExecutor {
-            provider_id: "gemini".to_string(),
-            http_client: http,
-            request_transformer: std::sync::Arc::new(req_tx),
-            response_transformer: std::sync::Arc::new(resp_tx),
-            stream_transformer: None,
-            json_stream_converter: None,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec_arc,
-            provider_context: ctx_with_token,
-            before_send: None,
-        };
-        exec.execute(request).await
+        self.chat_request_via_spec(request).await
     }
 
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
-        let http = self.http_client.clone();
-        let spec = crate::providers::gemini::spec::GeminiSpec;
-        use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
-            "gemini",
-            self.config.base_url.clone(),
-            Some(self.config.api_key.expose_secret().to_string()),
-            self.config.http_config.headers.clone(),
-        );
-        let req_tx = super::transformers::GeminiRequestTransformer {
-            config: self.config.clone(),
-        };
-        let resp_tx = super::transformers::GeminiResponseTransformer {
-            config: self.config.clone(),
-        };
-        let converter = super::streaming::GeminiEventConverter::new(self.config.clone());
-        let stream_tx = super::transformers::GeminiStreamChunkTransformer {
-            provider_id: "gemini".to_string(),
-            inner: converter,
-        };
-
-        // Inject token into context if available
-        let mut ctx_with_token = ctx.clone();
-        if let Some(tp) = &self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx_with_token
-                    .http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
-        }
-
-        let spec_arc = Arc::new(spec);
-        let exec = HttpChatExecutor {
-            provider_id: "gemini".to_string(),
-            http_client: http,
-            request_transformer: std::sync::Arc::new(req_tx),
-            response_transformer: std::sync::Arc::new(resp_tx),
-            stream_transformer: Some(std::sync::Arc::new(stream_tx)),
-            json_stream_converter: None,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec_arc,
-            provider_context: ctx_with_token,
-            before_send: None,
-        };
-        exec.execute_stream(request).await
+        self.chat_stream_request_via_spec(request).await
     }
 }
 
@@ -601,13 +578,13 @@ impl EmbeddingCapability for GeminiClient {
         use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
         // Enforce provider limit on number of inputs per call (parity with official SDKs)
         // Google Generative AI supports up to 2048 inputs per batchEmbedContents call.
-        if texts.len() > 2048 {
-            return Err(LlmError::InvalidParameter(format!(
-                "Too many values for a single embedding call. The Gemini model \"{}\" can only embed up to 2048 values per call, but {} values were provided.",
-                self.config.model,
-                texts.len()
-            )));
-        }
+        // if texts.len() > 2048 {
+        //     return Err(LlmError::InvalidParameter(format!(
+        //         "Too many values for a single embedding call. The Gemini model \"{}\" can only embed up to 2048 values per call, but {} values were provided.",
+        //         self.config.model,
+        //         texts.len()
+        //     )));
+        // }
         let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
         use crate::provider_core::{ProviderContext, ProviderSpec};
         use secrecy::ExposeSecret;

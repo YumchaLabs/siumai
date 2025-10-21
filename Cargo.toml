@@ -41,6 +41,9 @@ thiserror = "2.0"
 # UUID generation
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
+# Lazy static initialization
+once_cell = "1.20"
+
 # Tracing and observability
 tracing = "0.1"
 
@@ -64,6 +67,13 @@ jsonschema = "0.33"
 # Telemetry (for siumai-extras)
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "time", "chrono"] }
 tracing-appender = "0.2"
+
+# OpenTelemetry (for siumai-extras)
+opentelemetry = { version = "0.27", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.27", features = ["trace", "metrics", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["trace", "metrics", "grpc-tonic", "http-proto"] }
+opentelemetry-semantic-conventions = "0.27"
+opentelemetry-stdout = { version = "0.27", features = ["trace", "metrics"] }
 
 # Server adapters (for siumai-extras)
 axum = "0.8.4"

@@ -8,9 +8,9 @@ use reqwest::Client as HttpClient;
 use std::sync::Arc;
 
 use crate::error::LlmError;
-use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+use crate::executors::chat::HttpChatExecutor;
 use crate::middleware::language_model::LanguageModelMiddleware;
-use crate::provider_core::ProviderSpec;
+
 use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
@@ -81,6 +81,68 @@ impl VertexAnthropicClient {
             None => name.to_string(),
         }
     }
+
+    /// Create provider context for this client
+    fn create_context(&self) -> crate::provider_core::ProviderContext {
+        crate::provider_core::ProviderContext::new(
+            "anthropic-vertex",
+            self.config.base_url.clone(),
+            None,
+            self.config.http_config.headers.clone(),
+        )
+    }
+
+    /// Create chat executor using the builder pattern
+    fn create_chat_executor(
+        &self,
+        spec: Arc<dyn crate::provider_core::ProviderSpec>,
+        ctx: crate::provider_core::ProviderContext,
+        request: &ChatRequest,
+    ) -> Arc<HttpChatExecutor> {
+        use crate::executors::chat::ChatExecutorBuilder;
+
+        let bundle = spec.choose_chat_transformers(request, &ctx);
+
+        ChatExecutorBuilder::new("anthropic-vertex", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone())
+            .build()
+    }
+
+    /// Execute chat request via spec (unified implementation)
+    async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::executors::chat::ChatExecutor;
+
+        let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
+            self.config.base_url.clone(),
+            self.config.model.clone(),
+            self.config.http_config.headers.clone(),
+        ));
+        let ctx = self.create_context();
+        let exec = self.create_chat_executor(spec, ctx, &request);
+        exec.execute(request).await
+    }
+
+    /// Execute streaming chat request via spec (unified implementation)
+    async fn chat_stream_request_via_spec(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStream, LlmError> {
+        use crate::executors::chat::ChatExecutor;
+
+        let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
+            self.config.base_url.clone(),
+            self.config.model.clone(),
+            self.config.http_config.headers.clone(),
+        ));
+        let ctx = self.create_context();
+        let exec = self.create_chat_executor(spec, ctx, &request);
+        exec.execute_stream(request).await
+    }
 }
 
 #[async_trait]
@@ -101,94 +163,7 @@ impl ChatCapability for VertexAnthropicClient {
             ..Default::default()
         };
 
-        // Create a simple spec for Vertex Anthropic
-        struct VertexAnthropicSpec {
-            base_url: String,
-            model: String,
-            extra_headers: std::collections::HashMap<String, String>,
-        }
-
-        impl crate::provider_core::ProviderSpec for VertexAnthropicSpec {
-            fn id(&self) -> &'static str {
-                "anthropic-vertex"
-            }
-            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
-                crate::traits::ProviderCapabilities::new()
-            }
-            fn build_headers(
-                &self,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> Result<reqwest::header::HeaderMap, LlmError> {
-                crate::utils::http_headers::ProviderHeaders::vertex_bearer(&self.extra_headers)
-            }
-            fn chat_url(
-                &self,
-                stream: bool,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> String {
-                if stream {
-                    crate::utils::url::join_url(
-                        &self.base_url,
-                        &format!("models/{}:streamRawPredict?alt=sse", self.model),
-                    )
-                } else {
-                    crate::utils::url::join_url(
-                        &self.base_url,
-                        &format!("models/{}:rawPredict", self.model),
-                    )
-                }
-            }
-            fn choose_chat_transformers(
-                &self,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                crate::provider_core::ChatTransformers {
-                    request: Arc::new(
-                        crate::providers::anthropic::transformers::AnthropicRequestTransformer::new(
-                            None,
-                        ),
-                    ),
-                    response: Arc::new(
-                        crate::providers::anthropic::transformers::AnthropicResponseTransformer,
-                    ),
-                    stream: None,
-                    json: None,
-                }
-            }
-        }
-
-        let spec = Arc::new(VertexAnthropicSpec {
-            base_url: self.config.base_url.clone(),
-            model: self.config.model.clone(),
-            extra_headers: self.config.http_config.headers.clone(),
-        });
-
-        let ctx = crate::provider_core::ProviderContext::new(
-            "anthropic-vertex",
-            self.config.base_url.clone(),
-            None,
-            self.config.http_config.headers.clone(),
-        );
-
-        let bundle = spec.choose_chat_transformers(&req, &ctx);
-
-        let exec = HttpChatExecutor {
-            provider_id: "anthropic-vertex".to_string(),
-            http_client: self.http_client.clone(),
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send: None,
-        };
-        exec.execute(req).await
+        self.chat_request_via_spec(req).await
     }
 
     async fn chat_stream(
@@ -208,101 +183,7 @@ impl ChatCapability for VertexAnthropicClient {
             ..Default::default()
         };
 
-        // Create a simple spec for Vertex Anthropic streaming
-        struct VertexAnthropicStreamSpec {
-            base_url: String,
-            model: String,
-            extra_headers: std::collections::HashMap<String, String>,
-        }
-
-        impl crate::provider_core::ProviderSpec for VertexAnthropicStreamSpec {
-            fn id(&self) -> &'static str {
-                "anthropic-vertex"
-            }
-            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
-                crate::traits::ProviderCapabilities::new()
-            }
-            fn build_headers(
-                &self,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> Result<reqwest::header::HeaderMap, LlmError> {
-                crate::utils::http_headers::ProviderHeaders::vertex_bearer(&self.extra_headers)
-            }
-            fn chat_url(
-                &self,
-                stream: bool,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> String {
-                if stream {
-                    crate::utils::url::join_url(
-                        &self.base_url,
-                        &format!("models/{}:streamRawPredict?alt=sse", self.model),
-                    )
-                } else {
-                    crate::utils::url::join_url(
-                        &self.base_url,
-                        &format!("models/{}:rawPredict", self.model),
-                    )
-                }
-            }
-            fn choose_chat_transformers(
-                &self,
-                _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                let stream_tx =
-                    crate::providers::anthropic::transformers::AnthropicStreamChunkTransformer {
-                        provider_id: "anthropic-vertex".to_string(),
-                        inner: crate::providers::anthropic::streaming::AnthropicEventConverter::new(
-                            crate::params::AnthropicParams::default(),
-                        ),
-                    };
-                crate::provider_core::ChatTransformers {
-                    request: Arc::new(
-                        crate::providers::anthropic::transformers::AnthropicRequestTransformer::new(
-                            None,
-                        ),
-                    ),
-                    response: Arc::new(
-                        crate::providers::anthropic::transformers::AnthropicResponseTransformer,
-                    ),
-                    stream: Some(Arc::new(stream_tx)),
-                    json: None,
-                }
-            }
-        }
-
-        let spec = Arc::new(VertexAnthropicStreamSpec {
-            base_url: self.config.base_url.clone(),
-            model: self.config.model.clone(),
-            extra_headers: self.config.http_config.headers.clone(),
-        });
-
-        let ctx = crate::provider_core::ProviderContext::new(
-            "anthropic-vertex",
-            self.config.base_url.clone(),
-            None,
-            self.config.http_config.headers.clone(),
-        );
-
-        let bundle = spec.choose_chat_transformers(&req, &ctx);
-
-        let exec = HttpChatExecutor {
-            provider_id: "anthropic-vertex".to_string(),
-            http_client: self.http_client.clone(),
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send: None,
-        };
-        exec.execute_stream(req).await
+        self.chat_stream_request_via_spec(req).await
     }
 }
 
