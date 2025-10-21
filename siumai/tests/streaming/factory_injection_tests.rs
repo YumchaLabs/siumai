@@ -6,7 +6,7 @@
 
 use futures_util::StreamExt;
 use siumai::error::LlmError;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::utils::streaming::{SseEventConverter, StreamFactory};
 
 #[derive(Clone)]
@@ -19,7 +19,7 @@ impl SseEventConverter for EndOnlyConverter {
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Vec<Result<siumai::stream::ChatStreamEvent, siumai::error::LlmError>>,
+                    Output = Vec<Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>>,
                 > + Send
                 + Sync
                 + '_,
@@ -28,7 +28,7 @@ impl SseEventConverter for EndOnlyConverter {
         Box::pin(async move { vec![] })
     }
 
-    fn handle_stream_end(&self) -> Option<Result<siumai::stream::ChatStreamEvent, siumai::error::LlmError>> {
+    fn handle_stream_end(&self) -> Option<Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>> {
         let response = siumai::types::ChatResponse {
             id: None,
             model: None,
@@ -53,7 +53,7 @@ impl SseEventConverter for DeltaThenEndConverter {
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Vec<Result<siumai::stream::ChatStreamEvent, siumai::error::LlmError>>,
+                    Output = Vec<Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>>,
                 > + Send
                 + Sync
                 + '_,
@@ -62,7 +62,7 @@ impl SseEventConverter for DeltaThenEndConverter {
         Box::pin(async move { vec![Ok(ChatStreamEvent::ContentDelta { delta: "DELTA".to_string(), index: None })] })
     }
 
-    fn handle_stream_end(&self) -> Option<Result<siumai::stream::ChatStreamEvent, siumai::error::LlmError>> {
+    fn handle_stream_end(&self) -> Option<Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>> {
         let response = siumai::types::ChatResponse {
             id: None,
             model: None,
@@ -213,7 +213,7 @@ impl SseEventConverter for DeltaOnlyConverter {
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Vec<Result<siumai::stream::ChatStreamEvent, siumai::error::LlmError>>,
+                    Output = Vec<Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>>,
                 > + Send
                 + Sync
                 + '_,

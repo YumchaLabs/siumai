@@ -124,28 +124,12 @@ impl ProviderSpec for OpenAiSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
-        // Handle Custom variant for user extensions
-        if let ProviderOptions::Custom {
-            provider_id,
-            options,
-        } = &req.provider_options
-        {
-            if provider_id == "openai" {
-                // User is extending OpenAI with custom options
-                let custom_options = options.clone();
-                let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-                    let mut out = body.clone();
-                    if let Some(obj) = out.as_object_mut() {
-                        for (k, v) in &custom_options {
-                            obj.insert(k.clone(), v.clone());
-                        }
-                    }
-                    Ok(out)
-                };
-                return Some(Arc::new(hook));
-            }
+        // 1. First check for CustomProviderOptions (using default implementation)
+        if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
+            return Some(hook);
         }
 
+        // 2. Handle OpenAI-specific options (built_in_tools, responses_api, etc.)
         // Extract options from provider_options
         let (builtins, responses_api_config, reasoning_effort, service_tier) =
             if let ProviderOptions::OpenAi(ref options) = req.provider_options {
@@ -168,6 +152,8 @@ impl ProviderSpec for OpenAiSpec {
             };
 
         let builtins = builtins.unwrap_or(serde_json::Value::Array(vec![]));
+
+        // Extract all Responses API config fields
         let prev_id = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.previous_response_id.clone());
@@ -175,6 +161,29 @@ impl ProviderSpec for OpenAiSpec {
             .as_ref()
             .and_then(|cfg| cfg.response_format.clone())
             .and_then(|fmt| serde_json::to_value(fmt).ok());
+        let background = responses_api_config.as_ref().and_then(|cfg| cfg.background);
+        let include = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.include.clone());
+        let instructions = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.instructions.clone());
+        let max_tool_calls = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.max_tool_calls);
+        let store = responses_api_config.as_ref().and_then(|cfg| cfg.store);
+        let truncation = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.truncation.clone());
+        let text_verbosity = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.text_verbosity.clone());
+        let metadata = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.metadata.clone());
+        let parallel_tool_calls = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.parallel_tool_calls);
 
         // Check if we need to inject anything
         let has_builtins = matches!(&builtins, serde_json::Value::Array(arr) if !arr.is_empty());
@@ -182,12 +191,30 @@ impl ProviderSpec for OpenAiSpec {
         let has_response_format = response_format.is_some();
         let has_reasoning_effort = reasoning_effort.is_some();
         let has_service_tier = service_tier.is_some();
+        let has_background = background.is_some();
+        let has_include = include.is_some();
+        let has_instructions = instructions.is_some();
+        let has_max_tool_calls = max_tool_calls.is_some();
+        let has_store = store.is_some();
+        let has_truncation = truncation.is_some();
+        let has_text_verbosity = text_verbosity.is_some();
+        let has_metadata = metadata.is_some();
+        let has_parallel_tool_calls = parallel_tool_calls.is_some();
 
         if !has_builtins
             && !has_prev_id
             && !has_response_format
             && !has_reasoning_effort
             && !has_service_tier
+            && !has_background
+            && !has_include
+            && !has_instructions
+            && !has_max_tool_calls
+            && !has_store
+            && !has_truncation
+            && !has_text_verbosity
+            && !has_metadata
+            && !has_parallel_tool_calls
         {
             return None;
         }
@@ -237,6 +264,51 @@ impl ProviderSpec for OpenAiSpec {
             }
             if let Some(fmt) = &response_format {
                 out["response_format"] = fmt.clone();
+            }
+            if let Some(bg) = background {
+                out["background"] = serde_json::Value::Bool(bg);
+            }
+            if let Some(ref inc) = include {
+                if let Ok(val) = serde_json::to_value(inc) {
+                    out["include"] = val;
+                }
+            }
+            if let Some(ref instr) = instructions {
+                out["instructions"] = serde_json::Value::String(instr.clone());
+            }
+            if let Some(mtc) = max_tool_calls {
+                out["max_tool_calls"] = serde_json::Value::Number(mtc.into());
+            }
+            if let Some(st) = store {
+                out["store"] = serde_json::Value::Bool(st);
+            }
+            if let Some(ref trunc) = truncation {
+                if let Ok(val) = serde_json::to_value(trunc) {
+                    out["truncation"] = val;
+                }
+            }
+            if let Some(ref verb) = text_verbosity {
+                if let Ok(val) = serde_json::to_value(verb) {
+                    // text_verbosity should be nested under "text.verbosity" in Responses API
+                    if let Some(text_obj) = out.get_mut("text") {
+                        if let Some(text_map) = text_obj.as_object_mut() {
+                            text_map.insert("verbosity".to_string(), val);
+                        }
+                    } else {
+                        // If no "text" field exists, create one with verbosity
+                        out["text"] = serde_json::json!({
+                            "verbosity": val
+                        });
+                    }
+                }
+            }
+            if let Some(ref meta) = metadata {
+                if let Ok(val) = serde_json::to_value(meta) {
+                    out["metadata"] = val;
+                }
+            }
+            if let Some(ptc) = parallel_tool_calls {
+                out["parallel_tool_calls"] = serde_json::Value::Bool(ptc);
             }
 
             // 🎯 Inject reasoning_effort

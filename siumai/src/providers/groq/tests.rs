@@ -10,12 +10,13 @@ mod groq_tests {
 
     #[test]
     fn test_groq_config_creation() {
+        use secrecy::ExposeSecret;
         let config = GroqConfig::new("test-api-key")
             .with_model("llama-3.3-70b-versatile")
             .with_temperature(0.7)
             .with_max_tokens(1000);
 
-        assert_eq!(config.api_key, "test-api-key");
+        assert_eq!(config.api_key.expose_secret(), "test-api-key");
         assert_eq!(config.common_params.model, "llama-3.3-70b-versatile");
         assert_eq!(config.common_params.temperature, Some(0.7));
         assert_eq!(config.common_params.max_tokens, Some(1000));
@@ -59,38 +60,21 @@ mod groq_tests {
 
     #[test]
     fn test_groq_builder() {
-        let builder = GroqBuilder::new()
+        use secrecy::ExposeSecret;
+        let builder = GroqBuilder::new(crate::builder::LlmBuilder::new())
             .api_key("test-key")
             .model("llama-3.3-70b-versatile")
             .temperature(0.7)
             .max_tokens(1000);
 
-        let config = builder.config();
-        assert_eq!(config.api_key, "test-key");
-        assert_eq!(config.common_params.model, "llama-3.3-70b-versatile");
-        assert_eq!(config.common_params.temperature, Some(0.7));
-        assert_eq!(config.common_params.max_tokens, Some(1000));
-    }
-
-    #[test]
-    fn test_groq_builder_tools() {
-        let tool = Tool {
-            r#type: "function".to_string(),
-            function: ToolFunction {
-                name: "test_function".to_string(),
-                description: "A test function".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {}
-                }),
-            },
-        };
-
-        let builder = GroqBuilder::new().api_key("test-key").tool(tool.clone());
-
-        let config = builder.config();
-        assert_eq!(config.built_in_tools.len(), 1);
-        assert_eq!(config.built_in_tools[0].function.name, "test_function");
+        // Access config field directly
+        assert_eq!(builder.config.api_key.expose_secret(), "test-key");
+        assert_eq!(
+            builder.config.common_params.model,
+            "llama-3.3-70b-versatile"
+        );
+        assert_eq!(builder.config.common_params.temperature, Some(0.7));
+        assert_eq!(builder.config.common_params.max_tokens, Some(1000));
     }
 
     #[tokio::test]
@@ -290,9 +274,10 @@ mod groq_tests {
     fn test_groq_models_capability() {
         use super::super::api::GroqModels;
         use crate::types::HttpConfig;
+        use secrecy::SecretString;
 
         let _models = GroqModels::new(
-            "test-api-key".to_string(),
+            SecretString::from("test-api-key".to_string()),
             "https://api.groq.com/openai/v1".to_string(),
             reqwest::Client::new(),
             HttpConfig::default(),

@@ -67,27 +67,12 @@ impl ProviderSpec for AnthropicSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
-        // Handle Custom variant for user extensions
-        if let ProviderOptions::Custom {
-            provider_id,
-            options,
-        } = &req.provider_options
-        {
-            if provider_id == "anthropic" {
-                let custom_options = options.clone();
-                let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-                    let mut out = body.clone();
-                    if let Some(obj) = out.as_object_mut() {
-                        for (k, v) in &custom_options {
-                            obj.insert(k.clone(), v.clone());
-                        }
-                    }
-                    Ok(out)
-                };
-                return Some(Arc::new(hook));
-            }
+        // 1. First check for CustomProviderOptions (using default implementation)
+        if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
+            return Some(hook);
         }
 
+        // 2. Handle Anthropic-specific options (thinking_mode)
         // 🎯 Extract Anthropic-specific options from provider_options
         let thinking_mode = if let ProviderOptions::Anthropic(ref options) = req.provider_options {
             options.thinking_mode.clone()

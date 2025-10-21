@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use crate::middleware::language_model::LanguageModelMiddleware;
-use crate::stream::ChatStreamEvent;
+use crate::streaming::ChatStreamEvent;
 use crate::types::ChatRequest;
 use futures::StreamExt;
 
@@ -128,7 +128,7 @@ impl LanguageModelMiddleware for SimulateStreamingMiddleware {
                         yield ChatStreamEvent::StreamEnd { response: resp };
                     }
                 };
-                Ok(Box::pin(stream) as crate::stream::ChatStream)
+                Ok(Box::pin(stream) as crate::streaming::ChatStream)
             })
         })
     }
@@ -156,7 +156,7 @@ mod tests {
                 let s = async_stream::try_stream! {
                     yield ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text("hello".into())) };
                 };
-                Ok(Box::pin(s) as crate::stream::ChatStream)
+                Ok(Box::pin(s) as crate::streaming::ChatStream)
             })
         });
         let mw = SimulateStreamingMiddleware::new(2, None);
@@ -188,7 +188,7 @@ mod tests {
                     yield ChatStreamEvent::ContentDelta{ delta: "a".into(), index: None };
                     yield ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text("ab".into())) };
                 };
-                Ok(Box::pin(s) as crate::stream::ChatStream)
+                Ok(Box::pin(s) as crate::streaming::ChatStream)
             })
         });
         let mw = SimulateStreamingMiddleware::new(1, None);

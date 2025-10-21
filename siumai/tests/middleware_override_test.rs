@@ -75,7 +75,7 @@ impl ChatCapability for MockClient {
         &self,
         _messages: Vec<ChatMessage>,
         _tools: Option<Vec<siumai::types::Tool>>,
-    ) -> Result<siumai::stream::ChatStream, LlmError> {
+    ) -> Result<siumai::streaming::ChatStream, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "stream not supported in mock".to_string(),
         ))

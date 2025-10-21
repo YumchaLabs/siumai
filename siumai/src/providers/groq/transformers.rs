@@ -1,11 +1,11 @@
 //! Audio transformers for Groq (TTS/STT)
 use crate::error::LlmError;
+use crate::streaming::SseEventConverter;
 use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse, FunctionCall, MessageContent, ToolCall, Usage};
-use crate::utils::streaming::SseEventConverter;
 use eventsource_stream::Event;
 use std::future::Future;
 use std::pin::Pin;
@@ -252,7 +252,7 @@ impl StreamChunkTransformer for GroqStreamChunkTransformer {
         event: Event,
     ) -> Pin<
         Box<
-            dyn Future<Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>>
+            dyn Future<Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>>
                 + Send
                 + Sync
                 + '_,
@@ -260,7 +260,7 @@ impl StreamChunkTransformer for GroqStreamChunkTransformer {
     > {
         self.inner.convert_event(event)
     }
-    fn handle_stream_end(&self) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>> {
+    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.inner.handle_stream_end()
     }
 }

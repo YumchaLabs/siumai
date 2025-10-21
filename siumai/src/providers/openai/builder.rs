@@ -2,21 +2,23 @@
 //!
 //! This module provides the OpenAI-specific builder implementation that follows
 //! the design pattern established in the main builder module.
+//!
+//! This builder uses composition with `ProviderCore` to eliminate code duplication
+//! and ensure consistency across all provider builders.
 
 use crate::builder::LlmBuilder;
 use crate::error::LlmError;
 use crate::params::{OpenAiParams, ResponseFormat, ToolChoice};
+use crate::provider_core::builder_core::ProviderCore;
 use crate::retry_api::RetryOptions;
 use crate::types::*;
 
 use super::OpenAiClient;
-use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
-use std::sync::Arc;
 
 /// OpenAI-specific builder for configuring `OpenAI` clients.
 ///
 /// This builder provides OpenAI-specific configuration options while
-/// inheriting common HTTP and timeout settings from the base `LlmBuilder`.
+/// using `ProviderCore` for common HTTP, tracing, and retry configuration.
 ///
 /// Retry: call `.with_retry(RetryOptions::backoff())` to enable automatic retries
 /// for chat operations via the unified retry facade.
@@ -40,23 +42,24 @@ use std::sync::Arc;
 /// }
 /// ```
 pub struct OpenAiBuilder {
-    pub(crate) base: LlmBuilder,
+    /// Core configuration shared across all providers (composition over inheritance)
+    pub(crate) core: ProviderCore,
+    /// OpenAI API key
     api_key: Option<String>,
+    /// Base URL for OpenAI API
     base_url: Option<String>,
+    /// Organization ID
     organization: Option<String>,
+    /// Project ID
     project: Option<String>,
+    /// Model name
     model: Option<String>,
+    /// Common parameters (temperature, max_tokens, etc.)
     common_params: CommonParams,
+    /// OpenAI-specific parameters
     openai_params: OpenAiParams,
-    http_config: HttpConfig,
-    tracing_config: Option<crate::tracing::TracingConfig>,
-    retry_options: Option<RetryOptions>,
     /// Whether to use the OpenAI Responses API instead of Chat Completions
     use_responses_api: bool,
-    /// Optional HTTP interceptors applied to chat requests
-    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
-    /// Enable lightweight HTTP debug logging interceptor
-    http_debug: bool,
     /// Responses API chaining id
     responses_previous_response_id: Option<String>,
     /// Responses API built-in tools
@@ -66,11 +69,8 @@ pub struct OpenAiBuilder {
 #[cfg(feature = "openai")]
 impl OpenAiBuilder {
     pub fn new(base: LlmBuilder) -> Self {
-        // Inherit interceptors/debug from unified builder
-        let inherited_interceptors = base.http_interceptors.clone();
-        let inherited_debug = base.http_debug;
         Self {
-            base,
+            core: ProviderCore::new(base),
             api_key: None,
             base_url: None,
             organization: None,
@@ -78,12 +78,7 @@ impl OpenAiBuilder {
             model: None,
             common_params: CommonParams::default(),
             openai_params: OpenAiParams::default(),
-            http_config: HttpConfig::default(),
-            tracing_config: None,
-            retry_options: None,
             use_responses_api: false,
-            http_interceptors: inherited_interceptors,
-            http_debug: inherited_debug,
             responses_previous_response_id: None,
             responses_built_in_tools: Vec::new(),
         }
@@ -189,138 +184,89 @@ impl OpenAiBuilder {
         self
     }
 
-    /// Sets the HTTP configuration
-    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
-        self.http_config = config;
-        self
-    }
+    // ========================================================================
+    // Common Configuration Methods (delegated to ProviderCore)
+    // ========================================================================
 
     /// Control whether to disable compression for streaming (SSE) requests.
     /// Default is true for stability. Set to false to allow compression.
     pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
-        self.http_config.stream_disable_compression = disable;
+        self.core = self.core.http_stream_disable_compression(disable);
         self
     }
 
-    // === Tracing Configuration ===
-
     /// Set custom tracing configuration
     pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
-        self.tracing_config = Some(config);
+        self.core = self.core.tracing(config);
         self
     }
 
     /// Enable debug tracing (development-friendly configuration)
-    pub fn debug_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::development())
+    pub fn debug_tracing(mut self) -> Self {
+        self.core = self.core.debug_tracing();
+        self
     }
 
     /// Enable minimal tracing (info level, LLM only)
-    pub fn minimal_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::minimal())
+    pub fn minimal_tracing(mut self) -> Self {
+        self.core = self.core.minimal_tracing();
+        self
     }
 
     /// Enable production-ready JSON tracing
-    pub fn json_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::json_production())
-    }
-
-    /// Enable simple tracing (uses debug configuration)
-    pub fn enable_tracing(self) -> Self {
-        self.debug_tracing()
-    }
-
-    /// Disable tracing explicitly
-    pub fn disable_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::disabled())
+    pub fn json_tracing(mut self) -> Self {
+        self.core = self.core.json_tracing();
+        self
     }
 
     /// Enable pretty-printed formatting for JSON bodies and headers in tracing
-    ///
-    /// This enables multi-line, indented JSON formatting and organized header display
-    /// in debug logs, making them more human-readable for debugging purposes.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::prelude::*;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Provider::openai()
-    ///     .api_key("your-key")
-    ///     .model("gpt-4o-mini")
-    ///     .debug_tracing()
-    ///     .pretty_json(true)  // Enable pretty formatting
-    ///     .build()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn pretty_json(mut self, pretty: bool) -> Self {
-        let config = self
-            .tracing_config
-            .take()
-            .unwrap_or_else(crate::tracing::TracingConfig::development);
-
-        let updated_config = crate::tracing::TracingConfigBuilder::from_config(config)
-            .pretty_json(pretty)
-            .build();
-
-        self.tracing_config = Some(updated_config);
+        self.core = self.core.pretty_json(pretty);
         self
     }
 
     /// Control masking of sensitive values (API keys, tokens) in tracing logs
-    ///
-    /// When enabled (default), sensitive values like API keys and authorization tokens
-    /// are automatically masked in logs for security. Only the first and last few
-    /// characters are shown.
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::prelude::*;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Provider::openai()
-    ///     .api_key("your-key")
-    ///     .model("gpt-4o-mini")
-    ///     .debug_tracing()
-    ///     .mask_sensitive_values(false)  // Disable masking (not recommended for production)
-    ///     .build()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn mask_sensitive_values(mut self, mask: bool) -> Self {
-        let config = self
-            .tracing_config
-            .take()
-            .unwrap_or_else(crate::tracing::TracingConfig::development);
-
-        let updated_config = crate::tracing::TracingConfigBuilder::from_config(config)
-            .mask_sensitive_values(mask)
-            .build();
-
-        self.tracing_config = Some(updated_config);
+        self.core = self.core.mask_sensitive_values(mask);
         self
     }
 
     /// Set unified retry options for chat operations
     pub fn with_retry(mut self, options: RetryOptions) -> Self {
-        self.retry_options = Some(options);
+        self.core = self.core.with_retry(options);
         self
     }
 
-    /// Add a custom HTTP interceptor (builder collects and installs them on build).
-    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
-        self.http_interceptors.push(interceptor);
+    /// Add a custom HTTP interceptor
+    pub fn with_http_interceptor(
+        mut self,
+        interceptor: std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>,
+    ) -> Self {
+        self.core = self.core.with_http_interceptor(interceptor);
         self
     }
 
-    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    /// Enable a built-in logging interceptor for HTTP debugging
     pub fn http_debug(mut self, enabled: bool) -> Self {
-        self.http_debug = enabled;
+        self.core = self.core.http_debug(enabled);
+        self
+    }
+
+    /// Set request timeout
+    pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.timeout(timeout);
+        self
+    }
+
+    /// Set connection timeout
+    pub fn connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.connect_timeout(timeout);
+        self
+    }
+
+    /// Set custom HTTP client
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.core = self.core.with_http_client(client);
         self
     }
 
@@ -370,16 +316,12 @@ impl OpenAiBuilder {
         // Users should initialize tracing manually using siumai_extras::telemetry
         // or tracing_subscriber directly before creating the client.
 
-        // Step 3: Save model_id before moving common_params
+        // Step 3: Build configuration
         let model_id = self
             .model
             .clone()
             .unwrap_or_else(|| self.common_params.model.clone());
 
-        // Step 4: Build HTTP client (inherits all base configuration)
-        let http_client = self.base.build_http_client()?;
-
-        // Step 5: Create client via unified OpenAiConfig (Spec-based path)
         let mut cfg = crate::providers::openai::OpenAiConfig {
             api_key: secrecy::SecretString::from(api_key),
             base_url,
@@ -387,7 +329,7 @@ impl OpenAiBuilder {
             project: self.project,
             common_params: self.common_params,
             openai_params: self.openai_params,
-            http_config: self.http_config,
+            http_config: self.core.http_config.clone(),
             web_search_config: crate::types::WebSearchConfig::default(),
         };
 
@@ -396,21 +338,31 @@ impl OpenAiBuilder {
             cfg.common_params.model = m.clone();
         }
 
+        // Step 4: Build HTTP client from core
+        let http_client = self.core.build_http_client()?;
+
+        // Step 5: Create client instance
         let mut client = OpenAiClient::new(cfg, http_client);
 
-        // Step 6: Set retry
-        client.set_retry_options(self.retry_options.clone());
+        // Step 6: Apply tracing and retry configuration from core
+        if let Some(ref tracing_config) = self.core.tracing_config {
+            client.set_tracing_config(Some(tracing_config.clone()));
+        }
+        if let Some(ref retry_options) = self.core.retry_options {
+            client.set_retry_options(Some(retry_options.clone()));
+        }
 
         // Step 7: Install HTTP interceptors
-        let mut interceptors = self.http_interceptors;
-        if self.http_debug {
-            interceptors.push(Arc::new(LoggingInterceptor));
+        let interceptors = self.core.get_http_interceptors();
+        if !interceptors.is_empty() {
+            client = client.with_http_interceptors(interceptors);
         }
-        client = client.with_http_interceptors(interceptors);
 
         // Step 8: Install automatic middlewares
-        let middlewares = crate::middleware::build_auto_middlewares_vec("openai", &model_id);
-        client = client.with_model_middlewares(middlewares);
+        let middlewares = self.core.get_auto_middlewares("openai", &model_id);
+        if !middlewares.is_empty() {
+            client = client.with_model_middlewares(middlewares);
+        }
 
         Ok(client)
     }

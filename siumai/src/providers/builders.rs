@@ -37,14 +37,14 @@ impl LlmBuilder {
 
     /// Create a `Groq` client builder (native implementation).
     #[cfg(feature = "groq")]
-    pub fn groq(self) -> crate::providers::groq::GroqBuilderWrapper {
-        crate::providers::groq::GroqBuilderWrapper::new(self)
+    pub fn groq(self) -> crate::providers::groq::GroqBuilder {
+        crate::providers::groq::GroqBuilder::new(self)
     }
 
     /// Create an `xAI` client builder (native implementation).
     #[cfg(feature = "xai")]
-    pub fn xai(self) -> crate::providers::xai::XaiBuilderWrapper {
-        crate::providers::xai::XaiBuilderWrapper::new(self)
+    pub fn xai(self) -> crate::providers::xai::XaiBuilder {
+        crate::providers::xai::XaiBuilder::new(self)
     }
 
     // ========================================================================

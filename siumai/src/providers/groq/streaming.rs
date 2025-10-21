@@ -3,10 +3,10 @@
 //! This module provides Groq-specific streaming functionality for chat completions.
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::{ChatRequest, ResponseMetadata, Usage};
 use crate::types::{ChatResponse, FinishReason, MessageContent};
-use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 
 use std::future::Future;
@@ -39,7 +39,7 @@ impl GroqEventConverter {
         &self,
         response: GroqChatStreamChunk,
     ) -> Vec<ChatStreamEvent> {
-        use crate::utils::streaming::EventBuilder;
+        use crate::streaming::EventBuilder;
 
         let mut builder = EventBuilder::new();
 
@@ -199,7 +199,8 @@ impl GroqStreaming {
         let url_for_retry = url.clone();
         let body_for_retry = request_body.clone();
         let build_request = move || {
-            let mut headers = build_headers(&api_key, &extra_headers)?;
+            use secrecy::ExposeSecret;
+            let mut headers = build_headers(api_key.expose_secret(), &extra_headers)?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             Ok(http
                 .post(&url_for_retry)

@@ -36,8 +36,8 @@ impl CancelHandle {
 
 /// Make a ChatStream cancellable and return its cancel handle.
 pub fn make_cancellable_stream(
-    stream: crate::stream::ChatStream,
-) -> (crate::stream::ChatStream, CancelHandle) {
+    stream: crate::streaming::ChatStream,
+) -> (crate::streaming::ChatStream, CancelHandle) {
     let flag = Arc::new(AtomicBool::new(false));
     let handle = CancelHandle::new(flag.clone());
     // Implement the wrapper as a manual stream using async_stream! to avoid pin gymnastics

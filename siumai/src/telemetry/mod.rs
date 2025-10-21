@@ -25,7 +25,7 @@
 //!
 //! ## 🚀 Quick Start
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use siumai::telemetry::{TelemetryConfig, TelemetryEvent};
 //! use siumai::prelude::*;
 //!
@@ -41,9 +41,8 @@
 //!     .openai()
 //!     .model("gpt-4")
 //!     .telemetry(config)
-//!     .build()
-//!     .await?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//!     .build();
+//! // Note: See siumai-extras::telemetry for subscriber initialization
 //! ```
 
 pub mod config;

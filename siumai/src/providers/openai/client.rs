@@ -8,7 +8,7 @@ use secrecy::ExposeSecret;
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::params::OpenAiParams;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 
@@ -207,6 +207,11 @@ impl OpenAiClient {
     /// NOTE: Tracing subscriber functionality has been moved to siumai-extras
     pub(crate) fn set_tracing_guard(&mut self, guard: Option<()>) {
         self._tracing_guard = guard;
+    }
+
+    /// Set the tracing configuration
+    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
+        self.tracing_config = config;
     }
 
     /// Set unified retry options
@@ -2396,5 +2401,101 @@ mod tests {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         assert_eq!(name, "User");
+    }
+
+    #[test]
+    fn test_responses_api_extended_params() {
+        // Test that all new ResponsesApiConfig parameters are correctly injected
+        let config = OpenAiConfig::new("test-key")
+            .with_base_url("https://api.openai.com/v1")
+            .with_model("gpt-4o");
+        let client = OpenAiClient::new(config, reqwest::Client::new());
+
+        struct Capture(Arc<Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                builder: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+        let captured = Arc::new(Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![Arc::new(cap)]);
+
+        // Create request with all extended ResponsesApiConfig parameters
+        use crate::types::{OpenAiOptions, ResponsesApiConfig, TextVerbosity, Truncation};
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("user_id".to_string(), "test_123".to_string());
+
+        let request = crate::types::ChatRequest::new(vec![
+            crate::types::ChatMessage::user("Test message").build(),
+        ])
+        .with_openai_options(
+            OpenAiOptions::new().with_responses_api(
+                ResponsesApiConfig::new()
+                    .with_background(true)
+                    .with_include(vec!["file_search_call.results".to_string()])
+                    .with_instructions("You are a helpful assistant".to_string())
+                    .with_max_tool_calls(10)
+                    .with_store(false)
+                    .with_truncation(Truncation::Auto)
+                    .with_text_verbosity(TextVerbosity::Medium)
+                    .with_metadata(metadata.clone())
+                    .with_parallel_tool_calls(true),
+            ),
+        );
+
+        // Trigger chat path
+        let _ = futures::executor::block_on(client.chat_request(request));
+        let body = captured.lock().unwrap().clone().expect("captured body");
+
+        // Verify all parameters are injected
+        assert_eq!(body.get("background").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            body.get("include")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.get(0))
+                .and_then(|v| v.as_str()),
+            Some("file_search_call.results")
+        );
+        assert_eq!(
+            body.get("instructions").and_then(|v| v.as_str()),
+            Some("You are a helpful assistant")
+        );
+        assert_eq!(
+            body.get("max_tool_calls").and_then(|v| v.as_u64()),
+            Some(10)
+        );
+        assert_eq!(body.get("store").and_then(|v| v.as_bool()), Some(false));
+        assert_eq!(
+            body.get("truncation").and_then(|v| v.as_str()),
+            Some("auto")
+        );
+
+        // text_verbosity should be nested under "text.verbosity"
+        assert_eq!(
+            body.get("text")
+                .and_then(|t| t.get("verbosity"))
+                .and_then(|v| v.as_str()),
+            Some("medium")
+        );
+
+        assert_eq!(
+            body.get("parallel_tool_calls").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+
+        // Verify metadata
+        let meta = body.get("metadata").expect("has metadata");
+        assert_eq!(
+            meta.get("user_id").and_then(|v| v.as_str()),
+            Some("test_123")
+        );
     }
 }

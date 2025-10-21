@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::prepare_step::PrepareStepFn;
 use crate::error::LlmError;
-use crate::stream::ChatStreamEvent;
+use crate::streaming::ChatStreamEvent;
 use crate::telemetry::TelemetryConfig;
 use crate::types::{ChatMessage, FinishReason, ToolCall, Usage};
 

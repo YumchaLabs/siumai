@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 
 use crate::error::LlmError;
 use crate::traits::ModelListingCapability;
@@ -16,7 +17,7 @@ use super::utils::{build_headers, map_anthropic_error};
 /// Anthropic Models API implementation
 #[derive(Clone)]
 pub struct AnthropicModels {
-    pub api_key: String,
+    pub api_key: SecretString,
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: crate::types::HttpConfig,
@@ -24,8 +25,8 @@ pub struct AnthropicModels {
 
 impl AnthropicModels {
     /// Create a new Anthropic models instance
-    pub const fn new(
-        api_key: String,
+    pub fn new(
+        api_key: SecretString,
         base_url: String,
         http_client: reqwest::Client,
         http_config: crate::types::HttpConfig,
@@ -45,7 +46,8 @@ impl AnthropicModels {
         after_id: Option<String>,
         limit: Option<u32>,
     ) -> Result<AnthropicModelsResponse, LlmError> {
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
+        use secrecy::ExposeSecret;
+        let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
         let mut url = format!("{}/v1/models", self.base_url);
 
         // Build query parameters
@@ -105,7 +107,8 @@ impl AnthropicModels {
 
     /// Get information about a specific model
     pub async fn get_model_info(&self, model_id: String) -> Result<ModelInfo, LlmError> {
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
+        use secrecy::ExposeSecret;
+        let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
         let url = format!("{}/v1/models/{}", self.base_url, model_id);
 
         let response = self.http_client.get(&url).headers(headers).send().await?;

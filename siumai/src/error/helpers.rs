@@ -4,7 +4,7 @@
 //! and provider/model hints suitable for CLI/UI rendering, inspired by
 //! Cherry Studio's UX while keeping the logic library-first.
 
-use crate::error::{ErrorCategory, LlmError};
+use super::types::{ErrorCategory, LlmError};
 // Note: Do not import ProviderType here; helpers are provider-agnostic
 
 /// Error kind for presentation (coarse-grained)

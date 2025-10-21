@@ -29,48 +29,72 @@ User Code → SiumaiBuilder → Provider Client → ProviderSpec
 
 ## 🚀 Future Work
 
-### Phase 3: OpenAI Responses API Session Management
+### Phase 3: OpenAI Responses API - Multi-turn Conversation Support
 
-**Goal**: Implement full session lifecycle management for OpenAI Responses API.
+**Status**: ✅ **COMPLETED** - Core functionality implemented
 
-**Current Status**:
-- ✅ Basic Responses API routing and configuration via `ResponsesApiConfig`
-- ✅ `previous_response_id` and `response_format` injection
-- ❌ Session management methods not implemented
+**Implementation Summary**:
+- ✅ Full Responses API parameter support (all 12+ parameters)
+- ✅ `previous_response_id` for multi-turn conversations
+- ✅ `store` parameter for server-side context management
+- ✅ `include` parameter for encrypted reasoning content
+- ✅ Helper methods: `ChatResponse::response_id()`
+- ✅ Example code: `responses-multi-turn.rs`
+- ✅ Comprehensive documentation
 
-**Planned Features**:
+**Design Philosophy**:
+
+OpenAI Responses API is **stateless by design**, unlike the Assistants API:
+
+| Feature | Assistants API | Responses API |
+|---------|---------------|---------------|
+| State Management | Stateful (server-side) | Stateless (client-side) |
+| Session Storage | Server stores threads | Client manages response IDs |
+| Multi-turn | `thread_id` | `previous_response_id` |
+| List API | ✅ `GET /threads` | ❌ Not available |
+| Delete API | ✅ `DELETE /threads/{id}` | ❌ Not available |
+| Retrieve API | ✅ `GET /threads/{id}` | ❌ Not available |
+
+**Usage Pattern**:
 ```rust
-impl OpenAiClient {
-    /// Create a new response session
-    pub async fn create_response_session(
-        &self,
-        config: ResponseSessionConfig,
-    ) -> Result<ResponseSession, LlmError>;
+// Turn 1: Initial request
+let response1 = client.chat_request(request1).await?;
+let response_id = response1.response_id().expect("Response ID not found");
 
-    /// Chat within an existing session
-    pub async fn chat_with_session(
-        &self,
-        session_id: &str,
-        messages: Vec<ChatMessage>,
-    ) -> Result<ChatResponse, LlmError>;
-
-    /// Delete a response session
-    pub async fn delete_response_session(
-        &self,
-        session_id: &str,
-    ) -> Result<(), LlmError>;
-
-    /// List all active sessions
-    pub async fn list_response_sessions(&self) -> Result<Vec<ResponseSession>, LlmError>;
-}
+// Turn 2: Follow-up (automatically loads context from Turn 1)
+let request2 = ChatRequest::new(messages)
+    .with_openai_options(
+        OpenAiOptions::new().with_responses_api(
+            ResponsesApiConfig::new()
+                .with_previous_response(response_id)
+                .with_store(true)  // Enable server-side storage
+        )
+    );
 ```
 
-**Benefits**:
-- Automatic session lifecycle management
-- Simplified multi-turn conversations with Responses API
-- Built-in session state tracking
+**Why No Session Management APIs?**
 
-**Estimated Effort**: 2-3 days
+The following methods are **NOT implemented** (and not needed):
+- ❌ `create_response_session()` - No such OpenAI API exists
+- ❌ `list_response_sessions()` - No such OpenAI API exists
+- ❌ `delete_response_session()` - No such OpenAI API exists
+
+**Rationale**:
+1. OpenAI Responses API doesn't provide server-side session management endpoints
+2. Implementing these would be misleading and suggest functionality that doesn't exist
+3. Session management should be handled at the application layer if needed
+
+**Recommended Approach for Applications**:
+
+If your application needs session management:
+1. Store response IDs in your database
+2. Associate them with user sessions
+3. Pass appropriate `previous_response_id` when needed
+4. Implement session lifecycle at the application layer
+
+**Examples**:
+- `examples/04-provider-specific/openai/responses-api.rs` - Basic usage
+- `examples/04-provider-specific/openai/responses-multi-turn.rs` - Multi-turn conversations
 
 ---
 

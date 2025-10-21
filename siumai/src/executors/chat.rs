@@ -8,7 +8,8 @@ use crate::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn, apply_post_generate_chain,
     apply_stream_event_chain, apply_transform_chain, try_pre_generate, try_pre_stream,
 };
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
+use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::telemetry::{
     self,
     events::{GenerationEvent, SpanEvent, TelemetryEvent},
@@ -18,7 +19,6 @@ use crate::transformers::{
 };
 use crate::types::{ChatRequest, ChatResponse};
 use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
-use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 use reqwest::header::HeaderMap;
 use std::future::Future;
@@ -39,7 +39,7 @@ pub struct HttpChatExecutor {
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
     /// Optional JSON streaming converter for providers that emit JSON lines
-    pub json_stream_converter: Option<Arc<dyn crate::utils::streaming::JsonEventConverter>>,
+    pub json_stream_converter: Option<Arc<dyn crate::streaming::JsonEventConverter>>,
     /// Whether to disable compression for streaming requests
     pub stream_disable_compression: bool,
     /// Optional list of HTTP interceptors (order preserved)
@@ -182,7 +182,7 @@ mod tests {
                                 other => other,
                             })
                         });
-                        Ok(Box::pin(mapped) as crate::stream::ChatStream)
+                        Ok(Box::pin(mapped) as crate::streaming::ChatStream)
                     })
                 })
             }
@@ -204,7 +204,7 @@ mod tests {
                                 ),
                             })
                         });
-                        Ok(Box::pin(one) as crate::stream::ChatStream)
+                        Ok(Box::pin(one) as crate::streaming::ChatStream)
                     })
                 })
             }
@@ -376,7 +376,7 @@ mod tests {
             fn pre_stream(
                 &self,
                 _req: &crate::types::ChatRequest,
-            ) -> Option<Result<crate::stream::ChatStream, crate::error::LlmError>> {
+            ) -> Option<Result<crate::streaming::ChatStream, crate::error::LlmError>> {
                 let end = crate::types::ChatStreamEvent::StreamEnd {
                     response: crate::types::ChatResponse::new(crate::types::MessageContent::Text(
                         "mw-stream".to_string(),
@@ -1020,7 +1020,9 @@ impl ChatExecutor for HttpChatExecutor {
                     ) -> Pin<
                         Box<
                             dyn Future<
-                                    Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>,
+                                    Output = Vec<
+                                        Result<crate::streaming::ChatStreamEvent, LlmError>,
+                                    >,
                                 > + Send
                                 + Sync
                                 + '_,
@@ -1030,7 +1032,7 @@ impl ChatExecutor for HttpChatExecutor {
                     }
                     fn handle_stream_end(
                         &self,
-                    ) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>>
+                    ) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>>
                     {
                         self.0.handle_stream_end()
                     }
@@ -1052,7 +1054,9 @@ impl ChatExecutor for HttpChatExecutor {
                     ) -> Pin<
                         Box<
                             dyn Future<
-                                    Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>,
+                                    Output = Vec<
+                                        Result<crate::streaming::ChatStreamEvent, LlmError>,
+                                    >,
                                 > + Send
                                 + Sync
                                 + '_,
@@ -1078,7 +1082,7 @@ impl ChatExecutor for HttpChatExecutor {
                     }
                     fn handle_stream_end(
                         &self,
-                    ) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>>
+                    ) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>>
                     {
                         // Ensure end event also flows through middlewares
                         match self.convert.handle_stream_end() {
@@ -1112,7 +1116,9 @@ impl ChatExecutor for HttpChatExecutor {
                     ) -> Pin<
                         Box<
                             dyn Future<
-                                    Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>,
+                                    Output = Vec<
+                                        Result<crate::streaming::ChatStreamEvent, LlmError>,
+                                    >,
                                 > + Send
                                 + Sync
                                 + '_,
@@ -1132,7 +1138,7 @@ impl ChatExecutor for HttpChatExecutor {
                     }
                     fn handle_stream_end(
                         &self,
-                    ) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>>
+                    ) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>>
                     {
                         self.convert.handle_stream_end()
                     }
@@ -1199,9 +1205,9 @@ impl ChatExecutor for HttpChatExecutor {
                     struct MiddlewareJsonConverter {
                         middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
                         req: crate::types::ChatRequest,
-                        convert: Arc<dyn crate::utils::streaming::JsonEventConverter>,
+                        convert: Arc<dyn crate::streaming::JsonEventConverter>,
                     }
-                    impl crate::utils::streaming::JsonEventConverter for MiddlewareJsonConverter {
+                    impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
                         fn convert_json<'a>(
                             &'a self,
                             json_data: &'a str,
@@ -1209,7 +1215,7 @@ impl ChatExecutor for HttpChatExecutor {
                             Box<
                                 dyn Future<
                                         Output = Vec<
-                                            Result<crate::stream::ChatStreamEvent, LlmError>,
+                                            Result<crate::streaming::ChatStreamEvent, LlmError>,
                                         >,
                                     > + Send
                                     + Sync
@@ -1240,7 +1246,7 @@ impl ChatExecutor for HttpChatExecutor {
                         req: req_in.clone(),
                         convert: jsonc.clone(),
                     };
-                    crate::utils::streaming::StreamFactory::create_json_stream(response, mw).await
+                    crate::streaming::StreamFactory::create_json_stream(response, mw).await
                 } else {
                     Err(LlmError::UnsupportedOperation(
                         "No stream transformer".into(),
@@ -1275,7 +1281,7 @@ impl ChatExecutor for HttpChatExecutor {
                         telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
 
                         // Wrap the stream with telemetry tracking
-                        let wrapped_stream = crate::stream::wrap_stream_with_telemetry(
+                        let wrapped_stream = crate::streaming::wrap_stream_with_telemetry(
                             stream,
                             std::sync::Arc::new(telemetry.clone()),
                             trace_id.clone(),

@@ -7,44 +7,8 @@ use std::sync::Arc;
 
 /// Build the unified Siumai provider from SiumaiBuilder
 pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
-    // Helper: build an HTTP client from HttpConfig
-    fn build_http_client_from_config(cfg: &HttpConfig) -> Result<reqwest::Client, LlmError> {
-        let mut builder = reqwest::Client::builder();
-
-        if let Some(timeout) = cfg.timeout {
-            builder = builder.timeout(timeout);
-        }
-        if let Some(connect_timeout) = cfg.connect_timeout {
-            builder = builder.connect_timeout(connect_timeout);
-        }
-        if let Some(proxy_url) = &cfg.proxy {
-            let proxy = reqwest::Proxy::all(proxy_url)
-                .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
-            builder = builder.proxy(proxy);
-        }
-        if let Some(user_agent) = &cfg.user_agent {
-            builder = builder.user_agent(user_agent);
-        }
-
-        // Default headers
-        if !cfg.headers.is_empty() {
-            let mut headers = reqwest::header::HeaderMap::new();
-            for (k, v) in &cfg.headers {
-                let name = reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-                    LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
-                })?;
-                let value = reqwest::header::HeaderValue::from_str(v).map_err(|e| {
-                    LlmError::ConfigurationError(format!("Invalid header value for '{k}': {e}"))
-                })?;
-                headers.insert(name, value);
-            }
-            builder = builder.default_headers(headers);
-        }
-
-        builder
-            .build()
-            .map_err(|e| LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}")))
-    }
+    // Use unified HTTP client builder from utils
+    use crate::utils::http_client::build_http_client_from_config;
 
     // Best-effort provider suggestion by model prefix (when provider is not set)
     if builder.provider_type.is_none() && !builder.common_params.model.is_empty() {

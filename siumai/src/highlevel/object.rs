@@ -271,7 +271,7 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
         let mut last_partial: Option<serde_json::Value> = None;
         while let Some(item) = stream.next().await {
             match item? {
-                crate::stream::ChatStreamEvent::ContentDelta { delta, .. } => {
+                crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
                     if emit_partial {
@@ -291,13 +291,13 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                         }
                     }
                 }
-                crate::stream::ChatStreamEvent::ToolCallDelta { arguments_delta, .. } => {
+                crate::streaming::ChatStreamEvent::ToolCallDelta { arguments_delta, .. } => {
                     if let Some(d) = arguments_delta { tool_args_acc.push_str(&d); }
                 }
-                crate::stream::ChatStreamEvent::UsageUpdate { usage } => {
+                crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
                     yield StreamObjectEvent::UsageUpdate { usage };
                 }
-                crate::stream::ChatStreamEvent::StreamEnd { response } => {
+                crate::streaming::ChatStreamEvent::StreamEnd { response } => {
                     final_resp = Some(response);
                     break;
                 }
@@ -776,7 +776,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
 
         while let Some(item) = stream.next().await {
             match item? {
-                crate::stream::ChatStreamEvent::ContentDelta { delta, .. } => {
+                crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
                     if emit_partial {
@@ -795,7 +795,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
                         }
                     }
                 }
-                crate::stream::ChatStreamEvent::StreamEnd { response } => {
+                crate::streaming::ChatStreamEvent::StreamEnd { response } => {
                     final_resp = Some(response);
                     break;
                 }
@@ -869,13 +869,13 @@ mod tests {
             &self,
             _messages: Vec<crate::types::ChatMessage>,
             _tools: Option<Vec<crate::types::Tool>>,
-        ) -> Result<crate::stream::ChatStream, LlmError> {
+        ) -> Result<crate::streaming::ChatStream, LlmError> {
             let chunks = self.deltas.clone();
             let s = async_stream::try_stream! {
                 for d in chunks {
-                    yield crate::stream::ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
+                    yield crate::streaming::ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
                 }
-                yield crate::stream::ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text(String::new())) };
+                yield crate::streaming::ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text(String::new())) };
             };
             Ok(Box::pin(s))
         }
@@ -946,7 +946,7 @@ mod tests {
             &self,
             _messages: Vec<crate::types::ChatMessage>,
             _tools: Option<Vec<crate::types::Tool>>,
-        ) -> Result<crate::stream::ChatStream, LlmError> {
+        ) -> Result<crate::streaming::ChatStream, LlmError> {
             Err(LlmError::UnsupportedOperation("no stream".into()))
         }
     }
@@ -1002,7 +1002,7 @@ mod tests {
                 &self,
                 _messages: Vec<crate::types::ChatMessage>,
                 _tools: Option<Vec<crate::types::Tool>>,
-            ) -> Result<crate::stream::ChatStream, LlmError> {
+            ) -> Result<crate::streaming::ChatStream, LlmError> {
                 let s = async_stream::try_stream! {
                     yield crate::types::ChatStreamEvent::ContentDelta { delta: "{".into(), index: None };
                     yield crate::types::ChatStreamEvent::ContentDelta { delta: "\"name\"".into(), index: None };

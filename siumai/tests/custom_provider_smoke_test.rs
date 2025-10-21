@@ -7,7 +7,7 @@ use futures::{StreamExt, stream};
 use siumai::ProviderCapabilities;
 use siumai::custom_provider::*;
 use siumai::error::LlmError;
-use siumai::stream::{ChatStream, ChatStreamEvent};
+use siumai::streaming::{ChatStream, ChatStreamEvent};
 use siumai::traits::ChatCapability;
 use siumai::types::*;
 

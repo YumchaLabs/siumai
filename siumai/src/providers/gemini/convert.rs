@@ -247,6 +247,23 @@ pub fn build_request_body(
         None
     };
 
+    // Merge common_params and generation_config
+    let mut merged_generation_config = config.generation_config.clone().unwrap_or_default();
+
+    // Common params take precedence over generation_config defaults
+    if let Some(temp) = config.common_params.temperature {
+        merged_generation_config.temperature = Some(temp);
+    }
+    if let Some(max_tokens) = config.common_params.max_tokens {
+        merged_generation_config.max_output_tokens = Some(max_tokens as i32);
+    }
+    if let Some(top_p) = config.common_params.top_p {
+        merged_generation_config.top_p = Some(top_p);
+    }
+    if let Some(stops) = &config.common_params.stop_sequences {
+        merged_generation_config.stop_sequences = Some(stops.clone());
+    }
+
     Ok(GenerateContentRequest {
         model: config.model.clone(),
         contents,
@@ -254,7 +271,7 @@ pub fn build_request_body(
         tools: gemini_tools,
         tool_config: None,
         safety_settings: config.safety_settings.clone(),
-        generation_config: config.generation_config.clone(),
+        generation_config: Some(merged_generation_config),
         cached_content: None,
     })
 }

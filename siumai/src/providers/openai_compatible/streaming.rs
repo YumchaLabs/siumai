@@ -5,11 +5,11 @@
 //! OpenAI but with provider-specific adaptations for thinking/reasoning content.
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::{
     ChatRequest, ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage,
 };
-use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -107,7 +107,7 @@ impl OpenAiCompatibleEventConverter {
         &self,
         event: OpenAiCompatibleStreamEvent,
     ) -> Vec<ChatStreamEvent> {
-        use crate::utils::streaming::EventBuilder;
+        use crate::streaming::EventBuilder;
 
         let mut builder = EventBuilder::new();
 
@@ -151,7 +151,7 @@ impl OpenAiCompatibleEventConverter {
     /// JSON-first conversion to avoid losing unknown fields with strict structs
     /// and to be compatible with different streaming shapes (e.g. Responses API).
     async fn convert_event_json_async(&self, json: &serde_json::Value) -> Vec<ChatStreamEvent> {
-        use crate::utils::streaming::EventBuilder;
+        use crate::streaming::EventBuilder;
 
         let mut builder = EventBuilder::new();
 

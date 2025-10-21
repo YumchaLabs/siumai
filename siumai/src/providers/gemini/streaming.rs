@@ -5,10 +5,10 @@
 
 use crate::error::LlmError;
 use crate::providers::gemini::types::GeminiConfig;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
-use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
@@ -84,7 +84,7 @@ impl GeminiEventConverter {
         &self,
         response: GeminiStreamResponse,
     ) -> Vec<ChatStreamEvent> {
-        use crate::utils::streaming::EventBuilder;
+        use crate::streaming::EventBuilder;
 
         let mut builder = EventBuilder::new();
 
@@ -335,16 +335,12 @@ impl GeminiStreaming {
         }
 
         // Determine compression behavior for streaming
-        let disable_compression = self
-            .config
-            .http_config
-            .as_ref()
-            .map(|h| h.stream_disable_compression)
-            .unwrap_or(true);
+        let disable_compression = self.config.http_config.stream_disable_compression;
 
         // Create the stream using SSE infrastructure (Gemini uses SSE format)
+        use secrecy::SecretString;
         let mut config = self.config;
-        config.api_key = api_key.clone();
+        config.api_key = SecretString::from(api_key.clone());
         let converter = GeminiEventConverter::new(config);
         // Build closure for one-shot 401 retry with header rebuild
         let http = self.http_client.clone();
@@ -390,8 +386,9 @@ mod tests {
     use crate::providers::gemini::types::GeminiConfig;
 
     fn create_test_config() -> GeminiConfig {
+        use secrecy::SecretString;
         GeminiConfig {
-            api_key: "test-key".to_string(),
+            api_key: SecretString::from("test-key".to_string()),
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
             ..Default::default()
         }

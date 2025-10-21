@@ -30,10 +30,10 @@ fn tool_role_message_maps_to_function_call_output_item() {
             model: "gpt-4o-mini".into(),
             ..Default::default()
         },
-        provider_params: None,
+        provider_options: siumai::types::ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
     let json = OpenAiResponsesRequestTransformer
         .transform_chat(&req)
@@ -77,10 +77,10 @@ fn assistant_tool_calls_map_to_tool_use_parts_and_text() {
             model: "gpt-5-mini".into(),
             ..Default::default()
         },
-        provider_params: None,
+        provider_options: siumai::types::ProviderOptions::None,
         http_config: None,
-        web_search: None,
         stream: false,
+        telemetry: None,
     };
 
     let json = OpenAiResponsesRequestTransformer

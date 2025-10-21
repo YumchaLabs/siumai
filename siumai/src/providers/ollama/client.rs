@@ -10,7 +10,7 @@ use crate::error::LlmError;
 use crate::middleware::LanguageModelMiddleware;
 use crate::provider_core::ProviderSpec;
 use crate::retry_api::RetryOptions;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::{
     ChatCapability, EmbeddingCapability, LlmProvider, ModelListingCapability, ProviderCapabilities,
 };
@@ -18,7 +18,6 @@ use crate::types::*;
 use crate::utils::http_interceptor::HttpInterceptor;
 
 use super::chat::OllamaChatCapability;
-use super::completion::OllamaCompletionCapability;
 use super::config::{OllamaConfig, OllamaParams};
 use super::embeddings::OllamaEmbeddings;
 use super::get_default_models;
@@ -29,8 +28,6 @@ use super::streaming::OllamaStreaming;
 pub struct OllamaClient {
     /// Chat capability implementation
     chat_capability: OllamaChatCapability,
-    /// Completion capability implementation
-    completion_capability: OllamaCompletionCapability,
     /// Embedding capability implementation
     embedding_capability: OllamaEmbeddings,
     /// Models capability implementation
@@ -63,7 +60,6 @@ impl Clone for OllamaClient {
     fn clone(&self) -> Self {
         Self {
             chat_capability: self.chat_capability.clone(),
-            completion_capability: self.completion_capability.clone(),
             embedding_capability: self.embedding_capability.clone(),
             models_capability: self.models_capability.clone(),
             streaming_capability: self.streaming_capability.clone(),
@@ -108,13 +104,6 @@ impl OllamaClient {
             config.ollama_params.clone(),
         );
 
-        let completion_capability = OllamaCompletionCapability::new(
-            config.base_url.clone(),
-            http_client.clone(),
-            config.http_config.clone(),
-            config.ollama_params.clone(),
-        );
-
         let embedding_capability = OllamaEmbeddings::new(
             config.base_url.clone(),
             if config.common_params.model.is_empty() {
@@ -137,7 +126,6 @@ impl OllamaClient {
 
         Self {
             chat_capability,
-            completion_capability,
             embedding_capability,
             models_capability,
             streaming_capability,
@@ -284,43 +272,6 @@ impl OllamaClient {
         self
     }
 
-    /// Enable thinking mode for thinking models (deprecated alias)
-    #[deprecated(
-        since = "0.7.1",
-        note = "Use `with_reasoning()` instead for consistency"
-    )]
-    pub fn with_thinking(self, enabled: bool) -> Self {
-        self.with_reasoning(enabled)
-    }
-
-    /// Enable thinking mode (deprecated alias)
-    #[deprecated(
-        since = "0.7.1",
-        note = "Use `with_reasoning_enabled()` instead for consistency"
-    )]
-    pub fn with_think(self) -> Self {
-        self.with_reasoning_enabled()
-    }
-
-    /// Disable thinking mode (deprecated alias)
-    #[deprecated(
-        since = "0.7.1",
-        note = "Use `with_reasoning_disabled()` instead for consistency"
-    )]
-    pub fn with_no_think(self) -> Self {
-        self.with_reasoning_disabled()
-    }
-
-    /// Generate text completion (using /api/generate endpoint)
-    pub async fn generate(&self, prompt: String) -> Result<String, LlmError> {
-        self.completion_capability.generate(prompt).await
-    }
-
-    /// Generate text completion with streaming
-    pub async fn generate_stream(&self, prompt: String) -> Result<ChatStream, LlmError> {
-        self.completion_capability.generate_stream(prompt).await
-    }
-
     /// Check if Ollama server is running
     pub async fn health_check(&self) -> Result<bool, LlmError> {
         let url = format!("{}/api/version", self.base_url);
@@ -394,7 +345,7 @@ impl ChatCapability for OllamaClient {
         let params = self.ollama_params.clone();
         let req_tx = super::transformers::OllamaRequestTransformer { params };
         let resp_tx = super::transformers::OllamaResponseTransformer;
-        let json_converter: std::sync::Arc<dyn crate::utils::streaming::JsonEventConverter> =
+        let json_converter: std::sync::Arc<dyn crate::streaming::JsonEventConverter> =
             std::sync::Arc::new(super::streaming::OllamaEventConverter::new());
         // Use ProviderSpec for URL and headers
         let spec = crate::providers::ollama::spec::OllamaSpec;

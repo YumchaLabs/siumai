@@ -9,7 +9,7 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
 use crate::types::*;
 use crate::utils::http_interceptor::HttpInterceptor;
@@ -64,20 +64,11 @@ impl XaiClient {
     /// Create a new `xAI` client
     pub async fn new(config: XaiConfig) -> Result<Self, LlmError> {
         // Validate configuration
-        config
-            .validate()
-            .map_err(|e| LlmError::InvalidInput(format!("Invalid xAI configuration: {e}")))?;
+        config.validate()?;
 
-        // Create HTTP client with timeout
-        let http_client = reqwest::Client::builder()
-            .timeout(
-                config
-                    .http_config
-                    .timeout
-                    .unwrap_or(Duration::from_secs(30)),
-            )
-            .build()
-            .map_err(|e| LlmError::HttpError(format!("Failed to create HTTP client: {e}")))?;
+        // Use unified HTTP client builder (now includes proxy, user_agent, headers, etc.)
+        let http_client =
+            crate::utils::http_client::build_http_client_from_config(&config.http_config)?;
 
         Self::with_http_client(config, http_client).await
     }
@@ -88,9 +79,7 @@ impl XaiClient {
         http_client: reqwest::Client,
     ) -> Result<Self, LlmError> {
         // Validate configuration
-        config
-            .validate()
-            .map_err(|e| LlmError::InvalidInput(format!("Invalid xAI configuration: {e}")))?;
+        config.validate()?;
 
         // Create chat capability
         let chat_capability = XaiChatCapability::new(
@@ -255,9 +244,12 @@ impl ChatCapability for XaiClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { super::utils::build_headers(&api_key, &custom_headers) })
+            Box::pin(async move {
+                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
+            })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<
@@ -299,9 +291,12 @@ impl ChatCapability for XaiClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { super::utils::build_headers(&api_key, &custom_headers) })
+            Box::pin(async move {
+                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
+            })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<
@@ -384,8 +379,9 @@ impl XaiClient {
             "{}/chat/deferred-completion/{}",
             self.chat_capability.base_url, request_id
         );
+        use secrecy::ExposeSecret;
         let headers = super::utils::build_headers(
-            &self.chat_capability.api_key,
+            self.chat_capability.api_key.expose_secret(),
             &self.chat_capability.http_config.headers,
         )?;
 

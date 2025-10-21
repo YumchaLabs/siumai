@@ -1,8 +1,8 @@
 //! Stream chunk transformer wrappers for OpenAI and OpenAI Responses APIs
 
 use crate::error::LlmError;
+use crate::streaming::SseEventConverter;
 use crate::transformers::stream::StreamChunkTransformer;
-use crate::utils::streaming::SseEventConverter;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -23,7 +23,7 @@ impl StreamChunkTransformer for OpenAiStreamChunkTransformer {
         event: eventsource_stream::Event,
     ) -> Pin<
         Box<
-            dyn Future<Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>>
+            dyn Future<Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>>
                 + Send
                 + Sync
                 + '_,
@@ -32,7 +32,7 @@ impl StreamChunkTransformer for OpenAiStreamChunkTransformer {
         self.inner.convert_event(event)
     }
 
-    fn handle_stream_end(&self) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>> {
+    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.inner.handle_stream_end()
     }
 }
@@ -54,7 +54,7 @@ impl StreamChunkTransformer for OpenAiResponsesStreamChunkTransformer {
         event: eventsource_stream::Event,
     ) -> Pin<
         Box<
-            dyn Future<Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>>
+            dyn Future<Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>>
                 + Send
                 + Sync
                 + '_,
@@ -63,7 +63,7 @@ impl StreamChunkTransformer for OpenAiResponsesStreamChunkTransformer {
         self.inner.convert_event(event)
     }
 
-    fn handle_stream_end(&self) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>> {
+    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         None
     }
 }

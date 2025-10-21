@@ -1,7 +1,7 @@
-//! Server-Sent Events (SSE) stream utilities using eventsource-stream
+//! Server-Sent Events (SSE) Stream Utilities
 //!
 //! This module provides utilities for handling SSE streams with proper UTF-8 handling
-//! and line buffering using the professional eventsource-stream crate.
+//! and line buffering using the eventsource-stream crate.
 //!
 //! This is the unified SSE processing solution for all providers in siumai.
 
@@ -9,6 +9,9 @@ use eventsource_stream::{Event, Eventsource};
 use futures_util::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+// Re-export Event for convenience
+pub use eventsource_stream::Event as SseEvent;
 
 /// A wrapper around eventsource-stream that provides additional functionality
 /// for LLM streaming responses

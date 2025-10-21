@@ -70,7 +70,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
 use siumai::providers::xai::streaming::XaiEventConverter;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
 
 #[tokio::test]

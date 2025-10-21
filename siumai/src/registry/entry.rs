@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::middleware::language_model::LanguageModelMiddleware;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, EmbeddingCapability, ImageGenerationCapability,
 };
@@ -456,20 +456,7 @@ impl EmbeddingCapability for EmbeddingModelHandle {
     }
 }
 
-impl EmbeddingModelHandle {
-    /// Simple embedding call (deprecated - use trait method directly)
-    #[deprecated(
-        since = "0.10.3",
-        note = "Use the EmbeddingCapability trait method directly"
-    )]
-    pub async fn embed(
-        &self,
-        input: Vec<String>,
-    ) -> Result<crate::types::EmbeddingResponse, LlmError> {
-        // Delegate to trait implementation
-        EmbeddingCapability::embed(self, input).await
-    }
-}
+impl EmbeddingModelHandle {}
 
 /// Image model handle - delegates to factory for client creation
 #[derive(Clone)]
@@ -515,20 +502,7 @@ impl ImageGenerationCapability for ImageModelHandle {
     }
 }
 
-impl ImageModelHandle {
-    /// Generate images (deprecated - use trait method directly)
-    #[deprecated(
-        since = "0.10.3",
-        note = "Use the ImageGenerationCapability trait method directly"
-    )]
-    pub async fn generate_images(
-        &self,
-        request: crate::types::ImageGenerationRequest,
-    ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
-        // Delegate to trait implementation
-        ImageGenerationCapability::generate_images(self, request).await
-    }
-}
+impl ImageModelHandle {}
 
 /// Speech model handle (TTS) - delegates to factory for client creation
 #[derive(Clone)]
@@ -575,22 +549,6 @@ impl SpeechModelHandle {
         // Delegate to trait implementation
         AudioCapability::text_to_speech(self, req).await
     }
-
-    /// Speech to text (deprecated - use TranscriptionModelHandle instead)
-    #[deprecated(since = "0.10.3", note = "Use TranscriptionModelHandle for STT")]
-    pub async fn speech_to_text(
-        &self,
-        req: crate::types::SttRequest,
-    ) -> Result<crate::types::SttResponse, LlmError> {
-        // Build client from factory
-        let client = self.factory.speech_model(&self.model_id).await?;
-        let Some(cap) = client.as_audio_capability() else {
-            return Err(LlmError::UnsupportedOperation(
-                "STT not supported by this client".into(),
-            ));
-        };
-        cap.speech_to_text(req).await
-    }
 }
 
 /// Transcription model handle (STT) - delegates to factory for client creation
@@ -625,20 +583,7 @@ impl AudioCapability for TranscriptionModelHandle {
     }
 }
 
-impl TranscriptionModelHandle {
-    /// Speech to text (deprecated - use trait method directly)
-    #[deprecated(
-        since = "0.10.3",
-        note = "Use the AudioCapability trait method directly"
-    )]
-    pub async fn speech_to_text(
-        &self,
-        req: crate::types::SttRequest,
-    ) -> Result<crate::types::SttResponse, LlmError> {
-        // Delegate to trait implementation
-        AudioCapability::speech_to_text(self, req).await
-    }
-}
+impl TranscriptionModelHandle {}
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 #[cfg(test)]
@@ -662,7 +607,7 @@ impl ChatCapability for TestProvClient {
         &self,
         _messages: Vec<crate::types::ChatMessage>,
         _tools: Option<Vec<crate::types::Tool>>,
-    ) -> Result<crate::stream::ChatStream, LlmError> {
+    ) -> Result<crate::streaming::ChatStream, LlmError> {
         Err(LlmError::UnsupportedOperation("mock stream".into()))
     }
 }
@@ -716,7 +661,7 @@ mod tests {
             &self,
             _messages: Vec<crate::types::ChatMessage>,
             _tools: Option<Vec<crate::types::Tool>>,
-        ) -> Result<crate::stream::ChatStream, LlmError> {
+        ) -> Result<crate::streaming::ChatStream, LlmError> {
             Err(LlmError::UnsupportedOperation("mock stream".into()))
         }
     }
@@ -954,7 +899,7 @@ impl crate::traits::ChatCapability for TestProvEmbedClient {
         &self,
         _messages: Vec<crate::types::ChatMessage>,
         _tools: Option<Vec<crate::types::Tool>>,
-    ) -> Result<crate::stream::ChatStream, LlmError> {
+    ) -> Result<crate::streaming::ChatStream, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "chat stream not supported in TestProvEmbedClient".into(),
         ))

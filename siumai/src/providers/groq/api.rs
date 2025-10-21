@@ -6,6 +6,7 @@ use crate::error::LlmError;
 use crate::traits::ModelListingCapability;
 use crate::types::{HttpConfig, ModelInfo};
 use async_trait::async_trait;
+use secrecy::SecretString;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelType {
@@ -21,7 +22,7 @@ use super::utils::*;
 /// Groq Models API Implementation
 #[derive(Clone)]
 pub struct GroqModels {
-    pub api_key: String,
+    pub api_key: SecretString,
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
@@ -29,8 +30,8 @@ pub struct GroqModels {
 
 impl GroqModels {
     /// Create a new Groq models API instance
-    pub const fn new(
-        api_key: String,
+    pub fn new(
+        api_key: SecretString,
         base_url: String,
         http_client: reqwest::Client,
         http_config: HttpConfig,
@@ -94,8 +95,9 @@ impl GroqModels {
 
 impl GroqModels {
     async fn list_models_internal(&self) -> Result<Vec<ModelInfo>, LlmError> {
+        use secrecy::ExposeSecret;
         let url = format!("{}/models", self.base_url);
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
+        let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
 
         let response = self.http_client.get(&url).headers(headers).send().await?;
 
@@ -122,8 +124,9 @@ impl GroqModels {
     }
 
     async fn get_model_internal(&self, model_id: String) -> Result<ModelInfo, LlmError> {
+        use secrecy::ExposeSecret;
         let url = format!("{}/models/{}", self.base_url, model_id);
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
+        let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
 
         let response = self.http_client.get(&url).headers(headers).send().await?;
 
@@ -166,8 +169,9 @@ mod tests {
     use crate::types::HttpConfig;
 
     fn create_test_models() -> GroqModels {
+        use secrecy::SecretString;
         GroqModels::new(
-            "test-api-key".to_string(),
+            SecretString::from("test-api-key".to_string()),
             "https://api.groq.com/openai/v1".to_string(),
             reqwest::Client::new(),
             HttpConfig::default(),

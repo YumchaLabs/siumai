@@ -6,7 +6,7 @@ use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCom
 use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
 use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
 use siumai::providers::openai_compatible::types::FieldMappings;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::traits::ProviderCapabilities;
 use siumai::utils::streaming::SseEventConverter;
 use std::sync::Arc;

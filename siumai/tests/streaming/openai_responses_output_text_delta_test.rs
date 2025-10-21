@@ -3,7 +3,7 @@
 use eventsource_stream::Event;
 use futures_util::StreamExt;
 use siumai::providers::openai::responses::OpenAiResponsesEventConverter;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::utils::sse_stream::SseStreamExt;
 use siumai::utils::streaming::SseEventConverter;
 

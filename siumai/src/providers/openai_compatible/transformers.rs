@@ -8,7 +8,8 @@ use super::openai_config::OpenAiCompatibleConfig;
 use super::types::RequestType;
 use crate::error::LlmError;
 use crate::providers::openai::utils::convert_messages;
-use crate::stream::ChatStreamEvent;
+use crate::streaming::ChatStreamEvent;
+use crate::streaming::SseEventConverter;
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
@@ -16,7 +17,6 @@ use crate::types::{
     ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, FinishReason, FunctionCall,
     ImageGenerationRequest, ImageGenerationResponse, MessageContent, ToolCall, Usage,
 };
-use crate::utils::streaming::SseEventConverter;
 use eventsource_stream::Event;
 use std::future::Future;
 use std::pin::Pin;

@@ -155,19 +155,17 @@ impl GeminiModels {
             }
 
             // Allow Authorization-based (Bearer) Vertex AI auth via custom headers; otherwise use x-goog-api-key
-            let mut extra = self
-                .config
-                .http_config
-                .clone()
-                .map(|c| c.headers)
-                .unwrap_or_default();
+            let mut extra = self.config.http_config.headers.clone();
             if let Some(ref tp) = self.config.token_provider {
                 if let Ok(tok) = tp.token().await {
                     extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
                 }
             }
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::gemini(&self.config.api_key, &extra)?;
+            use secrecy::ExposeSecret;
+            let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+                self.config.api_key.expose_secret(),
+                &extra,
+            )?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
 
             let response = self
@@ -236,19 +234,17 @@ impl ModelListingCapability for GeminiModels {
         let url = crate::utils::url::join_url(&self.config.base_url, &full_model_name);
 
         // Allow Authorization-based (Bearer) Vertex AI auth via custom headers; otherwise use x-goog-api-key
-        let mut extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let mut extra = self.config.http_config.headers.clone();
         if let Some(ref tp) = self.config.token_provider {
             if let Ok(tok) = tp.token().await {
                 extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
             }
         }
-        let mut headers =
-            crate::utils::http_headers::ProviderHeaders::gemini(&self.config.api_key, &extra)?;
+        use secrecy::ExposeSecret;
+        let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+            self.config.api_key.expose_secret(),
+            &extra,
+        )?;
         crate::utils::http_headers::inject_tracing_headers(&mut headers);
 
         let response = self

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 

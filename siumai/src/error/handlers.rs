@@ -2,7 +2,7 @@
 //!
 //! Common utilities for handling API response errors across all providers.
 
-use crate::error::LlmError;
+use super::types::LlmError;
 use reqwest::Response;
 use serde_json::Value;
 

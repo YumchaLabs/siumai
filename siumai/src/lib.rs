@@ -106,7 +106,7 @@ pub mod providers;
 pub mod registry;
 pub mod retry;
 pub mod retry_api;
-pub mod stream;
+pub mod streaming;
 pub mod telemetry;
 pub mod tracing;
 pub mod traits;
@@ -130,9 +130,9 @@ pub use error::LlmError;
 
 // Core traits
 pub use traits::{
-    AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability,
-    FileManagementCapability, ImageGenerationCapability, ModelListingCapability,
-    ModerationCapability, ProviderCapabilities, RerankCapability, VisionCapability,
+    AudioCapability, ChatCapability, EmbeddingCapability, FileManagementCapability,
+    ImageGenerationCapability, ModelListingCapability, ModerationCapability, ProviderCapabilities,
+    RerankCapability, VisionCapability,
 };
 
 // Client trait
@@ -158,8 +158,8 @@ pub use providers::ollama::OllamaBuilder;
 pub use providers::openai::OpenAiBuilder;
 
 // Streaming
-pub use stream::ChatStreamHandle;
-pub use stream::{ChatStream, ChatStreamEvent};
+pub use streaming::ChatStreamHandle;
+pub use streaming::{ChatStream, ChatStreamEvent};
 // High-level object generation
 pub use highlevel::object::{
     GenerateMode, GenerateObjectOptions, OutputKind, StreamObjectEvent, StreamObjectOptions,
@@ -209,7 +209,7 @@ pub mod prelude {
     pub use crate::provider::*;
     pub use crate::provider_features::*;
     pub use crate::retry_api::*;
-    pub use crate::stream::*;
+    pub use crate::streaming::*;
     pub use crate::traits::*;
     pub use crate::types::*;
     pub use crate::web_search::*;
@@ -287,13 +287,13 @@ impl Provider {
     /// Create an xAI client builder
     #[cfg(feature = "xai")]
     pub fn xai() -> crate::providers::xai::XaiBuilder {
-        crate::providers::xai::XaiBuilder::new()
+        crate::providers::xai::XaiBuilder::new(crate::builder::LlmBuilder::new())
     }
 
     /// Create a Groq client builder
     #[cfg(feature = "groq")]
     pub fn groq() -> crate::providers::groq::GroqBuilder {
-        crate::providers::groq::GroqBuilder::new()
+        crate::providers::groq::GroqBuilder::new(crate::builder::LlmBuilder::new())
     }
 
     // Provider convenience functions are now organized in providers::convenience module

@@ -1,46 +1,49 @@
-use crate::types::HttpConfig;
+use crate::types::{CommonParams, HttpConfig};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 /// Gemini-specific configuration parameters
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct GeminiConfig {
-    /// API key for authentication
-    pub api_key: String,
+    /// API key for authentication (securely stored)
+    pub api_key: SecretString,
     /// Base URL for the Gemini API
     pub base_url: String,
     /// Default model to use
     pub model: String,
-    /// Default generation configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Common parameters shared across providers (temperature, max_tokens, top_p, stop_sequences)
+    pub common_params: CommonParams,
+    /// Default generation configuration (Gemini-specific: top_k, response_mime_type, etc.)
     pub generation_config: Option<super::GenerationConfig>,
     /// Default safety settings
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub safety_settings: Option<Vec<super::SafetySetting>>,
     /// HTTP timeout in seconds
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     /// HTTP configuration (custom headers, proxy, user agent)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub http_config: Option<HttpConfig>,
+    pub http_config: HttpConfig,
     /// Optional Bearer token provider (e.g., Vertex AI enterprise auth)
     /// Not serialized/deserialized; runtime only.
-    #[serde(skip)]
     pub token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
 }
 
 impl std::fmt::Debug for GeminiConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use secrecy::ExposeSecret;
         f.debug_struct("GeminiConfig")
-            .field("api_key_present", &(!self.api_key.is_empty()))
+            .field(
+                "api_key_present",
+                &(!self.api_key.expose_secret().is_empty()),
+            )
             .field("base_url", &self.base_url)
             .field("model", &self.model)
+            .field("common_params", &self.common_params)
             .field(
                 "generation_config_present",
                 &self.generation_config.is_some(),
             )
             .field("safety_settings_present", &self.safety_settings.is_some())
             .field("timeout", &self.timeout)
-            .field("http_config_present", &self.http_config.is_some())
+            .field("http_config", &self.http_config)
             .finish()
     }
 }
@@ -48,13 +51,14 @@ impl std::fmt::Debug for GeminiConfig {
 impl Default for GeminiConfig {
     fn default() -> Self {
         Self {
-            api_key: String::new(),
+            api_key: SecretString::from(String::new()),
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
             model: "gemini-1.5-flash".to_string(),
+            common_params: CommonParams::default(),
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
-            http_config: Some(HttpConfig::default()),
+            http_config: HttpConfig::default(),
             token_provider: None,
         }
     }
@@ -62,9 +66,9 @@ impl Default for GeminiConfig {
 
 impl GeminiConfig {
     /// Create a new Gemini configuration with the given API key
-    pub fn new(api_key: String) -> Self {
+    pub fn new<S: Into<String>>(api_key: S) -> Self {
         Self {
-            api_key,
+            api_key: SecretString::from(api_key.into()),
             ..Default::default()
         }
     }
@@ -78,7 +82,32 @@ impl GeminiConfig {
         self.base_url = base_url;
         self
     }
-    /// Set generation configuration
+    /// Set common parameters (temperature, max_tokens, top_p, stop_sequences)
+    pub fn with_common_params(mut self, params: CommonParams) -> Self {
+        self.common_params = params;
+        self
+    }
+    /// Set temperature
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.common_params.temperature = Some(temperature);
+        self
+    }
+    /// Set max tokens
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.common_params.max_tokens = Some(max_tokens);
+        self
+    }
+    /// Set top_p
+    pub fn with_top_p(mut self, top_p: f32) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+    /// Set stop sequences
+    pub fn with_stop_sequences(mut self, stop_sequences: Vec<String>) -> Self {
+        self.common_params.stop_sequences = Some(stop_sequences);
+        self
+    }
+    /// Set generation configuration (Gemini-specific: top_k, response_mime_type, etc.)
     pub fn with_generation_config(mut self, config: super::GenerationConfig) -> Self {
         self.generation_config = Some(config);
         self
@@ -96,7 +125,7 @@ impl GeminiConfig {
 
     /// Set HTTP config (headers/proxy/user-agent)
     pub fn with_http_config(mut self, http: HttpConfig) -> Self {
-        self.http_config = Some(http);
+        self.http_config = http;
         self
     }
 

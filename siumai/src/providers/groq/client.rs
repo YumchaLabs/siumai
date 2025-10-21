@@ -6,7 +6,7 @@ use async_trait::async_trait;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, ModelListingCapability, ProviderCapabilities,
 };
@@ -198,9 +198,12 @@ impl ChatCapability for GroqClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { super::utils::build_headers(&api_key, &custom_headers) })
+            Box::pin(async move {
+                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
+            })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<
@@ -242,9 +245,12 @@ impl ChatCapability for GroqClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { super::utils::build_headers(&api_key, &custom_headers) })
+            Box::pin(async move {
+                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
+            })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<
@@ -293,9 +299,12 @@ impl AudioCapability for GroqClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { super::utils::build_headers(&api_key, &custom_headers) })
+            Box::pin(async move {
+                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
+            })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<
@@ -334,9 +343,12 @@ impl AudioCapability for GroqClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { super::utils::build_headers(&api_key, &custom_headers) })
+            Box::pin(async move {
+                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
+            })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<

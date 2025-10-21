@@ -32,8 +32,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Race between stream processing and timeout
     tokio::select! {
         _ = async {
-            futures::pin_mut!(handle.stream);
-            while let Some(event) = handle.stream.next().await {
+            let mut stream = handle.stream;
+            futures::pin_mut!(stream);
+            while let Some(event) = stream.next().await {
                 if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event {
                     print!("{}", delta);
                     std::io::Write::flush(&mut std::io::stdout()).ok();

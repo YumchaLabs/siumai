@@ -12,7 +12,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use futures_util::StreamExt;
 use siumai::prelude::*;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

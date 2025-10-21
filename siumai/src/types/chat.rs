@@ -831,4 +831,92 @@ impl ChatResponse {
     pub fn thinking_or_empty(&self) -> &str {
         self.thinking.as_deref().unwrap_or("")
     }
+
+    /// Get the response ID for use in multi-turn conversations (OpenAI Responses API)
+    ///
+    /// This is particularly useful for OpenAI's Responses API, where you can chain
+    /// conversations by passing the previous response ID to the next request.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use siumai::prelude::*;
+    /// # use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o-mini").build().await?;
+    /// // Turn 1
+    /// let response1 = client.chat(vec![user!("What is Rust?")]).await?;
+    /// let response_id = response1.response_id().expect("Response ID not found");
+    ///
+    /// // Turn 2 - automatically loads context from Turn 1
+    /// let request2 = ChatRequest::new(vec![user!("Can you give me a code example?")])
+    ///     .with_openai_options(
+    ///         OpenAiOptions::new().with_responses_api(
+    ///             ResponsesApiConfig::new()
+    ///                 .with_previous_response(response_id.to_string())
+    ///         )
+    ///     );
+    /// let response2 = client.chat_request(request2).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn response_id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// Get provider-specific metadata value by key
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use siumai::prelude::*;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o-mini").build().await?;
+    /// let response = client.chat(vec![user!("Hello")]).await?;
+    /// if let Some(value) = response.get_metadata("openai.response_id") {
+    ///     println!("OpenAI Response ID: {:?}", value);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn get_metadata(&self, key: &str) -> Option<&serde_json::Value> {
+        self.metadata.get(key)
+    }
+
+    /// Check if response has any metadata
+    pub fn has_metadata(&self) -> bool {
+        !self.metadata.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chat_response_helper_methods() {
+        // Test response_id()
+        let mut response = ChatResponse::new(MessageContent::Text("Hello".to_string()));
+        assert_eq!(response.response_id(), None);
+
+        response.id = Some("resp_123".to_string());
+        assert_eq!(response.response_id(), Some("resp_123"));
+
+        // Test get_metadata() and has_metadata()
+        assert!(!response.has_metadata());
+        assert_eq!(response.get_metadata("key1"), None);
+
+        response
+            .metadata
+            .insert("key1".to_string(), serde_json::json!("value1"));
+        response
+            .metadata
+            .insert("key2".to_string(), serde_json::json!(42));
+
+        assert!(response.has_metadata());
+        assert_eq!(
+            response.get_metadata("key1"),
+            Some(&serde_json::json!("value1"))
+        );
+        assert_eq!(response.get_metadata("key2"), Some(&serde_json::json!(42)));
+        assert_eq!(response.get_metadata("nonexistent"), None);
+    }
 }

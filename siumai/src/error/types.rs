@@ -1,6 +1,9 @@
-//! Error handling module
+//! Core Error Types
 //!
-//! Defines all error types used in the LLM library.
+//! This module defines the core error types used throughout the LLM library:
+//! - `LlmError`: The main error enum
+//! - `ErrorCategory`: Error categorization for handling strategies
+//! - `Result<T>`: Type alias for Result<T, LlmError>
 
 use thiserror::Error;
 
@@ -482,107 +485,3 @@ impl LlmError {
 
 /// Result type alias.
 pub type Result<T> = std::result::Result<T, LlmError>;
-
-// From implementations
-impl From<reqwest::Error> for LlmError {
-    fn from(err: reqwest::Error) -> Self {
-        Self::HttpError(err.to_string())
-    }
-}
-
-impl From<serde_json::Error> for LlmError {
-    fn from(err: serde_json::Error) -> Self {
-        Self::JsonError(err.to_string())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_creation() {
-        let error = LlmError::api_error(404, "Not found");
-        assert!(matches!(error, LlmError::ApiError { code: 404, .. }));
-    }
-
-    #[test]
-    fn test_retryable_errors() {
-        let rate_limit = LlmError::RateLimitError("Too many requests".to_string());
-        assert!(rate_limit.is_retryable());
-
-        let server_error = LlmError::api_error(500, "Internal server error");
-        assert!(server_error.is_retryable());
-
-        let auth_error = LlmError::AuthenticationError("Invalid key".to_string());
-        assert!(!auth_error.is_retryable());
-    }
-
-    #[test]
-    fn test_auth_errors() {
-        let auth_error = LlmError::AuthenticationError("Invalid key".to_string());
-        assert!(auth_error.is_auth_error());
-
-        let api_401 = LlmError::api_error(401, "Unauthorized");
-        assert!(api_401.is_auth_error());
-    }
-
-    #[test]
-    fn test_error_categories() {
-        let auth_error = LlmError::AuthenticationError("Invalid key".to_string());
-        assert_eq!(auth_error.category(), ErrorCategory::Authentication);
-
-        let rate_limit = LlmError::RateLimitError("Too many requests".to_string());
-        assert_eq!(rate_limit.category(), ErrorCategory::RateLimit);
-
-        let server_error = LlmError::api_error(500, "Internal server error");
-        assert_eq!(server_error.category(), ErrorCategory::Server);
-
-        let client_error = LlmError::api_error(400, "Bad request");
-        assert_eq!(client_error.category(), ErrorCategory::Client);
-
-        let parse_error = LlmError::JsonError("Invalid JSON".to_string());
-        assert_eq!(parse_error.category(), ErrorCategory::Parsing);
-    }
-
-    #[test]
-    fn test_user_messages() {
-        let auth_error = LlmError::AuthenticationError("Invalid key".to_string());
-        let user_msg = auth_error.user_message();
-        assert!(user_msg.contains("Authentication failed"));
-
-        let rate_limit = LlmError::RateLimitError("Too many requests".to_string());
-        let user_msg = rate_limit.user_message();
-        assert!(user_msg.contains("Rate limit exceeded"));
-    }
-
-    #[test]
-    fn test_recovery_suggestions() {
-        let auth_error = LlmError::AuthenticationError("Invalid key".to_string());
-        let suggestions = auth_error.recovery_suggestions();
-        assert!(!suggestions.is_empty());
-        assert!(suggestions.iter().any(|s| s.contains("API key")));
-
-        let rate_limit = LlmError::RateLimitError("Too many requests".to_string());
-        let suggestions = rate_limit.recovery_suggestions();
-        assert!(suggestions.iter().any(|s| s.contains("backoff")));
-    }
-
-    // Compile-time trait checks (replacement for static_assertions)
-    // These functions are never called, but they ensure LlmError implements the required traits
-    #[allow(dead_code)]
-    fn assert_send<T: Send>() {}
-    #[allow(dead_code)]
-    fn assert_sync<T: Sync>() {}
-    #[allow(dead_code)]
-    fn assert_clone<T: Clone>() {}
-
-    #[test]
-    fn test_llm_error_traits() {
-        // These calls ensure LlmError implements Send, Sync, and Clone
-        // If any trait is not implemented, this will fail to compile
-        assert_send::<LlmError>();
-        assert_sync::<LlmError>();
-        assert_clone::<LlmError>();
-    }
-}

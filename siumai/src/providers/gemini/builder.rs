@@ -1,7 +1,6 @@
+use crate::provider_core::builder_core::ProviderCore;
 use crate::retry_api::RetryOptions;
-use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{LlmBuilder, LlmError};
-use std::sync::Arc;
 
 /// Gemini-specific builder for configuring Gemini clients.
 ///
@@ -31,8 +30,8 @@ use std::sync::Arc;
 /// ```
 #[derive(Clone)]
 pub struct GeminiBuilder {
-    /// Base builder with HTTP configuration
-    pub(crate) base: LlmBuilder,
+    /// Core provider configuration (composition)
+    pub(crate) core: ProviderCore,
     /// Gemini API key
     api_key: Option<String>,
     /// Base URL for Gemini API
@@ -57,23 +56,13 @@ pub struct GeminiBuilder {
     json_schema: Option<serde_json::Value>,
     /// Thinking configuration
     thinking_config: Option<crate::providers::gemini::ThinkingConfig>,
-    /// Tracing configuration
-    tracing_config: Option<crate::tracing::TracingConfig>,
-    /// Unified retry options
-    retry_options: Option<RetryOptions>,
-    /// Optional override for streaming compression behavior
-    stream_disable_compression: Option<bool>,
-    /// Optional HTTP interceptors applied to chat requests
-    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
-    /// Enable lightweight HTTP debug logging interceptor
-    http_debug: bool,
 }
 
 impl GeminiBuilder {
     /// Create a new Gemini builder
     pub fn new(base: LlmBuilder) -> Self {
         Self {
-            base: base.clone(),
+            core: ProviderCore::new(base),
             api_key: None,
             base_url: None,
             model: None,
@@ -86,12 +75,6 @@ impl GeminiBuilder {
             safety_settings: None,
             json_schema: None,
             thinking_config: None,
-            tracing_config: None,
-            retry_options: None,
-            stream_disable_compression: None,
-            // Inherit interceptors/debug from unified builder
-            http_interceptors: base.http_interceptors.clone(),
-            http_debug: base.http_debug,
         }
     }
 
@@ -137,17 +120,108 @@ impl GeminiBuilder {
         self
     }
 
-    /// Control whether to disable compression for streaming (SSE) requests.
-    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
-        self.stream_disable_compression = Some(disable);
-        self
-    }
-
     /// Set stop sequences
     pub fn stop_sequences(mut self, sequences: Vec<String>) -> Self {
         self.stop_sequences = Some(sequences);
         self
     }
+
+    // ========================================================================
+    // Common Configuration Methods (delegated to ProviderCore)
+    // ========================================================================
+
+    // === HTTP Basic Configuration ===
+
+    /// Set request timeout
+    pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.timeout(timeout);
+        self
+    }
+
+    /// Set connection timeout
+    pub fn connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.connect_timeout(timeout);
+        self
+    }
+
+    /// Set custom HTTP client
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.core = self.core.with_http_client(client);
+        self
+    }
+
+    // === HTTP Advanced Configuration ===
+
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.core = self.core.http_stream_disable_compression(disable);
+        self
+    }
+
+    /// Add a custom HTTP interceptor (builder collects and installs them on build).
+    pub fn with_http_interceptor(
+        mut self,
+        interceptor: std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>,
+    ) -> Self {
+        self.core = self.core.with_http_interceptor(interceptor);
+        self
+    }
+
+    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.core = self.core.http_debug(enabled);
+        self
+    }
+
+    // === Tracing Configuration ===
+
+    /// Set custom tracing configuration
+    pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
+        self.core = self.core.tracing(config);
+        self
+    }
+
+    /// Enable debug tracing (development-friendly configuration)
+    pub fn debug_tracing(mut self) -> Self {
+        self.core = self.core.debug_tracing();
+        self
+    }
+
+    /// Enable minimal tracing (info level, LLM only)
+    pub fn minimal_tracing(mut self) -> Self {
+        self.core = self.core.minimal_tracing();
+        self
+    }
+
+    /// Enable production-ready JSON tracing
+    pub fn json_tracing(mut self) -> Self {
+        self.core = self.core.json_tracing();
+        self
+    }
+
+    /// Enable pretty-printed formatting for JSON bodies and headers in tracing
+    pub fn pretty_json(mut self, pretty: bool) -> Self {
+        self.core = self.core.pretty_json(pretty);
+        self
+    }
+
+    /// Control masking of sensitive values (API keys, tokens) in tracing logs
+    pub fn mask_sensitive_values(mut self, mask: bool) -> Self {
+        self.core = self.core.mask_sensitive_values(mask);
+        self
+    }
+
+    // === Retry Configuration ===
+
+    /// Set unified retry options for chat operations
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.core = self.core.with_retry(options);
+        self
+    }
+
+    // ========================================================================
+    // Provider-Specific Configuration
+    // ========================================================================
 
     /// Set candidate count
     pub const fn candidate_count(mut self, count: i32) -> Self {
@@ -286,79 +360,21 @@ impl GeminiBuilder {
         self
     }
 
-    // === Tracing Configuration ===
-
-    /// Set custom tracing configuration
-    pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
-        self.tracing_config = Some(config);
-        self
-    }
-
-    /// Enable debug tracing (development-friendly configuration)
-    pub fn debug_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::development())
-    }
-
-    /// Enable minimal tracing (info level, LLM only)
-    pub fn minimal_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::minimal())
-    }
-
-    /// Enable production-ready JSON tracing
-    pub fn json_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::json_production())
-    }
-
-    /// Enable pretty-printed formatting for JSON bodies and headers in tracing
-    pub fn pretty_json(mut self, pretty: bool) -> Self {
-        let config = self
-            .tracing_config
-            .take()
-            .unwrap_or_else(crate::tracing::TracingConfig::development)
-            .with_pretty_json(pretty);
-        self.tracing_config = Some(config);
-        self
-    }
-
-    /// Control masking of sensitive values (API keys, tokens) in tracing logs
-    pub fn mask_sensitive_values(mut self, mask: bool) -> Self {
-        let config = self
-            .tracing_config
-            .take()
-            .unwrap_or_else(crate::tracing::TracingConfig::development)
-            .with_mask_sensitive_values(mask);
-        self.tracing_config = Some(config);
-        self
-    }
-
-    /// Set unified retry options for chat operations
-    pub fn with_retry(mut self, options: RetryOptions) -> Self {
-        self.retry_options = Some(options);
-        self
-    }
-
-    /// Add a custom HTTP interceptor (builder collects and installs them on build).
-    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
-        self.http_interceptors.push(interceptor);
-        self
-    }
-
-    /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
-    pub fn http_debug(mut self, enabled: bool) -> Self {
-        self.http_debug = enabled;
-        self
-    }
-
     /// Build the Gemini client
     pub async fn build(self) -> Result<crate::providers::gemini::GeminiClient, LlmError> {
+        // Step 1: Get API key (from parameter)
         let api_key = self.api_key.ok_or_else(|| {
             LlmError::ConfigurationError("API key is required for Gemini".to_string())
         })?;
+
+        // Step 2: Get base URL (from parameter or default)
+        // Note: Default is set in GeminiConfig::new()
 
         // Note: Tracing initialization has been moved to siumai-extras.
         // Users should initialize tracing manually using siumai_extras::telemetry
         // or tracing_subscriber directly before creating the client.
 
+        // Step 3: Build configuration
         let mut config = crate::providers::gemini::GeminiConfig::new(api_key);
 
         if let Some(base_url) = self.base_url {
@@ -378,86 +394,89 @@ impl GeminiBuilder {
             config = config.with_model(model);
         }
 
-        // Build generation config
-        let mut generation_config = crate::providers::gemini::GenerationConfig::new();
-
+        // Set common parameters (temperature, max_tokens, top_p, stop_sequences)
         if let Some(temp) = self.temperature {
-            generation_config = generation_config.with_temperature(temp);
+            config = config.with_temperature(temp);
         }
 
         if let Some(max_tokens) = self.max_tokens {
-            generation_config = generation_config.with_max_output_tokens(max_tokens);
+            config = config.with_max_tokens(max_tokens as u32);
         }
 
         if let Some(top_p) = self.top_p {
-            generation_config = generation_config.with_top_p(top_p);
-        }
-
-        if let Some(top_k) = self.top_k {
-            generation_config = generation_config.with_top_k(top_k);
+            config = config.with_top_p(top_p);
         }
 
         if let Some(stop_sequences) = self.stop_sequences {
-            generation_config = generation_config.with_stop_sequences(stop_sequences);
+            config = config.with_stop_sequences(stop_sequences);
+        }
+
+        // Build generation config for Gemini-specific parameters (top_k, candidate_count, etc.)
+        let mut generation_config = crate::providers::gemini::GenerationConfig::new();
+        let mut has_generation_config = false;
+
+        if let Some(top_k) = self.top_k {
+            generation_config = generation_config.with_top_k(top_k);
+            has_generation_config = true;
         }
 
         if let Some(count) = self.candidate_count {
             generation_config = generation_config.with_candidate_count(count);
+            has_generation_config = true;
         }
 
         if let Some(schema) = self.json_schema {
             generation_config = generation_config.with_response_schema(schema);
             generation_config =
                 generation_config.with_response_mime_type("application/json".to_string());
+            has_generation_config = true;
         }
 
         // Apply thinking configuration to generation config
         if let Some(thinking_config) = &self.thinking_config {
             generation_config = generation_config.with_thinking_config(thinking_config.clone());
+            has_generation_config = true;
         }
 
-        config = config.with_generation_config(generation_config);
+        // Only set generation_config if it has Gemini-specific parameters
+        if has_generation_config {
+            config = config.with_generation_config(generation_config);
+        }
 
         if let Some(safety_settings) = self.safety_settings {
             config = config.with_safety_settings(safety_settings);
         }
 
-        // Apply HTTP configuration from base builder
-        if let Some(timeout) = self.base.timeout {
-            config = config.with_timeout(timeout.as_secs());
-        }
-
-        // Apply stream_disable_compression override if provided
-        if let Some(disable) = self.stream_disable_compression {
-            let mut http = config.http_config.take().unwrap_or_default();
-            http.stream_disable_compression = disable;
-            config = config.with_http_config(http);
-        }
-
-        // Build HTTP client from base builder to inherit unified HTTP config
-        let http_client = self.base.build_http_client()?;
+        // Step 4: Build HTTP client from core
+        let http_client = self.core.build_http_client()?;
 
         // Save model from config before moving it
         let model_id = config.model.clone();
 
+        // Step 5: Create client instance
         let mut client =
             crate::providers::gemini::GeminiClient::with_http_client(config, http_client)?;
-        client.set_tracing_config(self.tracing_config);
-        client.set_retry_options(self.retry_options.clone());
 
-        // Install interceptors
-        let mut interceptors = self.http_interceptors;
-        if self.http_debug {
-            interceptors.push(Arc::new(LoggingInterceptor));
+        // Step 6: Apply tracing and retry configuration from core
+        if let Some(ref tracing_config) = self.core.tracing_config {
+            client.set_tracing_config(Some(tracing_config.clone()));
         }
+        if let Some(ref retry_options) = self.core.retry_options {
+            client.set_retry_options(Some(retry_options.clone()));
+        }
+
+        // Step 7: Install HTTP interceptors
+        let interceptors = self.core.get_http_interceptors();
         if !interceptors.is_empty() {
             client = client.with_http_interceptors(interceptors);
         }
 
-        // Install automatic middlewares based on provider and model
+        // Step 8: Install automatic middlewares
         let final_model_id = model_for_middleware.as_deref().unwrap_or(&model_id);
-        let middlewares = crate::middleware::build_auto_middlewares_vec("gemini", final_model_id);
-        client = client.with_model_middlewares(middlewares);
+        let middlewares = self.core.get_auto_middlewares("gemini", final_model_id);
+        if !middlewares.is_empty() {
+            client = client.with_model_middlewares(middlewares);
+        }
 
         Ok(client)
     }

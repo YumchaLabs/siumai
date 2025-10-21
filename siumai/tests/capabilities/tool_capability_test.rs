@@ -20,7 +20,7 @@
 use futures::StreamExt;
 use serde_json::json;
 use siumai::prelude::*;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use std::env;
 
 /// Create a simple calculator tool for testing

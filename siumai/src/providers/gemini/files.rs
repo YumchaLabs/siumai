@@ -82,18 +82,14 @@ impl FileManagementCapability for GeminiFiles {
         self.validate_upload_request(&request)?;
 
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let base_extra = self.config.http_config.headers.clone();
         let tp = self.config.token_provider.clone();
         let api_key_clone = api_key.clone();
         let headers_builder = move || {
@@ -133,18 +129,14 @@ impl FileManagementCapability for GeminiFiles {
     /// List files with optional filtering.
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let base_extra = self.config.http_config.headers.clone();
         let tp = self.config.token_provider.clone();
         let api_key_clone = api_key.clone();
         let headers_builder = move || {
@@ -184,18 +176,14 @@ impl FileManagementCapability for GeminiFiles {
     /// Retrieve file metadata.
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let base_extra = self.config.http_config.headers.clone();
         let tp = self.config.token_provider.clone();
         let api_key_clone = api_key.clone();
         let headers_builder = move || {
@@ -235,18 +223,14 @@ impl FileManagementCapability for GeminiFiles {
     /// Delete a file permanently.
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let extra = self.config.http_config.headers.clone();
         let api_key_clone = api_key.clone();
         let extra_clone = extra.clone();
         let headers_builder = move || {
@@ -279,18 +263,14 @@ impl FileManagementCapability for GeminiFiles {
     /// Get file content as bytes.
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let transformer = super::transformers::GeminiFilesTransformer {
             config: self.config.clone(),
         };
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let base_extra = self.config.http_config.headers.clone();
         let tp = self.config.token_provider.clone();
         let api_key_clone = api_key.clone();
         let headers_builder = move || {

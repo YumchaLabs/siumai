@@ -23,21 +23,21 @@ impl OpenAiResponsesEventConverter {
     fn convert_responses_event(
         &self,
         json: serde_json::Value,
-    ) -> Option<crate::stream::ChatStreamEvent> {
+    ) -> Option<crate::streaming::ChatStreamEvent> {
         // Handle delta as plain text or delta.content
         if let Some(delta) = json.get("delta") {
             // Case 1: delta is a plain string (response.output_text.delta)
             if let Some(s) = delta.as_str()
                 && !s.is_empty()
             {
-                return Some(crate::stream::ChatStreamEvent::ContentDelta {
+                return Some(crate::streaming::ChatStreamEvent::ContentDelta {
                     delta: s.to_string(),
                     index: None,
                 });
             }
             // Case 2: delta.content is a string (message.delta simplified)
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                return Some(crate::stream::ChatStreamEvent::ContentDelta {
+                return Some(crate::streaming::ChatStreamEvent::ContentDelta {
                     delta: content.to_string(),
                     index: None,
                 });
@@ -65,7 +65,7 @@ impl OpenAiResponsesEventConverter {
                     .and_then(|a| a.as_str())
                     .map(std::string::ToString::to_string);
 
-                return Some(crate::stream::ChatStreamEvent::ToolCallDelta {
+                return Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
                     id,
                     function_name,
                     arguments_delta,
@@ -112,7 +112,7 @@ impl OpenAiResponsesEventConverter {
                 reasoning_tokens,
                 cached_tokens: None,
             };
-            return Some(crate::stream::ChatStreamEvent::UsageUpdate { usage: usage_info });
+            return Some(crate::streaming::ChatStreamEvent::UsageUpdate { usage: usage_info });
         }
 
         None
@@ -121,7 +121,7 @@ impl OpenAiResponsesEventConverter {
     fn convert_function_call_arguments_delta(
         &self,
         json: serde_json::Value,
-    ) -> Option<crate::stream::ChatStreamEvent> {
+    ) -> Option<crate::streaming::ChatStreamEvent> {
         // Handle response.function_call_arguments.delta events
         let delta = json.get("delta").and_then(|d| d.as_str())?;
         let item_id = json.get("item_id").and_then(|id| id.as_str()).unwrap_or("");
@@ -130,7 +130,7 @@ impl OpenAiResponsesEventConverter {
             .and_then(|idx| idx.as_u64())
             .unwrap_or(0);
 
-        Some(crate::stream::ChatStreamEvent::ToolCallDelta {
+        Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
             id: item_id.to_string(),
             function_name: None, // Function name is set in the initial item.added event
             arguments_delta: Some(delta.to_string()),
@@ -141,7 +141,7 @@ impl OpenAiResponsesEventConverter {
     fn convert_output_item_added(
         &self,
         json: serde_json::Value,
-    ) -> Option<crate::stream::ChatStreamEvent> {
+    ) -> Option<crate::streaming::ChatStreamEvent> {
         // Handle response.output_item.added events for function calls
         let item = json.get("item")?;
         if item.get("type").and_then(|t| t.as_str()) != Some("function_call") {
@@ -155,7 +155,7 @@ impl OpenAiResponsesEventConverter {
             .and_then(|idx| idx.as_u64())
             .unwrap_or(0);
 
-        Some(crate::stream::ChatStreamEvent::ToolCallDelta {
+        Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
             id: id.to_string(),
             function_name: function_name.map(|s| s.to_string()),
             arguments_delta: None, // Arguments will come in subsequent delta events
@@ -164,14 +164,14 @@ impl OpenAiResponsesEventConverter {
     }
 }
 
-impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverter {
+impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
     fn convert_event(
         &self,
         event: eventsource_stream::Event,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Vec<Result<crate::stream::ChatStreamEvent, crate::error::LlmError>>,
+                    Output = Vec<Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>>,
                 > + Send
                 + Sync
                 + '_,
@@ -206,7 +206,9 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
                     &resp_tx, &json,
                 ) {
                     Ok(response) => {
-                        return vec![Ok(crate::stream::ChatStreamEvent::StreamEnd { response })];
+                        return vec![Ok(crate::streaming::ChatStreamEvent::StreamEnd {
+                            response,
+                        })];
                     }
                     Err(err) => return vec![Err(err)],
                 }
@@ -240,7 +242,7 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
                         .and_then(|m| m.as_str())
                         .unwrap_or("Unknown error")
                         .to_string();
-                    return vec![Ok(crate::stream::ChatStreamEvent::Error { error: msg })];
+                    return vec![Ok(crate::streaming::ChatStreamEvent::Error { error: msg })];
                 }
                 "response.function_call_arguments.delta" => {
                     if let Some(evt) = self.convert_function_call_arguments_delta(json) {
@@ -265,7 +267,7 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
 
     fn handle_stream_end(
         &self,
-    ) -> Option<Result<crate::stream::ChatStreamEvent, crate::error::LlmError>> {
+    ) -> Option<Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>> {
         // Do not emit a StreamEnd on [DONE]. The Responses API emits a
         // `response.completed` event that we already convert into the final
         // ChatResponse via the centralized ResponseTransformer. Returning None
@@ -277,7 +279,7 @@ impl crate::utils::streaming::SseEventConverter for OpenAiResponsesEventConverte
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::streaming::SseEventConverter;
+    use crate::streaming::SseEventConverter;
 
     #[test]
     fn test_responses_event_converter_content_delta() {
@@ -293,7 +295,7 @@ mod tests {
         assert!(!events.is_empty());
         let ev = events.first().unwrap().as_ref().unwrap();
         match ev {
-            crate::stream::ChatStreamEvent::ContentDelta { delta, .. } => {
+            crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
                 assert_eq!(delta, "hello")
             }
             _ => panic!("expected ContentDelta"),
@@ -314,7 +316,7 @@ mod tests {
         assert!(!events.is_empty());
         let ev = events.first().unwrap().as_ref().unwrap();
         match ev {
-            crate::stream::ChatStreamEvent::ToolCallDelta {
+            crate::streaming::ChatStreamEvent::ToolCallDelta {
                 id,
                 function_name,
                 arguments_delta,
@@ -343,7 +345,7 @@ mod tests {
         assert!(!events.is_empty());
         let ev = events.first().unwrap().as_ref().unwrap();
         match ev {
-            crate::stream::ChatStreamEvent::UsageUpdate { usage } => {
+            crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
                 assert_eq!(usage.prompt_tokens, 3);
                 assert_eq!(usage.completion_tokens, 5);
                 assert_eq!(usage.total_tokens, 8);
@@ -370,7 +372,7 @@ mod tests {
     #[test]
     fn test_sse_named_events_routing() {
         let conv = OpenAiResponsesEventConverter::new();
-        use crate::utils::streaming::SseEventConverter;
+        use crate::streaming::SseEventConverter;
 
         // content delta via named event
         let ev1 = eventsource_stream::Event {
@@ -383,7 +385,9 @@ mod tests {
         assert!(!events1.is_empty());
         let out1 = events1.first().unwrap().as_ref().unwrap();
         match out1 {
-            crate::stream::ChatStreamEvent::ContentDelta { delta, .. } => assert_eq!(delta, "abc"),
+            crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+                assert_eq!(delta, "abc")
+            }
             _ => panic!("expected ContentDelta"),
         }
 
@@ -398,7 +402,7 @@ mod tests {
         assert!(!events2.is_empty());
         let out2 = events2.first().unwrap().as_ref().unwrap();
         match out2 {
-            crate::stream::ChatStreamEvent::ToolCallDelta {
+            crate::streaming::ChatStreamEvent::ToolCallDelta {
                 id,
                 function_name,
                 arguments_delta,
@@ -422,7 +426,7 @@ mod tests {
         assert!(!events3.is_empty());
         let out3 = events3.first().unwrap().as_ref().unwrap();
         match out3 {
-            crate::stream::ChatStreamEvent::UsageUpdate { usage } => {
+            crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
                 assert_eq!(usage.prompt_tokens, 4);
                 assert_eq!(usage.completion_tokens, 6);
                 assert_eq!(usage.total_tokens, 10);
@@ -441,7 +445,7 @@ mod tests {
         assert!(!events4.is_empty());
         let out4 = events4.first().unwrap().as_ref().unwrap();
         match out4 {
-            crate::stream::ChatStreamEvent::StreamEnd { .. } => {}
+            crate::streaming::ChatStreamEvent::StreamEnd { .. } => {}
             _ => panic!("expected StreamEnd"),
         }
     }

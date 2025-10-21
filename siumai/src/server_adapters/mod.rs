@@ -13,18 +13,17 @@
 //! ## Example (Framework-agnostic)
 //!
 //! ```rust,no_run
-//! use siumai::server_adapters::{text_stream, sse_lines, SseOptions};
-//! use siumai::stream::ChatStream;
+//! use siumai::server_adapters::{sse_lines, SseOptions};
+//! use siumai::streaming::ChatStream;
 //!
 //! async fn handle_stream(stream: ChatStream) {
-//!     // Convert to plain text stream
-//!     let text = text_stream(stream);
-//!
-//!     // Or convert to SSE with options
-//!     let sse = sse_lines(stream, SseOptions {
+//!     // Convert to SSE with options
+//!     let _sse = sse_lines(stream, SseOptions {
 //!         include_usage: true,
 //!         include_end: true,
+//!         include_start: true,
 //!         mask_errors: true,
+//!         masked_error_message: None,
 //!     });
 //! }
 //! ```
@@ -34,7 +33,7 @@
 //! ```rust,no_run
 //! #[cfg(feature = "server-adapters")]
 //! use siumai::server_adapters::axum::to_sse_response;
-//! use siumai::stream::ChatStream;
+//! use siumai::streaming::ChatStream;
 //! use axum::response::sse::Sse;
 //!
 //! #[cfg(feature = "server-adapters")]
@@ -49,7 +48,7 @@ use futures::Stream;
 use futures::StreamExt;
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
 
 /// Convert a `ChatStream` into a plain text stream of deltas.
 /// Each ContentDelta is yielded as-is; Usage/Start/End are ignored.
@@ -164,7 +163,7 @@ impl SseOptions {
 ///
 /// ```rust,no_run
 /// use siumai::server_adapters::{sse_lines, SseOptions};
-/// use siumai::stream::ChatStream;
+/// use siumai::streaming::ChatStream;
 /// use futures::StreamExt;
 ///
 /// async fn example(stream: ChatStream) {
@@ -230,6 +229,10 @@ pub fn sse_lines(
                     yield format!("event: error\ndata: {}\n\n", serde_json::json!({"error": msg}));
                     // also return an error to allow upstream to stop if desired
                     Err::<(), LlmError>(LlmError::InternalError(msg))?;
+                }
+                ChatStreamEvent::Custom { event_type, data } => {
+                    // Forward custom events as-is
+                    yield format!("event: {}\ndata: {}\n\n", event_type, data.to_string());
                 }
             }
         }

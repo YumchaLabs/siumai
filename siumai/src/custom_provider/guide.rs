@@ -5,7 +5,7 @@
 
 use crate::custom_provider::*;
 use crate::error::LlmError;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 // Note: types are used in the examples and implementations below
 #[allow(unused_imports)]
 use crate::types::*;
@@ -265,7 +265,7 @@ impl CustomProvider for HuggingFaceProvider {
         // For this example, we'll implement a simple streaming simulation
         // In practice, you'd handle Server-Sent Events (SSE) from the API
 
-        use crate::stream::ChatStreamEvent;
+        use crate::streaming::ChatStreamEvent;
         use futures::stream;
 
         let response = self.chat(request).await?;

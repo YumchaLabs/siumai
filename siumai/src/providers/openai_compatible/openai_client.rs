@@ -11,7 +11,7 @@ use crate::executors::image::{HttpImageExecutor, ImageExecutor};
 use crate::provider_core::{ProviderContext, ProviderSpec};
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::{
     ChatCapability, EmbeddingCapability, ImageGenerationCapability, ModelListingCapability,
     RerankCapability,
@@ -325,33 +325,8 @@ impl OpenAiCompatibleClient {
 
     /// Build HTTP client with configuration
     fn build_http_client(config: &OpenAiCompatibleConfig) -> Result<reqwest::Client, LlmError> {
-        let mut builder = reqwest::Client::builder();
-
-        // Apply timeout settings
-        if let Some(timeout) = config.http_config.timeout {
-            builder = builder.timeout(timeout);
-        }
-
-        if let Some(connect_timeout) = config.http_config.connect_timeout {
-            builder = builder.connect_timeout(connect_timeout);
-        }
-
-        // Apply proxy settings
-        if let Some(proxy_url) = &config.http_config.proxy {
-            let proxy = reqwest::Proxy::all(proxy_url)
-                .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {}", e)))?;
-            builder = builder.proxy(proxy);
-        }
-
-        // Apply user agent
-        if let Some(user_agent) = &config.http_config.user_agent {
-            builder = builder.user_agent(user_agent);
-        }
-
-        // Build the client
-        builder
-            .build()
-            .map_err(|e| LlmError::HttpError(format!("Failed to create HTTP client: {}", e)))
+        // Use unified HTTP client builder
+        crate::utils::http_client::build_http_client_from_config(&config.http_config)
     }
 
     /// Get the provider ID

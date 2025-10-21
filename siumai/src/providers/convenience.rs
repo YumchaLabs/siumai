@@ -31,13 +31,13 @@ pub mod core {
 
     /// Create a `Groq` client builder (native implementation)
     #[cfg(feature = "groq")]
-    pub fn groq() -> crate::providers::groq::GroqBuilderWrapper {
+    pub fn groq() -> crate::providers::groq::GroqBuilder {
         crate::builder::LlmBuilder::new().groq()
     }
 
     /// Create an `xAI` client builder (native implementation)
     #[cfg(feature = "xai")]
-    pub fn xai() -> crate::providers::xai::XaiBuilderWrapper {
+    pub fn xai() -> crate::providers::xai::XaiBuilder {
         crate::builder::LlmBuilder::new().xai()
     }
 }

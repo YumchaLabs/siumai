@@ -1,7 +1,7 @@
 //! Application-level timeout wrappers for chat
 
 use crate::error::LlmError;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::chat::ChatCapability;
 use crate::types::{ChatMessage, ChatResponse, Tool};
 use async_trait::async_trait;

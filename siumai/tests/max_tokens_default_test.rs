@@ -28,7 +28,6 @@ fn test_anthropic_max_tokens_default() {
         http_config: None,
         stream: false,
         telemetry: None,
-        telemetry: None,
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
@@ -52,7 +51,6 @@ fn test_anthropic_max_tokens_default() {
         provider_options: ProviderOptions::None,
         http_config: None,
         stream: false,
-        telemetry: None,
         telemetry: None,
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
@@ -117,16 +115,9 @@ fn test_openai_max_tokens_optional() {
 #[test]
 fn test_gemini_max_tokens_optional() {
     let transformer = siumai::providers::gemini::transformers::GeminiRequestTransformer {
-        config: siumai::providers::gemini::types::GeminiConfig {
-            api_key: "test".to_string(),
-            base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            model: "gemini-1.5-pro".to_string(),
-            generation_config: None,
-            safety_settings: None,
-            timeout: Some(30),
-            http_config: Some(siumai::types::HttpConfig::default()),
-            token_provider: None,
-        },
+        config: siumai::providers::gemini::types::GeminiConfig::new("test")
+            .with_model("gemini-1.5-pro".to_string())
+            .with_http_config(siumai::types::HttpConfig::default()),
     };
 
     // Test without max_tokens
@@ -185,7 +176,9 @@ fn test_gemini_max_tokens_optional() {
 
 #[test]
 fn test_ollama_max_tokens_optional() {
-    let transformer = siumai::providers::ollama::transformers::OllamaRequestTransformer;
+    let transformer = siumai::providers::ollama::transformers::OllamaRequestTransformer {
+        params: siumai::providers::ollama::config::OllamaParams::default(),
+    };
 
     // Test without max_tokens
     let params_without_max_tokens = CommonParams {
@@ -208,8 +201,13 @@ fn test_ollama_max_tokens_optional() {
     };
     let mapped = transformer.transform_chat(&req).unwrap();
 
-    // Ollama should not have num_predict if not provided
-    assert!(mapped.get("num_predict").is_none());
+    // Ollama should not have num_predict if not provided (under options)
+    assert!(
+        mapped
+            .get("options")
+            .and_then(|o| o.get("num_predict"))
+            .is_none()
+    );
 
     // Test with explicit max_tokens
     let params_with_max_tokens = CommonParams {
@@ -232,8 +230,8 @@ fn test_ollama_max_tokens_optional() {
     };
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
-    // Should use the explicit value as num_predict
-    assert_eq!(mapped_explicit["num_predict"], 2000);
+    // Should use the explicit value as options.num_predict
+    assert_eq!(mapped_explicit["options"]["num_predict"], 2000);
 }
 
 #[test]

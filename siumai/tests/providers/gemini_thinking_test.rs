@@ -5,7 +5,7 @@
 //! Google API documentation.
 
 use siumai::providers::gemini::types::{Content, Part, ThinkingConfig};
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 
 #[cfg(test)]
 mod tests {

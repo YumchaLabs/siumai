@@ -4,12 +4,12 @@
 //! across chat capability and streaming implementations.
 
 use crate::error::LlmError;
-use crate::stream::ChatStreamEvent;
+use crate::streaming::ChatStreamEvent;
+use crate::streaming::SseEventConverter;
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, ToolCall, Usage};
-use crate::utils::streaming::SseEventConverter;
 use eventsource_stream::Event;
 
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};

@@ -26,7 +26,7 @@ pub fn load_sse_fixture_as_bytes(path: &str) -> io::Result<Vec<Result<Vec<u8>, i
 pub async fn collect_sse_events<C>(
     bytes: Vec<Result<Vec<u8>, io::Error>>,
     converter: C,
-) -> Vec<siumai::stream::ChatStreamEvent>
+) -> Vec<siumai::streaming::ChatStreamEvent>
 where
     C: siumai::utils::streaming::SseEventConverter + Clone + 'static,
 {

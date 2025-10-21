@@ -3,8 +3,8 @@
 //! These tests verify the core functionality of the unified LLM interface
 
 use siumai::prelude::*;
-use siumai::stream::{ProcessedEvent, StreamProcessor};
-use siumai::types::{ChatRequest, ContentPart, ProviderParams};
+use siumai::streaming::{ProcessedEvent, StreamProcessor};
+use siumai::types::{ChatRequest, ContentPart, ProviderOptions};
 use siumai::user_builder;
 use std::time::Duration;
 
@@ -91,26 +91,13 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_params() {
-        // Test provider-specific parameter handling
-        let provider_params = ProviderParams::new()
-            .with_param("temperature", 0.8)
-            .with_param("max_tokens", 2000)
-            .with_param("custom_setting", "value");
-
-        // Test parameter retrieval
-        let temp: Option<f64> = provider_params.get("temperature");
-        assert_eq!(temp, Some(0.8));
-
-        let tokens: Option<u32> = provider_params.get("max_tokens");
-        assert_eq!(tokens, Some(2000));
-
-        let custom: Option<String> = provider_params.get("custom_setting");
-        assert_eq!(custom, Some("value".to_string()));
-
-        // Test non-existent parameter
-        let missing: Option<String> = provider_params.get("non_existent");
-        assert_eq!(missing, None);
+    fn test_provider_options_basic() {
+        // Test ProviderOptions enum basics and helpers
+        let opts = siumai::types::OpenAiOptions::new().with_web_search();
+        let po = ProviderOptions::OpenAi(opts);
+        assert_eq!(po.provider_id(), Some("openai"));
+        assert!(po.is_for_provider("openai"));
+        assert!(!po.is_none());
     }
 
     #[test]

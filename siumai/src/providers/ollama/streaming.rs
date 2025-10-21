@@ -4,9 +4,9 @@
 //! eventsource-stream infrastructure for JSON streaming.
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{JsonEventConverter, StreamFactory};
 use crate::types::{ResponseMetadata, Usage};
-use crate::utils::streaming::{JsonEventConverter, StreamFactory};
 use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
@@ -63,7 +63,7 @@ impl OllamaEventConverter {
         &self,
         response: OllamaStreamResponse,
     ) -> Vec<ChatStreamEvent> {
-        use crate::utils::streaming::EventBuilder;
+        use crate::streaming::EventBuilder;
 
         let mut builder = EventBuilder::new();
 

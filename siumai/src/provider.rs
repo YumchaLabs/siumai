@@ -7,7 +7,7 @@
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 use crate::utils::http_interceptor::HttpInterceptor;
@@ -886,6 +886,7 @@ impl SiumaiBuilder {
     /// # Example
     /// ```rust,no_run
     /// use siumai::prelude::*;
+    /// use siumai::tracing::TracingConfig;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {

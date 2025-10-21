@@ -74,21 +74,28 @@ impl FilesTransformer for TestFilesTransformer {
 
 fn headers_builder_factory(
     counter: Arc<AtomicUsize>,
-) -> impl Fn() -> Result<reqwest::header::HeaderMap, LlmError> + Send + Sync + 'static {
+) -> impl Fn() -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<reqwest::header::HeaderMap, LlmError>> + Send>,
+> + Send
++ Sync
++ 'static {
     move || {
-        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-        let n = counter.fetch_add(1, Ordering::SeqCst);
-        let token = if n == 0 { "bad" } else { "ok" };
-        let mut h = HeaderMap::new();
-        h.insert(
-            HeaderName::from_static("authorization"),
-            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
-        );
-        h.insert(
-            HeaderName::from_static("content-type"),
-            HeaderValue::from_static("application/json"),
-        );
-        Ok(h)
+        let counter = counter.clone();
+        Box::pin(async move {
+            use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+            let n = counter.fetch_add(1, Ordering::SeqCst);
+            let token = if n == 0 { "bad" } else { "ok" };
+            let mut h = HeaderMap::new();
+            h.insert(
+                HeaderName::from_static("authorization"),
+                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+            );
+            h.insert(
+                HeaderName::from_static("content-type"),
+                HeaderValue::from_static("application/json"),
+            );
+            Ok(h)
+        })
     }
 }
 

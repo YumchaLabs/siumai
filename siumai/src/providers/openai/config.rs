@@ -5,6 +5,7 @@
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 
+use crate::error::LlmError;
 use crate::params::OpenAiParams;
 use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
 
@@ -203,43 +204,57 @@ impl OpenAiConfig {
     ///
     /// # Returns
     /// Result indicating whether the configuration is valid
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), LlmError> {
         if self.api_key.expose_secret().is_empty() {
-            return Err("API key cannot be empty".to_string());
+            return Err(LlmError::ConfigurationError(
+                "API key cannot be empty".to_string(),
+            ));
         }
 
         if self.base_url.is_empty() {
-            return Err("Base URL cannot be empty".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Base URL cannot be empty".to_string(),
+            ));
         }
 
         if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
-            return Err("Base URL must start with http:// or https://".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Base URL must start with http:// or https://".to_string(),
+            ));
         }
 
         // Validate common parameters
         if let Some(temp) = self.common_params.temperature
             && !(0.0..=2.0).contains(&temp)
         {
-            return Err("Temperature must be between 0.0 and 2.0".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Temperature must be between 0.0 and 2.0".to_string(),
+            ));
         }
 
         if let Some(top_p) = self.common_params.top_p
             && !(0.0..=1.0).contains(&top_p)
         {
-            return Err("Top-p must be between 0.0 and 1.0".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Top-p must be between 0.0 and 1.0".to_string(),
+            ));
         }
 
         // Validate OpenAI-specific parameters
         if let Some(freq_penalty) = self.openai_params.frequency_penalty
             && !(-2.0..=2.0).contains(&freq_penalty)
         {
-            return Err("Frequency penalty must be between -2.0 and 2.0".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Frequency penalty must be between -2.0 and 2.0".to_string(),
+            ));
         }
 
         if let Some(pres_penalty) = self.openai_params.presence_penalty
             && !(-2.0..=2.0).contains(&pres_penalty)
         {
-            return Err("Presence penalty must be between -2.0 and 2.0".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Presence penalty must be between -2.0 and 2.0".to_string(),
+            ));
         }
 
         Ok(())

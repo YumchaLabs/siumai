@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use futures::{stream, StreamExt};
-use siumai::stream::{ChatStream, ChatStreamEvent};
+use siumai::streaming::{ChatStream, ChatStreamEvent};
 use siumai::types::{ChatMessage, ChatResponse, MessageContent, ResponseMetadata, Usage};
 use siumai::error::LlmError;
 use std::time::Duration;

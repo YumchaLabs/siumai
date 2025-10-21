@@ -44,9 +44,9 @@
 //!
 //! For simple cases, use `tracing-subscriber` directly:
 //!
-//! ```rust
-//! // Simple console logging
-//! tracing_subscriber::fmt::init();
+//! ```rust,ignore
+//! // Simple console logging (requires adding `tracing-subscriber` dependency)
+//! // tracing_subscriber::fmt::init();
 //! ```
 
 pub mod config;

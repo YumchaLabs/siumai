@@ -278,23 +278,26 @@ name = "sse-http-examples"
 path = "examples/05-integrations/mcp/sse-http-examples.rs"
 required-features = ["openai"]
 
-# 05-integrations/server-adapters
-[[example]]
-name = "axum-sse"
-path = "examples/05-integrations/server-adapters/axum-sse.rs"
-required-features = ["openai", "server-adapters"]
+# 05-integrations/server-adapters (moved to siumai-extras)
+# example removed; use siumai-extras::server feature examples instead
 
-# 05-integrations/telemetry
-[[example]]
-name = "basic-telemetry"
-path = "examples/05-integrations/telemetry/basic-telemetry.rs"
-required-features = ["openai", "telemetry"]
+# 05-integrations/telemetry (moved to siumai-extras)
+# example removed; use siumai-extras::telemetry feature examples instead
 
 # 06-extensibility
 [[example]]
 name = "custom-provider-options"
 path = "examples/06-extensibility/custom-provider-options.rs"
 required-features = ["xai"]
+
+[[example]]
+name = "custom_provider_parameters"
+path = "examples/06-extensibility/custom_provider_parameters.rs"
+required-features = ["xai"]
+
+[[example]]
+name = "custom_provider_implementation"
+path = "examples/06-extensibility/custom_provider_implementation.rs"
 
 # 07-applications
 [[example]]
@@ -305,10 +308,8 @@ path = "examples/07-applications/chatbot.rs"
 name = "code-assistant"
 path = "examples/07-applications/code-assistant.rs"
 
-[[example]]
-name = "api-server"
-path = "examples/07-applications/api-server.rs"
-required-features = ["openai", "server-adapters"]
+# 07-applications/api-server (moved to siumai-extras server adapters)
+# example removed; see siumai-extras for server adapters integration
 
 # The profile that 'dist' will build with
 [profile.dist]

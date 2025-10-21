@@ -1,51 +1,19 @@
-//! Common Streaming Utilities
+//! Stream Factory
 //!
-//! Utilities for handling streaming responses across providers, including
-//! UTF-8 safe processing and unified SSE handling using `eventsource-stream`.
+//! Factory for creating provider-specific streaming implementations.
+//! Handles SSE and JSON-based streaming with proper UTF-8 handling and error classification.
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
-use crate::utils::sse_stream::SseStreamExt;
-use eventsource_stream::Event;
+use crate::streaming::{
+    ChatStream, ChatStreamEvent, JsonEventConverter, SseEventConverter, SseStreamExt,
+};
 use futures_util::StreamExt;
 use futures_util::TryStreamExt;
-use std::future::Future;
-use std::pin::Pin;
 
-/// Type alias for SSE event conversion future - now supports multiple events
-type SseEventFuture<'a> =
-    Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>;
-
-/// Type alias for JSON event conversion future - now supports multiple events
-type JsonEventFuture<'a> =
-    Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>;
-
-/// Trait for converting provider-specific SSE events to ChatStreamEvent
+/// Stream Factory
 ///
-/// This trait now supports multi-event emission, allowing a single provider event
-/// to generate multiple ChatStreamEvents (e.g., StreamStart + ContentDelta).
-pub trait SseEventConverter: Send + Sync {
-    /// Convert an SSE event to zero or more ChatStreamEvents
-    fn convert_event(&self, event: Event) -> SseEventFuture<'_>;
-
-    /// Handle the end of stream
-    fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
-        None
-    }
-}
-
-/// Trait for converting JSON data to ChatStreamEvent (for providers like Gemini)
-///
-/// This trait now supports multi-event emission for JSON-based streaming.
-pub trait JsonEventConverter: Send + Sync {
-    /// Convert JSON data to zero or more ChatStreamEvents
-    fn convert_json<'a>(&'a self, json_data: &'a str) -> JsonEventFuture<'a>;
-}
-
-/// Stream factory for creating provider-specific streams
-///
-/// This factory provides utilities for creating SSE and JSON streams
-/// using eventsource-stream for proper UTF-8 handling.
+/// Provides utilities for creating SSE and JSON streams with proper UTF-8 handling,
+/// error classification, and automatic retry logic.
 pub struct StreamFactory;
 
 impl StreamFactory {
@@ -54,6 +22,14 @@ impl StreamFactory {
     /// The `build_request` closure must construct a fresh RequestBuilder each call
     /// with up-to-date headers (e.g., refreshed Bearer token). On non-401 errors,
     /// this method classifies the error using `retry_api::classify_http_error`.
+    ///
+    /// # Arguments
+    /// * `provider_id` - Provider identifier for error classification
+    /// * `build_request` - Closure that builds a fresh request (called on retry)
+    /// * `converter` - SSE event converter for this provider
+    ///
+    /// # Returns
+    /// A ChatStream that yields ChatStreamEvents
     pub async fn create_eventsource_stream_with_retry<B, C>(
         provider_id: &str,
         build_request: B,
@@ -68,6 +44,7 @@ impl StreamFactory {
             .send()
             .await
             .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
+
         let response = if !response.status().is_success() {
             let status = response.status();
             if status.as_u16() == 401 {
@@ -98,6 +75,7 @@ impl StreamFactory {
             .and_then(|v| v.to_str().ok())
             .map(|ct| ct.to_ascii_lowercase().contains("text/event-stream"))
             .unwrap_or(false);
+
         if !is_sse {
             let text = response
                 .text()
@@ -139,7 +117,8 @@ impl StreamFactory {
             .map(|chunk| chunk.map_err(|e| LlmError::HttpError(format!("Stream error: {e}"))));
 
         let sse_stream = byte_stream.into_sse_stream();
-        // Track whether any ContentDelta was emitted; used to inject a fallback delta on StreamEnd
+
+        // Track whether any ContentDelta was emitted
         let saw_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let chat_stream = sse_stream
             .then(move |event_result| {
@@ -148,12 +127,9 @@ impl StreamFactory {
                 async move {
                     match event_result {
                         Ok(event) => {
-                            // No unconditional debug printing in production path
                             if event.data.trim() == "[DONE]" {
                                 if let Some(end) = converter.handle_stream_end() {
-                                    // If the converter provides a final response and no deltas were seen,
-                                    // inject a synthetic ContentDelta before StreamEnd so downstream
-                                    // consumers that accumulate deltas still see content.
+                                    // Inject synthetic ContentDelta if no deltas were seen
                                     if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
                                         && !saw_content.load(std::sync::atomic::Ordering::Relaxed)
                                         && let Some(text) = response.content_text()
@@ -195,11 +171,18 @@ impl StreamFactory {
             .flat_map(futures::stream::iter);
         Ok(Box::pin(chat_stream))
     }
+
     /// Create a chat stream for JSON-based streaming (provider emits JSON fragments)
     ///
-    /// We route the byte stream through the SSE parser for consistent UTF-8 handling
-    /// and treat each `event.data` as a raw JSON string for conversion. Note: Providers
-    /// emitting plain line-delimited JSON may not be fully compatible with this method.
+    /// We route the byte stream through line-delimited JSON parsing for consistent UTF-8 handling.
+    /// Each line is treated as a JSON object for conversion.
+    ///
+    /// # Arguments
+    /// * `response` - HTTP response containing JSON stream
+    /// * `converter` - JSON event converter for this provider
+    ///
+    /// # Returns
+    /// A ChatStream that yields ChatStreamEvents
     pub async fn create_json_stream<C>(
         response: reqwest::Response,
         converter: C,
@@ -246,6 +229,13 @@ impl StreamFactory {
     ///
     /// This method creates an SSE stream using the eventsource-stream crate,
     /// which handles UTF-8 boundaries, line buffering, and SSE parsing automatically.
+    ///
+    /// # Arguments
+    /// * `request_builder` - Request builder to send
+    /// * `converter` - SSE event converter for this provider
+    ///
+    /// # Returns
+    /// A ChatStream that yields ChatStreamEvents
     pub async fn create_eventsource_stream<C>(
         request_builder: reqwest::RequestBuilder,
         converter: C,
@@ -253,7 +243,7 @@ impl StreamFactory {
     where
         C: SseEventConverter + Clone + Send + 'static,
     {
-        use crate::utils::sse_stream::SseStreamExt;
+        use crate::streaming::SseStreamExt;
 
         // Send the request and get the response
         let response = request_builder
@@ -261,26 +251,24 @@ impl StreamFactory {
             .await
             .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
 
-        // Check if the response is successful
+        // Check for HTTP errors
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(LlmError::HttpError(format!(
-                "HTTP error {}: {}",
-                status.as_u16(),
-                error_text
-            )));
+            let text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Failed to read error body".to_string());
+            return Err(LlmError::HttpError(format!("HTTP {status}: {text}")));
         }
 
-        // Convert response to byte stream
+        // Convert to byte stream and then to SSE
         let byte_stream = response
             .bytes_stream()
             .map(|chunk| chunk.map_err(|e| LlmError::HttpError(format!("Stream error: {e}"))));
 
-        // Use eventsource-stream to parse SSE
         let sse_stream = byte_stream.into_sse_stream();
 
-        // Convert SSE events to ChatStreamEvents - now supports multiple events per conversion
+        // Convert SSE events to ChatStreamEvents - supports multiple events per conversion
         let chat_stream = sse_stream
             .then(move |event_result| {
                 let converter = converter.clone();
@@ -301,7 +289,7 @@ impl StreamFactory {
                                 return vec![];
                             }
 
-                            // Convert using provider-specific logic - now returns multiple events
+                            // Convert using provider-specific logic
                             converter.convert_event(event).await
                         }
                         Err(e) => {
@@ -317,96 +305,3 @@ impl StreamFactory {
         Ok(Box::pin(chat_stream))
     }
 }
-
-/// Helper utilities for efficient event building
-pub struct EventBuilder {
-    events: Vec<ChatStreamEvent>,
-}
-
-impl EventBuilder {
-    /// Create a new event builder
-    pub fn new() -> Self {
-        Self {
-            events: Vec::with_capacity(2), // Most conversions produce 1-2 events
-        }
-    }
-
-    /// Create a new event builder with specific capacity
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            events: Vec::with_capacity(capacity),
-        }
-    }
-
-    /// Add a StreamStart event
-    pub fn add_stream_start(mut self, metadata: crate::types::ResponseMetadata) -> Self {
-        self.events.push(ChatStreamEvent::StreamStart { metadata });
-        self
-    }
-
-    /// Add a ContentDelta event (only if delta is not empty)
-    pub fn add_content_delta(mut self, delta: String, index: Option<usize>) -> Self {
-        if !delta.is_empty() {
-            self.events
-                .push(ChatStreamEvent::ContentDelta { delta, index });
-        }
-        self
-    }
-
-    /// Add a ToolCallDelta event
-    pub fn add_tool_call_delta(
-        mut self,
-        id: String,
-        function_name: Option<String>,
-        arguments_delta: Option<String>,
-        index: Option<usize>,
-    ) -> Self {
-        self.events.push(ChatStreamEvent::ToolCallDelta {
-            id,
-            function_name,
-            arguments_delta,
-            index,
-        });
-        self
-    }
-
-    /// Add a ThinkingDelta event (only if delta is not empty)
-    pub fn add_thinking_delta(mut self, delta: String) -> Self {
-        if !delta.is_empty() {
-            self.events.push(ChatStreamEvent::ThinkingDelta { delta });
-        }
-        self
-    }
-
-    /// Add a UsageUpdate event
-    pub fn add_usage_update(mut self, usage: crate::types::Usage) -> Self {
-        self.events.push(ChatStreamEvent::UsageUpdate { usage });
-        self
-    }
-
-    /// Add a StreamEnd event
-    pub fn add_stream_end(mut self, response: crate::types::ChatResponse) -> Self {
-        self.events.push(ChatStreamEvent::StreamEnd { response });
-        self
-    }
-
-    /// Build the events vector
-    pub fn build(self) -> Vec<ChatStreamEvent> {
-        self.events
-    }
-
-    /// Build the events vector wrapped in Results
-    pub fn build_results(self) -> Vec<Result<ChatStreamEvent, LlmError>> {
-        self.events.into_iter().map(Ok).collect()
-    }
-}
-
-impl Default for EventBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// Note: legacy helper macros for single-event conversion were removed to avoid
-// signature drift. Converters should implement the traits directly and emit
-// zero or more events per provider chunk using the multi-event signatures.

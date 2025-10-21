@@ -3,9 +3,9 @@
 //! Implements streaming chat completions for the `xAI` provider using eventsource-stream.
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, ResponseMetadata};
-use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
 use std::collections::HashMap;
 use std::future::Future;
@@ -34,7 +34,7 @@ impl XaiEventConverter {
 
     /// Convert xAI stream event to multiple ChatStreamEvents
     async fn convert_xai_event_async(&self, event: XaiStreamChunk) -> Vec<ChatStreamEvent> {
-        use crate::utils::streaming::EventBuilder;
+        use crate::streaming::EventBuilder;
 
         let mut builder = EventBuilder::new();
 
@@ -191,7 +191,8 @@ impl XaiStreaming {
         let url_for_retry = url.clone();
         let body_for_retry = request_body.clone();
         let build_request = move || {
-            let headers = build_headers(&api_key, &extra)?;
+            use secrecy::ExposeSecret;
+            let headers = build_headers(api_key.expose_secret(), &extra)?;
             Ok(http
                 .post(&url_for_retry)
                 .headers(headers)

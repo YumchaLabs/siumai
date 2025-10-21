@@ -13,7 +13,7 @@ use axum::response::Response;
 use futures_util::StreamExt;
 use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 use siumai::types::{Tool, ToolFunction};
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::types::ChatMessage;
 use std::sync::Arc;
 use tokio::sync::Mutex;

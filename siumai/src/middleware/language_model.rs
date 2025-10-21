@@ -8,14 +8,14 @@
 use std::sync::Arc;
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
 use crate::types::{ChatRequest, ChatResponse};
 use futures::future::BoxFuture;
 
 // Wrapper function types for future extensions (not used in Iteration A)
 pub type GenerateFn = dyn Fn(ChatRequest) -> Result<ChatResponse, LlmError> + Send + Sync;
 pub type StreamFn =
-    dyn Fn(ChatRequest) -> Result<crate::stream::ChatStream, LlmError> + Send + Sync;
+    dyn Fn(ChatRequest) -> Result<crate::streaming::ChatStream, LlmError> + Send + Sync;
 /// Async wrapper function types for future around-style middleware.
 pub type GenerateAsyncFn =
     dyn Fn(ChatRequest) -> BoxFuture<'static, Result<ChatResponse, LlmError>> + Send + Sync;
@@ -51,8 +51,9 @@ pub trait LanguageModelMiddleware: Send + Sync {
     fn wrap_stream(
         &self,
         _do_stream: &StreamFn,
-    ) -> Option<Box<dyn Fn(ChatRequest) -> Result<crate::stream::ChatStream, LlmError> + Send + Sync>>
-    {
+    ) -> Option<
+        Box<dyn Fn(ChatRequest) -> Result<crate::streaming::ChatStream, LlmError> + Send + Sync>,
+    > {
         None
     }
 

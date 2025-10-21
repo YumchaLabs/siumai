@@ -1,7 +1,7 @@
 //! Chat capability traits and extensions
 
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamHandle};
+use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool};
 use async_trait::async_trait;
 

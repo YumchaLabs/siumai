@@ -52,7 +52,7 @@ impl crate::traits::ChatCapability for MockChatModel {
         &self,
         _messages: Vec<ChatMessage>,
         _tools: Option<Vec<Tool>>,
-    ) -> Result<crate::stream::ChatStream, LlmError> {
+    ) -> Result<crate::streaming::ChatStream, LlmError> {
         // Not used in these tests
         Err(LlmError::InternalError(
             "Stream not implemented in mock".into(),

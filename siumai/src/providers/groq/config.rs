@@ -2,16 +2,17 @@
 //!
 //! Configuration structures and validation for the Groq provider.
 
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 use crate::error::LlmError;
 use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
 
 /// `Groq` Configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct GroqConfig {
-    /// API key for authentication
-    pub api_key: String,
+    /// API key for authentication (securely stored)
+    pub api_key: SecretString,
     /// Base URL for the Groq API
     pub base_url: String,
     /// Common parameters
@@ -20,8 +21,6 @@ pub struct GroqConfig {
     pub http_config: HttpConfig,
     /// Web search configuration
     pub web_search_config: WebSearchConfig,
-    /// Built-in tools
-    pub built_in_tools: Vec<crate::types::Tool>,
 }
 
 impl GroqConfig {
@@ -31,12 +30,11 @@ impl GroqConfig {
     /// Create a new `Groq` configuration
     pub fn new<S: Into<String>>(api_key: S) -> Self {
         Self {
-            api_key: api_key.into(),
+            api_key: SecretString::from(api_key.into()),
             base_url: Self::DEFAULT_BASE_URL.to_string(),
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
             web_search_config: WebSearchConfig::default(),
-            built_in_tools: Vec::new(),
         }
     }
 
@@ -82,33 +80,16 @@ impl GroqConfig {
         self
     }
 
-    /// Set HTTP configuration
-    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
-        self.http_config = http_config;
-        self
-    }
-
     /// Set web search configuration
     pub fn with_web_search_config(mut self, web_search_config: WebSearchConfig) -> Self {
         self.web_search_config = web_search_config;
         self
     }
 
-    /// Add a built-in tool
-    pub fn with_tool(mut self, tool: crate::types::Tool) -> Self {
-        self.built_in_tools.push(tool);
-        self
-    }
-
-    /// Add multiple built-in tools
-    pub fn with_tools(mut self, tools: Vec<crate::types::Tool>) -> Self {
-        self.built_in_tools.extend(tools);
-        self
-    }
-
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), LlmError> {
-        if self.api_key.is_empty() {
+        use secrecy::ExposeSecret;
+        if self.api_key.expose_secret().is_empty() {
             return Err(LlmError::ConfigurationError(
                 "API key cannot be empty".to_string(),
             ));
@@ -184,12 +165,13 @@ mod tests {
 
     #[test]
     fn test_groq_config_creation() {
+        use secrecy::ExposeSecret;
         let config = GroqConfig::new("test-api-key")
             .with_model("llama-3.3-70b-versatile")
             .with_temperature(0.7)
             .with_max_tokens(1000);
 
-        assert_eq!(config.api_key, "test-api-key");
+        assert_eq!(config.api_key.expose_secret(), "test-api-key");
         assert_eq!(config.common_params.model, "llama-3.3-70b-versatile");
         assert_eq!(config.common_params.temperature, Some(0.7));
         assert_eq!(config.common_params.max_tokens, Some(1000));

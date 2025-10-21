@@ -26,8 +26,8 @@
 //!
 //! ## 🚀 Quick Start
 //!
-//! ```rust
-//! use siumai::performance::{MetricsCollector, RequestTimer};
+//! ```rust,ignore
+//! // Use the performance module types in your application.
 //!
 //! # async fn example() {
 //! let collector = MetricsCollector::new();

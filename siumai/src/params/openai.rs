@@ -163,14 +163,6 @@ pub struct OpenAiParams {
 
     /// Verbosity level
     pub verbosity: Option<Verbosity>,
-
-    /// Function call (deprecated, use tool_choice)
-    #[deprecated(note = "Use tool_choice instead")]
-    pub function_call: Option<serde_json::Value>,
-
-    /// Functions (deprecated, use tools)
-    #[deprecated(note = "Use tools instead")]
-    pub functions: Option<Vec<serde_json::Value>>,
 }
 
 /// Verbosity level for responses
@@ -508,22 +500,7 @@ impl OpenAiParamsBuilder {
         self
     }
 
-    /// Set function call (deprecated, use tool_choice)
-    #[deprecated(note = "Use tool_choice instead")]
-    pub fn function_call(mut self, function_call: serde_json::Value) -> Self {
-        self.function_call = Some(function_call);
-        self
-    }
-
-    /// Set functions (deprecated, use tools)
-    #[deprecated(note = "Use tools instead")]
-    pub fn functions(mut self, functions: Vec<serde_json::Value>) -> Self {
-        self.functions = Some(functions);
-        self
-    }
-
     /// Build the OpenAI parameters
-    #[allow(deprecated)]
     pub fn build(self) -> Result<OpenAiParams, LlmError> {
         let params = OpenAiParams {
             response_format: self.response_format,
@@ -559,8 +536,6 @@ impl OpenAiParamsBuilder {
             web_search_options: self.web_search_options,
             prediction: self.prediction,
             verbosity: self.verbosity,
-            function_call: self.function_call,
-            functions: self.functions,
         };
 
         params.validate_params()?;

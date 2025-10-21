@@ -5,16 +5,19 @@
 //! - computing request routes (URLs) per capability
 //! - choosing request/response/stream transformers
 //! - optional pre-send JSON body mutation
+//! - shared builder core for composition-based provider builders
 //!
 //! By concentrating common HTTP/route/header logic here, provider clients can
 //! remain thin and focus on feature toggles and parameter surfaces.
+
+pub mod builder_core;
 
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
-use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest};
+use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest, ProviderOptions};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -81,7 +84,7 @@ pub struct ChatTransformers {
     pub request: Arc<dyn RequestTransformer>,
     pub response: Arc<dyn ResponseTransformer>,
     pub stream: Option<Arc<dyn StreamChunkTransformer>>,
-    pub json: Option<Arc<dyn crate::utils::streaming::JsonEventConverter>>,
+    pub json: Option<Arc<dyn crate::streaming::JsonEventConverter>>,
 }
 
 /// Transformers bundle required by embedding executors
@@ -119,12 +122,75 @@ pub trait ProviderSpec: Send + Sync {
     ) -> ChatTransformers;
 
     /// Optional: mutate JSON body before sending (e.g., merge built-in tools)
+    ///
+    /// Default implementation handles CustomProviderOptions injection.
+    /// Providers can override this to add provider-specific logic.
     fn chat_before_send(
         &self,
-        _req: &ChatRequest,
+        req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
+        // Default: handle CustomProviderOptions
+        Self::default_custom_options_hook(self.id(), req)
+    }
+
+    /// Default hook for CustomProviderOptions injection
+    ///
+    /// This method provides a standard implementation for injecting custom provider options
+    /// into the request JSON body. All providers automatically support CustomProviderOptions
+    /// through this default implementation.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // In a provider implementation:
+    /// fn chat_before_send(&self, req: &ChatRequest, ctx: &ProviderContext)
+    ///     -> Option<BeforeSendHook> {
+    ///     // 1. First check for CustomProviderOptions
+    ///     if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
+    ///         return Some(hook);
+    ///     }
+    ///
+    ///     // 2. Then handle provider-specific logic
+    ///     // ... your custom logic
+    /// }
+    /// ```
+    fn default_custom_options_hook(
+        provider_id: &str,
+        req: &ChatRequest,
+    ) -> Option<crate::executors::BeforeSendHook> {
+        if let ProviderOptions::Custom {
+            provider_id: custom_provider_id,
+            options,
+        } = &req.provider_options
+        {
+            // Support provider_id matching with aliases (e.g., "gemini" or "google")
+            if Self::matches_provider_id(provider_id, custom_provider_id) {
+                let custom_options = options.clone();
+                let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                    let mut out = body.clone();
+                    if let Some(obj) = out.as_object_mut() {
+                        // Merge custom options into the request body
+                        for (k, v) in &custom_options {
+                            obj.insert(k.clone(), v.clone());
+                        }
+                    }
+                    Ok(out)
+                };
+                return Some(Arc::new(hook));
+            }
+        }
         None
+    }
+
+    /// Check if provider_id matches (with alias support)
+    ///
+    /// This allows providers to support multiple identifiers.
+    /// For example, Gemini can be identified as both "gemini" and "google".
+    fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
+        provider_id == custom_id
+            || (provider_id == "gemini" && custom_id == "google")
+            || (provider_id == "google" && custom_id == "gemini")
     }
 
     /// Compute embedding route URL (default OpenAI-style)

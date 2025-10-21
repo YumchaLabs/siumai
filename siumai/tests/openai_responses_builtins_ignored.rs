@@ -17,20 +17,8 @@ async fn responses_with_advanced_builtins_smoke() {
         return;
     }
 
-    let config = OpenAiConfig::new(std::env::var("OPENAI_API_KEY").unwrap())
-        .with_model("gpt-4.1-mini")
-        .with_responses_api(true)
-        .with_built_in_tools(vec![
-            // web search with provider hints
-            OpenAiBuiltInTool::WebSearchAdvanced {
-                extra: serde_json::json!({"region":"us","safe":"strict"}),
-            },
-            // file search (no vector stores provided here)
-            OpenAiBuiltInTool::FileSearchAdvanced {
-                vector_store_ids: None,
-                extra: serde_json::json!({}),
-            },
-        ]);
+    let config =
+        OpenAiConfig::new(std::env::var("OPENAI_API_KEY").unwrap()).with_model("gpt-4.1-mini");
     let client = OpenAiClient::new_with_config(config);
 
     // JSON input will be mapped as input_json

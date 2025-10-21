@@ -16,7 +16,7 @@
 use futures::StreamExt;
 use siumai::middleware::language_model::{GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn};
 use siumai::prelude::*;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use std::sync::Arc;
 
 // Middleware 1: Logging middleware using wrap_generate_async

@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::provider_core::ProviderSpec;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 
@@ -99,25 +99,12 @@ impl GeminiClient {
 
         let files_capability = GeminiFiles::new(config.clone(), http_client.clone());
 
-        // Extract common parameters from config
-        let common_params = CommonParams {
-            model: config.model.clone(),
-            temperature: config
-                .generation_config
-                .as_ref()
-                .and_then(|gc| gc.temperature),
-            max_tokens: config
-                .generation_config
-                .as_ref()
-                .and_then(|gc| gc.max_output_tokens)
-                .map(|t| t as u32),
-            top_p: config.generation_config.as_ref().and_then(|gc| gc.top_p),
-            stop_sequences: config
-                .generation_config
-                .as_ref()
-                .and_then(|gc| gc.stop_sequences.clone()),
-            seed: None, // Gemini doesn't support seed
-        };
+        // Use common parameters from config (already contains model, temperature, max_tokens, top_p, stop_sequences)
+        let mut common_params = config.common_params.clone();
+        // Ensure model is set
+        if common_params.model.is_empty() {
+            common_params.model = config.model.clone();
+        }
 
         // Create Gemini-specific parameters (simplified - use defaults for now)
         let gemini_params = crate::params::gemini::GeminiParams {
@@ -376,7 +363,8 @@ impl GeminiClient {
 
     /// Get the API key
     pub fn api_key(&self) -> &str {
-        &self.config.api_key
+        use secrecy::ExposeSecret;
+        self.config.api_key.expose_secret()
     }
 
     /// Get the base URL
@@ -386,14 +374,7 @@ impl GeminiClient {
 
     /// Control whether to disable compression for streaming (SSE) requests.
     pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
-        if let Some(ref mut http) = self.config.http_config {
-            http.stream_disable_compression = disable;
-        } else {
-            self.config.http_config = Some(crate::types::HttpConfig {
-                stream_disable_compression: disable,
-                ..Default::default()
-            });
-        }
+        self.config.http_config.stream_disable_compression = disable;
         self
     }
 
@@ -528,15 +509,12 @@ impl ChatCapability for GeminiClient {
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
-            Some(self.config.api_key.clone()),
-            self.config
-                .http_config
-                .clone()
-                .map(|c| c.headers)
-                .unwrap_or_default(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
         );
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
@@ -575,12 +553,7 @@ impl ChatCapability for GeminiClient {
             response_transformer: std::sync::Arc::new(resp_tx),
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: self
-                .config
-                .http_config
-                .as_ref()
-                .map(|h| h.stream_disable_compression)
-                .unwrap_or(true),
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
             build_url: Box::new(build_url),
@@ -594,15 +567,12 @@ impl ChatCapability for GeminiClient {
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
-            Some(self.config.api_key.clone()),
-            self.config
-                .http_config
-                .clone()
-                .map(|c| c.headers)
-                .unwrap_or_default(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
         );
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
@@ -646,12 +616,7 @@ impl ChatCapability for GeminiClient {
             response_transformer: std::sync::Arc::new(resp_tx),
             stream_transformer: Some(std::sync::Arc::new(stream_tx)),
             json_stream_converter: None,
-            stream_disable_compression: self
-                .config
-                .http_config
-                .as_ref()
-                .map(|h| h.stream_disable_compression)
-                .unwrap_or(true),
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
             build_url: Box::new(build_url),
@@ -676,22 +641,18 @@ impl EmbeddingCapability for GeminiClient {
             )));
         }
         let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
         let model = self.config.model.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let base_extra = self.config.http_config.headers.clone();
         let tp = self.config.token_provider.clone();
         let api_key_for_headers = api_key.clone();
         let headers_builder = move || {
@@ -795,22 +756,18 @@ impl EmbeddingExtensions for GeminiClient {
                 request.input.len()
             )));
         }
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
         let model = self.config.model.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
-        let extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let extra = self.config.http_config.headers.clone();
         let api_key_for_headers = api_key.clone();
         let extra_for_headers = extra.clone();
         let headers_builder = move || {
@@ -898,10 +855,11 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
         request: crate::types::ImageGenerationRequest,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
         use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+        use secrecy::ExposeSecret;
         let http = self.http_client.clone();
         let base = self.config.base_url.clone();
         let model = self.config.model.clone();
-        let api_key = self.config.api_key.clone();
+        let api_key = self.config.api_key.expose_secret().to_string();
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
@@ -909,12 +867,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
             config: self.config.clone(),
         };
         // Merge extra custom headers (e.g., Vertex AI Bearer auth)
-        let base_extra = self
-            .config
-            .http_config
-            .clone()
-            .map(|c| c.headers)
-            .unwrap_or_default();
+        let base_extra = self.config.http_config.headers.clone();
         let tp = self.config.token_provider.clone();
         let api_key_for_headers = api_key.clone();
         let headers_builder = move || {

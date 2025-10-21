@@ -1,46 +1,30 @@
+use crate::provider_core::builder_core::ProviderCore;
 use crate::providers::ollama::config::OllamaParams;
 use crate::retry_api::RetryOptions;
-use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
-use crate::{CommonParams, HttpConfig, LlmBuilder, LlmError};
-use std::sync::Arc;
+use crate::{CommonParams, LlmBuilder, LlmError};
 
 /// Ollama-specific builder
 ///
 /// Retry: call `.with_retry(RetryOptions::backoff())` to enable unified retry
 /// for chat operations.
 pub struct OllamaBuilder {
-    pub(crate) base: LlmBuilder,
+    /// Core provider configuration (composition)
+    pub(crate) core: ProviderCore,
     base_url: Option<String>,
     model: Option<String>,
     common_params: CommonParams,
     ollama_params: OllamaParams,
-    http_config: HttpConfig,
-    tracing_config: Option<crate::tracing::TracingConfig>,
-    retry_options: Option<RetryOptions>,
-    /// Optional HTTP interceptors applied to chat requests
-    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
-    /// Enable lightweight HTTP debug logging interceptor
-    http_debug: bool,
 }
 
 impl OllamaBuilder {
     /// Create a new Ollama builder
     pub fn new(base: LlmBuilder) -> Self {
-        // Inherit interceptors/debug from unified builder
-        let inherited_interceptors = base.http_interceptors.clone();
-        let inherited_debug = base.http_debug;
-
         Self {
-            base,
+            core: ProviderCore::new(base),
             base_url: None,
             model: None,
             common_params: CommonParams::default(),
             ollama_params: OllamaParams::default(),
-            http_config: HttpConfig::default(),
-            tracing_config: None,
-            retry_options: None,
-            http_interceptors: inherited_interceptors,
-            http_debug: inherited_debug,
         }
     }
 
@@ -212,83 +196,97 @@ impl OllamaBuilder {
         self
     }
 
-    /// Enable thinking mode for thinking models (alias for reasoning)
-    ///
-    /// # Arguments
-    /// * `think` - Whether to enable thinking mode
-    ///
-    /// # Deprecated
-    /// Use `reasoning()` instead for consistency with other providers
-    #[deprecated(since = "0.7.1", note = "Use `reasoning()` instead for consistency")]
-    pub const fn think(self, think: bool) -> Self {
-        self.reasoning(think)
+    // === HTTP Configuration ===
+
+    /// Control whether to disable compression for streaming (SSE) requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.core = self.core.http_stream_disable_compression(disable);
+        self
     }
 
     // === Tracing Configuration ===
 
     /// Set custom tracing configuration
     pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
-        self.tracing_config = Some(config);
+        self.core = self.core.tracing(config);
         self
     }
 
     /// Enable debug tracing (development-friendly configuration)
-    pub fn debug_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::development())
+    pub fn debug_tracing(mut self) -> Self {
+        self.core = self.core.debug_tracing();
+        self
     }
 
     /// Enable minimal tracing (info level, LLM only)
-    pub fn minimal_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::minimal())
+    pub fn minimal_tracing(mut self) -> Self {
+        self.core = self.core.minimal_tracing();
+        self
     }
 
     /// Enable production-ready JSON tracing
-    pub fn json_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::json_production())
+    pub fn json_tracing(mut self) -> Self {
+        self.core = self.core.json_tracing();
+        self
     }
 
     /// Enable pretty-printed formatting for JSON bodies and headers in tracing
     pub fn pretty_json(mut self, pretty: bool) -> Self {
-        let config = self
-            .tracing_config
-            .take()
-            .unwrap_or_else(crate::tracing::TracingConfig::development)
-            .with_pretty_json(pretty);
-        self.tracing_config = Some(config);
+        self.core = self.core.pretty_json(pretty);
         self
     }
 
     /// Control masking of sensitive values (API keys, tokens) in tracing logs
     pub fn mask_sensitive_values(mut self, mask: bool) -> Self {
-        let config = self
-            .tracing_config
-            .take()
-            .unwrap_or_else(crate::tracing::TracingConfig::development)
-            .with_mask_sensitive_values(mask);
-        self.tracing_config = Some(config);
+        self.core = self.core.mask_sensitive_values(mask);
         self
     }
 
     /// Set unified retry options for chat operations
     pub fn with_retry(mut self, options: RetryOptions) -> Self {
-        self.retry_options = Some(options);
+        self.core = self.core.with_retry(options);
         self
     }
 
     /// Add a custom HTTP interceptor (builder collects and installs them on build).
-    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
-        self.http_interceptors.push(interceptor);
+    pub fn with_http_interceptor(
+        mut self,
+        interceptor: std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>,
+    ) -> Self {
+        self.core = self.core.with_http_interceptor(interceptor);
         self
     }
 
     /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
     pub fn http_debug(mut self, enabled: bool) -> Self {
-        self.http_debug = enabled;
+        self.core = self.core.http_debug(enabled);
+        self
+    }
+
+    /// Set request timeout
+    pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.timeout(timeout);
+        self
+    }
+
+    /// Set connection timeout
+    pub fn connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.connect_timeout(timeout);
+        self
+    }
+
+    /// Set custom HTTP client
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.core = self.core.with_http_client(client);
         self
     }
 
     /// Build the Ollama client
     pub async fn build(self) -> Result<crate::providers::ollama::OllamaClient, LlmError> {
+        // Step 1: Get API key (not required for Ollama)
+        // Note: Ollama typically doesn't require an API key
+
+        // Step 2: Get base URL (from parameter or default)
         let base_url = self
             .base_url
             .unwrap_or_else(|| "http://localhost:11434".to_string());
@@ -297,14 +295,16 @@ impl OllamaBuilder {
         // Users should initialize tracing manually using siumai_extras::telemetry
         // or tracing_subscriber directly before creating the client.
 
-        // Save model before moving common_params
+        // Step 3: Build configuration
         let model_for_middleware = self.model.clone();
         let model_from_common_params = self.common_params.model.clone();
+
+        let http_config_clone = self.core.http_config.clone();
 
         let mut config = crate::providers::ollama::OllamaConfig::builder()
             .base_url(base_url)
             .common_params(self.common_params)
-            .http_config(self.http_config)
+            .http_config(http_config_clone.clone())
             .ollama_params(self.ollama_params);
 
         if let Some(model) = self.model {
@@ -312,27 +312,35 @@ impl OllamaBuilder {
         }
 
         let config = config.build()?;
-        let http_client = self.base.build_http_client()?;
 
+        // Step 4: Build HTTP client from core
+        let http_client = self.core.build_http_client()?;
+
+        // Step 5: Create client instance
         let mut client = crate::providers::ollama::OllamaClient::new(config, http_client);
-        client.set_tracing_config(self.tracing_config);
-        client.set_retry_options(self.retry_options.clone());
+
+        // Step 6: Apply tracing and retry configuration from core
+        if let Some(ref tracing_config) = self.core.tracing_config {
+            client.set_tracing_config(Some(tracing_config.clone()));
+        }
+        if let Some(ref retry_options) = self.core.retry_options {
+            client.set_retry_options(Some(retry_options.clone()));
+        }
 
         // Step 7: Install HTTP interceptors
-        let mut interceptors = self.http_interceptors;
-        if self.http_debug {
-            interceptors.push(Arc::new(LoggingInterceptor));
-        }
+        let interceptors = self.core.get_http_interceptors();
         if !interceptors.is_empty() {
             client = client.with_http_interceptors(interceptors);
         }
 
-        // Step 8: Install automatic middlewares based on provider and model
+        // Step 8: Install automatic middlewares
         let model_id = model_for_middleware
             .as_deref()
             .unwrap_or(&model_from_common_params);
-        let middlewares = crate::middleware::build_auto_middlewares_vec("ollama", model_id);
-        client = client.with_model_middlewares(middlewares);
+        let middlewares = self.core.get_auto_middlewares("ollama", model_id);
+        if !middlewares.is_empty() {
+            client = client.with_model_middlewares(middlewares);
+        }
 
         Ok(client)
     }

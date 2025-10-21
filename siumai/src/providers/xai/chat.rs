@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use crate::error::LlmError;
 use crate::provider_core::ProviderSpec;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::*;
 
@@ -15,12 +15,13 @@ use crate::types::*;
 use super::utils::*;
 use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::utils::http_interceptor::HttpInterceptor;
+use secrecy::SecretString;
 use std::sync::Arc;
 
 /// `xAI` Chat Capability Implementation
 #[derive(Clone)]
 pub struct XaiChatCapability {
-    pub api_key: String,
+    pub api_key: SecretString,
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
@@ -33,8 +34,8 @@ pub struct XaiChatCapability {
 
 impl XaiChatCapability {
     /// Create a new `xAI` chat capability instance
-    pub const fn new(
-        api_key: String,
+    pub fn new(
+        api_key: SecretString,
         base_url: String,
         http_client: reqwest::Client,
         http_config: HttpConfig,
@@ -73,10 +74,11 @@ impl ChatCapability for XaiChatCapability {
             ..Default::default()
         };
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "xai",
             self.base_url.clone(),
-            Some(self.api_key.clone()),
+            Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
         let spec = crate::providers::xai::spec::XaiSpec;
@@ -130,10 +132,11 @@ impl ChatCapability for XaiChatCapability {
         };
 
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "xai",
             self.base_url.clone(),
-            Some(self.api_key.clone()),
+            Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
         let spec = crate::providers::xai::spec::XaiSpec;
@@ -186,9 +189,10 @@ impl XaiChatCapability {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { build_headers(&api_key, &custom_headers) })
+            Box::pin(async move { build_headers(api_key.expose_secret(), &custom_headers) })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<

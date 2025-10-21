@@ -1,7 +1,7 @@
 //! Anthropic streaming fixtures tests
 
 use siumai::providers::anthropic::streaming::AnthropicEventConverter;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::params::AnthropicParams;
 
 #[path = "../support/stream_fixture.rs"]

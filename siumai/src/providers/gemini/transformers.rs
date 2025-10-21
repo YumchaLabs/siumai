@@ -4,6 +4,7 @@
 //! between non-streaming and streaming paths.
 
 use crate::error::LlmError;
+use crate::streaming::SseEventConverter;
 use crate::transformers::files::{FilesHttpBody, FilesTransformer};
 use crate::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
@@ -16,7 +17,6 @@ use crate::types::ImageGenerationRequest;
 use crate::types::{
     ChatRequest, ChatResponse, FinishReason, FunctionCall, MessageContent, ToolCall, Usage,
 };
-use crate::utils::streaming::SseEventConverter;
 use eventsource_stream::Event;
 use std::future::Future;
 use std::pin::Pin;
@@ -693,14 +693,16 @@ mod files_tests {
     use crate::transformers::files::{FilesHttpBody, FilesTransformer};
 
     fn sample_config() -> GeminiConfig {
+        use secrecy::SecretString;
         GeminiConfig {
-            api_key: "x".into(),
+            api_key: SecretString::from("x".to_string()),
             base_url: "https://example.com".into(),
             model: "gemini-1.5-flash".into(),
+            common_params: crate::types::CommonParams::default(),
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
-            http_config: Some(crate::types::HttpConfig::default()),
+            http_config: crate::types::HttpConfig::default(),
             token_provider: None,
         }
     }
@@ -779,14 +781,16 @@ mod images_tests {
     use crate::transformers::response::ResponseTransformer;
 
     fn cfg() -> GeminiConfig {
+        use secrecy::SecretString;
         GeminiConfig {
-            api_key: "x".into(),
+            api_key: SecretString::from("x".to_string()),
             base_url: "https://example.com".into(),
             model: "gemini-1.5-flash".into(),
+            common_params: crate::types::CommonParams::default(),
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
-            http_config: Some(crate::types::HttpConfig::default()),
+            http_config: crate::types::HttpConfig::default(),
             token_provider: None,
         }
     }
@@ -836,14 +840,16 @@ mod embeddings_tests {
     use crate::transformers::response::ResponseTransformer;
 
     fn cfg() -> GeminiConfig {
+        use secrecy::SecretString;
         GeminiConfig {
-            api_key: "x".into(),
+            api_key: SecretString::from("x".to_string()),
             base_url: "https://example.com".into(),
             model: "gemini-embedding-001".into(),
+            common_params: crate::types::CommonParams::default(),
             generation_config: None,
             safety_settings: None,
             timeout: Some(30),
-            http_config: Some(crate::types::HttpConfig::default()),
+            http_config: crate::types::HttpConfig::default(),
             token_provider: None,
         }
     }
@@ -936,7 +942,7 @@ impl StreamChunkTransformer for GeminiStreamChunkTransformer {
         event: Event,
     ) -> Pin<
         Box<
-            dyn Future<Output = Vec<Result<crate::stream::ChatStreamEvent, LlmError>>>
+            dyn Future<Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>>
                 + Send
                 + Sync
                 + '_,
@@ -945,7 +951,7 @@ impl StreamChunkTransformer for GeminiStreamChunkTransformer {
         self.inner.convert_event(event)
     }
 
-    fn handle_stream_end(&self) -> Option<Result<crate::stream::ChatStreamEvent, LlmError>> {
+    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.inner.handle_stream_end()
     }
 }

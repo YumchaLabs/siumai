@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::time::Instant;
 
 use crate::error::LlmError;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::tracing::ProviderTracer;
 use crate::traits::ChatCapability;
 use crate::types::*;

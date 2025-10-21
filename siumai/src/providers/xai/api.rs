@@ -6,6 +6,7 @@ use crate::error::LlmError;
 use crate::traits::ModelListingCapability;
 use crate::types::{HttpConfig, ModelInfo};
 use async_trait::async_trait;
+use secrecy::SecretString;
 
 use super::types::*;
 use super::utils::build_headers;
@@ -13,7 +14,7 @@ use super::utils::build_headers;
 /// xAI Models API implementation
 #[derive(Debug, Clone)]
 pub struct XaiModels {
-    pub api_key: String,
+    pub api_key: SecretString,
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
@@ -21,8 +22,8 @@ pub struct XaiModels {
 
 impl XaiModels {
     /// Create a new xAI models API instance
-    pub const fn new(
-        api_key: String,
+    pub fn new(
+        api_key: SecretString,
         base_url: String,
         http_client: reqwest::Client,
         http_config: HttpConfig,
@@ -86,8 +87,9 @@ impl XaiModels {
 
     /// List models from xAI API
     async fn list_models_from_api(&self) -> Result<Vec<ModelInfo>, LlmError> {
+        use secrecy::ExposeSecret;
         let url = format!("{}/models", self.base_url);
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
+        let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
 
         let response = self.http_client.get(&url).headers(headers).send().await?;
 
@@ -115,8 +117,9 @@ impl XaiModels {
 
     /// Get specific model from xAI API
     async fn get_model_from_api(&self, model_id: String) -> Result<ModelInfo, LlmError> {
+        use secrecy::ExposeSecret;
         let url = format!("{}/models/{}", self.base_url, model_id);
-        let headers = build_headers(&self.api_key, &self.http_config.headers)?;
+        let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
 
         let response = self.http_client.get(&url).headers(headers).send().await?;
 
@@ -214,8 +217,9 @@ mod tests {
     use crate::types::HttpConfig;
 
     fn create_test_models() -> XaiModels {
+        use secrecy::SecretString;
         XaiModels::new(
-            "test-api-key".to_string(),
+            SecretString::from("test-api-key".to_string()),
             "https://api.x.ai/v1".to_string(),
             reqwest::Client::new(),
             HttpConfig::default(),

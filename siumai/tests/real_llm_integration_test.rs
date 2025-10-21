@@ -71,7 +71,7 @@
 use futures::StreamExt;
 use siumai::prelude::*;
 use siumai::providers::openai_compatible::providers::models::{deepseek, groq};
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::traits::ModelListingCapability;
 use std::env;
 

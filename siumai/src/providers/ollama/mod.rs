@@ -8,7 +8,6 @@
 //! - `client.rs` - Main Ollama client that aggregates all capabilities
 //! - `config.rs` - Configuration structures and validation
 //! - `chat.rs` - Chat completion capability implementation
-//! - `completion.rs` - Text completion capability implementation
 //! - `embeddings.rs` - Text embedding capability implementation
 //! - `models.rs` - Model management capability implementation
 //! - `types.rs` - Ollama-specific type definitions
@@ -51,7 +50,6 @@ pub mod utils;
 // Capability modules
 pub mod builder;
 pub mod chat;
-pub mod completion;
 pub mod embeddings;
 pub mod models;
 pub mod streaming;

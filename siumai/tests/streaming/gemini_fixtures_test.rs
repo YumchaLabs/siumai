@@ -2,7 +2,7 @@
 
 use siumai::providers::gemini::streaming::GeminiEventConverter;
 use siumai::providers::gemini::types::GeminiConfig;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 
 #[path = "../support/stream_fixture.rs"]
 mod support;

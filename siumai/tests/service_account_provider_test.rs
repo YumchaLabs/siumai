@@ -1,3 +1,4 @@
+#![cfg(feature = "gcp")]
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

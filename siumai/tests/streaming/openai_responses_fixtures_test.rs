@@ -1,7 +1,7 @@
 //! OpenAI Responses API streaming fixtures tests
 
 use siumai::providers::openai::responses::OpenAiResponsesEventConverter;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 
 #[path = "../support/stream_fixture.rs"]
 mod support;

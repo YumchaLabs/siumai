@@ -58,7 +58,7 @@ pub mod streaming;
 pub mod transformers;
 
 // Re-export main types for convenience
-pub use builder::{GroqBuilder, GroqBuilderWrapper};
+pub use builder::GroqBuilder;
 pub use client::GroqClient;
 pub use config::GroqConfig;
 pub use types::*;

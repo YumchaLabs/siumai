@@ -3,12 +3,13 @@
 //! Implements the `ChatCapability` trait for `Groq`.
 
 use async_trait::async_trait;
+use secrecy::SecretString;
 // use std::time::Instant; // replaced by executor path
 
 use crate::error::LlmError;
 use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::provider_core::ProviderSpec;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::*;
 use crate::utils::http_interceptor::HttpInterceptor;
@@ -20,7 +21,7 @@ use std::sync::Arc;
 /// `Groq` Chat Capability Implementation
 #[derive(Clone)]
 pub struct GroqChatCapability {
-    pub api_key: String,
+    pub api_key: SecretString,
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
@@ -34,7 +35,7 @@ pub struct GroqChatCapability {
 impl GroqChatCapability {
     /// Create a new `Groq` chat capability instance
     pub fn new(
-        api_key: String,
+        api_key: SecretString,
         base_url: String,
         http_client: reqwest::Client,
         http_config: HttpConfig,
@@ -73,10 +74,11 @@ impl ChatCapability for GroqChatCapability {
             ..Default::default()
         };
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "groq",
             self.base_url.clone(),
-            Some(self.api_key.clone()),
+            Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
         let spec = crate::providers::groq::spec::GroqSpec;
@@ -130,10 +132,11 @@ impl ChatCapability for GroqChatCapability {
         };
 
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "groq",
             self.base_url.clone(),
-            Some(self.api_key.clone()),
+            Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
         let spec = crate::providers::groq::spec::GroqSpec;

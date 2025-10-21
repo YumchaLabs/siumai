@@ -51,7 +51,7 @@ pub mod transformers;
 
 // Re-export main types for convenience
 pub use api::XaiModels;
-pub use builder::{XaiBuilder, XaiBuilderWrapper};
+pub use builder::XaiBuilder;
 pub use client::XaiClient;
 pub use config::XaiConfig;
 pub use types::*;

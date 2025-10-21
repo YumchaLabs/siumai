@@ -1,11 +1,8 @@
-//! Utility helpers
+//! MIME Type Detection Utilities
 //!
-//! This module contains small utility functions for common tasks like
-//! MIME type detection and Vertex AI URL construction.
-
-// ============================================================================
-// MIME Type Detection
-// ============================================================================
+//! This module provides utilities for detecting MIME types from file bytes,
+//! file paths, or URLs. It supports both magic number detection (via the `infer` crate)
+//! and extension-based detection.
 
 /// Guess MIME by inspecting bytes (magic numbers)
 pub fn guess_mime_from_bytes(bytes: &[u8]) -> Option<String> {
@@ -94,45 +91,9 @@ pub fn guess_mime(bytes: Option<&[u8]>, path_or_url: Option<&str>) -> String {
     "application/octet-stream".to_string()
 }
 
-// ============================================================================
-// Vertex AI Helpers
-// ============================================================================
-
-/// Build a Vertex AI base URL given project, location and publisher.
-///
-/// Example:
-/// - publisher "google" for Gemini
-/// - publisher "anthropic" for Claude on Vertex
-pub fn vertex_base_url(project: &str, location: &str, publisher: &str) -> String {
-    // Prefer the global host; regional hosts are also valid but not necessary here.
-    // https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/{publisher}
-    format!(
-        "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/{}",
-        project, location, publisher
-    )
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_vertex_base_url() {
-        let url = vertex_base_url("myproj", "us-central1", "google");
-        assert_eq!(
-            url,
-            "https://aiplatform.googleapis.com/v1/projects/myproj/locations/us-central1/publishers/google"
-        );
-        let url2 = vertex_base_url("myproj", "global", "anthropic");
-        assert_eq!(
-            url2,
-            "https://aiplatform.googleapis.com/v1/projects/myproj/locations/global/publishers/anthropic"
-        );
-    }
 
     #[test]
     fn test_guess_mime_from_path() {

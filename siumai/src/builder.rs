@@ -444,58 +444,62 @@ impl LlmBuilder {
             return Ok(client.clone());
         }
 
-        // Build a new client with the configured settings
-        let mut builder = reqwest::Client::builder();
+        // Convert LlmBuilder fields to HttpConfig and use unified builder
+        let config = crate::types::HttpConfig {
+            timeout: self.timeout,
+            connect_timeout: self.connect_timeout,
+            headers: self.default_headers.clone(),
+            proxy: self.proxy.clone(),
+            user_agent: self.user_agent.clone(),
+            stream_disable_compression: true, // default value
+        };
 
-        if let Some(timeout) = self.timeout {
-            builder = builder.timeout(timeout);
-        }
+        // Use unified HTTP client builder
+        let mut client = crate::utils::http_client::build_http_client_from_config(&config)?;
 
-        if let Some(connect_timeout) = self.connect_timeout {
-            builder = builder.connect_timeout(connect_timeout);
-        }
+        // Apply http2_prior_knowledge if set (not part of HttpConfig)
+        if self.http2_prior_knowledge.is_some() {
+            // Need to rebuild with http2_prior_knowledge
+            let mut builder = reqwest::Client::builder();
 
-        if let Some(user_agent) = &self.user_agent {
-            builder = builder.user_agent(user_agent);
-        }
+            if let Some(timeout) = config.timeout {
+                builder = builder.timeout(timeout);
+            }
+            if let Some(connect_timeout) = config.connect_timeout {
+                builder = builder.connect_timeout(connect_timeout);
+            }
+            if let Some(proxy_url) = &config.proxy {
+                let proxy = reqwest::Proxy::all(proxy_url)
+                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
+                builder = builder.proxy(proxy);
+            }
+            if let Some(user_agent) = &config.user_agent {
+                builder = builder.user_agent(user_agent);
+            }
 
-        if let Some(_http2) = self.http2_prior_knowledge {
-            // Note: http2_prior_knowledge() doesn't take parameters in newer reqwest versions
             builder = builder.http2_prior_knowledge();
-        }
 
-        // Note: gzip and brotli are enabled by default in reqwest
-        // These methods may not be available in all versions
+            if !config.headers.is_empty() {
+                let mut headers = reqwest::header::HeaderMap::new();
+                for (k, v) in &config.headers {
+                    let name =
+                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
+                            LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
+                        })?;
+                    let value = reqwest::header::HeaderValue::from_str(v).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Invalid header value for '{k}': {e}"))
+                    })?;
+                    headers.insert(name, value);
+                }
+                builder = builder.default_headers(headers);
+            }
 
-        if let Some(proxy_url) = &self.proxy {
-            let proxy = reqwest::Proxy::all(proxy_url)
-                .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
-            builder = builder.proxy(proxy);
-        }
-
-        // Note: cookie_store and redirect policy configuration
-        // may require different approaches in different reqwest versions
-
-        // Add default headers
-        let mut headers = reqwest::header::HeaderMap::new();
-        for (name, value) in &self.default_headers {
-            let header_name =
-                reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
-                    LlmError::ConfigurationError(format!("Invalid header name '{name}': {e}"))
-                })?;
-            let header_value = reqwest::header::HeaderValue::from_str(value).map_err(|e| {
-                LlmError::ConfigurationError(format!("Invalid header value '{value}': {e}"))
+            client = builder.build().map_err(|e| {
+                LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}"))
             })?;
-            headers.insert(header_name, header_value);
         }
 
-        if !headers.is_empty() {
-            builder = builder.default_headers(headers);
-        }
-
-        builder
-            .build()
-            .map_err(|e| LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}")))
+        Ok(client)
     }
 }
 
@@ -548,17 +552,21 @@ mod tests {
 
         // Test OpenAI builder inherits HTTP config
         let openai_builder = base_builder.clone().openai();
-        assert_eq!(openai_builder.base.timeout, Some(Duration::from_secs(60)));
         assert_eq!(
-            openai_builder.base.proxy,
+            openai_builder.core.base.timeout,
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(
+            openai_builder.core.base.proxy,
             Some("http://proxy.example.com:8080".to_string())
         );
         assert_eq!(
-            openai_builder.base.user_agent,
+            openai_builder.core.base.user_agent,
             Some("test-agent/1.0".to_string())
         );
         assert!(
             openai_builder
+                .core
                 .base
                 .default_headers
                 .contains_key("X-Test-Header")
@@ -567,43 +575,52 @@ mod tests {
         // Test Anthropic builder inherits HTTP config
         let anthropic_builder = base_builder.clone().anthropic();
         assert_eq!(
-            anthropic_builder.base.timeout,
+            anthropic_builder.core.base.timeout,
             Some(Duration::from_secs(60))
         );
         assert_eq!(
-            anthropic_builder.base.proxy,
+            anthropic_builder.core.base.proxy,
             Some("http://proxy.example.com:8080".to_string())
         );
 
         // Test Gemini builder inherits HTTP config
         let gemini_builder = base_builder.clone().gemini();
-        assert_eq!(gemini_builder.base.timeout, Some(Duration::from_secs(60)));
         assert_eq!(
-            gemini_builder.base.proxy,
+            gemini_builder.core.base.timeout,
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(
+            gemini_builder.core.base.proxy,
             Some("http://proxy.example.com:8080".to_string())
         );
 
         // Test Ollama builder inherits HTTP config
         let ollama_builder = base_builder.clone().ollama();
-        assert_eq!(ollama_builder.base.timeout, Some(Duration::from_secs(60)));
         assert_eq!(
-            ollama_builder.base.proxy,
+            ollama_builder.core.base.timeout,
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(
+            ollama_builder.core.base.proxy,
             Some("http://proxy.example.com:8080".to_string())
         );
 
         // Test xAI wrapper inherits HTTP config
         let xai_wrapper = base_builder.clone().xai();
-        assert_eq!(xai_wrapper.base.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(xai_wrapper.core.base.timeout, Some(Duration::from_secs(60)));
         assert_eq!(
-            xai_wrapper.base.proxy,
+            xai_wrapper.core.base.proxy,
             Some("http://proxy.example.com:8080".to_string())
         );
 
         // Test Groq wrapper inherits HTTP config
         let groq_wrapper = base_builder.groq();
-        assert_eq!(groq_wrapper.base.timeout, Some(Duration::from_secs(60)));
         assert_eq!(
-            groq_wrapper.base.proxy,
+            groq_wrapper.core.base.timeout,
+            Some(Duration::from_secs(60))
+        );
+        assert_eq!(
+            groq_wrapper.core.base.proxy,
             Some("http://proxy.example.com:8080".to_string())
         );
     }

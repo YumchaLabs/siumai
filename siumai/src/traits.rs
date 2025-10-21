@@ -24,9 +24,6 @@ pub use moderation::ModerationCapability;
 mod model_listing;
 pub use model_listing::ModelListingCapability;
 
-mod completion;
-pub use completion::CompletionCapability;
-
 mod timeout;
 pub use timeout::TimeoutCapability;
 
@@ -84,7 +81,6 @@ mod tests {
             let _: Option<Arc<dyn FileManagementCapability>> = None;
             let _: Option<Arc<dyn ModerationCapability>> = None;
             let _: Option<Arc<dyn ModelListingCapability>> = None;
-            let _: Option<Arc<dyn CompletionCapability>> = None;
             let _: Option<Arc<dyn OpenAiCapability>> = None;
             let _: Option<Arc<dyn AnthropicCapability>> = None;
             let _: Option<Arc<dyn GeminiCapability>> = None;
@@ -125,7 +121,7 @@ mod tests {
                 &self,
                 _messages: Vec<ChatMessage>,
                 _tools: Option<Vec<Tool>>,
-            ) -> Result<crate::stream::ChatStream, crate::error::LlmError> {
+            ) -> Result<crate::streaming::ChatStream, crate::error::LlmError> {
                 Err(crate::error::LlmError::UnsupportedOperation(
                     "Mock streaming not implemented".to_string(),
                 ))

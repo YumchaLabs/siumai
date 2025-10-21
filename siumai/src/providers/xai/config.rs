@@ -4,7 +4,9 @@
 
 use std::collections::HashMap;
 
+use crate::error::LlmError;
 use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
+use secrecy::SecretString;
 
 /// `xAI` provider configuration.
 ///
@@ -14,9 +16,10 @@ use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
 /// # Example
 /// ```rust
 /// use siumai::providers::xai::XaiConfig;
+/// use secrecy::SecretString;
 ///
 /// let config = XaiConfig {
-///     api_key: "your-api-key".to_string(),
+///     api_key: SecretString::from("your-api-key"),
 ///     base_url: "https://api.x.ai/v1".to_string(),
 ///     common_params: Default::default(),
 ///     http_config: Default::default(),
@@ -25,8 +28,8 @@ use crate::types::{CommonParams, HttpConfig, WebSearchConfig};
 /// ```
 #[derive(Debug, Clone)]
 pub struct XaiConfig {
-    /// `xAI` API key
-    pub api_key: String,
+    /// `xAI` API key (securely stored)
+    pub api_key: SecretString,
 
     /// Base URL for the `xAI` API
     pub base_url: String,
@@ -51,7 +54,7 @@ impl XaiConfig {
     /// A new configuration with default settings
     pub fn new<S: Into<String>>(api_key: S) -> Self {
         Self {
-            api_key: api_key.into(),
+            api_key: SecretString::from(api_key.into()),
             base_url: "https://api.x.ai/v1".to_string(),
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
@@ -118,7 +121,8 @@ impl XaiConfig {
     /// # Returns
     /// The authorization header value for API requests
     pub fn auth_header(&self) -> String {
-        format!("Bearer {}", self.api_key)
+        use secrecy::ExposeSecret;
+        format!("Bearer {}", self.api_key.expose_secret())
     }
 
     /// Get all HTTP headers needed for `xAI` API requests.
@@ -141,30 +145,41 @@ impl XaiConfig {
     ///
     /// # Returns
     /// Result indicating whether the configuration is valid
-    pub fn validate(&self) -> Result<(), String> {
-        if self.api_key.is_empty() {
-            return Err("API key cannot be empty".to_string());
+    pub fn validate(&self) -> Result<(), LlmError> {
+        use secrecy::ExposeSecret;
+        if self.api_key.expose_secret().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "API key cannot be empty".to_string(),
+            ));
         }
 
         if self.base_url.is_empty() {
-            return Err("Base URL cannot be empty".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Base URL cannot be empty".to_string(),
+            ));
         }
 
         if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
-            return Err("Base URL must start with http:// or https://".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Base URL must start with http:// or https://".to_string(),
+            ));
         }
 
         // Validate common parameters
         if let Some(temp) = self.common_params.temperature
             && !(0.0..=2.0).contains(&temp)
         {
-            return Err("Temperature must be between 0.0 and 2.0".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Temperature must be between 0.0 and 2.0".to_string(),
+            ));
         }
 
         if let Some(top_p) = self.common_params.top_p
             && !(0.0..=1.0).contains(&top_p)
         {
-            return Err("Top-p must be between 0.0 and 1.0".to_string());
+            return Err(LlmError::ConfigurationError(
+                "Top-p must be between 0.0 and 1.0".to_string(),
+            ));
         }
 
         Ok(())
@@ -174,7 +189,7 @@ impl XaiConfig {
 impl Default for XaiConfig {
     fn default() -> Self {
         Self {
-            api_key: String::new(),
+            api_key: SecretString::from(String::new()),
             base_url: "https://api.x.ai/v1".to_string(),
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
@@ -189,17 +204,19 @@ mod tests {
 
     #[test]
     fn test_config_creation() {
+        use secrecy::ExposeSecret;
         let config = XaiConfig::new("test-key");
-        assert_eq!(config.api_key, "test-key");
+        assert_eq!(config.api_key.expose_secret(), "test-key");
         assert_eq!(config.base_url, "https://api.x.ai/v1");
     }
 
     #[test]
     fn test_config_validation() {
+        use secrecy::SecretString;
         let mut config = XaiConfig::new("test-key");
         assert!(config.validate().is_ok());
 
-        config.api_key = String::new();
+        config.api_key = SecretString::from(String::new());
         assert!(config.validate().is_err());
     }
 

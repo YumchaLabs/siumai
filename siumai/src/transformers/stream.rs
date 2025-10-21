@@ -4,7 +4,7 @@
 //! This is similar to Cherry Studio's ResponseChunkTransformer.
 
 use crate::error::LlmError;
-use crate::stream::ChatStreamEvent;
+use crate::streaming::ChatStreamEvent;
 use eventsource_stream::Event;
 use std::future::Future;
 use std::pin::Pin;

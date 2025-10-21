@@ -3,6 +3,7 @@
 //! Main client structure that aggregates all Anthropic capabilities.
 
 use async_trait::async_trait;
+use secrecy::SecretString;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
@@ -12,7 +13,7 @@ use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::params::AnthropicParams;
 use crate::provider_core::ProviderSpec;
 use crate::retry_api::RetryOptions;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 use crate::utils::http_interceptor::HttpInterceptor;
@@ -24,8 +25,8 @@ use super::utils::get_default_models;
 
 /// Anthropic Client
 pub struct AnthropicClient {
-    /// API key and endpoint configuration
-    api_key: String,
+    /// API key and endpoint configuration (securely stored)
+    api_key: SecretString,
     base_url: String,
     http_client: reqwest::Client,
     http_config: HttpConfig,
@@ -113,6 +114,7 @@ impl AnthropicClient {
         anthropic_params: AnthropicParams,
         http_config: HttpConfig,
     ) -> Self {
+        let api_key = SecretString::from(api_key);
         let specific_params = AnthropicSpecificParams::default();
 
         let models_capability = AnthropicModels::new(
@@ -246,10 +248,11 @@ impl AnthropicClient {
         };
 
         // Route via ProviderSpec
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "anthropic",
             self.base_url.clone(),
-            Some(self.api_key.clone()),
+            Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
         let spec = crate::providers::anthropic::spec::AnthropicSpec;
@@ -325,10 +328,11 @@ impl ChatCapability for AnthropicClient {
         };
 
         // Route via ProviderSpec
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "anthropic",
             self.base_url.clone(),
-            Some(self.api_key.clone()),
+            Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
         let spec = crate::providers::anthropic::spec::AnthropicSpec;
@@ -380,10 +384,12 @@ impl ChatCapability for AnthropicClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
             Box::pin(async move {
-                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+                let mut headers =
+                    super::utils::build_headers(api_key.expose_secret(), &custom_headers)?;
                 crate::utils::http_headers::inject_tracing_headers(&mut headers);
                 Ok(headers)
             })
@@ -431,10 +437,12 @@ impl ChatCapability for AnthropicClient {
         let api_key_clone = api_key.clone();
         let custom_headers_clone = custom_headers.clone();
         let headers_builder = move || {
+            use secrecy::ExposeSecret;
             let api_key = api_key_clone.clone();
             let custom_headers = custom_headers_clone.clone();
             Box::pin(async move {
-                let mut headers = super::utils::build_headers(&api_key, &custom_headers)?;
+                let mut headers =
+                    super::utils::build_headers(api_key.expose_secret(), &custom_headers)?;
                 crate::utils::http_headers::inject_tracing_headers(&mut headers);
                 Ok(headers)
             })

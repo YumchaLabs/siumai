@@ -8,7 +8,7 @@ use tokio::sync::oneshot;
 
 use super::types::{OrchestratorStreamOptions, StepResult, ToolApproval, ToolResolver};
 use crate::error::LlmError;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatResponse, MessageContent, Tool};
 

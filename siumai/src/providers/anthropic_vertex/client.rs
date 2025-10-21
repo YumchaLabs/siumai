@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::error::LlmError;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::middleware::language_model::LanguageModelMiddleware;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
 use crate::utils::http_interceptor::HttpInterceptor;

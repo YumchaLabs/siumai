@@ -4,7 +4,7 @@
 //! produces a StreamEnd.
 
 use siumai::error::LlmError;
-use siumai::stream::ChatStreamEvent;
+use siumai::streaming::ChatStreamEvent;
 use siumai::utils::streaming::SseEventConverter;
 
 #[tokio::test]

@@ -13,7 +13,7 @@ use crate::types::ChatRequest;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::middleware::language_model::LanguageModelMiddleware;
 use crate::provider_core::ProviderSpec;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, Tool};
 use crate::utils::http_interceptor::HttpInterceptor;
@@ -85,15 +85,12 @@ impl ChatCapability for GeminiChatCapability {
 
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
-            Some(self.config.api_key.clone()),
-            self.config
-                .http_config
-                .clone()
-                .map(|c| c.headers)
-                .unwrap_or_default(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
         );
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
@@ -133,12 +130,7 @@ impl ChatCapability for GeminiChatCapability {
             response_transformer: Arc::new(resp_tx),
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: self
-                .config
-                .http_config
-                .as_ref()
-                .map(|h| h.stream_disable_compression)
-                .unwrap_or(true),
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
             build_url: Box::new(build_url),
@@ -166,15 +158,12 @@ impl ChatCapability for GeminiChatCapability {
 
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;
+        use secrecy::ExposeSecret;
         let ctx = crate::provider_core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
-            Some(self.config.api_key.clone()),
-            self.config
-                .http_config
-                .clone()
-                .map(|c| c.headers)
-                .unwrap_or_default(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
         );
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
@@ -219,12 +208,7 @@ impl ChatCapability for GeminiChatCapability {
             response_transformer: Arc::new(resp_tx),
             stream_transformer: Some(Arc::new(stream_tx)),
             json_stream_converter: None,
-            stream_disable_compression: self
-                .config
-                .http_config
-                .as_ref()
-                .map(|h| h.stream_disable_compression)
-                .unwrap_or(true),
+            stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
             build_url: Box::new(build_url),

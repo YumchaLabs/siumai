@@ -3,7 +3,7 @@
 //! Defines a unified LLM client interface with dynamic dispatch support.
 
 use crate::error::LlmError;
-use crate::stream::ChatStream;
+use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 

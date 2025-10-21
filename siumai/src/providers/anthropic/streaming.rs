@@ -5,11 +5,12 @@
 
 use crate::error::LlmError;
 use crate::params::AnthropicParams;
-use crate::stream::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::transformers::request::RequestTransformer;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
-use crate::utils::streaming::{SseEventConverter, StreamFactory};
 use eventsource_stream::Event;
+use secrecy::SecretString;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::future::Future;
@@ -111,7 +112,7 @@ impl AnthropicEventConverter {
 
     /// Convert Anthropic stream event to one or more ChatStreamEvents
     fn convert_anthropic_event(&self, event: AnthropicStreamEvent) -> Vec<ChatStreamEvent> {
-        use crate::utils::streaming::EventBuilder;
+        use crate::streaming::EventBuilder;
 
         match event.r#type.as_str() {
             "message_start" => {
@@ -285,7 +286,7 @@ impl SseEventConverter for AnthropicEventConverter {
 pub struct AnthropicStreaming {
     config: AnthropicParams,
     http_client: reqwest::Client,
-    api_key: String,
+    api_key: SecretString,
     base_url: String,
     http_config: crate::types::HttpConfig,
 }
@@ -295,7 +296,7 @@ impl AnthropicStreaming {
     pub fn new(
         config: AnthropicParams,
         http_client: reqwest::Client,
-        api_key: String,
+        api_key: SecretString,
         base_url: String,
         http_config: crate::types::HttpConfig,
     ) -> Self {
@@ -331,8 +332,11 @@ impl AnthropicStreaming {
         let body_for_retry = request_body.clone();
         let disable_compression = self.http_config.stream_disable_compression;
         let build_request = move || {
-            let mut headers =
-                crate::utils::http_headers::ProviderHeaders::anthropic(&api_key, &base_headers)?;
+            use secrecy::ExposeSecret;
+            let mut headers = crate::utils::http_headers::ProviderHeaders::anthropic(
+                api_key.expose_secret(),
+                &base_headers,
+            )?;
             crate::utils::http_headers::inject_tracing_headers(&mut headers);
             // Ensure SSE stability: explicit Accept and disable compression on long-lived stream
             let mut builder = http
