@@ -78,7 +78,7 @@ impl ProviderSpec for GeminiSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
+        if let Some(hook) = crate::provider_core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 
@@ -203,6 +203,23 @@ impl ProviderSpec for GeminiSpec {
         ImageTransformers {
             request: std::sync::Arc::new(req_tx),
             response: std::sync::Arc::new(resp_tx),
+        }
+    }
+
+    fn files_base_url(&self, ctx: &ProviderContext) -> String {
+        ctx.base_url.trim_end_matches('/').to_string()
+    }
+
+    fn choose_files_transformer(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> crate::provider_core::FilesTransformer {
+        crate::provider_core::FilesTransformer {
+            transformer: Arc::new(
+                crate::providers::gemini::transformers::GeminiFilesTransformer {
+                    config: crate::providers::gemini::types::GeminiConfig::default(),
+                },
+            ),
         }
     }
 }

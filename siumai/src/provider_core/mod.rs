@@ -101,6 +101,18 @@ pub struct ImageTransformers {
     pub response: Arc<dyn ResponseTransformer>,
 }
 
+/// Audio transformer (for TTS/STT)
+#[derive(Clone)]
+pub struct AudioTransformer {
+    pub transformer: Arc<dyn crate::transformers::audio::AudioTransformer>,
+}
+
+/// Files transformer (for file operations)
+#[derive(Clone)]
+pub struct FilesTransformer {
+    pub transformer: Arc<dyn crate::transformers::files::FilesTransformer>,
+}
+
 /// Provider Specification: unified header building, routing, and transformer selection
 pub trait ProviderSpec: Send + Sync {
     /// Provider identifier (e.g., "openai", "anthropic")
@@ -131,66 +143,7 @@ pub trait ProviderSpec: Send + Sync {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // Default: handle CustomProviderOptions
-        Self::default_custom_options_hook(self.id(), req)
-    }
-
-    /// Default hook for CustomProviderOptions injection
-    ///
-    /// This method provides a standard implementation for injecting custom provider options
-    /// into the request JSON body. All providers automatically support CustomProviderOptions
-    /// through this default implementation.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // In a provider implementation:
-    /// fn chat_before_send(&self, req: &ChatRequest, ctx: &ProviderContext)
-    ///     -> Option<BeforeSendHook> {
-    ///     // 1. First check for CustomProviderOptions
-    ///     if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
-    ///         return Some(hook);
-    ///     }
-    ///
-    ///     // 2. Then handle provider-specific logic
-    ///     // ... your custom logic
-    /// }
-    /// ```
-    fn default_custom_options_hook(
-        provider_id: &str,
-        req: &ChatRequest,
-    ) -> Option<crate::executors::BeforeSendHook> {
-        if let ProviderOptions::Custom {
-            provider_id: custom_provider_id,
-            options,
-        } = &req.provider_options
-        {
-            // Support provider_id matching with aliases (e.g., "gemini" or "google")
-            if Self::matches_provider_id(provider_id, custom_provider_id) {
-                let custom_options = options.clone();
-                let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-                    let mut out = body.clone();
-                    if let Some(obj) = out.as_object_mut() {
-                        // Merge custom options into the request body
-                        for (k, v) in &custom_options {
-                            obj.insert(k.clone(), v.clone());
-                        }
-                    }
-                    Ok(out)
-                };
-                return Some(Arc::new(hook));
-            }
-        }
-        None
-    }
-
-    /// Check if provider_id matches (with alias support)
-    ///
-    /// This allows providers to support multiple identifiers.
-    /// For example, Gemini can be identified as both "gemini" and "google".
-    fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
-        provider_id == custom_id
-            || (provider_id == "gemini" && custom_id == "google")
-            || (provider_id == "google" && custom_id == "gemini")
+        default_custom_options_hook(self.id(), req)
     }
 
     /// Compute embedding route URL (default OpenAI-style)
@@ -215,6 +168,24 @@ pub trait ProviderSpec: Send + Sync {
         format!("{}/images/generations", ctx.base_url.trim_end_matches('/'))
     }
 
+    /// Compute image edit route URL (default OpenAI-compatible)
+    fn image_edit_url(
+        &self,
+        _req: &crate::types::ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
+    }
+
+    /// Compute image variation route URL (default OpenAI-compatible)
+    fn image_variation_url(
+        &self,
+        _req: &crate::types::ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
+    }
+
     /// Choose image transformers (default: unimplemented; implement per provider)
     fn choose_image_transformers(
         &self,
@@ -226,4 +197,89 @@ pub trait ProviderSpec: Send + Sync {
             self.id()
         )
     }
+
+    /// Compute base URL for audio operations (default OpenAI-compatible)
+    fn audio_base_url(&self, ctx: &ProviderContext) -> String {
+        ctx.base_url.trim_end_matches('/').to_string()
+    }
+
+    /// Choose audio transformer (default: unimplemented; implement per provider)
+    fn choose_audio_transformer(&self, _ctx: &ProviderContext) -> AudioTransformer {
+        panic!(
+            "audio transformer not implemented for provider {}",
+            self.id()
+        )
+    }
+
+    /// Compute base URL for files operations (default OpenAI-compatible)
+    fn files_base_url(&self, ctx: &ProviderContext) -> String {
+        ctx.base_url.trim_end_matches('/').to_string()
+    }
+
+    /// Choose files transformer (default: unimplemented; implement per provider)
+    fn choose_files_transformer(&self, _ctx: &ProviderContext) -> FilesTransformer {
+        panic!(
+            "files transformer not implemented for provider {}",
+            self.id()
+        )
+    }
+}
+
+/// Default hook for CustomProviderOptions injection
+///
+/// This function provides a standard implementation for injecting custom provider options
+/// into the request JSON body. All providers automatically support CustomProviderOptions
+/// through this default implementation.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // In a provider implementation:
+/// fn chat_before_send(&self, req: &ChatRequest, ctx: &ProviderContext)
+///     -> Option<BeforeSendHook> {
+///     // 1. First check for CustomProviderOptions
+///     if let Some(hook) = default_custom_options_hook(self.id(), req) {
+///         return Some(hook);
+///     }
+///
+///     // 2. Then handle provider-specific logic
+///     // ... your custom logic
+/// }
+/// ```
+pub fn default_custom_options_hook(
+    provider_id: &str,
+    req: &ChatRequest,
+) -> Option<crate::executors::BeforeSendHook> {
+    if let ProviderOptions::Custom {
+        provider_id: custom_provider_id,
+        options,
+    } = &req.provider_options
+    {
+        // Support provider_id matching with aliases (e.g., "gemini" or "google")
+        if matches_provider_id(provider_id, custom_provider_id) {
+            let custom_options = options.clone();
+            let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                let mut out = body.clone();
+                if let Some(obj) = out.as_object_mut() {
+                    // Merge custom options into the request body
+                    for (k, v) in &custom_options {
+                        obj.insert(k.clone(), v.clone());
+                    }
+                }
+                Ok(out)
+            };
+            return Some(Arc::new(hook));
+        }
+    }
+    None
+}
+
+/// Check if provider_id matches (with alias support)
+///
+/// This allows providers to support multiple identifiers.
+/// For example, Gemini can be identified as both "gemini" and "google".
+pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
+    provider_id == custom_id
+        || (provider_id == "gemini" && custom_id == "google")
+        || (provider_id == "google" && custom_id == "gemini")
 }

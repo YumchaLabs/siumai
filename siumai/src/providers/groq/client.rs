@@ -6,6 +6,7 @@ use async_trait::async_trait;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::provider_core::ProviderSpec;
 use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, ModelListingCapability, ProviderCapabilities,
@@ -189,41 +190,78 @@ impl ChatCapability for GroqClient {
 
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use secrecy::ExposeSecret;
+
+        // Create a simple spec for this legacy method
+        struct SimpleGroqSpec {
+            base_url: String,
+            api_key: String,
+            custom_headers: std::collections::HashMap<String, String>,
+        }
+
+        impl crate::provider_core::ProviderSpec for SimpleGroqSpec {
+            fn id(&self) -> &'static str {
+                "groq"
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new()
+            }
+            fn build_headers(
+                &self,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, LlmError> {
+                super::utils::build_headers(&self.api_key, &self.custom_headers)
+            }
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> String {
+                format!("{}/chat/completions", self.base_url)
+            }
+            fn choose_chat_transformers(
+                &self,
+                _req: &ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                crate::provider_core::ChatTransformers {
+                    request: std::sync::Arc::new(super::transformers::GroqRequestTransformer),
+                    response: std::sync::Arc::new(super::transformers::GroqResponseTransformer),
+                    stream: None,
+                    json: None,
+                }
+            }
+        }
+
+        let spec = Arc::new(SimpleGroqSpec {
+            base_url: self.config.base_url.clone(),
+            api_key: self.config.api_key.expose_secret().to_string(),
+            custom_headers: self.config.http_config.headers.clone(),
+        });
+
+        let ctx = crate::provider_core::ProviderContext::new(
+            "groq",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
-        let custom_headers = self.config.http_config.headers.clone();
-        let req_tx = super::transformers::GroqRequestTransformer;
-        let resp_tx = super::transformers::GroqResponseTransformer;
-        let api_key_clone = api_key.clone();
-        let custom_headers_clone = custom_headers.clone();
-        let headers_builder = move || {
-            use secrecy::ExposeSecret;
-            let api_key = api_key_clone.clone();
-            let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move {
-                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "groq".to_string(),
             http_client: http,
-            request_transformer: std::sync::Arc::new(req_tx),
-            response_transformer: std::sync::Arc::new(resp_tx),
-            stream_transformer: None,
-            json_stream_converter: None,
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            stream_transformer: bundle.stream,
+            json_stream_converter: bundle.json,
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.chat_capability.middlewares.clone(),
-            build_url: Box::new(move |_stream, _req| format!("{}/chat/completions", base)),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute(request).await
@@ -231,46 +269,83 @@ impl ChatCapability for GroqClient {
 
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use secrecy::ExposeSecret;
+
+        // Create a simple spec for this legacy method
+        struct SimpleGroqStreamSpec {
+            base_url: String,
+            api_key: String,
+            custom_headers: std::collections::HashMap<String, String>,
+        }
+
+        impl crate::provider_core::ProviderSpec for SimpleGroqStreamSpec {
+            fn id(&self) -> &'static str {
+                "groq"
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new()
+            }
+            fn build_headers(
+                &self,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, LlmError> {
+                super::utils::build_headers(&self.api_key, &self.custom_headers)
+            }
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> String {
+                format!("{}/chat/completions", self.base_url)
+            }
+            fn choose_chat_transformers(
+                &self,
+                _req: &ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                let inner = super::streaming::GroqEventConverter::new();
+                let stream_tx = super::transformers::GroqStreamChunkTransformer {
+                    provider_id: "groq".to_string(),
+                    inner,
+                };
+                crate::provider_core::ChatTransformers {
+                    request: std::sync::Arc::new(super::transformers::GroqRequestTransformer),
+                    response: std::sync::Arc::new(super::transformers::GroqResponseTransformer),
+                    stream: Some(std::sync::Arc::new(stream_tx)),
+                    json: None,
+                }
+            }
+        }
+
+        let spec = Arc::new(SimpleGroqStreamSpec {
+            base_url: self.config.base_url.clone(),
+            api_key: self.config.api_key.expose_secret().to_string(),
+            custom_headers: self.config.http_config.headers.clone(),
+        });
+
+        let ctx = crate::provider_core::ProviderContext::new(
+            "groq",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
-        let custom_headers = self.config.http_config.headers.clone();
-        let req_tx = super::transformers::GroqRequestTransformer;
-        let resp_tx = super::transformers::GroqResponseTransformer;
-        let inner = super::streaming::GroqEventConverter::new();
-        let stream_tx = super::transformers::GroqStreamChunkTransformer {
-            provider_id: "groq".to_string(),
-            inner,
-        };
-        let api_key_clone = api_key.clone();
-        let custom_headers_clone = custom_headers.clone();
-        let headers_builder = move || {
-            use secrecy::ExposeSecret;
-            let api_key = api_key_clone.clone();
-            let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move {
-                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "groq".to_string(),
             http_client: http,
-            request_transformer: std::sync::Arc::new(req_tx),
-            response_transformer: std::sync::Arc::new(resp_tx),
-            stream_transformer: Some(std::sync::Arc::new(stream_tx)),
-            json_stream_converter: None,
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            stream_transformer: bundle.stream,
+            json_stream_converter: bundle.json,
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.chat_capability.middlewares.clone(),
-            build_url: Box::new(move |_stream, _req| format!("{}/chat/completions", base)),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute_stream(request).await
@@ -291,34 +366,22 @@ impl AudioCapability for GroqClient {
         request: crate::types::TtsRequest,
     ) -> Result<crate::types::TtsResponse, LlmError> {
         use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
-        let custom_headers = self.config.http_config.headers.clone();
-        let transformer = super::transformers::GroqAudioTransformer;
-        let api_key_clone = api_key.clone();
-        let custom_headers_clone = custom_headers.clone();
-        let headers_builder = move || {
-            use secrecy::ExposeSecret;
-            let api_key = api_key_clone.clone();
-            let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move {
-                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+        use secrecy::ExposeSecret;
+
+        let spec = std::sync::Arc::new(super::spec::GroqSpec);
+        let ctx = crate::provider_core::ProviderContext::new(
+            "groq",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
         let exec = HttpAudioExecutor {
             provider_id: "groq".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::GroqAudioTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         let audio_bytes = exec.tts(request).await?;
         Ok(crate::types::TtsResponse {
@@ -335,34 +398,22 @@ impl AudioCapability for GroqClient {
         request: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
         use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.clone();
-        let custom_headers = self.config.http_config.headers.clone();
-        let transformer = super::transformers::GroqAudioTransformer;
-        let api_key_clone = api_key.clone();
-        let custom_headers_clone = custom_headers.clone();
-        let headers_builder = move || {
-            use secrecy::ExposeSecret;
-            let api_key = api_key_clone.clone();
-            let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move {
-                super::utils::build_headers(api_key.expose_secret(), &custom_headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+        use secrecy::ExposeSecret;
+
+        let spec = std::sync::Arc::new(super::spec::GroqSpec);
+        let ctx = crate::provider_core::ProviderContext::new(
+            "groq",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
         let exec = HttpAudioExecutor {
             provider_id: "groq".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::GroqAudioTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         let text = exec.stt(request).await?;
         Ok(crate::types::SttResponse {

@@ -8,7 +8,6 @@ use std::sync::Arc;
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::middleware::LanguageModelMiddleware;
-use crate::provider_core::ProviderSpec;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
@@ -348,25 +347,14 @@ impl ChatCapability for OllamaClient {
         let json_converter: std::sync::Arc<dyn crate::streaming::JsonEventConverter> =
             std::sync::Arc::new(super::streaming::OllamaEventConverter::new());
         // Use ProviderSpec for URL and headers
-        let spec = crate::providers::ollama::spec::OllamaSpec;
+        let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
         let ctx = crate::provider_core::ProviderContext::new(
             "ollama",
             self.base_url.clone(),
             None,
             self.chat_capability.http_config.headers.clone(),
         );
-        let ctx_for_headers = ctx.clone();
-        let headers_builder = move || {
-            let ctx = ctx_for_headers.clone();
-            Box::pin(async move { spec.build_headers(&ctx) })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "ollama".to_string(),
             http_client: http,
@@ -377,8 +365,8 @@ impl ChatCapability for OllamaClient {
             stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |stream, req| spec.chat_url(stream, req, &ctx)),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute_stream(request).await
@@ -387,7 +375,7 @@ impl ChatCapability for OllamaClient {
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
         let http = self.http_client.clone();
-        let spec = crate::providers::ollama::spec::OllamaSpec;
+        let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
         let ctx = crate::provider_core::ProviderContext::new(
             "ollama",
             self.base_url.clone(),
@@ -398,18 +386,6 @@ impl ChatCapability for OllamaClient {
             params: self.ollama_params.clone(),
         };
         let resp_tx = super::transformers::OllamaResponseTransformer;
-        let ctx_for_headers = ctx.clone();
-        let headers_builder = move || {
-            let ctx = ctx_for_headers.clone();
-            Box::pin(async move { spec.build_headers(&ctx) })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
 
         let exec = HttpChatExecutor {
             provider_id: "ollama".to_string(),
@@ -421,8 +397,8 @@ impl ChatCapability for OllamaClient {
             stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(move |stream, req| spec.chat_url(stream, req, &ctx)),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         if let Some(opts) = &self.retry_options {
@@ -432,7 +408,7 @@ impl ChatCapability for OllamaClient {
                 || {
                     let rq = request.clone();
                     let http = self.http_client.clone();
-                    let spec = crate::providers::ollama::spec::OllamaSpec;
+                    let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
                     let ctx = crate::provider_core::ProviderContext::new(
                         "ollama",
                         self.base_url.clone(),
@@ -442,21 +418,7 @@ impl ChatCapability for OllamaClient {
                     let params = self.ollama_params.clone();
                     let interceptors = interceptors.clone();
                     let middlewares = middlewares.clone();
-                    let ctx_for_headers = ctx.clone();
-                    let headers_builder = move || {
-                        let ctx = ctx_for_headers.clone();
-                        Box::pin(async move { spec.build_headers(&ctx) })
-                            as std::pin::Pin<
-                                Box<
-                                    dyn std::future::Future<
-                                            Output = Result<
-                                                reqwest::header::HeaderMap,
-                                                crate::error::LlmError,
-                                            >,
-                                        > + Send,
-                                >,
-                            >
-                    };
+
                     async move {
                         let req_tx = super::transformers::OllamaRequestTransformer { params };
                         let resp_tx = super::transformers::OllamaResponseTransformer;
@@ -470,10 +432,8 @@ impl ChatCapability for OllamaClient {
                             stream_disable_compression: false,
                             interceptors,
                             middlewares,
-                            build_url: Box::new(move |stream, req| {
-                                spec.chat_url(stream, req, &ctx)
-                            }),
-                            build_headers: std::sync::Arc::new(headers_builder),
+                            provider_spec: spec,
+                            provider_context: ctx,
                             before_send: None,
                         };
                         exec2.execute(rq).await

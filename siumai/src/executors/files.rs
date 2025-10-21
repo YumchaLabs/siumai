@@ -5,7 +5,6 @@ use crate::transformers::files::{FilesHttpBody, FilesTransformer};
 use crate::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
 };
-use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
 #[async_trait::async_trait]
@@ -22,27 +21,20 @@ pub struct HttpFilesExecutor {
     pub provider_id: String,
     pub http_client: reqwest::Client,
     pub transformer: Arc<dyn FilesTransformer>,
-    pub build_base_url: Box<dyn Fn() -> String + Send + Sync>,
-    pub build_headers: Box<
-        dyn (Fn() -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<HeaderMap, LlmError>> + Send>,
-            >) + Send
-            + Sync,
-    >,
+    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
+    pub provider_context: crate::provider_core::ProviderContext,
 }
 
 #[async_trait::async_trait]
 impl FilesExecutor for HttpFilesExecutor {
     async fn upload(&self, req: FileUploadRequest) -> Result<FileObject, LlmError> {
-        let url = format!(
-            "{}{}",
-            (self.build_base_url)(),
-            self.transformer.upload_endpoint(&req)
-        );
+        let base_url = self.provider_spec.files_base_url(&self.provider_context);
+        let url = format!("{}{}", base_url, self.transformer.upload_endpoint(&req));
 
         // First attempt
         let body1 = self.transformer.build_upload_body(&req)?;
-        let headers1 = (self.build_headers)().await?;
+        let mut headers1 = self.provider_spec.build_headers(&self.provider_context)?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers1);
         let builder1 = self.http_client.post(&url).headers(headers1);
         let mut resp = match body1 {
             FilesHttpBody::Json(json) => builder1.json(&json).send().await,
@@ -54,7 +46,8 @@ impl FilesExecutor for HttpFilesExecutor {
             if status.as_u16() == 401 {
                 // Rebuild headers and body, then retry once
                 let body2 = self.transformer.build_upload_body(&req)?;
-                let headers2 = (self.build_headers)().await?;
+                let mut headers2 = self.provider_spec.build_headers(&self.provider_context)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers2);
                 let builder2 = self.http_client.post(&url).headers(headers2);
                 resp = match body2 {
                     FilesHttpBody::Json(json) => builder2.json(&json).send().await,
@@ -85,19 +78,23 @@ impl FilesExecutor for HttpFilesExecutor {
 
     async fn list(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
         let endpoint = self.transformer.list_endpoint(&query);
-        let url = format!("{}{}", (self.build_base_url)(), endpoint);
-        let headers = (self.build_headers)().await?;
+        let base_url = self.provider_spec.files_base_url(&self.provider_context);
+        let url = format!("{}{}", base_url, endpoint);
+
+        let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
         let resp_first = self
             .http_client
             .get(&url)
-            .headers(headers)
+            .headers(headers.clone())
             .send()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
         let resp = if !resp_first.status().is_success() {
             let status = resp_first.status();
             if status.as_u16() == 401 {
-                let headers = (self.build_headers)().await?;
+                let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
                 self.http_client
                     .get(&url)
                     .headers(headers)
@@ -129,19 +126,23 @@ impl FilesExecutor for HttpFilesExecutor {
 
     async fn retrieve(&self, file_id: String) -> Result<FileObject, LlmError> {
         let endpoint = self.transformer.retrieve_endpoint(&file_id);
-        let url = format!("{}{}", (self.build_base_url)(), endpoint);
-        let headers = (self.build_headers)().await?;
+        let base_url = self.provider_spec.files_base_url(&self.provider_context);
+        let url = format!("{}{}", base_url, endpoint);
+
+        let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
         let resp_first = self
             .http_client
             .get(&url)
-            .headers(headers)
+            .headers(headers.clone())
             .send()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
         let resp = if !resp_first.status().is_success() {
             let status = resp_first.status();
             if status.as_u16() == 401 {
-                let headers = (self.build_headers)().await?;
+                let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
                 self.http_client
                     .get(&url)
                     .headers(headers)
@@ -173,8 +174,11 @@ impl FilesExecutor for HttpFilesExecutor {
 
     async fn delete(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
         let endpoint = self.transformer.delete_endpoint(&file_id);
-        let url = format!("{}{}", (self.build_base_url)(), endpoint);
-        let headers = (self.build_headers)().await?;
+        let base_url = self.provider_spec.files_base_url(&self.provider_context);
+        let url = format!("{}{}", base_url, endpoint);
+
+        let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
         let resp = self
             .http_client
             .delete(url.clone())
@@ -185,7 +189,8 @@ impl FilesExecutor for HttpFilesExecutor {
         if !resp.status().is_success() {
             let status = resp.status();
             if status.as_u16() == 401 {
-                let headers = (self.build_headers)().await?;
+                let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
                 let resp2 = self
                     .http_client
                     .delete(url)
@@ -226,8 +231,10 @@ impl FilesExecutor for HttpFilesExecutor {
         // Prefer API endpoint if provided; otherwise fall back to URL from file object
         let mut maybe_endpoint = self.transformer.content_endpoint(&file_id);
         let (url, headers, _use_absolute) = if let Some(ep) = maybe_endpoint.take() {
-            let url = format!("{}{}", (self.build_base_url)(), ep);
-            let headers = (self.build_headers)().await?;
+            let base_url = self.provider_spec.files_base_url(&self.provider_context);
+            let url = format!("{}{}", base_url, ep);
+            let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
             (url, headers, false)
         } else {
             let file = self.retrieve(file_id.clone()).await?;
@@ -237,7 +244,8 @@ impl FilesExecutor for HttpFilesExecutor {
                 .ok_or_else(|| {
                     LlmError::UnsupportedOperation("File download URI not available".to_string())
                 })?;
-            let headers = (self.build_headers)().await?;
+            let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut headers);
             (content_url, headers, true)
         };
         let req = self.http_client.get(url.clone());
@@ -249,7 +257,8 @@ impl FilesExecutor for HttpFilesExecutor {
         let resp = if !resp_first.status().is_success() {
             let status = resp_first.status();
             if status.as_u16() == 401 {
-                let headers2 = (self.build_headers)().await?;
+                let mut headers2 = self.provider_spec.build_headers(&self.provider_context)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers2);
                 self.http_client
                     .get(url)
                     .headers(headers2)

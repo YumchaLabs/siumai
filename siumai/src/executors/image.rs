@@ -8,7 +8,6 @@ use crate::transformers::{
 use crate::types::{
     ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
 };
-use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
 #[async_trait::async_trait]
@@ -33,13 +32,8 @@ pub struct HttpImageExecutor {
     pub http_client: reqwest::Client,
     pub request_transformer: Arc<dyn RequestTransformer>,
     pub response_transformer: Arc<dyn ResponseTransformer>,
-    pub build_url: Box<dyn Fn() -> String + Send + Sync>,
-    pub build_headers: Box<
-        dyn (Fn() -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<HeaderMap, LlmError>> + Send>,
-            >) + Send
-            + Sync,
-    >,
+    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
+    pub provider_context: crate::provider_core::ProviderContext,
     /// Optional external parameter transformer (plugin-like), applied to JSON bodies only
     pub before_send: Option<crate::executors::BeforeSendHook>,
 }
@@ -50,32 +44,38 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let url = (self.build_url)();
-        let build_and_send = || async {
-            let body0 = self.request_transformer.transform_image(&req)?;
-            let headers0 = (self.build_headers)().await?;
-            let body0 = if let Some(cb) = &self.before_send {
-                cb(&body0)?
-            } else {
-                body0
-            };
-            let resp0 = self
-                .http_client
-                .post(&url)
-                .headers(headers0)
-                .json(&body0)
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
-            Ok::<reqwest::Response, LlmError>(resp0)
+        let url = self.provider_spec.image_url(&req, &self.provider_context);
+        let headers = self.provider_spec.build_headers(&self.provider_context)?;
+
+        let body = self.request_transformer.transform_image(&req)?;
+        let body = if let Some(cb) = &self.before_send {
+            cb(&body)?
+        } else {
+            body
         };
 
-        let mut resp = build_and_send().await?;
+        let mut resp = self
+            .http_client
+            .post(&url)
+            .headers(headers.clone())
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
         if !resp.status().is_success() {
             let status = resp.status();
             if status.as_u16() == 401 {
-                // Retry once with rebuilt headers/body
-                resp = build_and_send().await?;
+                // Retry once with rebuilt headers
+                let headers = self.provider_spec.build_headers(&self.provider_context)?;
+                resp = self
+                    .http_client
+                    .post(&url)
+                    .headers(headers)
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| LlmError::HttpError(e.to_string()))?;
             } else {
                 let headers = resp.headers().clone();
                 let text = resp.text().await.unwrap_or_default();
@@ -101,23 +101,31 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let url = (self.build_url)();
-        let build_and_send = || async {
-            let body0 = self.request_transformer.transform_image_edit(&req)?;
-            let headers0 = (self.build_headers)().await?;
-            let builder0 = self.http_client.post(&url).headers(headers0);
-            let resp0 = match body0 {
-                ImageHttpBody::Json(json) => builder0.json(&json).send().await,
-                ImageHttpBody::Multipart(form) => builder0.multipart(form).send().await,
-            }
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-            Ok::<reqwest::Response, LlmError>(resp0)
-        };
-        let mut resp = build_and_send().await?;
+        let url = self
+            .provider_spec
+            .image_edit_url(&req, &self.provider_context);
+        let headers = self.provider_spec.build_headers(&self.provider_context)?;
+
+        let body = self.request_transformer.transform_image_edit(&req)?;
+        let builder = self.http_client.post(&url).headers(headers.clone());
+        let mut resp = match body {
+            ImageHttpBody::Json(json) => builder.json(&json).send().await,
+            ImageHttpBody::Multipart(form) => builder.multipart(form).send().await,
+        }
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
         if !resp.status().is_success() {
             let status = resp.status();
             if status.as_u16() == 401 {
-                resp = build_and_send().await?;
+                // Retry once with rebuilt headers
+                let headers = self.provider_spec.build_headers(&self.provider_context)?;
+                let body = self.request_transformer.transform_image_edit(&req)?;
+                let builder = self.http_client.post(&url).headers(headers);
+                resp = match body {
+                    ImageHttpBody::Json(json) => builder.json(&json).send().await,
+                    ImageHttpBody::Multipart(form) => builder.multipart(form).send().await,
+                }
+                .map_err(|e| LlmError::HttpError(e.to_string()))?;
             } else {
                 let headers = resp.headers().clone();
                 let text = resp.text().await.unwrap_or_default();
@@ -143,23 +151,31 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let url = (self.build_url)();
-        let build_and_send = || async {
-            let body0 = self.request_transformer.transform_image_variation(&req)?;
-            let headers0 = (self.build_headers)().await?;
-            let builder0 = self.http_client.post(&url).headers(headers0);
-            let resp0 = match body0 {
-                ImageHttpBody::Json(json) => builder0.json(&json).send().await,
-                ImageHttpBody::Multipart(form) => builder0.multipart(form).send().await,
-            }
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-            Ok::<reqwest::Response, LlmError>(resp0)
-        };
-        let mut resp = build_and_send().await?;
+        let url = self
+            .provider_spec
+            .image_variation_url(&req, &self.provider_context);
+        let headers = self.provider_spec.build_headers(&self.provider_context)?;
+
+        let body = self.request_transformer.transform_image_variation(&req)?;
+        let builder = self.http_client.post(&url).headers(headers.clone());
+        let mut resp = match body {
+            ImageHttpBody::Json(json) => builder.json(&json).send().await,
+            ImageHttpBody::Multipart(form) => builder.multipart(form).send().await,
+        }
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
         if !resp.status().is_success() {
             let status = resp.status();
             if status.as_u16() == 401 {
-                resp = build_and_send().await?;
+                // Retry once with rebuilt headers
+                let headers = self.provider_spec.build_headers(&self.provider_context)?;
+                let body = self.request_transformer.transform_image_variation(&req)?;
+                let builder = self.http_client.post(&url).headers(headers);
+                resp = match body {
+                    ImageHttpBody::Json(json) => builder.json(&json).send().await,
+                    ImageHttpBody::Multipart(form) => builder.multipart(form).send().await,
+                }
+                .map_err(|e| LlmError::HttpError(e.to_string()))?;
             } else {
                 let headers = resp.headers().clone();
                 let text = resp.text().await.unwrap_or_default();

@@ -3,7 +3,6 @@
 use crate::error::LlmError;
 use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
 use crate::types::{SttRequest, TtsRequest};
-use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
 #[async_trait::async_trait]
@@ -16,25 +15,19 @@ pub struct HttpAudioExecutor {
     pub provider_id: String,
     pub http_client: reqwest::Client,
     pub transformer: Arc<dyn AudioTransformer>,
-    pub build_base_url: Box<dyn Fn() -> String + Send + Sync>,
-    pub build_headers: Box<
-        dyn (Fn() -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<HeaderMap, LlmError>> + Send>,
-            >) + Send
-            + Sync,
-    >,
+    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
+    pub provider_context: crate::provider_core::ProviderContext,
 }
 
 #[async_trait::async_trait]
 impl AudioExecutor for HttpAudioExecutor {
     async fn tts(&self, req: TtsRequest) -> Result<Vec<u8>, LlmError> {
         let body = self.transformer.build_tts_body(&req)?;
-        let url = format!(
-            "{}{}",
-            (self.build_base_url)(),
-            self.transformer.tts_endpoint()
-        );
-        let headers = (self.build_headers)().await?;
+        let base_url = self.provider_spec.audio_base_url(&self.provider_context);
+        let url = format!("{}{}", base_url, self.transformer.tts_endpoint());
+
+        let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
 
         let builder = self.http_client.post(url).headers(headers);
         let resp = match body {
@@ -62,12 +55,11 @@ impl AudioExecutor for HttpAudioExecutor {
 
     async fn stt(&self, req: SttRequest) -> Result<String, LlmError> {
         let body = self.transformer.build_stt_body(&req)?;
-        let url = format!(
-            "{}{}",
-            (self.build_base_url)(),
-            self.transformer.stt_endpoint()
-        );
-        let headers = (self.build_headers)().await?;
+        let base_url = self.provider_spec.audio_base_url(&self.provider_context);
+        let url = format!("{}{}", base_url, self.transformer.stt_endpoint());
+
+        let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+        crate::utils::http_headers::inject_tracing_headers(&mut headers);
 
         let builder = self.http_client.post(url).headers(headers);
         let resp = match body {

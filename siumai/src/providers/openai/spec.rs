@@ -2,18 +2,34 @@ use crate::error::LlmError;
 use crate::provider_core::{
     ChatTransformers, EmbeddingTransformers, ProviderContext, ProviderSpec,
 };
-// (no additional trait imports required)
+use crate::standards::openai::chat::OpenAiChatStandard;
+use crate::standards::openai::embedding::OpenAiEmbeddingStandard;
 use crate::traits::ProviderCapabilities;
-use crate::types::{ChatRequest, ProviderOptions};
+use crate::types::{ChatRequest, EmbeddingRequest, ProviderOptions};
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
 /// OpenAI ProviderSpec implementation
-#[derive(Clone, Copy, Default)]
-pub struct OpenAiSpec;
+///
+/// This spec uses the OpenAI standards from the standards layer,
+/// with additional support for OpenAI-specific features like Responses API.
+#[derive(Clone, Default)]
+pub struct OpenAiSpec {
+    /// Standard OpenAI Chat implementation
+    chat_standard: OpenAiChatStandard,
+    /// Standard OpenAI Embedding implementation
+    embedding_standard: OpenAiEmbeddingStandard,
+}
 
 impl OpenAiSpec {
+    pub fn new() -> Self {
+        Self {
+            chat_standard: OpenAiChatStandard::new(),
+            embedding_standard: OpenAiEmbeddingStandard::new(),
+        }
+    }
+
     fn use_responses_api(&self, req: &ChatRequest, _ctx: &ProviderContext) -> bool {
         // Check if Responses API is configured in provider_options
         if let ProviderOptions::OpenAi(ref options) = req.provider_options {
@@ -86,36 +102,9 @@ impl ProviderSpec for OpenAiSpec {
                 json: None,
             }
         } else {
-            let req_tx = crate::providers::openai::transformers::OpenAiRequestTransformer;
-            let resp_tx = crate::providers::openai::transformers::OpenAiResponseTransformer;
-            // Provide a stream transformer via OpenAI-compatible streaming adapter
-            let adapter: std::sync::Arc<
-                dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
-            > = std::sync::Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
-                base_url: ctx.base_url.clone(),
-            });
-            let compat_cfg =
-                crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig::new(
-                    "openai",
-                    ctx.api_key.as_deref().unwrap_or_default(),
-                    &ctx.base_url,
-                    adapter.clone(),
-                )
-                .with_model(&req.common_params.model);
-            let inner =
-                crate::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter::new(
-                    compat_cfg, adapter,
-                );
-            let stream_tx = crate::providers::openai::transformers::OpenAiStreamChunkTransformer {
-                provider_id: "openai".to_string(),
-                inner,
-            };
-            ChatTransformers {
-                request: Arc::new(req_tx),
-                response: Arc::new(resp_tx),
-                stream: Some(Arc::new(stream_tx)),
-                json: None,
-            }
+            // Use standard OpenAI Chat API from standards layer
+            let spec = self.chat_standard.create_spec("openai");
+            spec.choose_chat_transformers(req, ctx)
         }
     }
 
@@ -125,7 +114,7 @@ impl ProviderSpec for OpenAiSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
+        if let Some(hook) = crate::provider_core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 
@@ -332,14 +321,33 @@ impl ProviderSpec for OpenAiSpec {
 
     fn choose_embedding_transformers(
         &self,
-        _req: &crate::types::EmbeddingRequest,
+        _req: &EmbeddingRequest,
         _ctx: &ProviderContext,
     ) -> EmbeddingTransformers {
-        let req_tx = crate::providers::openai::transformers::OpenAiRequestTransformer;
-        let resp_tx = crate::providers::openai::transformers::OpenAiResponseTransformer;
+        // Use standard OpenAI Embedding API from standards layer
         EmbeddingTransformers {
-            request: Arc::new(req_tx),
-            response: Arc::new(resp_tx),
+            request: self.embedding_standard.create_request_transformer("openai"),
+            response: self
+                .embedding_standard
+                .create_response_transformer("openai"),
+        }
+    }
+
+    fn choose_audio_transformer(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> crate::provider_core::AudioTransformer {
+        crate::provider_core::AudioTransformer {
+            transformer: Arc::new(crate::providers::openai::transformers::OpenAiAudioTransformer),
+        }
+    }
+
+    fn choose_files_transformer(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> crate::provider_core::FilesTransformer {
+        crate::provider_core::FilesTransformer {
+            transformer: Arc::new(crate::providers::openai::transformers::OpenAiFilesTransformer),
         }
     }
 }

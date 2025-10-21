@@ -67,7 +67,7 @@ impl ProviderSpec for XaiSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
+        if let Some(hook) = crate::provider_core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 

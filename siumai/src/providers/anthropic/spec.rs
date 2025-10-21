@@ -1,5 +1,6 @@
 use crate::error::LlmError;
 use crate::provider_core::{ChatTransformers, ProviderContext, ProviderSpec};
+use crate::standards::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
@@ -7,8 +8,22 @@ use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
 /// Anthropic ProviderSpec implementation
-#[derive(Clone, Copy, Default)]
-pub struct AnthropicSpec;
+///
+/// This spec uses the Anthropic standard from the standards layer,
+/// with additional support for Anthropic-specific features like Prompt Caching and Thinking Mode.
+#[derive(Clone, Default)]
+pub struct AnthropicSpec {
+    /// Standard Anthropic Chat implementation
+    chat_standard: AnthropicChatStandard,
+}
+
+impl AnthropicSpec {
+    pub fn new() -> Self {
+        Self {
+            chat_standard: AnthropicChatStandard::new(),
+        }
+    }
+}
 
 impl ProviderSpec for AnthropicSpec {
     fn id(&self) -> &'static str {
@@ -40,26 +55,12 @@ impl ProviderSpec for AnthropicSpec {
 
     fn choose_chat_transformers(
         &self,
-        _req: &ChatRequest,
-        _ctx: &ProviderContext,
+        req: &ChatRequest,
+        ctx: &ProviderContext,
     ) -> ChatTransformers {
-        let req_tx =
-            crate::providers::anthropic::transformers::AnthropicRequestTransformer::new(None);
-        let resp_tx = crate::providers::anthropic::transformers::AnthropicResponseTransformer;
-        let stream_converter = crate::providers::anthropic::streaming::AnthropicEventConverter::new(
-            crate::params::AnthropicParams::default(),
-        );
-        let stream_tx =
-            crate::providers::anthropic::transformers::AnthropicStreamChunkTransformer {
-                provider_id: "anthropic".to_string(),
-                inner: stream_converter,
-            };
-        ChatTransformers {
-            request: Arc::new(req_tx),
-            response: Arc::new(resp_tx),
-            stream: Some(Arc::new(stream_tx)),
-            json: None,
-        }
+        // Use standard Anthropic Messages API from standards layer
+        let spec = self.chat_standard.create_spec("anthropic");
+        spec.choose_chat_transformers(req, ctx)
     }
 
     fn chat_before_send(
@@ -68,7 +69,7 @@ impl ProviderSpec for AnthropicSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = Self::default_custom_options_hook(self.id(), req) {
+        if let Some(hook) = crate::provider_core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 

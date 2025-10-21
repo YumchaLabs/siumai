@@ -116,6 +116,12 @@
 - **Async transformation**: Converted authentication system from synchronous to asynchronous
   - Removed `reqwest/blocking` dependency
   - Optimized `tokio` features to minimal subset
+- **Internal architecture refactoring**: Unified executor interface design
+  - Replaced closure-based executor construction with `ProviderSpec` + `ProviderContext` pattern
+  - Refactored all executors: `HttpChatExecutor`, `HttpEmbeddingExecutor`, `HttpImageExecutor`, `HttpAudioExecutor`, `HttpFilesExecutor`
+  - Eliminated closure overhead and reduced code duplication across all providers
+  - Improved performance and maintainability with unified spec-based approach
+  - All providers (OpenAI, Anthropic, Gemini, Groq, Xai, Ollama, etc.) now follow consistent patterns
 
 ### Migration Guide
 

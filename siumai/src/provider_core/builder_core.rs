@@ -19,7 +19,6 @@
 //! - **Extensibility**: New providers can be added with minimal boilerplate
 
 use crate::builder::LlmBuilder;
-use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
 use crate::tracing::TracingConfig;

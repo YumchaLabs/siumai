@@ -81,25 +81,10 @@ impl ChatCapability for XaiChatCapability {
             Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
-        let spec = crate::providers::xai::spec::XaiSpec;
+        let spec = Arc::new(crate::providers::xai::spec::XaiSpec);
         let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let ctx_for_headers = ctx.clone();
-        let headers_builder = move || {
-            let ctx = ctx_for_headers.clone();
-            Box::pin(async move { spec.build_headers(&ctx) })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, req: &crate::types::ChatRequest| {
-            spec.chat_url(stream, req, &ctx_for_url)
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "xai".to_string(),
             http_client: http,
@@ -110,8 +95,8 @@ impl ChatCapability for XaiChatCapability {
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute(request).await
@@ -139,25 +124,10 @@ impl ChatCapability for XaiChatCapability {
             Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
-        let spec = crate::providers::xai::spec::XaiSpec;
+        let spec = Arc::new(crate::providers::xai::spec::XaiSpec);
         let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let ctx_for_headers = ctx.clone();
-        let headers_builder = move || {
-            let ctx = ctx_for_headers.clone();
-            Box::pin(async move { spec.build_headers(&ctx) })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, req: &crate::types::ChatRequest| {
-            spec.chat_url(stream, req, &ctx_for_url)
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "xai".to_string(),
             http_client: http,
@@ -168,8 +138,8 @@ impl ChatCapability for XaiChatCapability {
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute_stream(request).await
@@ -180,39 +150,78 @@ impl XaiChatCapability {
     /// Execute chat with a fully-formed ChatRequest (used for advanced provider params flows)
     pub async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use secrecy::ExposeSecret;
+
+        // Create a simple spec for this legacy method
+        struct SimpleXaiSpec {
+            base_url: String,
+            api_key: String,
+            custom_headers: std::collections::HashMap<String, String>,
+        }
+
+        impl crate::provider_core::ProviderSpec for SimpleXaiSpec {
+            fn id(&self) -> &'static str {
+                "xai"
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new()
+            }
+            fn build_headers(
+                &self,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, LlmError> {
+                build_headers(&self.api_key, &self.custom_headers)
+            }
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> String {
+                format!("{}/chat/completions", self.base_url)
+            }
+            fn choose_chat_transformers(
+                &self,
+                _req: &ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                crate::provider_core::ChatTransformers {
+                    request: std::sync::Arc::new(super::transformers::XaiRequestTransformer),
+                    response: std::sync::Arc::new(super::transformers::XaiResponseTransformer),
+                    stream: None,
+                    json: None,
+                }
+            }
+        }
+
+        let spec = Arc::new(SimpleXaiSpec {
+            base_url: self.base_url.clone(),
+            api_key: self.api_key.expose_secret().to_string(),
+            custom_headers: self.http_config.headers.clone(),
+        });
+
+        let ctx = crate::provider_core::ProviderContext::new(
+            "xai",
+            self.base_url.clone(),
+            Some(self.api_key.expose_secret().to_string()),
+            self.http_config.headers.clone(),
+        );
+
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let base = self.base_url.clone();
-        let api_key = self.api_key.clone();
-        let custom_headers = self.http_config.headers.clone();
-        let req_tx = super::transformers::XaiRequestTransformer;
-        let resp_tx = super::transformers::XaiResponseTransformer;
-        let api_key_clone = api_key.clone();
-        let custom_headers_clone = custom_headers.clone();
-        let headers_builder = move || {
-            use secrecy::ExposeSecret;
-            let api_key = api_key_clone.clone();
-            let custom_headers = custom_headers_clone.clone();
-            Box::pin(async move { build_headers(api_key.expose_secret(), &custom_headers) })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "xai".to_string(),
             http_client: http,
-            request_transformer: std::sync::Arc::new(req_tx),
-            response_transformer: std::sync::Arc::new(resp_tx),
-            stream_transformer: None,
-            json_stream_converter: None,
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            stream_transformer: bundle.stream,
+            json_stream_converter: bundle.json,
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(move |_stream, _req| format!("{}/chat/completions", base)),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute(request).await

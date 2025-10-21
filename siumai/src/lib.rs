@@ -123,6 +123,7 @@ pub mod orchestrator;
 pub mod provider_core;
 pub mod public;
 pub mod server_adapters;
+pub mod standards;
 pub mod transformers;
 
 // Re-export main types and traits

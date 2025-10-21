@@ -81,25 +81,10 @@ impl ChatCapability for GroqChatCapability {
             Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
-        let spec = crate::providers::groq::spec::GroqSpec;
+        let spec = Arc::new(crate::providers::groq::spec::GroqSpec);
         let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let ctx_for_headers = ctx.clone();
-        let headers_builder = move || {
-            let ctx = ctx_for_headers.clone();
-            Box::pin(async move { spec.build_headers(&ctx) })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, req: &crate::types::ChatRequest| {
-            spec.chat_url(stream, req, &ctx_for_url)
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "groq".to_string(),
             http_client: http,
@@ -110,8 +95,8 @@ impl ChatCapability for GroqChatCapability {
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute(request).await
@@ -139,25 +124,10 @@ impl ChatCapability for GroqChatCapability {
             Some(self.api_key.expose_secret().to_string()),
             self.http_config.headers.clone(),
         );
-        let spec = crate::providers::groq::spec::GroqSpec;
+        let spec = Arc::new(crate::providers::groq::spec::GroqSpec);
         let bundle = spec.choose_chat_transformers(&request, &ctx);
         let http = self.http_client.clone();
-        let ctx_for_headers = ctx.clone();
-        let headers_builder = move || {
-            let ctx = ctx_for_headers.clone();
-            Box::pin(async move { spec.build_headers(&ctx) })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, req: &crate::types::ChatRequest| {
-            spec.chat_url(stream, req, &ctx_for_url)
-        };
+
         let exec = HttpChatExecutor {
             provider_id: "groq".to_string(),
             http_client: http,
@@ -168,8 +138,8 @@ impl ChatCapability for GroqChatCapability {
             stream_disable_compression: self.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec,
+            provider_context: ctx,
             before_send: None,
         };
         exec.execute_stream(request).await

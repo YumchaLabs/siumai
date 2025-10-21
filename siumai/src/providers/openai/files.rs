@@ -147,46 +147,25 @@ impl FileManagementCapability for OpenAiFiles {
         self.validate_upload_request(&request)?;
 
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let transformer = super::transformers::OpenAiFilesTransformer;
-        let api_key = self.config.api_key.clone();
-        let org = self.config.organization.clone();
-        let proj = self.config.project.clone();
-        let extra_headers = self.config.http_config.headers.clone();
-        let api_key_clone = api_key.clone();
-        let org_clone = org.clone();
-        let proj_clone = proj.clone();
-        let extra_headers_clone = extra_headers.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let org = org_clone.clone();
-            let proj = proj_clone.clone();
-            let extra_headers = extra_headers_clone.clone();
-            Box::pin(async move {
-                let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
-                    api_key.expose_secret(),
-                    org.as_deref(),
-                    proj.as_deref(),
-                    &extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
+        let ctx = crate::provider_core::ProviderContext::new(
+            "openai",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        )
+        .with_org_project(
+            self.config.organization.clone(),
+            self.config.project.clone(),
+        );
+
         let exec = HttpFilesExecutor {
             provider_id: "openai".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.upload(request).await
     }
@@ -194,46 +173,25 @@ impl FileManagementCapability for OpenAiFiles {
     /// List files with optional filtering.
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let transformer = super::transformers::OpenAiFilesTransformer;
-        let api_key = self.config.api_key.clone();
-        let org = self.config.organization.clone();
-        let proj = self.config.project.clone();
-        let extra_headers = self.config.http_config.headers.clone();
-        let api_key_clone = api_key.clone();
-        let org_clone = org.clone();
-        let proj_clone = proj.clone();
-        let extra_headers_clone = extra_headers.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let org = org_clone.clone();
-            let proj = proj_clone.clone();
-            let extra_headers = extra_headers_clone.clone();
-            Box::pin(async move {
-                let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
-                    api_key.expose_secret(),
-                    org.as_deref(),
-                    proj.as_deref(),
-                    &extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
+        let ctx = crate::provider_core::ProviderContext::new(
+            "openai",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        )
+        .with_org_project(
+            self.config.organization.clone(),
+            self.config.project.clone(),
+        );
+
         let exec = HttpFilesExecutor {
             provider_id: "openai".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.list(query).await
     }
@@ -241,46 +199,25 @@ impl FileManagementCapability for OpenAiFiles {
     /// Retrieve file metadata.
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let transformer = super::transformers::OpenAiFilesTransformer;
-        let api_key = self.config.api_key.clone();
-        let org = self.config.organization.clone();
-        let proj = self.config.project.clone();
-        let extra_headers = self.config.http_config.headers.clone();
-        let api_key_clone = api_key.clone();
-        let org_clone = org.clone();
-        let proj_clone = proj.clone();
-        let extra_headers_clone = extra_headers.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let org = org_clone.clone();
-            let proj = proj_clone.clone();
-            let extra_headers = extra_headers_clone.clone();
-            Box::pin(async move {
-                let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
-                    api_key.expose_secret(),
-                    org.as_deref(),
-                    proj.as_deref(),
-                    &extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
+        let ctx = crate::provider_core::ProviderContext::new(
+            "openai",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        )
+        .with_org_project(
+            self.config.organization.clone(),
+            self.config.project.clone(),
+        );
+
         let exec = HttpFilesExecutor {
             provider_id: "openai".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.retrieve(file_id).await
     }
@@ -288,46 +225,25 @@ impl FileManagementCapability for OpenAiFiles {
     /// Delete a file permanently.
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let transformer = super::transformers::OpenAiFilesTransformer;
-        let api_key = self.config.api_key.clone();
-        let org = self.config.organization.clone();
-        let proj = self.config.project.clone();
-        let extra_headers = self.config.http_config.headers.clone();
-        let api_key_clone = api_key.clone();
-        let org_clone = org.clone();
-        let proj_clone = proj.clone();
-        let extra_headers_clone = extra_headers.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let org = org_clone.clone();
-            let proj = proj_clone.clone();
-            let extra_headers = extra_headers_clone.clone();
-            Box::pin(async move {
-                let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
-                    api_key.expose_secret(),
-                    org.as_deref(),
-                    proj.as_deref(),
-                    &extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
+        let ctx = crate::provider_core::ProviderContext::new(
+            "openai",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        )
+        .with_org_project(
+            self.config.organization.clone(),
+            self.config.project.clone(),
+        );
+
         let exec = HttpFilesExecutor {
             provider_id: "openai".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.delete(file_id).await
     }
@@ -335,46 +251,25 @@ impl FileManagementCapability for OpenAiFiles {
     /// Get file content as bytes.
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let transformer = super::transformers::OpenAiFilesTransformer;
-        let api_key = self.config.api_key.clone();
-        let org = self.config.organization.clone();
-        let proj = self.config.project.clone();
-        let extra_headers = self.config.http_config.headers.clone();
-        let api_key_clone = api_key.clone();
-        let org_clone = org.clone();
-        let proj_clone = proj.clone();
-        let extra_headers_clone = extra_headers.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let org = org_clone.clone();
-            let proj = proj_clone.clone();
-            let extra_headers = extra_headers_clone.clone();
-            Box::pin(async move {
-                let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
-                    api_key.expose_secret(),
-                    org.as_deref(),
-                    proj.as_deref(),
-                    &extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
+        let ctx = crate::provider_core::ProviderContext::new(
+            "openai",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        )
+        .with_org_project(
+            self.config.organization.clone(),
+            self.config.project.clone(),
+        );
+
         let exec = HttpFilesExecutor {
             provider_id: "openai".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.get_content(file_id).await
     }

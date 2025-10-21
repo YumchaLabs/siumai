@@ -83,45 +83,31 @@ impl FileManagementCapability for GeminiFiles {
 
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
-        let transformer = super::transformers::GeminiFilesTransformer {
-            config: self.config.clone(),
-        };
-        let base_extra = self.config.http_config.headers.clone();
-        let tp = self.config.token_provider.clone();
-        let api_key_clone = api_key.clone();
-        let headers_builder = move || {
-            let extra = base_extra.clone();
-            let tp = tp.clone();
-            let api_key = api_key_clone.clone();
-            Box::pin(async move {
-                let mut extra = extra;
-                if let Some(ref tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::GeminiSpec);
+        let mut ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        // Handle token_provider if present
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx.http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::GeminiFilesTransformer {
+                config: self.config.clone(),
+            }),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.upload(request).await
     }
@@ -130,45 +116,31 @@ impl FileManagementCapability for GeminiFiles {
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
-        let transformer = super::transformers::GeminiFilesTransformer {
-            config: self.config.clone(),
-        };
-        let base_extra = self.config.http_config.headers.clone();
-        let tp = self.config.token_provider.clone();
-        let api_key_clone = api_key.clone();
-        let headers_builder = move || {
-            let extra = base_extra.clone();
-            let tp = tp.clone();
-            let api_key = api_key_clone.clone();
-            Box::pin(async move {
-                let mut extra = extra;
-                if let Some(ref tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::GeminiSpec);
+        let mut ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        // Handle token_provider if present
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx.http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::GeminiFilesTransformer {
+                config: self.config.clone(),
+            }),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.list(query).await
     }
@@ -177,45 +149,31 @@ impl FileManagementCapability for GeminiFiles {
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
-        let transformer = super::transformers::GeminiFilesTransformer {
-            config: self.config.clone(),
-        };
-        let base_extra = self.config.http_config.headers.clone();
-        let tp = self.config.token_provider.clone();
-        let api_key_clone = api_key.clone();
-        let headers_builder = move || {
-            let extra = base_extra.clone();
-            let tp = tp.clone();
-            let api_key = api_key_clone.clone();
-            Box::pin(async move {
-                let mut extra = extra;
-                if let Some(ref tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::GeminiSpec);
+        let mut ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        // Handle token_provider if present
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx.http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::GeminiFilesTransformer {
+                config: self.config.clone(),
+            }),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.retrieve(file_id).await
     }
@@ -224,38 +182,31 @@ impl FileManagementCapability for GeminiFiles {
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
-        let transformer = super::transformers::GeminiFilesTransformer {
-            config: self.config.clone(),
-        };
-        let extra = self.config.http_config.headers.clone();
-        let api_key_clone = api_key.clone();
-        let extra_clone = extra.clone();
-        let headers_builder = move || {
-            let api_key = api_key_clone.clone();
-            let extra = extra_clone.clone();
-            Box::pin(async move {
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::GeminiSpec);
+        let mut ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        // Handle token_provider if present
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx.http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::GeminiFilesTransformer {
+                config: self.config.clone(),
+            }),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.delete(file_id).await
     }
@@ -264,45 +215,31 @@ impl FileManagementCapability for GeminiFiles {
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
-        let transformer = super::transformers::GeminiFilesTransformer {
-            config: self.config.clone(),
-        };
-        let base_extra = self.config.http_config.headers.clone();
-        let tp = self.config.token_provider.clone();
-        let api_key_clone = api_key.clone();
-        let headers_builder = move || {
-            let extra = base_extra.clone();
-            let tp = tp.clone();
-            let api_key = api_key_clone.clone();
-            Box::pin(async move {
-                let mut extra = extra;
-                if let Some(ref tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
+
+        let spec = std::sync::Arc::new(super::spec::GeminiSpec);
+        let mut ctx = crate::provider_core::ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
+        // Handle token_provider if present
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx.http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
         let exec = HttpFilesExecutor {
             provider_id: "gemini".to_string(),
-            http_client: http,
-            transformer: std::sync::Arc::new(transformer),
-            build_base_url: Box::new(move || base.clone()),
-            build_headers: Box::new(headers_builder),
+            http_client: self.http_client.clone(),
+            transformer: std::sync::Arc::new(super::transformers::GeminiFilesTransformer {
+                config: self.config.clone(),
+            }),
+            provider_spec: spec,
+            provider_context: ctx,
         };
         exec.get_content(file_id).await
     }

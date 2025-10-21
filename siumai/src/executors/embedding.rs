@@ -3,7 +3,6 @@
 use crate::error::LlmError;
 use crate::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::types::{EmbeddingRequest, EmbeddingResponse};
-use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
 #[async_trait::async_trait]
@@ -17,13 +16,8 @@ pub struct HttpEmbeddingExecutor {
     pub http_client: reqwest::Client,
     pub request_transformer: Arc<dyn RequestTransformer>,
     pub response_transformer: Arc<dyn ResponseTransformer>,
-    pub build_url: Box<dyn Fn(&EmbeddingRequest) -> String + Send + Sync>,
-    pub build_headers: Box<
-        dyn (Fn() -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<HeaderMap, LlmError>> + Send>,
-            >) + Send
-            + Sync,
-    >,
+    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
+    pub provider_context: crate::provider_core::ProviderContext,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
 }
@@ -32,8 +26,10 @@ pub struct HttpEmbeddingExecutor {
 impl EmbeddingExecutor for HttpEmbeddingExecutor {
     async fn execute(&self, req: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
         let body = self.request_transformer.transform_embedding(&req)?;
-        let url = (self.build_url)(&req);
-        let headers = (self.build_headers)().await?;
+        let url = self
+            .provider_spec
+            .embedding_url(&req, &self.provider_context);
+        let headers = self.provider_spec.build_headers(&self.provider_context)?;
 
         let body = if let Some(cb) = &self.before_send {
             cb(&body)?
@@ -43,8 +39,8 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
 
         let resp = self
             .http_client
-            .post(url)
-            .headers(headers)
+            .post(&url)
+            .headers(headers.clone())
             .json(&body)
             .send()
             .await
@@ -52,10 +48,10 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
         let resp = if !resp.status().is_success() {
             let status = resp.status();
             if status.as_u16() == 401 {
-                let url = (self.build_url)(&req);
-                let headers = (self.build_headers)().await?;
+                // Retry once with rebuilt headers
+                let headers = self.provider_spec.build_headers(&self.provider_context)?;
                 self.http_client
-                    .post(url)
+                    .post(&url)
                     .headers(headers)
                     .json(&body)
                     .send()

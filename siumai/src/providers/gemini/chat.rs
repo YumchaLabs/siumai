@@ -12,7 +12,7 @@ use crate::types::ChatRequest;
 // use crate::transformers::response::ResponseTransformer;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::middleware::language_model::LanguageModelMiddleware;
-use crate::provider_core::ProviderSpec;
+
 use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, Tool};
@@ -98,31 +98,62 @@ impl ChatCapability for GeminiChatCapability {
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
+        // For Gemini, we need to handle token_provider dynamically
+        // So we create a wrapper spec that handles token injection
+        struct GeminiSpecWrapper {
+            spec: crate::providers::gemini::spec::GeminiSpec,
+            #[allow(dead_code)]
+            token_provider: Option<Arc<dyn crate::auth::TokenProvider>>,
+        }
+
+        impl crate::provider_core::ProviderSpec for GeminiSpecWrapper {
+            fn id(&self) -> &'static str {
+                self.spec.id()
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                self.spec.capabilities()
+            }
+            fn build_headers(
+                &self,
+                ctx: &crate::provider_core::ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, LlmError> {
+                // Note: This is now sync, so we can't await token_provider here
+                // The token should be injected into ctx before calling this
+                self.spec.build_headers(ctx)
+            }
+            fn chat_url(
+                &self,
+                stream: bool,
+                req: &ChatRequest,
+                ctx: &crate::provider_core::ProviderContext,
+            ) -> String {
+                self.spec.chat_url(stream, req, ctx)
+            }
+            fn choose_chat_transformers(
+                &self,
+                req: &ChatRequest,
+                ctx: &crate::provider_core::ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                self.spec.choose_chat_transformers(req, ctx)
+            }
+        }
+
+        // Inject token into context if available
+        let mut ctx_with_token = ctx.clone();
+        if let Some(tp) = &self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx_with_token
+                    .http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
+        let spec_wrapper = Arc::new(GeminiSpecWrapper {
+            spec,
+            token_provider: self.config.token_provider.clone(),
+        });
+
         let http0 = http.clone();
-        let ctx_for_headers = ctx.clone();
-        let tp = self.config.token_provider.clone();
-        let headers_builder = move || {
-            let mut ctx = ctx_for_headers.clone();
-            let tp = tp.clone();
-            Box::pin(async move {
-                if let Some(tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        ctx.http_extra_headers
-                            .insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                spec.build_headers(&ctx)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, r: &ChatRequest| spec.chat_url(stream, r, &ctx_for_url);
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
             http_client: http0,
@@ -133,8 +164,8 @@ impl ChatCapability for GeminiChatCapability {
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec_wrapper,
+            provider_context: ctx_with_token,
             before_send: None,
         };
         exec.execute(req).await
@@ -176,31 +207,76 @@ impl ChatCapability for GeminiChatCapability {
             provider_id: "gemini".to_string(),
             inner: converter,
         };
-        let http0 = http.clone();
-        let ctx_for_headers = ctx.clone();
-        let tp = self.config.token_provider.clone();
-        let headers_builder = move || {
-            let mut ctx = ctx_for_headers.clone();
-            let tp = tp.clone();
-            Box::pin(async move {
-                if let Some(tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        ctx.http_extra_headers
-                            .insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
+
+        // For Gemini, we need to handle token_provider dynamically
+        struct GeminiStreamSpecWrapper {
+            spec: crate::providers::gemini::spec::GeminiSpec,
+            #[allow(dead_code)]
+            token_provider: Option<Arc<dyn crate::auth::TokenProvider>>,
+            config: crate::providers::gemini::types::GeminiConfig,
+        }
+
+        impl crate::provider_core::ProviderSpec for GeminiStreamSpecWrapper {
+            fn id(&self) -> &'static str {
+                self.spec.id()
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                self.spec.capabilities()
+            }
+            fn build_headers(
+                &self,
+                ctx: &crate::provider_core::ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, LlmError> {
+                self.spec.build_headers(ctx)
+            }
+            fn chat_url(
+                &self,
+                stream: bool,
+                req: &ChatRequest,
+                ctx: &crate::provider_core::ProviderContext,
+            ) -> String {
+                self.spec.chat_url(stream, req, ctx)
+            }
+            fn choose_chat_transformers(
+                &self,
+                _req: &ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                let converter = super::streaming::GeminiEventConverter::new(self.config.clone());
+                let stream_tx = super::transformers::GeminiStreamChunkTransformer {
+                    provider_id: "gemini".to_string(),
+                    inner: converter,
+                };
+                crate::provider_core::ChatTransformers {
+                    request: Arc::new(super::transformers::GeminiRequestTransformer {
+                        config: self.config.clone(),
+                    }),
+                    response: Arc::new(super::transformers::GeminiResponseTransformer {
+                        config: self.config.clone(),
+                    }),
+                    stream: Some(Arc::new(stream_tx)),
+                    json: None,
                 }
-                spec.build_headers(&ctx)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, r: &ChatRequest| spec.chat_url(stream, r, &ctx_for_url);
+            }
+        }
+
+        // Inject token into context if available
+        let mut ctx_with_token = ctx.clone();
+        if let Some(tp) = &self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx_with_token
+                    .http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
+        let spec_wrapper = Arc::new(GeminiStreamSpecWrapper {
+            spec,
+            token_provider: self.config.token_provider.clone(),
+            config: self.config.clone(),
+        });
+
+        let http0 = http.clone();
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
             http_client: http0,
@@ -211,8 +287,8 @@ impl ChatCapability for GeminiChatCapability {
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.interceptors.clone(),
             middlewares: self.middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec_wrapper,
+            provider_context: ctx_with_token,
             before_send: None,
         };
         exec.execute_stream(req).await

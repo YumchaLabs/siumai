@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::provider_core::ProviderSpec;
 use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
@@ -522,30 +521,17 @@ impl ChatCapability for GeminiClient {
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
-        let ctx_for_headers = ctx.clone();
-        let tp = self.config.token_provider.clone();
-        let headers_builder = move || {
-            let mut ctx = ctx_for_headers.clone();
-            let tp = tp.clone();
-            Box::pin(async move {
-                if let Some(tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        ctx.http_extra_headers
-                            .insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                spec.build_headers(&ctx)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, r: &ChatRequest| spec.chat_url(stream, r, &ctx_for_url);
+        // Inject token into context if available
+        let mut ctx_with_token = ctx.clone();
+        if let Some(tp) = &self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx_with_token
+                    .http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
+        let spec_arc = Arc::new(spec);
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
             http_client: http,
@@ -556,8 +542,8 @@ impl ChatCapability for GeminiClient {
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec_arc,
+            provider_context: ctx_with_token,
             before_send: None,
         };
         exec.execute(request).await
@@ -585,30 +571,18 @@ impl ChatCapability for GeminiClient {
             provider_id: "gemini".to_string(),
             inner: converter,
         };
-        let ctx_for_headers = ctx.clone();
-        let tp = self.config.token_provider.clone();
-        let headers_builder = move || {
-            let mut ctx = ctx_for_headers.clone();
-            let tp = tp.clone();
-            Box::pin(async move {
-                if let Some(tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        ctx.http_extra_headers
-                            .insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                spec.build_headers(&ctx)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let ctx_for_url = ctx.clone();
-        let build_url = move |stream: bool, r: &ChatRequest| spec.chat_url(stream, r, &ctx_for_url);
+
+        // Inject token into context if available
+        let mut ctx_with_token = ctx.clone();
+        if let Some(tp) = &self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                ctx_with_token
+                    .http_extra_headers
+                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
+        let spec_arc = Arc::new(spec);
         let exec = HttpChatExecutor {
             provider_id: "gemini".to_string(),
             http_client: http,
@@ -619,8 +593,8 @@ impl ChatCapability for GeminiClient {
             stream_disable_compression: self.config.http_config.stream_disable_compression,
             interceptors: self.http_interceptors.clone(),
             middlewares: self.model_middlewares.clone(),
-            build_url: Box::new(build_url),
-            build_headers: std::sync::Arc::new(headers_builder),
+            provider_spec: spec_arc,
+            provider_context: ctx_with_token,
             before_send: None,
         };
         exec.execute_stream(request).await
@@ -641,71 +615,133 @@ impl EmbeddingCapability for GeminiClient {
             )));
         }
         let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
+        use crate::provider_core::{ProviderContext, ProviderSpec};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let model = self.config.model.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
+
+        // Get token from token_provider if available
+        let mut extra_headers = self.config.http_config.headers.clone();
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
+        // Create wrapper spec that handles Gemini-specific URL logic
+        struct GeminiEmbeddingSpecWrapper {
+            base_url: String,
+            model: String,
+        }
+
+        impl ProviderSpec for GeminiEmbeddingSpecWrapper {
+            fn id(&self) -> &'static str {
+                "gemini"
+            }
+
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new().with_embedding()
+            }
+
+            fn build_headers(
+                &self,
+                ctx: &ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
+                let api_key = ctx.api_key.as_deref().unwrap_or("");
+                let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+                    api_key,
+                    &ctx.http_extra_headers,
+                )?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }
+
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &crate::types::ChatRequest,
+                _ctx: &ProviderContext,
+            ) -> String {
+                panic!("chat_url should not be called on embedding wrapper spec")
+            }
+
+            fn choose_chat_transformers(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _ctx: &ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                panic!("choose_chat_transformers should not be called on embedding wrapper spec")
+            }
+
+            fn embedding_url(
+                &self,
+                req: &crate::types::EmbeddingRequest,
+                _ctx: &ProviderContext,
+            ) -> String {
+                if req.input.len() == 1 {
+                    crate::utils::url::join_url(
+                        &self.base_url,
+                        &format!("models/{}:embedContent", self.model),
+                    )
+                } else {
+                    crate::utils::url::join_url(
+                        &self.base_url,
+                        &format!("models/{}:batchEmbedContents", self.model),
+                    )
+                }
+            }
+
+            fn choose_embedding_transformers(
+                &self,
+                _req: &crate::types::EmbeddingRequest,
+                _ctx: &ProviderContext,
+            ) -> crate::provider_core::EmbeddingTransformers {
+                panic!("choose_embedding_transformers should not be called on wrapper spec")
+            }
+        }
+
+        let spec = Arc::new(GeminiEmbeddingSpecWrapper {
+            base_url: self.config.base_url.clone(),
+            model: self.config.model.clone(),
+        });
+
+        let ctx = ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            extra_headers.clone(),
+        );
+
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
-        let base_extra = self.config.http_config.headers.clone();
-        let tp = self.config.token_provider.clone();
-        let api_key_for_headers = api_key.clone();
-        let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            let tp = tp.clone();
-            let api_key = api_key_for_headers.clone();
-            Box::pin(async move {
-                if let Some(ref tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let build_url = move |r: &EmbeddingRequest| {
-            if r.input.len() == 1 {
-                crate::utils::url::join_url(&base, &format!("models/{}:embedContent", model))
-            } else {
-                crate::utils::url::join_url(&base, &format!("models/{}:batchEmbedContents", model))
-            }
-        };
+
         if let Some(opts) = &self.retry_options {
+            let http = self.http_client.clone();
+            let spec_clone = spec.clone();
+            let ctx_clone = ctx.clone();
+            let config = self.config.clone();
             crate::retry_api::retry_with(
                 || {
                     let rq = req.clone();
                     let http = http.clone();
-                    let build_url = build_url.clone();
+                    let spec = spec_clone.clone();
+                    let ctx = ctx_clone.clone();
                     let req_tx = super::transformers::GeminiRequestTransformer {
-                        config: self.config.clone(),
+                        config: config.clone(),
                     };
                     let resp_tx = super::transformers::GeminiResponseTransformer {
-                        config: self.config.clone(),
+                        config: config.clone(),
                     };
-                    let headers_builder = headers_builder.clone();
                     async move {
                         let exec = HttpEmbeddingExecutor {
                             provider_id: "gemini".to_string(),
                             http_client: http,
                             request_transformer: std::sync::Arc::new(req_tx),
                             response_transformer: std::sync::Arc::new(resp_tx),
-                            build_url: Box::new(build_url),
-                            build_headers: Box::new(headers_builder),
+                            provider_spec: spec,
+                            provider_context: ctx,
                             before_send: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
@@ -717,11 +753,11 @@ impl EmbeddingCapability for GeminiClient {
         } else {
             let exec = HttpEmbeddingExecutor {
                 provider_id: "gemini".to_string(),
-                http_client: http,
+                http_client: self.http_client.clone(),
                 request_transformer: std::sync::Arc::new(req_tx),
                 response_transformer: std::sync::Arc::new(resp_tx),
-                build_url: Box::new(build_url),
-                build_headers: Box::new(headers_builder),
+                provider_spec: spec,
+                provider_context: ctx,
                 before_send: None,
             };
             EmbeddingExecutor::execute(&exec, req).await
@@ -756,65 +792,125 @@ impl EmbeddingExtensions for GeminiClient {
                 request.input.len()
             )));
         }
+        use crate::provider_core::{ProviderContext, ProviderSpec};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let model = self.config.model.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
+
+        // Create wrapper spec that handles Gemini-specific URL logic
+        struct GeminiEmbeddingSpecWrapper {
+            base_url: String,
+            model: String,
+        }
+
+        impl ProviderSpec for GeminiEmbeddingSpecWrapper {
+            fn id(&self) -> &'static str {
+                "gemini"
+            }
+
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new().with_embedding()
+            }
+
+            fn build_headers(
+                &self,
+                ctx: &ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
+                let api_key = ctx.api_key.as_deref().unwrap_or("");
+                let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+                    api_key,
+                    &ctx.http_extra_headers,
+                )?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }
+
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &crate::types::ChatRequest,
+                _ctx: &ProviderContext,
+            ) -> String {
+                panic!("chat_url should not be called on embedding wrapper spec")
+            }
+
+            fn choose_chat_transformers(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _ctx: &ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                panic!("choose_chat_transformers should not be called on embedding wrapper spec")
+            }
+
+            fn embedding_url(
+                &self,
+                req: &crate::types::EmbeddingRequest,
+                _ctx: &ProviderContext,
+            ) -> String {
+                if req.input.len() == 1 {
+                    crate::utils::url::join_url(
+                        &self.base_url,
+                        &format!("models/{}:embedContent", self.model),
+                    )
+                } else {
+                    crate::utils::url::join_url(
+                        &self.base_url,
+                        &format!("models/{}:batchEmbedContents", self.model),
+                    )
+                }
+            }
+
+            fn choose_embedding_transformers(
+                &self,
+                _req: &crate::types::EmbeddingRequest,
+                _ctx: &ProviderContext,
+            ) -> crate::provider_core::EmbeddingTransformers {
+                panic!("choose_embedding_transformers should not be called on wrapper spec")
+            }
+        }
+
+        let spec = Arc::new(GeminiEmbeddingSpecWrapper {
+            base_url: self.config.base_url.clone(),
+            model: self.config.model.clone(),
+        });
+
+        let ctx = ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            self.config.http_config.headers.clone(),
+        );
+
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
-        let extra = self.config.http_config.headers.clone();
-        let api_key_for_headers = api_key.clone();
-        let extra_for_headers = extra.clone();
-        let headers_builder = move || {
-            let api_key = api_key_for_headers.clone();
-            let extra = extra_for_headers.clone();
-            Box::pin(async move {
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let build_url = move |r: &EmbeddingRequest| {
-            if r.input.len() == 1 {
-                crate::utils::url::join_url(&base, &format!("models/{}:embedContent", model))
-            } else {
-                crate::utils::url::join_url(&base, &format!("models/{}:batchEmbedContents", model))
-            }
-        };
+
         if let Some(opts) = &self.retry_options {
+            let http = self.http_client.clone();
+            let spec_clone = spec.clone();
+            let ctx_clone = ctx.clone();
+            let config = self.config.clone();
             crate::retry_api::retry_with(
                 || {
                     let rq = request.clone();
                     let http = http.clone();
-                    let build_url = build_url.clone();
+                    let spec = spec_clone.clone();
+                    let ctx = ctx_clone.clone();
                     let req_tx = super::transformers::GeminiRequestTransformer {
-                        config: self.config.clone(),
+                        config: config.clone(),
                     };
                     let resp_tx = super::transformers::GeminiResponseTransformer {
-                        config: self.config.clone(),
+                        config: config.clone(),
                     };
-                    let headers_builder = headers_builder.clone();
                     async move {
                         let exec = HttpEmbeddingExecutor {
                             provider_id: "gemini".to_string(),
                             http_client: http,
                             request_transformer: std::sync::Arc::new(req_tx),
                             response_transformer: std::sync::Arc::new(resp_tx),
-                            build_url: Box::new(build_url),
-                            build_headers: Box::new(headers_builder),
+                            provider_spec: spec,
+                            provider_context: ctx,
                             before_send: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
@@ -826,11 +922,11 @@ impl EmbeddingExtensions for GeminiClient {
         } else {
             let exec = HttpEmbeddingExecutor {
                 provider_id: "gemini".to_string(),
-                http_client: http,
+                http_client: self.http_client.clone(),
                 request_transformer: std::sync::Arc::new(req_tx),
                 response_transformer: std::sync::Arc::new(resp_tx),
-                build_url: Box::new(build_url),
-                build_headers: Box::new(headers_builder),
+                provider_spec: spec,
+                provider_context: ctx,
                 before_send: None,
             };
             EmbeddingExecutor::execute(&exec, request).await
@@ -855,78 +951,117 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
         request: crate::types::ImageGenerationRequest,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
         use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+        use crate::provider_core::{ProviderContext, ProviderSpec};
         use secrecy::ExposeSecret;
-        let http = self.http_client.clone();
-        let base = self.config.base_url.clone();
-        let model = self.config.model.clone();
-        let api_key = self.config.api_key.expose_secret().to_string();
+
+        // Get token from token_provider if available
+        let mut extra_headers = self.config.http_config.headers.clone();
+        if let Some(ref tp) = self.config.token_provider {
+            if let Ok(tok) = tp.token().await {
+                extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
+            }
+        }
+
+        // Create wrapper spec that handles Gemini-specific URL logic
+        struct GeminiImageSpecWrapper {
+            base_url: String,
+            model: String,
+        }
+
+        impl ProviderSpec for GeminiImageSpecWrapper {
+            fn id(&self) -> &'static str {
+                "gemini"
+            }
+
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new().with_vision()
+            }
+
+            fn build_headers(
+                &self,
+                ctx: &ProviderContext,
+            ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
+                let api_key = ctx.api_key.as_deref().unwrap_or("");
+                let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+                    api_key,
+                    &ctx.http_extra_headers,
+                )?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                Ok(headers)
+            }
+
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &crate::types::ChatRequest,
+                _ctx: &ProviderContext,
+            ) -> String {
+                panic!("chat_url should not be called on image wrapper spec")
+            }
+
+            fn choose_chat_transformers(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _ctx: &ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                panic!("choose_chat_transformers should not be called on image wrapper spec")
+            }
+
+            fn image_url(
+                &self,
+                _req: &crate::types::ImageGenerationRequest,
+                _ctx: &ProviderContext,
+            ) -> String {
+                crate::utils::url::join_url(
+                    &self.base_url,
+                    &format!("models/{}:generateContent", self.model),
+                )
+            }
+
+            fn choose_image_transformers(
+                &self,
+                _req: &crate::types::ImageGenerationRequest,
+                _ctx: &ProviderContext,
+            ) -> crate::provider_core::ImageTransformers {
+                panic!("choose_image_transformers should not be called on wrapper spec")
+            }
+        }
+
+        let spec = Arc::new(GeminiImageSpecWrapper {
+            base_url: self.config.base_url.clone(),
+            model: self.config.model.clone(),
+        });
+
+        let ctx = ProviderContext::new(
+            "gemini",
+            self.config.base_url.clone(),
+            Some(self.config.api_key.expose_secret().to_string()),
+            extra_headers.clone(),
+        );
+
         let req_tx = super::transformers::GeminiRequestTransformer {
             config: self.config.clone(),
         };
         let resp_tx = super::transformers::GeminiResponseTransformer {
             config: self.config.clone(),
         };
-        // Merge extra custom headers (e.g., Vertex AI Bearer auth)
-        let base_extra = self.config.http_config.headers.clone();
-        let tp = self.config.token_provider.clone();
-        let api_key_for_headers = api_key.clone();
-        let headers_builder = move || {
-            let mut extra = base_extra.clone();
-            let tp = tp.clone();
-            let api_key = api_key_for_headers.clone();
-            Box::pin(async move {
-                if let Some(ref tp) = tp {
-                    if let Ok(tok) = tp.token().await {
-                        extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                    }
-                }
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::gemini(&api_key, &extra)?;
-                // Inject tracing headers
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<
-                                Output = Result<reqwest::header::HeaderMap, crate::error::LlmError>,
-                            > + Send,
-                    >,
-                >
-        };
-        let base_clone_for_url = base.clone();
-        let model_clone_for_url = model.clone();
-        let build_url = move || {
-            crate::utils::url::join_url(
-                &base_clone_for_url,
-                &format!("models/{}:generateContent", model_clone_for_url),
-            )
-        };
+
         if let Some(opts) = &self.retry_options {
-            let http0 = http.clone();
-            let req_tx0 = super::transformers::GeminiRequestTransformer {
-                config: self.config.clone(),
-            };
-            let resp_tx0 = super::transformers::GeminiResponseTransformer {
-                config: self.config.clone(),
-            };
-            let headers_builder0 = headers_builder.clone();
-            let base0 = base.clone();
-            let model0 = model.clone();
+            let http = self.http_client.clone();
+            let spec_clone = spec.clone();
+            let ctx_clone = ctx.clone();
+            let config = self.config.clone();
             crate::retry_api::retry_with(
                 || {
                     let rq = request.clone();
-                    let http = http0.clone();
-                    let req_tx = req_tx0.clone();
-                    let resp_tx = resp_tx0.clone();
-                    let headers_builder = headers_builder0.clone();
-                    let base_inner = base0.clone();
-                    let model_inner = model0.clone();
-                    let url_fn = move || {
-                        crate::utils::url::join_url(
-                            &base_inner,
-                            &format!("models/{}:generateContent", model_inner),
-                        )
+                    let http = http.clone();
+                    let spec = spec_clone.clone();
+                    let ctx = ctx_clone.clone();
+                    let req_tx = super::transformers::GeminiRequestTransformer {
+                        config: config.clone(),
+                    };
+                    let resp_tx = super::transformers::GeminiResponseTransformer {
+                        config: config.clone(),
                     };
                     async move {
                         let exec = HttpImageExecutor {
@@ -934,8 +1069,8 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                             http_client: http,
                             request_transformer: std::sync::Arc::new(req_tx),
                             response_transformer: std::sync::Arc::new(resp_tx),
-                            build_url: Box::new(url_fn),
-                            build_headers: Box::new(headers_builder),
+                            provider_spec: spec,
+                            provider_context: ctx,
                             before_send: None,
                         };
                         ImageExecutor::execute(&exec, rq).await
@@ -947,11 +1082,11 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
         } else {
             let exec = HttpImageExecutor {
                 provider_id: "gemini".to_string(),
-                http_client: http,
+                http_client: self.http_client.clone(),
                 request_transformer: std::sync::Arc::new(req_tx),
                 response_transformer: std::sync::Arc::new(resp_tx),
-                build_url: Box::new(build_url),
-                build_headers: Box::new(headers_builder),
+                provider_spec: spec,
+                provider_context: ctx,
                 before_send: None,
             };
             ImageExecutor::execute(&exec, request).await

@@ -1,7 +1,7 @@
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
-use crate::types::{HttpConfig, ProviderType};
+use crate::types::ProviderType;
 use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use std::sync::Arc;
 

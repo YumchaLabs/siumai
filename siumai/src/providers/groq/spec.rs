@@ -59,4 +59,17 @@ impl ProviderSpec for GroqSpec {
             json: None,
         }
     }
+
+    fn audio_base_url(&self, ctx: &ProviderContext) -> String {
+        ctx.base_url.trim_end_matches('/').to_string()
+    }
+
+    fn choose_audio_transformer(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> crate::provider_core::AudioTransformer {
+        crate::provider_core::AudioTransformer {
+            transformer: Arc::new(crate::providers::groq::transformers::GroqAudioTransformer),
+        }
+    }
 }

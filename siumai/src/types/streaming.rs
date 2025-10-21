@@ -1,7 +1,6 @@
 //! Streaming event types for real-time responses
 
 use super::chat::ChatResponse;
-use super::common::FinishReason;
 use super::common::{ResponseMetadata, Usage};
 use crate::error::LlmError;
 use serde::{Deserialize, Serialize};

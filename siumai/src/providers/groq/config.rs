@@ -3,7 +3,6 @@
 //! Configuration structures and validation for the Groq provider.
 
 use secrecy::SecretString;
-use serde::{Deserialize, Serialize};
 
 use crate::error::LlmError;
 use crate::types::{CommonParams, HttpConfig, WebSearchConfig};

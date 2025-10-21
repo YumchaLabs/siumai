@@ -20,7 +20,6 @@ use crate::transformers::{
 use crate::types::{ChatRequest, ChatResponse};
 use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
 use eventsource_stream::Event;
-use reqwest::header::HeaderMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -46,14 +45,10 @@ pub struct HttpChatExecutor {
     pub interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares (transform ChatRequest before mapping)
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
-    // Strategy hooks
-    /// Build URL dynamically by stream flag and original ChatRequest
-    pub build_url: Box<dyn Fn(bool, &crate::types::ChatRequest) -> String + Send + Sync>,
-    pub build_headers: Arc<
-        dyn (Fn() -> Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>)
-            + Send
-            + Sync,
-    >,
+    /// Provider spec for building headers and URLs
+    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
+    /// Provider context for header/URL construction
+    pub provider_context: crate::provider_core::ProviderContext,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
 }
@@ -86,6 +81,51 @@ mod tests {
         }
     }
 
+    // Test ProviderSpec
+    #[derive(Clone, Copy)]
+    struct TestProviderSpec;
+    impl crate::provider_core::ProviderSpec for TestProviderSpec {
+        fn id(&self) -> &'static str {
+            "test"
+        }
+        fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+            crate::traits::ProviderCapabilities::new()
+        }
+        fn build_headers(
+            &self,
+            _ctx: &crate::provider_core::ProviderContext,
+        ) -> Result<HeaderMap, LlmError> {
+            Ok(HeaderMap::new())
+        }
+        fn chat_url(
+            &self,
+            _stream: bool,
+            _req: &crate::types::ChatRequest,
+            _ctx: &crate::provider_core::ProviderContext,
+        ) -> String {
+            "http://127.0.0.1/never".to_string()
+        }
+        fn choose_chat_transformers(
+            &self,
+            _req: &crate::types::ChatRequest,
+            _ctx: &crate::provider_core::ProviderContext,
+        ) -> crate::provider_core::ChatTransformers {
+            crate::provider_core::ChatTransformers {
+                request: Arc::new(EchoRequestTransformer),
+                response: Arc::new(NoopResponseTransformer),
+                stream: None,
+                json: None,
+            }
+        }
+        fn chat_before_send(
+            &self,
+            _req: &crate::types::ChatRequest,
+            _ctx: &crate::provider_core::ProviderContext,
+        ) -> Option<crate::executors::BeforeSendHook> {
+            None
+        }
+    }
+
     #[tokio::test]
     async fn applies_model_middlewares_before_mapping() {
         struct AppendSuffix;
@@ -111,6 +151,12 @@ mod tests {
             Err(crate::error::LlmError::InvalidParameter("abort".into()))
         });
 
+        let provider_context = crate::provider_core::ProviderContext::new(
+            "test",
+            "http://127.0.0.1",
+            None,
+            std::collections::HashMap::new(),
+        );
         let exec = HttpChatExecutor {
             provider_id: "test".into(),
             http_client: http,
@@ -121,11 +167,8 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(AppendSuffix)],
-            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(|| {
-                Box::pin(async move { Ok(reqwest::header::HeaderMap::new()) })
-                    as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
-            }),
+            provider_spec: Arc::new(TestProviderSpec),
+            provider_context,
             before_send: Some(hook),
         };
 
@@ -214,6 +257,12 @@ mod tests {
         let request_transformer = std::sync::Arc::new(EchoRequestTransformer);
         let response_transformer = std::sync::Arc::new(NoopResponseTransformer);
 
+        let provider_context = crate::provider_core::ProviderContext::new(
+            "test",
+            "http://127.0.0.1",
+            None,
+            std::collections::HashMap::new(),
+        );
         let exec = HttpChatExecutor {
             provider_id: "test".into(),
             http_client: http,
@@ -224,8 +273,8 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![std::sync::Arc::new(Outer), std::sync::Arc::new(Inner)],
-            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(|| Box::pin(async { Ok(reqwest::header::HeaderMap::new()) })),
+            provider_spec: Arc::new(TestProviderSpec),
+            provider_context,
             before_send: None,
         };
 
@@ -293,6 +342,12 @@ mod tests {
         let request_transformer = Arc::new(EchoRequestTransformer);
         let response_transformer = Arc::new(NoopResponseTransformer);
 
+        let provider_context = crate::provider_core::ProviderContext::new(
+            "test",
+            "http://127.0.0.1",
+            None,
+            std::collections::HashMap::new(),
+        );
         let exec = HttpChatExecutor {
             provider_id: "test".into(),
             http_client: http,
@@ -303,8 +358,8 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(Outer), Arc::new(Inner)],
-            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(|| Box::pin(async { Ok(reqwest::header::HeaderMap::new()) })),
+            provider_spec: Arc::new(TestProviderSpec),
+            provider_context,
             before_send: None,
         };
 
@@ -342,6 +397,12 @@ mod tests {
             ))
         });
 
+        let provider_context = crate::provider_core::ProviderContext::new(
+            "test",
+            "http://127.0.0.1",
+            None,
+            std::collections::HashMap::new(),
+        );
         let exec = HttpChatExecutor {
             provider_id: "test".into(),
             http_client: http,
@@ -352,11 +413,8 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(PreMw)],
-            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(|| {
-                Box::pin(async move { Ok(reqwest::header::HeaderMap::new()) })
-                    as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
-            }),
+            provider_spec: Arc::new(TestProviderSpec),
+            provider_context,
             before_send: Some(hook),
         };
 
@@ -405,6 +463,12 @@ mod tests {
         let request_transformer = Arc::new(EchoRequestTransformer);
         let response_transformer = Arc::new(NoopResponseTransformer);
 
+        let provider_context = crate::provider_core::ProviderContext::new(
+            "test",
+            "http://127.0.0.1",
+            None,
+            std::collections::HashMap::new(),
+        );
         let exec = HttpChatExecutor {
             provider_id: "test".into(),
             http_client: http,
@@ -415,11 +479,8 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![],
             middlewares: vec![Arc::new(PreMwStream)],
-            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
-            build_headers: std::sync::Arc::new(|| {
-                Box::pin(async move { Ok(reqwest::header::HeaderMap::new()) })
-                    as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
-            }),
+            provider_spec: Arc::new(TestProviderSpec),
+            provider_context,
             before_send: None,
         };
 
@@ -456,22 +517,67 @@ mod tests {
 
     #[tokio::test]
     async fn merges_request_headers_into_base_nonstream() {
-        let http = reqwest::Client::new();
-        let request_transformer = Arc::new(EchoRequestTransformer);
-        let response_transformer = Arc::new(NoopResponseTransformer);
-        // base headers
-        let headers_builder = || {
-            Box::pin(async move {
+        // Custom spec with base headers
+        #[derive(Clone, Copy)]
+        struct TestSpecWithHeaders;
+        impl crate::provider_core::ProviderSpec for TestSpecWithHeaders {
+            fn id(&self) -> &'static str {
+                "test"
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new()
+            }
+            fn build_headers(
+                &self,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> Result<HeaderMap, LlmError> {
                 let mut h = reqwest::header::HeaderMap::new();
                 h.insert(
                     reqwest::header::HeaderName::from_static("x-base"),
                     reqwest::header::HeaderValue::from_static("base"),
                 );
                 Ok(h)
-            }) as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
-        };
+            }
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &crate::types::ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> String {
+                "http://127.0.0.1/never".to_string()
+            }
+            fn choose_chat_transformers(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                crate::provider_core::ChatTransformers {
+                    request: Arc::new(EchoRequestTransformer),
+                    response: Arc::new(NoopResponseTransformer),
+                    stream: None,
+                    json: None,
+                }
+            }
+            fn chat_before_send(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> Option<crate::executors::BeforeSendHook> {
+                None
+            }
+        }
+
+        let http = reqwest::Client::new();
+        let request_transformer = Arc::new(EchoRequestTransformer);
+        let response_transformer = Arc::new(NoopResponseTransformer);
         let seen = Arc::new(std::sync::Mutex::new(None));
         let interceptor = CaptureHeadersInterceptor { seen: seen.clone() };
+        let provider_context = crate::provider_core::ProviderContext::new(
+            "test",
+            "http://127.0.0.1",
+            None,
+            std::collections::HashMap::new(),
+        );
         let exec = HttpChatExecutor {
             provider_id: "test".into(),
             http_client: http,
@@ -482,8 +588,8 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![Arc::new(interceptor)],
             middlewares: vec![],
-            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(headers_builder),
+            provider_spec: Arc::new(TestSpecWithHeaders),
+            provider_context,
             before_send: None,
         };
 
@@ -525,21 +631,67 @@ mod tests {
                 Box::pin(async { vec![] })
             }
         }
-        let http = reqwest::Client::new();
-        let request_transformer = Arc::new(EchoRequestTransformer);
-        let response_transformer = Arc::new(NoopResponseTransformer);
-        let seen = Arc::new(std::sync::Mutex::new(None));
-        let interceptor = CaptureHeadersInterceptor { seen: seen.clone() };
-        let headers_builder = || {
-            Box::pin(async move {
+        // Custom spec with base headers
+        #[derive(Clone, Copy)]
+        struct TestSpecWithHeaders;
+        impl crate::provider_core::ProviderSpec for TestSpecWithHeaders {
+            fn id(&self) -> &'static str {
+                "test"
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new()
+            }
+            fn build_headers(
+                &self,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> Result<HeaderMap, LlmError> {
                 let mut h = reqwest::header::HeaderMap::new();
                 h.insert(
                     reqwest::header::HeaderName::from_static("x-base"),
                     reqwest::header::HeaderValue::from_static("base"),
                 );
                 Ok(h)
-            }) as Pin<Box<dyn Future<Output = Result<HeaderMap, LlmError>> + Send>>
-        };
+            }
+            fn chat_url(
+                &self,
+                _stream: bool,
+                _req: &crate::types::ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> String {
+                "http://127.0.0.1/never".to_string()
+            }
+            fn choose_chat_transformers(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> crate::provider_core::ChatTransformers {
+                crate::provider_core::ChatTransformers {
+                    request: Arc::new(EchoRequestTransformer),
+                    response: Arc::new(NoopResponseTransformer),
+                    stream: None,
+                    json: None,
+                }
+            }
+            fn chat_before_send(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _ctx: &crate::provider_core::ProviderContext,
+            ) -> Option<crate::executors::BeforeSendHook> {
+                None
+            }
+        }
+
+        let http = reqwest::Client::new();
+        let request_transformer = Arc::new(EchoRequestTransformer);
+        let response_transformer = Arc::new(NoopResponseTransformer);
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let interceptor = CaptureHeadersInterceptor { seen: seen.clone() };
+        let provider_context = crate::provider_core::ProviderContext::new(
+            "test",
+            "http://127.0.0.1",
+            None,
+            std::collections::HashMap::new(),
+        );
         let exec = HttpChatExecutor {
             provider_id: "test".into(),
             http_client: http,
@@ -550,8 +702,8 @@ mod tests {
             stream_disable_compression: true,
             interceptors: vec![Arc::new(interceptor)],
             middlewares: vec![],
-            build_url: Box::new(|_, _| "http://127.0.0.1/never".to_string()),
-            build_headers: Arc::new(headers_builder),
+            provider_spec: Arc::new(TestSpecWithHeaders),
+            provider_context,
             before_send: None,
         };
         let mut req = crate::types::ChatRequest::new(vec![]);
@@ -633,10 +785,13 @@ impl ChatExecutor for HttpChatExecutor {
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
         // Pre-compute URL and initial headers (provider/base-level). Request-level headers are merged later per-request.
-        let url = (self.build_url)(false, &req);
-        let build_headers = self.build_headers.clone();
-        let headers_initial = (build_headers)().await?;
+        let url = self
+            .provider_spec
+            .chat_url(false, &req, &self.provider_context);
+        let headers_initial = self.provider_spec.build_headers(&self.provider_context)?;
         let headers_for_interceptors_initial = headers_initial.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
 
         // Base async generator (no post_generate here)
         let base: Arc<GenerateAsyncFn> = Arc::new(move |req_in: ChatRequest| {
@@ -649,8 +804,9 @@ impl ChatExecutor for HttpChatExecutor {
             let interceptors = interceptors.clone();
             let before_send = before_send.clone();
             let provider_id = provider_id.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
             Box::pin({
-                let build_headers2 = build_headers.clone();
                 async move {
                     let body = request_tx.transform_chat(&req_in)?;
                     let json_body = if let Some(cb) = &before_send {
@@ -698,7 +854,7 @@ impl ChatExecutor for HttpChatExecutor {
                         let status = resp.status();
                         if status.as_u16() == 401 {
                             // Rebuild headers and retry once
-                            let headers_retry = (build_headers2)().await?;
+                            let headers_retry = provider_spec.build_headers(&provider_context)?;
                             let headers_retry = {
                                 let mut h = headers_retry;
                                 if let Some(hc) = &req_in.http_config {
@@ -917,10 +1073,14 @@ impl ChatExecutor for HttpChatExecutor {
         let json_tx = json_tx_opt.clone();
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
-        let url = (self.build_url)(true, &req);
-        let headers_base = (self.build_headers)().await?;
+        let url = self
+            .provider_spec
+            .chat_url(true, &req, &self.provider_context);
+        let headers_base = self.provider_spec.build_headers(&self.provider_context)?;
         let disable_compression = self.stream_disable_compression;
         let middlewares = self.middlewares.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
 
         // Base async stream builder
         let base: Arc<StreamAsyncFn> = Arc::new(move |req_in: ChatRequest| {
@@ -934,6 +1094,8 @@ impl ChatExecutor for HttpChatExecutor {
             let url = url.clone();
             let headers_base = headers_base.clone();
             let middlewares = middlewares.clone();
+            let _provider_spec = provider_spec.clone();
+            let _provider_context = provider_context.clone();
             Box::pin(async move {
                 let body = request_tx.transform_chat(&req_in)?;
                 let transformed = if let Some(cb) = &before_send {
