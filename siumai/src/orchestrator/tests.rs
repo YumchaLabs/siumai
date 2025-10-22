@@ -205,6 +205,8 @@ fn test_step_result_merge_usage() {
                 completion_tokens_details: None,
             }),
             tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
         },
         StepResult {
             messages: vec![],
@@ -219,6 +221,8 @@ fn test_step_result_merge_usage() {
                 completion_tokens_details: None,
             }),
             tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
         },
     ];
 
@@ -475,7 +479,11 @@ async fn test_agent_basic_usage() {
     assert_eq!(agent.tools().len(), 0);
 
     let messages = vec![ChatMessage::user("Hello").build()];
-    let (response, steps) = agent.generate(messages, &resolver).await.unwrap();
+    let AgentResult {
+        response,
+        steps,
+        output,
+    } = agent.generate(messages, &resolver).await.unwrap();
 
     assert_eq!(response.content_text().unwrap(), "Agent response");
     assert_eq!(steps.len(), 1);
@@ -496,7 +504,11 @@ async fn test_agent_with_tools() {
     let agent = ToolLoopAgent::new(model, tools, vec![step_count_is(10)]);
 
     let messages = vec![ChatMessage::user("What is 2 + 3?").build()];
-    let (response, steps) = agent.generate(messages, &resolver).await.unwrap();
+    let AgentResult {
+        response,
+        steps,
+        output,
+    } = agent.generate(messages, &resolver).await.unwrap();
 
     assert_eq!(response.content_text().unwrap(), "The result is 5");
     assert_eq!(steps.len(), 2);
@@ -524,7 +536,11 @@ async fn test_agent_with_callbacks() {
         }));
 
     let messages = vec![ChatMessage::user("Test").build()];
-    let (_response, _steps) = agent.generate(messages, &resolver).await.unwrap();
+    let AgentResult {
+        response,
+        steps,
+        output,
+    } = agent.generate(messages, &resolver).await.unwrap();
 
     assert!(*step_called.lock().unwrap());
     assert!(*finish_called.lock().unwrap());
@@ -544,6 +560,8 @@ fn test_all_of_stop_condition() {
         finish_reason: None,
         usage: None,
         tool_calls: vec![],
+        tool_results: vec![],
+        warnings: None,
     }];
     assert!(!condition.should_stop(&steps)); // has_text_response but not step_count
 
@@ -559,12 +577,16 @@ fn test_all_of_stop_condition() {
                 json!({}),
                 None,
             )],
+            tool_results: vec![],
+            warnings: None,
         },
         StepResult {
             messages: vec![ChatMessage::assistant("text").build()],
             finish_reason: None,
             usage: None,
             tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
         },
     ];
     assert!(condition.should_stop(&steps)); // Both conditions met
@@ -743,7 +765,11 @@ async fn test_agent_with_empty_tools() {
     );
 
     let messages = vec![ChatMessage::user("Test").build()];
-    let (response, steps) = agent.generate(messages, &resolver).await.unwrap();
+    let AgentResult {
+        response,
+        steps,
+        output,
+    } = agent.generate(messages, &resolver).await.unwrap();
 
     assert_eq!(response.content_text().unwrap(), "Response");
     assert_eq!(steps.len(), 1);
@@ -765,12 +791,16 @@ fn test_step_result_merge_usage_partial() {
                 completion_tokens_details: None,
             }),
             tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
         },
         StepResult {
             messages: vec![],
             finish_reason: None,
             usage: None, // No usage for this step
             tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
         },
     ];
 
