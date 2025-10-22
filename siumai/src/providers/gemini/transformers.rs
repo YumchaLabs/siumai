@@ -395,7 +395,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
             prompt_tokens: m.prompt_token_count.unwrap_or(0) as u32,
             completion_tokens: m.candidates_token_count.unwrap_or(0) as u32,
             total_tokens: m.total_token_count.unwrap_or(0) as u32,
-            cached_tokens: None,
+            cached_tokens: m.cached_content_token_count.map(|t| t as u32),
             reasoning_tokens: m.thoughts_token_count.map(|t| t as u32),
         });
 
@@ -415,9 +415,9 @@ impl ResponseTransformer for GeminiResponseTransformer {
         };
 
         Ok(ChatResponse {
-            id: None,
+            id: response.response_id.clone(),
             content,
-            model: None,
+            model: response.model_version.clone(),
             usage,
             finish_reason,
             tool_calls: if tool_calls.is_empty() {

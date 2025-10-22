@@ -130,8 +130,8 @@ impl ProviderSpec for TestFilesSpec {
     fn choose_files_transformer(
         &self,
         _ctx: &ProviderContext,
-    ) -> siumai::transformers::files::FilesTransformer {
-        siumai::transformers::files::FilesTransformer {
+    ) -> siumai::provider_core::FilesTransformer {
+        siumai::provider_core::FilesTransformer {
             transformer: Arc::new(TestFilesTransformer),
         }
     }

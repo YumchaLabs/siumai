@@ -227,7 +227,7 @@ impl SseEventConverter for AnthropicEventConverter {
             }
 
             // Try to parse as standard Anthropic event
-            match serde_json::from_str::<AnthropicStreamEvent>(&event.data) {
+            match crate::streaming::parse_json_with_repair::<AnthropicStreamEvent>(&event.data) {
                 Ok(anthropic_event) => self
                     .convert_anthropic_event(anthropic_event)
                     .into_iter()
@@ -239,7 +239,7 @@ impl SseEventConverter for AnthropicEventConverter {
                     tracing::warn!("Raw event data: {}", event.data);
 
                     // Try to parse as a generic JSON to see if it's a different format
-                    if let Ok(generic_json) = serde_json::from_str::<serde_json::Value>(&event.data)
+                    if let Ok(generic_json) = crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data)
                     {
                         tracing::warn!("Event parsed as generic JSON: {:#}", generic_json);
 

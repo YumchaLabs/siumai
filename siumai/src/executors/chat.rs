@@ -57,6 +57,7 @@ pub struct HttpChatExecutor {
 mod tests {
     use super::*;
     use futures::StreamExt;
+    use reqwest::header::HeaderMap;
 
     struct EchoRequestTransformer;
     impl crate::transformers::request::RequestTransformer for EchoRequestTransformer {
@@ -1355,12 +1356,16 @@ impl ChatExecutor for HttpChatExecutor {
                         .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
                     if !response.status().is_success() {
                         let status = response.status();
+                        let headers = response.headers().clone();
                         let error_text = response.text().await.unwrap_or_default();
-                        return Err(LlmError::HttpError(format!(
-                            "HTTP error {}: {}",
+                        // Use classify_http_error for consistent error handling across providers
+                        return Err(crate::retry_api::classify_http_error(
+                            &provider_id,
                             status.as_u16(),
-                            error_text
-                        )));
+                            &error_text,
+                            &headers,
+                            None,
+                        ));
                     }
                     // Wrap JSON converter with middlewares
                     #[derive(Clone)]

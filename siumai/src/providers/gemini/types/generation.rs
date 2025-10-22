@@ -39,13 +39,13 @@ pub struct GenerateContentResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_feedback: Option<PromptFeedback>,
     /// Output only. Metadata on the generation requests' token usage.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "usageMetadata")]
     pub usage_metadata: Option<UsageMetadata>,
     /// Output only. The model version used to generate the response.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "modelVersion")]
     pub model_version: Option<String>,
     /// Output only. `response_id` is used to identify each response.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "responseId")]
     pub response_id: Option<String>,
 }
 
@@ -234,18 +234,18 @@ pub enum BlockReason {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageMetadata {
     /// Number of tokens in the prompt.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "promptTokenCount")]
     pub prompt_token_count: Option<i32>,
     /// Total token count for the generation request (prompt + response candidates).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "totalTokenCount")]
     pub total_token_count: Option<i32>,
     /// Number of tokens in the cached part of the prompt.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cachedContentTokenCount")]
     pub cached_content_token_count: Option<i32>,
     /// Number of tokens in the response candidate.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "candidatesTokenCount")]
     pub candidates_token_count: Option<i32>,
     /// Number of tokens used for thinking (only for thinking models).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtsTokenCount")]
     pub thoughts_token_count: Option<i32>,
 }

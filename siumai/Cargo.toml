@@ -62,6 +62,9 @@ secrecy.workspace = true
 backoff.workspace = true
 lru.workspace = true
 
+# JSON repair for handling malformed LLM outputs
+jsonrepair = { version = "0.1", optional = true, features = ["serde"] }
+
 [features]
 # Default features - include all providers for convenience
 default = ["all-providers"]
@@ -79,6 +82,9 @@ groq = []
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 gcp = ["dep:jsonwebtoken", "google"]
+
+# JSON repair support for handling malformed LLM outputs
+json-repair = ["dep:jsonrepair"]
 
 # Convenience features for common combinations
 all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq"]

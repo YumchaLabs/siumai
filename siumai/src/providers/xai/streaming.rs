@@ -3,15 +3,13 @@
 //! Implements streaming chat completions for the `xAI` provider using eventsource-stream.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
 use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use eventsource_stream::Event;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use super::config::XaiConfig;
 use super::types::*;
@@ -22,13 +20,13 @@ use crate::transformers::request::RequestTransformer;
 #[derive(Clone)]
 pub struct XaiEventConverter {
     /// Track if StreamStart has been emitted
-    stream_started: Arc<Mutex<bool>>,
+    state_tracker: StreamStateTracker,
 }
 
 impl XaiEventConverter {
     pub fn new() -> Self {
         Self {
-            stream_started: Arc::new(Mutex::new(false)),
+            state_tracker: StreamStateTracker::new(),
         }
     }
 
@@ -59,13 +57,7 @@ impl XaiEventConverter {
 
     /// Check if StreamStart event needs to be emitted
     async fn needs_stream_start(&self) -> bool {
-        let mut started = self.stream_started.lock().await;
-        if !*started {
-            *started = true;
-            true
-        } else {
-            false
-        }
+        self.state_tracker.needs_stream_start().await
     }
 
     /// Extract content from xAI event
@@ -125,7 +117,7 @@ impl SseEventConverter for XaiEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
-            match serde_json::from_str::<XaiStreamChunk>(&event.data) {
+            match crate::streaming::parse_json_with_repair::<XaiStreamChunk>(&event.data) {
                 Ok(xai_event) => self
                     .convert_xai_event_async(xai_event)
                     .await

@@ -383,7 +383,7 @@ impl ChatCapability for OllamaClient {
                 common_params: self.common_params.clone(),
                 ..Default::default()
             };
-            async move { self.chat_capability.chat(req).await }
+            async move { self.chat_request_via_spec(req).await }
         };
 
         if let Some(opts) = &self.retry_options {

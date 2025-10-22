@@ -3,7 +3,7 @@
 //! This module provides Groq-specific streaming functionality for chat completions.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
 use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::{ChatRequest, ResponseMetadata, Usage};
 use crate::types::{ChatResponse, FinishReason, MessageContent};
@@ -11,8 +11,6 @@ use eventsource_stream::Event;
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use super::config::GroqConfig;
 use super::types::*;
@@ -23,14 +21,14 @@ use crate::transformers::request::RequestTransformer;
 #[derive(Clone)]
 pub struct GroqEventConverter {
     /// Track if StreamStart has been emitted
-    stream_started: Arc<Mutex<bool>>,
+    state_tracker: StreamStateTracker,
 }
 
 impl GroqEventConverter {
     /// Create a new Groq event converter
     pub fn new() -> Self {
         Self {
-            stream_started: Arc::new(Mutex::new(false)),
+            state_tracker: StreamStateTracker::new(),
         }
     }
 
@@ -64,13 +62,7 @@ impl GroqEventConverter {
 
     /// Check if StreamStart event needs to be emitted
     async fn needs_stream_start(&self) -> bool {
-        let mut started = self.stream_started.lock().await;
-        if !*started {
-            *started = true;
-            true
-        } else {
-            false
-        }
+        self.state_tracker.needs_stream_start().await
     }
 
     /// Extract content from Groq response
@@ -126,7 +118,7 @@ impl SseEventConverter for GroqEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
-            match serde_json::from_str::<GroqChatStreamChunk>(&event.data) {
+            match crate::streaming::parse_json_with_repair::<GroqChatStreamChunk>(&event.data) {
                 Ok(groq_response) => self
                     .convert_groq_response_async(groq_response)
                     .await

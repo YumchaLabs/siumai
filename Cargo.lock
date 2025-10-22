@@ -1609,6 +1609,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonrepair"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbd084aab201d699b6da54bc10fbedf1ab92c984eeb306d40546fa675184ec06"
+dependencies = [
+ "memchr",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "jsonschema"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2971,6 +2983,7 @@ dependencies = [
  "futures",
  "futures-util",
  "infer",
+ "jsonrepair",
  "jsonwebtoken",
  "lru",
  "mockito",

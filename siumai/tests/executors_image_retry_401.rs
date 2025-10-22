@@ -167,11 +167,41 @@ async fn image_executor_retries_on_401() {
         base_url: server.uri(),
     });
     let ctx = ProviderContext::new("test", server.uri(), None, Default::default());
+
+    // Create dummy transformers
+    use siumai::transformers::{request::RequestTransformer, response::ResponseTransformer};
+    use siumai::error::LlmError;
+
+    struct DummyRequestTransformer;
+    impl RequestTransformer for DummyRequestTransformer {
+        fn provider_id(&self) -> &str { "test" }
+        fn transform_chat(&self, _req: &siumai::types::ChatRequest) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+        fn transform_image(&self, _req: &siumai::types::ImageGenerationRequest) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+    }
+
+    struct DummyResponseTransformer;
+    impl ResponseTransformer for DummyResponseTransformer {
+        fn provider_id(&self) -> &str { "test" }
+        fn transform_image_response(&self, _raw: &serde_json::Value) -> Result<siumai::types::ImageGenerationResponse, LlmError> {
+            Ok(siumai::types::ImageGenerationResponse {
+                images: vec![],
+                metadata: Default::default(),
+            })
+        }
+    }
+
     let exec = HttpImageExecutor {
         provider_id: "test".to_string(),
         http_client: reqwest::Client::new(),
+        request_transformer: Arc::new(DummyRequestTransformer),
+        response_transformer: Arc::new(DummyResponseTransformer),
         provider_spec: spec,
         provider_context: ctx,
+        before_send: None,
     };
 
     // execute

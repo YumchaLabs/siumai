@@ -4,14 +4,12 @@
 //! eventsource-stream infrastructure for JSON streaming.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
 use crate::streaming::{JsonEventConverter, StreamFactory};
 use crate::types::{ResponseMetadata, Usage};
 use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// Ollama stream response structure
 #[derive(Debug, Clone, Deserialize)]
@@ -42,7 +40,7 @@ struct OllamaMessage {
 #[derive(Clone)]
 pub struct OllamaEventConverter {
     /// Track if StreamStart has been emitted
-    stream_started: Arc<Mutex<bool>>,
+    state_tracker: StreamStateTracker,
 }
 
 impl Default for OllamaEventConverter {
@@ -54,7 +52,7 @@ impl Default for OllamaEventConverter {
 impl OllamaEventConverter {
     pub fn new() -> Self {
         Self {
-            stream_started: Arc::new(Mutex::new(false)),
+            state_tracker: StreamStateTracker::new(),
         }
     }
 
@@ -64,6 +62,7 @@ impl OllamaEventConverter {
         response: OllamaStreamResponse,
     ) -> Vec<ChatStreamEvent> {
         use crate::streaming::EventBuilder;
+        use crate::types::{ChatResponse, MessageContent, FinishReason};
 
         let mut builder = EventBuilder::new();
 
@@ -71,6 +70,11 @@ impl OllamaEventConverter {
         if self.needs_stream_start().await {
             let metadata = self.create_stream_start_metadata(&response);
             builder = builder.add_stream_start(metadata);
+        }
+
+        // Process thinking content (for models like deepseek-r1)
+        if let Some(thinking) = self.extract_thinking(&response) {
+            builder = builder.add_thinking_delta(thinking);
         }
 
         // Process content - NO MORE CONTENT LOSS!
@@ -83,18 +87,27 @@ impl OllamaEventConverter {
             builder = builder.add_usage_update(usage);
         }
 
+        // Process stream end
+        if response.done == Some(true) {
+            let chat_response = ChatResponse {
+                id: None,
+                model: response.model.clone(),
+                content: MessageContent::Text(String::new()),
+                usage: self.extract_usage(&response),
+                finish_reason: Some(FinishReason::Stop),
+                tool_calls: None,
+                thinking: None,
+                metadata: std::collections::HashMap::new(),
+            };
+            builder = builder.add_stream_end(chat_response);
+        }
+
         builder.build()
     }
 
     /// Check if StreamStart event needs to be emitted
     async fn needs_stream_start(&self) -> bool {
-        let mut started = self.stream_started.lock().await;
-        if !*started {
-            *started = true;
-            true
-        } else {
-            false
-        }
+        self.state_tracker.needs_stream_start().await
     }
 
     /// Extract content from Ollama response
@@ -105,6 +118,17 @@ impl OllamaEventConverter {
             .content
             .as_ref()
             .filter(|content| !content.is_empty())
+            .cloned()
+    }
+
+    /// Extract thinking content from Ollama response (for models like deepseek-r1)
+    fn extract_thinking(&self, response: &OllamaStreamResponse) -> Option<String> {
+        response
+            .message
+            .as_ref()?
+            .thinking
+            .as_ref()
+            .filter(|thinking| !thinking.is_empty())
             .cloned()
     }
 
@@ -144,7 +168,7 @@ impl JsonEventConverter for OllamaEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
     {
         Box::pin(async move {
-            match serde_json::from_str::<OllamaStreamResponse>(json_data) {
+            match crate::streaming::parse_json_with_repair::<OllamaStreamResponse>(json_data) {
                 Ok(ollama_response) => self
                     .convert_ollama_response_async(ollama_response)
                     .await

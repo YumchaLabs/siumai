@@ -5,15 +5,13 @@
 
 use crate::error::LlmError;
 use crate::providers::gemini::types::GeminiConfig;
-use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
 use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// Gemini stream response structure
 #[derive(Debug, Clone, Deserialize)]
@@ -68,14 +66,14 @@ struct GeminiUsageMetadata {
 pub struct GeminiEventConverter {
     config: GeminiConfig,
     /// Track if StreamStart has been emitted
-    stream_started: Arc<Mutex<bool>>,
+    state_tracker: StreamStateTracker,
 }
 
 impl GeminiEventConverter {
     pub fn new(config: GeminiConfig) -> Self {
         Self {
             config,
-            stream_started: Arc::new(Mutex::new(false)),
+            state_tracker: StreamStateTracker::new(),
         }
     }
 
@@ -121,13 +119,7 @@ impl GeminiEventConverter {
 
     /// Check if StreamStart event needs to be emitted
     async fn needs_stream_start(&self) -> bool {
-        let mut started = self.stream_started.lock().await;
-        if !*started {
-            *started = true;
-            true
-        } else {
-            false
-        }
+        self.state_tracker.needs_stream_start().await
     }
 
     /// Extract content from Gemini response
@@ -267,7 +259,7 @@ impl SseEventConverter for GeminiEventConverter {
             }
 
             // Parse the JSON data from the SSE event
-            match serde_json::from_str::<GeminiStreamResponse>(&event.data) {
+            match crate::streaming::parse_json_with_repair::<GeminiStreamResponse>(&event.data) {
                 Ok(gemini_response) => self
                     .convert_gemini_response_async(gemini_response)
                     .await

@@ -1,0 +1,11 @@
+data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1730241104,"model":"llama-3.3-70b-versatile","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1730241104,"model":"llama-3.3-70b-versatile","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1730241104,"model":"llama-3.3-70b-versatile","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1730241104,"model":"llama-3.3-70b-versatile","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"queue_time":0.037493756,"prompt_tokens":10,"prompt_time":0.000680594,"completion_tokens":5,"completion_time":0.463333333,"total_tokens":15,"total_time":0.464013927},"system_fingerprint":"fp_179b0f92c9","x_groq":{"id":"req_01jbd6g2qdfw2adyrt2az8hz4w"}}
+
+data: [DONE]
+
+

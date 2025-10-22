@@ -5,7 +5,7 @@
 //! OpenAI but with provider-specific adaptations for thinking/reasoning content.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
 use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::types::{
     ChatRequest, ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage,
@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use super::adapter::ProviderAdapter;
 use super::openai_config::OpenAiCompatibleConfig;
@@ -82,9 +81,9 @@ pub struct CompletionTokensDetails {
 pub struct OpenAiCompatibleEventConverter {
     config: OpenAiCompatibleConfig,
     adapter: Arc<dyn ProviderAdapter>,
-    stream_started: Arc<Mutex<bool>>,
+    state_tracker: StreamStateTracker,
     // Accumulate plain text content so StreamEnd can carry a fallback when no deltas were seen
-    accumulated_content: Arc<Mutex<String>>,
+    accumulated_content: Arc<tokio::sync::Mutex<String>>,
     // Track whether we have emitted any ContentDelta to avoid duplicate injection
     emitted_content: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -95,8 +94,8 @@ impl OpenAiCompatibleEventConverter {
         Self {
             config,
             adapter,
-            stream_started: Arc::new(Mutex::new(false)),
-            accumulated_content: Arc::new(Mutex::new(String::new())),
+            state_tracker: StreamStateTracker::new(),
+            accumulated_content: Arc::new(tokio::sync::Mutex::new(String::new())),
             emitted_content: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
@@ -251,13 +250,7 @@ impl OpenAiCompatibleEventConverter {
 
     /// Check if StreamStart event needs to be emitted
     async fn needs_stream_start(&self) -> bool {
-        let mut started = self.stream_started.lock().await;
-        if !*started {
-            *started = true;
-            true
-        } else {
-            false
-        }
+        self.state_tracker.needs_stream_start().await
     }
 
     /// Create stream start metadata
@@ -606,7 +599,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
-            match serde_json::from_str::<serde_json::Value>(&event.data) {
+            match crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data) {
                 Ok(value) => self
                     .convert_event_json_async(&value)
                     .await
