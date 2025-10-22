@@ -7,7 +7,7 @@ use super::events::{
     TokenUsage, ToolEvent, TracingEvent,
 };
 use super::{SpanId, TraceId};
-use crate::types::{ChatMessage, ChatResponse, Tool, ToolCall};
+use crate::types::{ChatMessage, ChatResponse, Tool};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
@@ -299,9 +299,10 @@ impl ToolTracer {
     }
 
     /// Record a tool call
+    #[allow(deprecated)]
     pub fn record_tool_call(
         &self,
-        tool_call: &ToolCall,
+        tool_call: &crate::types::ToolCall,
         result: Option<String>,
         duration: Option<Duration>,
         error: Option<String>,

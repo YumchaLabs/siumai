@@ -1364,8 +1364,6 @@ mod tests {
             role: MessageRole::User,
             content: MessageContent::Text("Hello".to_string()),
             metadata: MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         };
 
         // Create a ChatRequest to test the legacy chat method

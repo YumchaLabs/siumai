@@ -121,6 +121,7 @@ pub mod highlevel;
 pub mod middleware;
 pub mod orchestrator;
 pub mod provider_core;
+pub mod provider_tools;
 pub mod public;
 pub mod server_adapters;
 pub mod standards;
@@ -144,7 +145,8 @@ pub use types::{
     ChatMessage, ChatResponse, CommonParams, CompletionRequest, CompletionResponse,
     EmbeddingRequest, EmbeddingResponse, FinishReason, HttpConfig, ImageGenerationRequest,
     ImageGenerationResponse, MessageContent, MessageRole, ModelInfo, ModerationRequest,
-    ModerationResponse, ProviderType, ResponseMetadata, Tool, ToolCall, ToolChoice, Usage,
+    ModerationResponse, ProviderDefinedTool, ProviderType, ResponseMetadata, Tool, ToolCall,
+    ToolChoice, Usage,
 };
 
 // Builders
@@ -368,8 +370,6 @@ macro_rules! user {
             role: $crate::types::MessageRole::User,
             content: $crate::types::MessageContent::Text($content.into()),
             metadata: $crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         }
     };
     // Message with cache control - returns ChatMessage via builder
@@ -401,8 +401,6 @@ macro_rules! system {
             role: $crate::types::MessageRole::System,
             content: $crate::types::MessageContent::Text($content.into()),
             metadata: $crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         }
     };
     // Message with cache control - returns ChatMessage via builder
@@ -424,8 +422,6 @@ macro_rules! assistant {
             role: $crate::types::MessageRole::Assistant,
             content: $crate::types::MessageContent::Text($content.into()),
             metadata: $crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         }
     };
     // Message with tool calls - returns ChatMessage via builder
@@ -436,18 +432,25 @@ macro_rules! assistant {
     };
 }
 
-/// Creates a tool message
+/// Creates a tool result message
 ///
-/// Returns `ChatMessage` directly since tool messages are typically simple.
+/// Returns `ChatMessage` with tool result content.
+///
+/// # Example
+/// ```rust
+/// use siumai::prelude::*;
+///
+/// let msg = tool!("Result text", id: "call_123", name: "get_weather");
+/// ```
 #[macro_export]
 macro_rules! tool {
-    ($content:expr, id: $id:expr) => {
+    ($content:expr, id: $id:expr, name: $name:expr) => {
         $crate::types::ChatMessage {
             role: $crate::types::MessageRole::Tool,
-            content: $crate::types::MessageContent::Text($content.into()),
+            content: $crate::types::MessageContent::MultiModal(vec![
+                $crate::types::ContentPart::tool_result_text($id, $name, $content),
+            ]),
             metadata: $crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: Some($id.into()),
         }
     };
 }

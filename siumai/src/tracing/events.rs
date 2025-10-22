@@ -2,7 +2,7 @@
 //!
 //! This module defines the various types of events that can be traced.
 
-use crate::types::{ChatMessage, ChatResponse, Tool, ToolCall};
+use crate::types::{ChatMessage, ChatResponse, Tool};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
@@ -246,8 +246,10 @@ pub enum StreamEventType {
 pub struct ToolEvent {
     /// Event timestamp
     pub timestamp: SystemTime,
-    /// Tool call information
-    pub tool_call: ToolCall,
+    /// Tool call information (deprecated - use tool_call_id and tool_name instead)
+    #[deprecated(note = "Use tool_call_id and tool_name instead")]
+    #[allow(deprecated)]
+    pub tool_call: crate::types::ToolCall,
     /// Tool execution result
     pub result: Option<String>,
     /// Execution duration

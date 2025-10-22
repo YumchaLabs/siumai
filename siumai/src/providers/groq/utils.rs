@@ -94,6 +94,18 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
                                 "text": placeholder
                             }));
                         }
+                        crate::types::ContentPart::ToolCall { .. } => {
+                            // Tool calls are handled separately
+                            // Skip them here as they're not part of content array
+                        }
+                        crate::types::ContentPart::ToolResult { .. } => {
+                            // Tool results are handled separately
+                            // Skip them here as they're not part of content array
+                        }
+                        crate::types::ContentPart::Reasoning { .. } => {
+                            // Reasoning/thinking is handled separately
+                            // Skip it here as it's not part of content array
+                        }
                     }
                 }
                 serde_json::Value::Array(content_parts)
@@ -109,14 +121,43 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
             "content": content
         });
 
-        // Add tool calls if present
-        if let Some(ref tool_calls) = message.tool_calls {
-            groq_message["tool_calls"] = serde_json::to_value(tool_calls)?;
+        // Extract tool calls from content
+        let tool_calls = message.tool_calls();
+        if !tool_calls.is_empty() {
+            let tool_calls_json: Vec<serde_json::Value> = tool_calls
+                .iter()
+                .filter_map(|part| {
+                    if let crate::types::ContentPart::ToolCall {
+                        tool_call_id,
+                        tool_name,
+                        arguments,
+                        ..
+                    } = part
+                    {
+                        Some(serde_json::json!({
+                            "id": tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": arguments,
+                            }
+                        }))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !tool_calls_json.is_empty() {
+                groq_message["tool_calls"] = serde_json::Value::Array(tool_calls_json);
+            }
         }
 
-        // Add tool call ID if present
-        if let Some(ref tool_call_id) = message.tool_call_id {
-            groq_message["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
+        // Extract tool call ID from tool result
+        let tool_results = message.tool_results();
+        if let Some(first_result) = tool_results.first() {
+            if let crate::types::ContentPart::ToolResult { tool_call_id, .. } = first_result {
+                groq_message["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
+            }
         }
 
         groq_messages.push(groq_message);

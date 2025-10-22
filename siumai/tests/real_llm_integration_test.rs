@@ -604,8 +604,12 @@ async fn test_reasoning_anthropic(config: &ProviderTestConfig) {
             println!("    📝 Response: {}", content.trim());
 
             // Check for thinking content
-            if let Some(thinking) = response.thinking {
-                println!("    🤔 Thinking content length: {} chars", thinking.len());
+            let reasoning = response.reasoning();
+            if !reasoning.is_empty() {
+                println!(
+                    "    🤔 Thinking content length: {} chars",
+                    reasoning[0].len()
+                );
             }
 
             if let Some(usage) = response.usage {
@@ -657,8 +661,12 @@ async fn test_reasoning_gemini(config: &ProviderTestConfig) {
             println!("    📝 Response: {}", content.trim());
 
             // Check for thinking content
-            if let Some(thinking) = response.thinking {
-                println!("    💎 Thinking content length: {} chars", thinking.len());
+            let reasoning = response.reasoning();
+            if !reasoning.is_empty() {
+                println!(
+                    "    💎 Thinking content length: {} chars",
+                    reasoning[0].len()
+                );
             } else {
                 println!(
                     "    ℹ️ No thinking content returned (this may be normal for simple questions)"
@@ -715,8 +723,12 @@ async fn test_reasoning_deepseek(config: &ProviderTestConfig) {
             println!("    📝 Response: {}", content.trim());
 
             // Check for reasoning content
-            if let Some(thinking) = response.thinking {
-                println!("    🔍 Reasoning content length: {} chars", thinking.len());
+            let reasoning = response.reasoning();
+            if !reasoning.is_empty() {
+                println!(
+                    "    🔍 Reasoning content length: {} chars",
+                    reasoning[0].len()
+                );
             }
 
             if let Some(usage) = response.usage {
@@ -814,8 +826,12 @@ async fn test_reasoning_xai(config: &ProviderTestConfig) {
             println!("    📝 Response: {}", content.trim());
 
             // Check for reasoning content
-            if let Some(thinking) = response.thinking {
-                println!("    🚀 Reasoning content length: {} chars", thinking.len());
+            let reasoning = response.reasoning();
+            if !reasoning.is_empty() {
+                println!(
+                    "    🚀 Reasoning content length: {} chars",
+                    reasoning[0].len()
+                );
             }
 
             if let Some(usage) = response.usage {
@@ -863,8 +879,12 @@ async fn test_reasoning_ollama(config: &ProviderTestConfig) {
             println!("    📝 Response: {}", content.trim());
 
             // Check for thinking content
-            if let Some(thinking) = response.thinking {
-                println!("    🧠 Thinking content length: {} chars", thinking.len());
+            let reasoning = response.reasoning();
+            if !reasoning.is_empty() {
+                println!(
+                    "    🧠 Thinking content length: {} chars",
+                    reasoning[0].len()
+                );
             }
 
             if let Some(usage) = response.usage {

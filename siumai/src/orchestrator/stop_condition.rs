@@ -64,10 +64,11 @@ impl StopCondition for HasToolCall {
     fn should_stop(&self, steps: &[StepResult]) -> bool {
         if let Some(last_step) = steps.last() {
             last_step.tool_calls.iter().any(|call| {
-                call.function
-                    .as_ref()
-                    .map(|f| f.name == self.tool_name)
-                    .unwrap_or(false)
+                if let crate::types::ContentPart::ToolCall { tool_name, .. } = call {
+                    tool_name == &self.tool_name
+                } else {
+                    false
+                }
             })
         } else {
             false
@@ -227,25 +228,83 @@ where
     Box::new(CustomCondition { predicate })
 }
 
+/// Stop when the last step has tool results.
+///
+/// This is useful for stopping after tools have been executed and returned results.
+pub struct HasToolResult;
+
+impl StopCondition for HasToolResult {
+    fn should_stop(&self, steps: &[StepResult]) -> bool {
+        if let Some(last_step) = steps.last() {
+            !last_step.tool_results.is_empty()
+        } else {
+            false
+        }
+    }
+}
+
+/// Create a stop condition that stops when the last step has tool results.
+///
+/// Similar to Vercel AI SDK's `has_tool_result()` stop condition.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let condition = has_tool_result(); // Stop after tools return results
+/// ```
+pub fn has_tool_result() -> Box<dyn StopCondition> {
+    Box::new(HasToolResult)
+}
+
+/// Stop when the last step has no tool calls.
+///
+/// This is useful for stopping when the model decides not to use any tools.
+pub struct HasNoToolCalls;
+
+impl StopCondition for HasNoToolCalls {
+    fn should_stop(&self, steps: &[StepResult]) -> bool {
+        if let Some(last_step) = steps.last() {
+            last_step.tool_calls.is_empty()
+        } else {
+            false
+        }
+    }
+}
+
+/// Create a stop condition that stops when the last step has no tool calls.
+///
+/// Similar to Vercel AI SDK's `has_no_tool_calls()` stop condition.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let condition = has_no_tool_calls(); // Stop when model doesn't call tools
+/// ```
+pub fn has_no_tool_calls() -> Box<dyn StopCondition> {
+    Box::new(HasNoToolCalls)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{ChatMessage, FunctionCall, ToolCall};
 
     fn create_step_with_tools(tool_names: Vec<&str>) -> StepResult {
+        use crate::types::ContentPart;
+
         StepResult {
             messages: vec![],
             finish_reason: None,
             usage: None,
             tool_calls: tool_names
                 .into_iter()
-                .map(|name| ToolCall {
-                    id: format!("call_{}", name),
-                    r#type: "function".to_string(),
-                    function: Some(FunctionCall {
-                        name: name.to_string(),
-                        arguments: "{}".to_string(),
-                    }),
+                .map(|name| {
+                    ContentPart::tool_call(
+                        format!("call_{}", name),
+                        name,
+                        serde_json::json!({}),
+                        None,
+                    )
                 })
                 .collect(),
         }
@@ -329,5 +388,60 @@ mod tests {
 
         let steps = vec![create_step_with_tools(vec!["tool1", "tool2", "tool3"])];
         assert!(condition.should_stop(&steps));
+    }
+
+    #[test]
+    fn test_has_tool_result() {
+        let condition = has_tool_result();
+
+        // No steps yet
+        assert!(!condition.should_stop(&vec![]));
+
+        // Step with no tool results
+        let step_no_results = StepResult {
+            messages: vec![],
+            finish_reason: None,
+            usage: None,
+            tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
+        };
+        assert!(!condition.should_stop(&vec![step_no_results.clone()]));
+
+        // Step with tool results
+        let step_with_results = StepResult {
+            messages: vec![],
+            finish_reason: None,
+            usage: None,
+            tool_calls: vec![],
+            tool_results: vec![crate::types::ContentPart::Text {
+                text: "result".to_string(),
+            }],
+            warnings: None,
+        };
+        assert!(condition.should_stop(&vec![step_with_results]));
+    }
+
+    #[test]
+    fn test_has_no_tool_calls() {
+        let condition = has_no_tool_calls();
+
+        // No steps yet
+        assert!(!condition.should_stop(&vec![]));
+
+        // Step with tool calls
+        let step_with_calls = create_step_with_tools(vec!["tool1"]);
+        assert!(!condition.should_stop(&vec![step_with_calls]));
+
+        // Step with no tool calls
+        let step_no_calls = StepResult {
+            messages: vec![],
+            finish_reason: None,
+            usage: None,
+            tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
+        };
+        assert!(condition.should_stop(&vec![step_no_calls]));
     }
 }

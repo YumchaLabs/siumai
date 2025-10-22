@@ -12,20 +12,16 @@ use siumai::transformers::request::RequestTransformer;
 #[test]
 fn tool_role_message_maps_to_function_call_output_item() {
     use siumai::providers::openai::transformers::OpenAiResponsesRequestTransformer;
-    use siumai::types::{ChatMessage, ChatRequest, CommonParams, MessageContent, MessageRole};
+    use siumai::types::{ChatMessage, ChatRequest, CommonParams};
 
-    // Tool role message with tool_call_id produces a function_call_output item
-    let msg = ChatMessage {
-        role: MessageRole::Tool,
-        content: MessageContent::Text("result: 42".into()),
-        metadata: Default::default(),
-        tool_calls: None,
-        tool_call_id: Some("call_1".into()),
-    };
+    // Tool role message with tool result produces a function_call_output item
+    let msg = ChatMessage::tool_result_text("call_1", "some_tool", "result: 42").build();
+
     // Build request
     let req = ChatRequest {
         messages: vec![msg.clone()],
         tools: None,
+        tool_choice: None,
         common_params: CommonParams {
             model: "gpt-4o-mini".into(),
             ..Default::default()
@@ -48,31 +44,21 @@ fn tool_role_message_maps_to_function_call_output_item() {
 
 #[test]
 fn assistant_tool_calls_map_to_tool_use_parts_and_text() {
+    use serde_json::json;
     use siumai::providers::openai::transformers::OpenAiResponsesRequestTransformer;
-    use siumai::types::{
-        ChatMessage, ChatRequest, CommonParams, FunctionCall, MessageContent, MessageRole, ToolCall,
-    };
+    use siumai::types::{ChatMessage, ChatRequest, CommonParams, ContentPart};
 
     // Assistant message with both text and tool_calls
-    let tool_call = ToolCall {
-        id: "t1".into(),
-        r#type: "function".into(),
-        function: Some(FunctionCall {
-            name: "lookup".into(),
-            arguments: "{\"q\":\"x\"}".into(),
-        }),
-    };
-    let msg = ChatMessage {
-        role: MessageRole::Assistant,
-        content: MessageContent::Text("Here is a tool call".into()),
-        metadata: Default::default(),
-        tool_calls: Some(vec![tool_call]),
-        tool_call_id: None,
-    };
+    let msg = ChatMessage::assistant_with_content(vec![
+        ContentPart::text("Here is a tool call"),
+        ContentPart::tool_call("t1", "lookup", json!({"q": "x"}), None),
+    ])
+    .build();
 
     let req = ChatRequest {
         messages: vec![msg],
         tools: None,
+        tool_choice: None,
         common_params: CommonParams {
             model: "gpt-5-mini".into(),
             ..Default::default()

@@ -23,9 +23,14 @@ async fn responses_with_advanced_builtins_smoke() {
 
     // JSON input will be mapped as input_json
     #[cfg(feature = "structured-messages")]
-    let msg = ChatMessage::user("")
-        .with_json(serde_json::json!({"query":"hello"}))
-        .build();
+    let msg = {
+        use siumai::types::{MessageContent, MessageMetadata, MessageRole};
+        ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::Json(serde_json::json!({"query":"hello"})),
+            metadata: MessageMetadata::default(),
+        }
+    };
     #[cfg(not(feature = "structured-messages"))]
     let msg = ChatMessage::user("hello").build();
 

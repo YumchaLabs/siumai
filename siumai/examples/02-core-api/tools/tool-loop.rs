@@ -46,24 +46,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client.chat_request(request).await?;
 
     // Check for tool calls
-    if let Some(tool_calls) = &response.tool_calls {
-        if let Some(function) = &tool_calls[0].function {
-            println!("🔧 AI requested tool call: {}\n", function.name);
+    if response.has_tool_calls() {
+        // Add assistant message (with tool calls) to conversation history
+        messages.extend(response.to_messages());
+
+        // Execute tools and add results
+        for tool_call in response.tool_calls() {
+            // Use as_tool_call() for convenient access
+            if let Some(info) = tool_call.as_tool_call() {
+                println!("🔧 AI requested tool call: {}\n", info.tool_name);
+
+                // Execute tool (simulated)
+                let tool_result = json!({"temperature": 18, "condition": "Sunny"});
+                println!("🌤️  Tool result: {}\n", tool_result);
+
+                // Add tool result message
+                messages.push(
+                    ChatMessage::tool_result_json(info.tool_call_id, info.tool_name, tool_result)
+                        .build(),
+                );
+            }
         }
-
-        // Add assistant message with tool call
-        messages.push(
-            ChatMessage::assistant("")
-                .with_tool_calls(tool_calls.clone())
-                .build(),
-        );
-
-        // Execute tool (simulated)
-        let tool_result = json!({"temperature": 18, "condition": "Sunny"});
-        println!("🌤️  Tool result: {}\n", tool_result);
-
-        // Add tool result message
-        messages.push(ChatMessage::tool(tool_result.to_string(), tool_calls[0].id.clone()).build());
 
         // Get final response
         let request = ChatRequest::builder()

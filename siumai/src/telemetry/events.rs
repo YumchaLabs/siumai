@@ -2,7 +2,7 @@
 //!
 //! Structured events for LLM operations, compatible with Langfuse and Helicone.
 
-use crate::types::{ChatMessage, ChatResponse, FinishReason, ToolCall, Usage};
+use crate::types::{ChatMessage, ChatResponse, FinishReason, Usage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
@@ -102,8 +102,10 @@ pub struct ToolExecutionEvent {
     pub parent_span_id: Option<String>,
     /// Event timestamp
     pub timestamp: SystemTime,
-    /// Tool call information
-    pub tool_call: ToolCall,
+    /// Tool call information (deprecated - use tool_call_id and tool_name instead)
+    #[deprecated(note = "Use tool_call_id and tool_name instead")]
+    #[allow(deprecated)]
+    pub tool_call: crate::types::ToolCall,
     /// Tool execution result (if record_outputs is true)
     pub result: Option<String>,
     /// Execution duration
@@ -262,7 +264,8 @@ impl GenerationEvent {
 
 impl ToolExecutionEvent {
     /// Create a new tool execution event
-    pub fn new(id: String, trace_id: String, tool_call: ToolCall) -> Self {
+    #[allow(deprecated)]
+    pub fn new(id: String, trace_id: String, tool_call: crate::types::ToolCall) -> Self {
         Self {
             id,
             trace_id,

@@ -80,11 +80,10 @@ impl GroqEventConverter {
                 content: MessageContent::Text("".to_string()),
                 usage: None,
                 finish_reason: Some(finish_reason),
-                tool_calls: None,
-                thinking: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
+                warnings: None,
                 metadata: std::collections::HashMap::new(),
             };
 
@@ -185,11 +184,10 @@ impl SseEventConverter for GroqEventConverter {
             content: MessageContent::Text("".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Unknown),
-            tool_calls: None,
-            thinking: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: std::collections::HashMap::new(),
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))

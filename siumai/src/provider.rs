@@ -1166,8 +1166,10 @@ mod tests {
                 model: Some("mock-model".to_string()),
                 usage: None,
                 finish_reason: Some(FinishReason::Stop),
-                tool_calls: None,
-                thinking: None,
+                system_fingerprint: None,
+                service_tier: None,
+                audio: None,
+                warnings: None,
                 metadata: std::collections::HashMap::new(),
             })
         }

@@ -111,10 +111,9 @@ mod tests {
                     model: Some("mock-model".to_string()),
                     usage: None,
                     finish_reason: Some(crate::types::FinishReason::Stop),
-                    tool_calls: None,
-                    thinking: None,
                     system_fingerprint: None,
                     service_tier: None,
+                    audio: None,
                     metadata: std::collections::HashMap::new(),
                 })
             }

@@ -5,8 +5,8 @@
 
 use crate::error::LlmError;
 use crate::types::{
-    ChatResponse, ChatStreamEvent, FinishReason, FunctionCall, MessageContent, ResponseMetadata,
-    ToolCall, ToolType, Usage,
+    ChatResponse, ChatStreamEvent, ContentPart, FinishReason, MessageContent, ResponseMetadata,
+    Usage,
 };
 use std::collections::HashMap;
 
@@ -297,36 +297,60 @@ impl StreamProcessor {
             );
         }
 
-        let tool_calls = if !self.tool_calls.is_empty() {
-            Some(
-                self.tool_call_order
-                    .iter()
-                    .filter_map(|id| self.tool_calls.get(id))
-                    .filter(|builder| !builder.name.is_empty()) // Only include tool calls with names
-                    .map(|builder| builder.build())
-                    .collect(),
-            )
-        } else {
-            None
-        };
+        // Build content with text, tool calls, and reasoning
+        let mut parts = Vec::new();
 
-        let thinking = if !self.thinking_buffer.is_empty() {
-            Some(self.thinking_buffer.clone())
+        // Add text content if present
+        if !self.buffer.is_empty() {
+            parts.push(ContentPart::text(&self.buffer));
+        }
+
+        // Add tool calls if present
+        if !self.tool_calls.is_empty() {
+            for id in &self.tool_call_order {
+                if let Some(builder) = self.tool_calls.get(id) {
+                    if !builder.name.is_empty() {
+                        // Parse arguments string to JSON Value
+                        let arguments =
+                            serde_json::from_str(&builder.arguments).unwrap_or_else(|_| {
+                                serde_json::Value::String(builder.arguments.clone())
+                            });
+
+                        parts.push(ContentPart::tool_call(
+                            builder.id.clone(),
+                            builder.name.clone(),
+                            arguments,
+                            None,
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Add thinking/reasoning if present
+        if !self.thinking_buffer.is_empty() {
+            parts.push(ContentPart::reasoning(&self.thinking_buffer));
+        }
+
+        // Determine final content
+        let content = if parts.len() == 1 && parts[0].is_text() {
+            MessageContent::Text(self.buffer.clone())
+        } else if !parts.is_empty() {
+            MessageContent::MultiModal(parts)
         } else {
-            None
+            MessageContent::Text(String::new())
         };
 
         ChatResponse {
             id: None,
-            content: MessageContent::Text(self.buffer.clone()),
+            content,
             model: None,
             usage: self.current_usage.clone(),
             finish_reason,
-            tool_calls,
-            thinking,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata,
         }
     }
@@ -373,8 +397,9 @@ pub enum ProcessedEvent {
 pub struct ToolCallBuilder {
     /// Tool call ID
     pub id: String,
-    /// Tool type
-    pub r#type: Option<ToolType>,
+    /// Tool type (deprecated, kept for compatibility)
+    #[allow(dead_code)]
+    pub r#type: Option<String>,
     /// Function name
     pub name: String,
     /// Function arguments (JSON string)
@@ -395,22 +420,6 @@ impl ToolCallBuilder {
             r#type: None,
             name: String::new(),
             arguments: String::new(),
-        }
-    }
-
-    /// Build the final ToolCall
-    pub fn build(&self) -> ToolCall {
-        ToolCall {
-            id: self.id.clone(),
-            r#type: self
-                .r#type
-                .as_ref()
-                .map(|t| format!("{t:?}"))
-                .unwrap_or_else(|| "function".to_string()),
-            function: Some(FunctionCall {
-                name: self.name.clone(),
-                arguments: self.arguments.clone(),
-            }),
         }
     }
 }

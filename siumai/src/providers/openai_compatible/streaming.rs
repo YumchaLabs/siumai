@@ -241,11 +241,10 @@ impl OpenAiCompatibleEventConverter {
                 content: MessageContent::Text(text),
                 usage: None,
                 finish_reason: crate::providers::openai::utils::parse_finish_reason(Some(reason)),
-                tool_calls: None,
-                thinking: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
+                warnings: None,
                 metadata: std::collections::HashMap::new(),
             };
             builder = builder.add_stream_end(response);
@@ -671,11 +670,10 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             ),
             usage: None,
             finish_reason: Some(FinishReason::Unknown),
-            tool_calls: None,
-            thinking: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: HashMap::new(),
         };
 

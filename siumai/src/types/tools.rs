@@ -2,7 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Tool calling types
+/// Tool calling types (deprecated - use ContentPart::ToolCall instead)
+///
+/// This structure is deprecated and kept only for backward compatibility
+/// with the deprecated `with_tool_calls` method. New code should use
+/// `ContentPart::ToolCall` from the `chat` module.
+#[deprecated(
+    since = "0.12.0",
+    note = "Use `ContentPart::ToolCall` instead. Tool calls are now part of message content."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
@@ -10,31 +18,237 @@ pub struct ToolCall {
     pub function: Option<FunctionCall>,
 }
 
+/// Function call details (deprecated - use ContentPart::ToolCall instead)
+#[deprecated(
+    since = "0.12.0",
+    note = "Use `ContentPart::ToolCall` instead. Tool calls are now part of message content."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionCall {
     pub name: String,
     pub arguments: String,
 }
 
+/// Provider-defined tool configuration
+///
+/// This represents a tool that is defined and executed by the provider,
+/// such as web search, file search, code execution, computer use, etc.
+///
+/// # Format
+///
+/// The tool ID follows the format `"provider.tool_name"`, for example:
+/// - `"openai.web_search"` - OpenAI Responses API web search
+/// - `"openai.web_search_preview"` - OpenAI Chat API web search (preview)
+/// - `"anthropic.web_search_20250305"` - Anthropic web search (version 20250305)
+/// - `"anthropic.computer_20250124"` - Anthropic computer use
+/// - `"google.code_execution"` - Google Gemini code execution
+///
+/// # Examples
+///
+/// ```rust
+/// use siumai::types::ProviderDefinedTool;
+///
+/// // Create a basic provider-defined tool
+/// let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+///
+/// // With configuration arguments
+/// let tool = ProviderDefinedTool::new("openai.web_search", "web_search")
+///     .with_args(serde_json::json!({
+///         "searchContextSize": "high"
+///     }));
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProviderDefinedTool {
+    /// Tool ID in format "provider.tool_name"
+    ///
+    /// Examples: "openai.web_search", "anthropic.web_search_20250305"
+    pub id: String,
+
+    /// Tool name used in the tools map
+    ///
+    /// Examples: "web_search", "file_search", "code_execution"
+    pub name: String,
+
+    /// Provider-specific configuration arguments
+    #[serde(flatten)]
+    pub args: serde_json::Value,
+}
+
+impl ProviderDefinedTool {
+    /// Create a new provider-defined tool
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Tool ID in format "provider.tool_name"
+    /// * `name` - Tool name used in the tools map
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::ProviderDefinedTool;
+    ///
+    /// let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+    /// ```
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            args: serde_json::Value::Object(Default::default()),
+        }
+    }
+
+    /// Set configuration arguments
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::ProviderDefinedTool;
+    ///
+    /// let tool = ProviderDefinedTool::new("openai.web_search", "web_search")
+    ///     .with_args(serde_json::json!({
+    ///         "searchContextSize": "high",
+    ///         "userLocation": {
+    ///             "type": "approximate",
+    ///             "city": "San Francisco"
+    ///         }
+    ///     }));
+    /// ```
+    pub fn with_args(mut self, args: serde_json::Value) -> Self {
+        self.args = args;
+        self
+    }
+
+    /// Get the provider name from the ID
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::ProviderDefinedTool;
+    ///
+    /// let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+    /// assert_eq!(tool.provider(), Some("openai"));
+    /// ```
+    pub fn provider(&self) -> Option<&str> {
+        self.id.split('.').next()
+    }
+
+    /// Get the tool type from the ID
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::ProviderDefinedTool;
+    ///
+    /// let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+    /// assert_eq!(tool.tool_type(), Some("web_search"));
+    /// ```
+    pub fn tool_type(&self) -> Option<&str> {
+        self.id.split('.').nth(1)
+    }
+}
+
 /// Tool definition for function calling
+///
+/// This enum represents different types of tools that can be used with LLMs:
+/// - User-defined functions
+/// - Provider-defined tools (web search, file search, etc.)
+///
+/// # Examples
+///
+/// ## User-defined function
+///
+/// ```rust
+/// use siumai::types::Tool;
+///
+/// let tool = Tool::function(
+///     "get_weather".to_string(),
+///     "Get weather information".to_string(),
+///     serde_json::json!({
+///         "type": "object",
+///         "properties": {
+///             "location": { "type": "string" }
+///         }
+///     })
+/// );
+/// ```
+///
+/// ## Provider-defined tool
+///
+/// ```rust
+/// use siumai::types::Tool;
+///
+/// let tool = Tool::provider_defined("openai.web_search", "web_search");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tool {
-    /// Tool type (usually "function")
-    pub r#type: String,
-    /// Function definition
-    pub function: ToolFunction,
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Tool {
+    /// User-defined function tool
+    Function {
+        #[serde(flatten)]
+        function: ToolFunction,
+    },
+
+    /// Provider-defined tool (web search, file search, code execution, etc.)
+    #[serde(rename = "provider-defined")]
+    ProviderDefined(ProviderDefinedTool),
 }
 
 impl Tool {
     /// Create a new function tool
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::Tool;
+    ///
+    /// let tool = Tool::function(
+    ///     "get_weather".to_string(),
+    ///     "Get weather information".to_string(),
+    ///     serde_json::json!({
+    ///         "type": "object",
+    ///         "properties": {
+    ///             "location": { "type": "string" }
+    ///         }
+    ///     })
+    /// );
+    /// ```
     pub fn function(name: String, description: String, parameters: serde_json::Value) -> Self {
-        Self {
-            r#type: "function".to_string(),
+        Self::Function {
             function: ToolFunction {
                 name,
                 description,
                 parameters,
             },
+        }
+    }
+
+    /// Create a provider-defined tool
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::Tool;
+    ///
+    /// let tool = Tool::provider_defined("openai.web_search", "web_search")
+    ///     .with_args(serde_json::json!({
+    ///         "searchContextSize": "high"
+    ///     }));
+    /// ```
+    pub fn provider_defined(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::ProviderDefined(ProviderDefinedTool::new(id, name))
+    }
+
+    /// Add arguments to a provider-defined tool
+    ///
+    /// This is a convenience method that only works on ProviderDefined variants.
+    /// For Function variants, this method does nothing.
+    pub fn with_args(self, args: serde_json::Value) -> Self {
+        match self {
+            Self::ProviderDefined(mut tool) => {
+                tool.args = args;
+                Self::ProviderDefined(tool)
+            }
+            other => other,
         }
     }
 }
@@ -176,6 +390,85 @@ impl ToolChoice {
 }
 
 /// OpenAI-specific built-in tools
+///
+/// # Deprecation Notice
+///
+/// This enum is deprecated in favor of the new `provider_tools` module which provides
+/// a more flexible and type-safe API for provider-defined tools.
+///
+/// ## Migration Guide
+///
+/// **Old way (deprecated)**:
+/// ```rust,ignore
+/// use siumai::types::OpenAiBuiltInTool;
+///
+/// let tool = OpenAiBuiltInTool::WebSearch;
+/// ```
+///
+/// **New way (recommended)**:
+/// ```rust
+/// use siumai::provider_tools::openai;
+///
+/// let tool = openai::web_search().build();
+/// ```
+///
+/// ### Migration Examples
+///
+/// #### Web Search
+/// ```rust,ignore
+/// // Old
+/// OpenAiBuiltInTool::WebSearchOptions {
+///     options: WebSearchOptions {
+///         search_context_size: Some("high".into()),
+///         user_location: Some(WebSearchUserLocation { ... }),
+///     }
+/// }
+///
+/// // New
+/// use siumai::provider_tools::openai;
+/// openai::web_search()
+///     .with_search_context_size("high")
+///     .with_user_location(openai::UserLocation::new("approximate").with_country("US"))
+///     .build()
+/// ```
+///
+/// #### File Search
+/// ```rust,ignore
+/// // Old
+/// OpenAiBuiltInTool::FileSearchOptions {
+///     vector_store_ids: Some(vec!["vs_123".into()]),
+///     max_num_results: Some(10),
+///     ranking_options: None,
+///     filters: None,
+/// }
+///
+/// // New
+/// use siumai::provider_tools::openai;
+/// openai::file_search()
+///     .with_vector_store_ids(vec!["vs_123".to_string()])
+///     .with_max_num_results(10)
+///     .build()
+/// ```
+///
+/// #### Computer Use
+/// ```rust,ignore
+/// // Old
+/// OpenAiBuiltInTool::ComputerUse {
+///     display_width: 1920,
+///     display_height: 1080,
+///     environment: "headless".into(),
+/// }
+///
+/// // New
+/// use siumai::provider_tools::openai;
+/// openai::computer_use(1920, 1080, "headless")
+/// ```
+///
+/// See the `provider_tools` module documentation for more examples.
+#[deprecated(
+    since = "0.12.0",
+    note = "Use `provider_tools::openai` module instead. See migration guide in the documentation."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OpenAiBuiltInTool {
     /// Web search tool
@@ -599,5 +892,144 @@ mod tests {
             Some(0.5)
         );
         assert!(v.get("filters").is_some());
+    }
+
+    #[test]
+    fn provider_defined_tool_new() {
+        let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+        assert_eq!(tool.id, "openai.web_search");
+        assert_eq!(tool.name, "web_search");
+        assert_eq!(tool.args, serde_json::json!({}));
+    }
+
+    #[test]
+    fn provider_defined_tool_with_args() {
+        let tool = ProviderDefinedTool::new("openai.web_search", "web_search").with_args(
+            serde_json::json!({
+                "searchContextSize": "high"
+            }),
+        );
+        assert_eq!(tool.id, "openai.web_search");
+        assert_eq!(tool.name, "web_search");
+        assert_eq!(
+            tool.args.get("searchContextSize").and_then(|v| v.as_str()),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn provider_defined_tool_provider() {
+        let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+        assert_eq!(tool.provider(), Some("openai"));
+
+        let tool2 = ProviderDefinedTool::new("anthropic.web_search_20250305", "web_search");
+        assert_eq!(tool2.provider(), Some("anthropic"));
+
+        let tool3 = ProviderDefinedTool::new("invalid", "test");
+        assert_eq!(tool3.provider(), Some("invalid"));
+    }
+
+    #[test]
+    fn provider_defined_tool_tool_type() {
+        let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+        assert_eq!(tool.tool_type(), Some("web_search"));
+
+        let tool2 = ProviderDefinedTool::new("google.code_execution", "code_execution");
+        assert_eq!(tool2.tool_type(), Some("code_execution"));
+
+        let tool3 = ProviderDefinedTool::new("invalid", "test");
+        assert_eq!(tool3.tool_type(), None);
+    }
+
+    #[test]
+    fn tool_enum_function_variant() {
+        let tool = Tool::function(
+            "weather".to_string(),
+            "Get weather".to_string(),
+            serde_json::json!({}),
+        );
+        match tool {
+            Tool::Function { function } => {
+                assert_eq!(function.name, "weather");
+                assert_eq!(function.description, "Get weather");
+            }
+            _ => panic!("Expected Function variant"),
+        }
+    }
+
+    #[test]
+    fn tool_enum_provider_defined_variant() {
+        let provider_tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+        let tool = Tool::ProviderDefined(provider_tool.clone());
+        match tool {
+            Tool::ProviderDefined(pt) => {
+                assert_eq!(pt.id, "openai.web_search");
+                assert_eq!(pt.name, "web_search");
+            }
+            _ => panic!("Expected ProviderDefined variant"),
+        }
+    }
+
+    #[test]
+    fn tool_enum_serialization() {
+        // Test Function variant serialization
+        let func_tool = Tool::function(
+            "weather".to_string(),
+            "Get weather".to_string(),
+            serde_json::json!({}),
+        );
+        let json = serde_json::to_value(&func_tool).unwrap();
+        assert_eq!(json.get("type").and_then(|v| v.as_str()), Some("function"));
+        assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("weather"));
+
+        // Test ProviderDefined variant serialization
+        let provider_tool = ProviderDefinedTool::new("openai.web_search", "web_search");
+        let pd_tool = Tool::ProviderDefined(provider_tool);
+        let json = serde_json::to_value(&pd_tool).unwrap();
+        assert_eq!(
+            json.get("type").and_then(|v| v.as_str()),
+            Some("provider-defined")
+        );
+        assert_eq!(
+            json.get("id").and_then(|v| v.as_str()),
+            Some("openai.web_search")
+        );
+        assert_eq!(
+            json.get("name").and_then(|v| v.as_str()),
+            Some("web_search")
+        );
+    }
+
+    #[test]
+    fn tool_enum_deserialization() {
+        // Test Function variant deserialization
+        let json = serde_json::json!({
+            "type": "function",
+            "name": "weather",
+            "description": "Get weather",
+            "parameters": {}
+        });
+        let tool: Tool = serde_json::from_value(json).unwrap();
+        match tool {
+            Tool::Function { function } => {
+                assert_eq!(function.name, "weather");
+            }
+            _ => panic!("Expected Function variant"),
+        }
+
+        // Test ProviderDefined variant deserialization
+        let json = serde_json::json!({
+            "type": "provider-defined",
+            "id": "openai.web_search",
+            "name": "web_search"
+        });
+        let tool: Tool = serde_json::from_value(json).unwrap();
+        match tool {
+            Tool::ProviderDefined(pt) => {
+                assert_eq!(pt.id, "openai.web_search");
+                assert_eq!(pt.name, "web_search");
+            }
+            _ => panic!("Expected ProviderDefined variant"),
+        }
     }
 }

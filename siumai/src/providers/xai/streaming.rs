@@ -68,11 +68,10 @@ impl XaiEventConverter {
                 content: MessageContent::Text(String::new()),
                 usage: self.extract_usage(&event),
                 finish_reason: Some(finish_reason),
-                tool_calls: None,
-                thinking: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
+                warnings: None,
                 metadata: HashMap::new(),
             };
             builder = builder.add_stream_end(chat_response);
@@ -203,11 +202,10 @@ impl SseEventConverter for XaiEventConverter {
             content: MessageContent::Text("".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Unknown),
-            tool_calls: None,
-            thinking: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: HashMap::new(),
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))

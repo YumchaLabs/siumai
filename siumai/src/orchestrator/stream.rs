@@ -10,7 +10,7 @@ use super::types::{OrchestratorStreamOptions, StepResult, ToolApproval, ToolReso
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, ChatStreamEvent};
 use crate::traits::ChatCapability;
-use crate::types::{ChatMessage, ChatResponse, MessageContent, Tool};
+use crate::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
 
 fn validate_args_with_schema(_schema: &Value, _instance: &Value) -> Result<(), String> {
     // Schema validation has been moved to siumai-extras
@@ -116,6 +116,7 @@ where
     let on_step_finish = opts.on_step_finish.clone();
     let on_finish = opts.on_finish.clone();
     let on_tool_approval = opts.on_tool_approval.clone();
+    let on_preliminary_tool_result = opts.on_preliminary_tool_result.clone();
     let on_abort = opts.on_abort.clone();
     let orchestrator_cancel = crate::utils::cancel::new_cancel_handle();
     let orchestrator_cancel_clone = orchestrator_cancel.clone();
@@ -180,7 +181,25 @@ where
                     .unwrap_or_else(|| ChatResponse::new(MessageContent::Text(acc_text.clone())))
             } else {
                 // Non-streaming follow-up to advance conversation efficiently
-                match model.chat_with_tools(history.clone(), tools.clone()).await {
+                // Use chat_request if we have common_params
+                let result = if opts.common_params.is_some() {
+                    let mut request = crate::types::ChatRequest::new(history.clone());
+
+                    if let Some(tools) = tools.clone() {
+                        request = request.with_tools(tools);
+                    }
+
+                    // Apply agent-level common_params
+                    if let Some(ref common_params) = opts.common_params {
+                        request = request.with_common_params(common_params.clone());
+                    }
+
+                    model.chat_request(request).await
+                } else {
+                    model.chat_with_tools(history.clone(), tools.clone()).await
+                };
+
+                match result {
                     Ok(r) => r,
                     Err(e) => {
                         encountered_error = true;
@@ -194,77 +213,149 @@ where
                 .content_text()
                 .map(|s| s.to_string())
                 .unwrap_or_else(String::new);
-            let mut assistant = ChatMessage::assistant(assistant_text);
-            if let Some(calls) = resp.get_tool_calls().cloned() {
-                assistant = assistant.with_tool_calls(calls);
-            }
-            let assistant_built = assistant.build();
+            // The response content already contains tool calls, so we just use it directly
+            let assistant_built = ChatMessage {
+                role: crate::types::MessageRole::Assistant,
+                content: resp.content.clone(),
+                metadata: crate::types::MessageMetadata::default(),
+            };
             history.push(assistant_built.clone());
             step_msgs.push(assistant_built);
 
             // Execute tools if any
-            let tool_calls = resp.get_tool_calls().cloned().unwrap_or_default();
+            let tool_calls: Vec<_> = resp.tool_calls().into_iter().cloned().collect();
             if !tool_calls.is_empty() {
                 if let (Some(resolver), Some(ref ts)) = (resolver.as_ref(), tools_opt.as_ref()) {
                     for call in tool_calls.iter() {
-                        if let Some(func) = &call.function {
+                        if let crate::types::ContentPart::ToolCall {
+                            tool_call_id,
+                            tool_name,
+                            arguments,
+                            ..
+                        } = call
+                        {
                             // Skip duplicate tool-call IDs already executed in previous steps.
-                            if processed_call_ids.contains(&call.id) {
+                            if processed_call_ids.contains(tool_call_id) {
                                 continue;
                             }
-                            let parsed_args: serde_json::Value =
-                                serde_json::from_str(&func.arguments)
-                                    .unwrap_or(serde_json::Value::String(func.arguments.clone()));
-                            if let Some(def) = ts.iter().find(|t| t.function.name == func.name) {
-                                if let Err(reason) = validate_args_with_schema(
-                                    &def.function.parameters,
-                                    &parsed_args,
-                                ) {
+                            if let Some(def) = ts.iter().find(|t| match t {
+                                Tool::Function { function } => &function.name == tool_name,
+                                Tool::ProviderDefined(provider_tool) => {
+                                    &provider_tool.name == tool_name
+                                }
+                            }) {
+                                let parameters = match def {
+                                    Tool::Function { function } => &function.parameters,
+                                    Tool::ProviderDefined(_) => {
+                                        // Provider-defined tools don't have parameters schema
+                                        // Skip validation for them
+                                        continue;
+                                    }
+                                };
+                                if let Err(reason) =
+                                    validate_args_with_schema(parameters, arguments)
+                                {
                                     let out =
                                         serde_json::json!({"error":"invalid_args","reason":reason});
-                                    let tool_msg =
-                                        ChatMessage::tool(out.to_string(), call.id.clone()).build();
+                                    let tool_msg = ChatMessage::tool_error_json(
+                                        tool_call_id.clone(),
+                                        tool_name.clone(),
+                                        out,
+                                    )
+                                    .build();
                                     history.push(tool_msg.clone());
                                     step_msgs.push(tool_msg);
                                     continue;
                                 }
                             }
                             let decision = if let Some(cb) = &on_tool_approval {
-                                cb(&func.name, &parsed_args)
+                                cb(tool_name, arguments)
                             } else {
-                                ToolApproval::Approve(parsed_args.clone())
+                                ToolApproval::Approve(arguments.clone())
                             };
                             let out_val = match decision {
                                 ToolApproval::Approve(args) | ToolApproval::Modify(args) => {
-                                    resolver
-                                        .call_tool(&func.name, args)
-                                        .await
-                                        .unwrap_or_else(|e| {
-                                            serde_json::Value::String(format!(
-                                                "<tool error: {}>",
-                                                e
-                                            ))
-                                        })
+                                    // Use streaming tool execution
+                                    match resolver.call_tool_stream(tool_name, args).await {
+                                        Ok(mut stream) => {
+                                            let mut final_output = None;
+
+                                            // Process stream
+                                            while let Some(result) = stream.next().await {
+                                                match result {
+                                                    Ok(tool_result) => {
+                                                        if tool_result.is_preliminary() {
+                                                            // Call preliminary callback if provided
+                                                            if let Some(cb) =
+                                                                &on_preliminary_tool_result
+                                                            {
+                                                                cb(
+                                                                    tool_name,
+                                                                    tool_call_id,
+                                                                    tool_result.output(),
+                                                                );
+                                                            }
+                                                        } else {
+                                                            // Final result
+                                                            final_output =
+                                                                Some(tool_result.into_output());
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        // Error during streaming
+                                                        final_output = Some(Value::String(
+                                                            format!("<tool error: {}>", e),
+                                                        ));
+                                                        break;
+                                                    }
+                                                }
+                                            }
+
+                                            final_output.unwrap_or_else(|| {
+                                                Value::String(
+                                                    "<tool error: no final result>".to_string(),
+                                                )
+                                            })
+                                        }
+                                        Err(e) => serde_json::Value::String(format!(
+                                            "<tool error: {}>",
+                                            e
+                                        )),
+                                    }
                                 }
                                 ToolApproval::Deny { reason } => {
                                     serde_json::json!({"error":"denied","reason":reason})
                                 }
                             };
-                            let tool_msg =
-                                ChatMessage::tool(out_val.to_string(), call.id.clone()).build();
+                            let tool_msg = ChatMessage::tool_result_json(
+                                tool_call_id.clone(),
+                                tool_name.clone(),
+                                out_val,
+                            )
+                            .build();
                             history.push(tool_msg.clone());
                             step_msgs.push(tool_msg);
-                            processed_call_ids.insert(call.id.clone());
+                            processed_call_ids.insert(tool_call_id.clone());
                         }
                     }
                 }
             }
+
+            // Extract tool results from tool messages
+            let tool_results: Vec<ContentPart> = step_msgs
+                .iter()
+                .filter(|msg| matches!(msg.role, crate::types::MessageRole::Tool))
+                .flat_map(|msg| msg.tool_results())
+                .cloned()
+                .collect();
 
             let step = StepResult {
                 messages: step_msgs,
                 finish_reason: resp.finish_reason.clone(),
                 usage: resp.usage.clone(),
                 tool_calls: tool_calls.clone(),
+                tool_results,
+                warnings: resp.warnings.clone(),
             };
             if let Some(cb) = &on_step_finish {
                 cb(&step);

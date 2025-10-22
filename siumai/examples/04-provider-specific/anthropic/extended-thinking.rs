@@ -37,9 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client.chat_request(request).await?;
 
     // The response will include thinking process
-    if let Some(ref thinking) = response.thinking {
+    let reasoning = response.reasoning();
+    if !reasoning.is_empty() {
         println!("💭 Thinking process:");
-        println!("{}\n", thinking);
+        for r in reasoning {
+            println!("{}\n", r);
+        }
     }
 
     println!("📝 Final answer:");

@@ -180,6 +180,7 @@ impl CustomChatRequest {
 
 /// Custom chat response
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(deprecated)]
 pub struct CustomChatResponse {
     /// Response content
     pub content: String,
@@ -206,6 +207,7 @@ impl CustomChatResponse {
     }
 
     /// Add tool calls
+    #[allow(deprecated)]
     pub fn with_tool_calls(mut self, tool_calls: Vec<ToolCall>) -> Self {
         self.tool_calls = Some(tool_calls);
         self
@@ -233,9 +235,38 @@ impl CustomChatResponse {
 
     /// Convert to standard `ChatResponse`
     pub fn to_chat_response(&self, _provider_name: &str) -> ChatResponse {
+        use crate::types::ContentPart;
+
+        // Build content with tool calls if present
+        let mut content_parts = vec![ContentPart::text(&self.content)];
+
+        #[allow(deprecated)]
+        if let Some(tool_calls) = &self.tool_calls {
+            for tc in tool_calls {
+                if let Some(function) = &tc.function {
+                    // Parse arguments string to JSON Value
+                    let arguments = serde_json::from_str(&function.arguments)
+                        .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
+
+                    content_parts.push(ContentPart::tool_call(
+                        tc.id.clone(),
+                        function.name.clone(),
+                        arguments,
+                        None,
+                    ));
+                }
+            }
+        }
+
+        let content = if content_parts.len() == 1 {
+            MessageContent::Text(self.content.clone())
+        } else {
+            MessageContent::MultiModal(content_parts)
+        };
+
         ChatResponse {
             id: None,
-            content: MessageContent::Text(self.content.clone()),
+            content,
             model: None,
             usage: self.usage.clone(),
             finish_reason: self.finish_reason.as_ref().map(|r| match r.as_str() {
@@ -245,11 +276,10 @@ impl CustomChatResponse {
                 "content_filter" => FinishReason::ContentFilter,
                 _ => FinishReason::Other(r.clone()),
             }),
-            tool_calls: self.tool_calls.clone(),
             audio: None,
-            thinking: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: self.metadata.clone(),
         }
     }

@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     println!("🎯 Tool Choice Demo\n");
-    println!("=".repeat(80));
+    println!("{}", "=".repeat(80));
 
     // Example 1: Auto (default) - Model decides
     println!("\n📌 Example 1: Auto (default) - Model decides whether to call tools\n");
@@ -80,13 +80,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(tools.clone())
     .with_tool_choice(ToolChoice::Auto); // Explicit, but this is the default
 
-    let response = client.chat(request).await?;
+    let response = client.chat_request(request).await?;
     println!("Response: {:?}", response.content);
-    if let Some(tool_calls) = &response.tool_calls {
+    if response.has_tool_calls() {
+        let tool_calls = response.tool_calls();
         println!("Tool calls: {} tool(s) called", tool_calls.len());
         for call in tool_calls {
-            if let Some(func) = &call.function {
-                println!("  - {}: {}", func.name, func.arguments);
+            if let siumai::types::ContentPart::ToolCall {
+                tool_name,
+                arguments,
+                ..
+            } = call
+            {
+                println!("  - {}: {}", tool_name, arguments);
             }
         }
     }
@@ -97,13 +103,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tools(tools.clone())
         .with_tool_choice(ToolChoice::Required);
 
-    let response = client.chat(request).await?;
+    let response = client.chat_request(request).await?;
     println!("Response: {:?}", response.content);
-    if let Some(tool_calls) = &response.tool_calls {
+    if response.has_tool_calls() {
+        let tool_calls = response.tool_calls();
         println!("Tool calls: {} tool(s) called (required)", tool_calls.len());
         for call in tool_calls {
-            if let Some(func) = &call.function {
-                println!("  - {}: {}", func.name, func.arguments);
+            if let siumai::types::ContentPart::ToolCall {
+                tool_name,
+                arguments,
+                ..
+            } = call
+            {
+                println!("  - {}: {}", tool_name, arguments);
             }
         }
     }
@@ -116,11 +128,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(tools.clone())
     .with_tool_choice(ToolChoice::None);
 
-    let response = client.chat(request).await?;
+    let response = client.chat_request(request).await?;
     println!("Response: {:?}", response.content);
     println!(
         "Tool calls: {}",
-        if response.tool_calls.is_some() {
+        if response.has_tool_calls() {
             "Some (unexpected!)"
         } else {
             "None (as expected)"
@@ -133,16 +145,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tools(tools.clone())
         .with_tool_choice(ToolChoice::tool("get_weather"));
 
-    let response = client.chat(request).await?;
+    let response = client.chat_request(request).await?;
     println!("Response: {:?}", response.content);
-    if let Some(tool_calls) = &response.tool_calls {
+    if response.has_tool_calls() {
+        let tool_calls = response.tool_calls();
         println!(
             "Tool calls: {} tool(s) called (forced to get_weather)",
             tool_calls.len()
         );
         for call in tool_calls {
-            if let Some(func) = &call.function {
-                println!("  - {}: {}", func.name, func.arguments);
+            if let siumai::types::ContentPart::ToolCall {
+                tool_name,
+                arguments,
+                ..
+            } = call
+            {
+                println!("  - {}: {}", tool_name, arguments);
             }
         }
     }
@@ -155,21 +173,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tool_choice(ToolChoice::tool("get_time"))
         .build();
 
-    let response = client.chat(request).await?;
+    let response = client.chat_request(request).await?;
     println!("Response: {:?}", response.content);
-    if let Some(tool_calls) = &response.tool_calls {
+    if response.has_tool_calls() {
+        let tool_calls = response.tool_calls();
         println!(
             "Tool calls: {} tool(s) called (forced to get_time)",
             tool_calls.len()
         );
         for call in tool_calls {
-            if let Some(func) = &call.function {
-                println!("  - {}: {}", func.name, func.arguments);
+            if let siumai::types::ContentPart::ToolCall {
+                tool_name,
+                arguments,
+                ..
+            } = call
+            {
+                println!("  - {}: {}", tool_name, arguments);
             }
         }
     }
 
-    println!("\n" + &"=".repeat(80));
+    println!("\n{}", "=".repeat(80));
     println!("\n✅ Tool Choice Demo Complete!\n");
     println!("Key Takeaways:");
     println!("  - Auto: Model decides (default behavior)");

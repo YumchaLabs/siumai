@@ -129,8 +129,23 @@ fn create_tool_call(name: &str, args: Value) -> ToolCall {
 }
 
 fn create_response_with_tools(tool_calls: Vec<ToolCall>) -> ChatResponse {
-    let mut response = ChatResponse::new(MessageContent::Text("".to_string()));
-    response.tool_calls = Some(tool_calls);
+    use crate::types::ContentPart;
+
+    // Convert ToolCall to ContentPart
+    let parts: Vec<ContentPart> = tool_calls
+        .into_iter()
+        .map(|tc| {
+            let args = if let Some(func) = &tc.function {
+                serde_json::from_str(&func.arguments).unwrap_or(serde_json::json!({}))
+            } else {
+                serde_json::json!({})
+            };
+            let name = tc.function.as_ref().map(|f| f.name.as_str()).unwrap_or("");
+            ContentPart::tool_call(tc.id, name, args, None)
+        })
+        .collect();
+
+    let mut response = ChatResponse::new(MessageContent::MultiModal(parts));
     response.finish_reason = Some(FinishReason::ToolCalls);
     response.usage = Some(Usage {
         prompt_tokens: 100,
@@ -138,6 +153,8 @@ fn create_response_with_tools(tool_calls: Vec<ToolCall>) -> ChatResponse {
         total_tokens: 150,
         cached_tokens: None,
         reasoning_tokens: None,
+        prompt_tokens_details: None,
+        completion_tokens_details: None,
     });
     response
 }
@@ -151,22 +168,21 @@ fn create_text_response(text: &str) -> ChatResponse {
         total_tokens: 150,
         cached_tokens: None,
         reasoning_tokens: None,
+        prompt_tokens_details: None,
+        completion_tokens_details: None,
     });
     response
 }
 
 fn create_tool(name: &str) -> Tool {
-    Tool {
-        r#type: "function".to_string(),
-        function: ToolFunction {
-            name: name.to_string(),
-            description: format!("{} tool", name),
-            parameters: json!({
-                "type": "object",
-                "properties": {},
-            }),
-        },
-    }
+    Tool::function(
+        name.to_string(),
+        format!("{} tool", name),
+        json!({
+            "type": "object",
+            "properties": {},
+        }),
+    )
 }
 
 // ============================================================================
@@ -185,6 +201,8 @@ fn test_step_result_merge_usage() {
                 total_tokens: 150,
                 cached_tokens: Some(10),
                 reasoning_tokens: Some(5),
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
             }),
             tool_calls: vec![],
         },
@@ -197,6 +215,8 @@ fn test_step_result_merge_usage() {
                 total_tokens: 300,
                 cached_tokens: Some(20),
                 reasoning_tokens: Some(10),
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
             }),
             tool_calls: vec![],
         },
@@ -533,7 +553,12 @@ fn test_all_of_stop_condition() {
             messages: vec![],
             finish_reason: None,
             usage: None,
-            tool_calls: vec![create_tool_call("tool1", json!({}))],
+            tool_calls: vec![crate::types::ContentPart::tool_call(
+                "call_1",
+                "tool1",
+                json!({}),
+                None,
+            )],
         },
         StepResult {
             messages: vec![ChatMessage::assistant("text").build()],
@@ -736,6 +761,8 @@ fn test_step_result_merge_usage_partial() {
                 total_tokens: 150,
                 cached_tokens: None,
                 reasoning_tokens: None,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
             }),
             tool_calls: vec![],
         },

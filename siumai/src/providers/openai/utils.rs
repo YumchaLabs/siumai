@@ -28,6 +28,101 @@ pub fn build_headers(
     ProviderHeaders::openai(api_key, organization, project, custom_headers)
 }
 
+/// Convert tools to OpenAI Chat API format
+pub fn convert_tools_to_openai_format(
+    tools: &[crate::types::Tool],
+) -> Result<Vec<serde_json::Value>, LlmError> {
+    let mut openai_tools = Vec::new();
+
+    for tool in tools {
+        match tool {
+            crate::types::Tool::Function { function } => {
+                openai_tools.push(serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": function.name,
+                        "description": function.description,
+                        "parameters": function.parameters
+                    }
+                }));
+            }
+            crate::types::Tool::ProviderDefined(provider_tool) => {
+                // Check if this is an OpenAI provider-defined tool
+                if provider_tool.provider() == Some("openai") {
+                    // For OpenAI provider-defined tools, construct the tool definition
+                    let tool_type = provider_tool.tool_type().unwrap_or("unknown");
+
+                    let mut openai_tool = serde_json::json!({
+                        "type": tool_type,
+                    });
+
+                    // Merge args into the tool definition
+                    if let serde_json::Value::Object(args_map) = &provider_tool.args {
+                        if let serde_json::Value::Object(tool_map) = &mut openai_tool {
+                            for (k, v) in args_map {
+                                tool_map.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+
+                    openai_tools.push(openai_tool);
+                } else {
+                    // Ignore provider-defined tools from other providers
+                    continue;
+                }
+            }
+        }
+    }
+
+    Ok(openai_tools)
+}
+
+/// Convert tools to OpenAI Responses API format (flattened)
+pub fn convert_tools_to_responses_format(
+    tools: &[crate::types::Tool],
+) -> Result<Vec<serde_json::Value>, LlmError> {
+    let mut openai_tools = Vec::new();
+
+    for tool in tools {
+        match tool {
+            crate::types::Tool::Function { function } => {
+                openai_tools.push(serde_json::json!({
+                    "type": "function",
+                    "name": function.name,
+                    "description": function.description,
+                    "parameters": function.parameters
+                }));
+            }
+            crate::types::Tool::ProviderDefined(provider_tool) => {
+                // Check if this is an OpenAI provider-defined tool
+                if provider_tool.provider() == Some("openai") {
+                    let tool_type = provider_tool.tool_type().unwrap_or("unknown");
+
+                    let mut openai_tool = serde_json::json!({
+                        "type": tool_type,
+                    });
+
+                    // Merge args into the tool definition
+                    if let serde_json::Value::Object(args_map) = &provider_tool.args {
+                        if let serde_json::Value::Object(tool_map) = &mut openai_tool {
+                            for (k, v) in args_map {
+                                tool_map.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+
+                    openai_tools.push(openai_tool);
+                } else {
+                    // Ignore provider-defined tools from other providers
+                    continue;
+                }
+            }
+        }
+    }
+
+    Ok(openai_tools)
+}
+
 /// Convert message content to `OpenAI` format
 pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
     match content {
@@ -139,6 +234,18 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             }));
                         }
                     }
+                    ContentPart::ToolCall { .. } => {
+                        // Tool calls are handled separately in convert_messages
+                        // Skip them here as they're not part of content array
+                    }
+                    ContentPart::ToolResult { .. } => {
+                        // Tool results are handled separately in convert_messages
+                        // Skip them here as they're not part of content array
+                    }
+                    ContentPart::Reasoning { .. } => {
+                        // Reasoning/thinking is handled separately
+                        // Skip it here as it's not part of content array
+                    }
                 }
             }
 
@@ -169,36 +276,71 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                 tool_calls: None,
                 tool_call_id: None,
             },
-            MessageRole::Assistant => OpenAiMessage {
-                role: "assistant".to_string(),
-                content: Some(convert_message_content(&message.content)?),
-                tool_calls: message.tool_calls.as_ref().map(|calls| {
-                    calls
-                        .iter()
-                        .map(|call| OpenAiToolCall {
-                            id: call.id.clone(),
-                            r#type: call.r#type.clone(),
-                            function: call.function.as_ref().map(|f| OpenAiFunction {
-                                name: f.name.clone(),
-                                arguments: f.arguments.clone(),
-                            }),
-                        })
-                        .collect()
-                }),
-                tool_call_id: None,
-            },
+            MessageRole::Assistant => {
+                // Extract tool calls from content
+                let tool_calls_vec = message.tool_calls();
+                let tool_calls_openai = if !tool_calls_vec.is_empty() {
+                    Some(
+                        tool_calls_vec
+                            .iter()
+                            .filter_map(|part| {
+                                if let crate::types::ContentPart::ToolCall {
+                                    tool_call_id,
+                                    tool_name,
+                                    arguments,
+                                    ..
+                                } = part
+                                {
+                                    Some(OpenAiToolCall {
+                                        id: tool_call_id.clone(),
+                                        r#type: "function".to_string(),
+                                        function: Some(OpenAiFunction {
+                                            name: tool_name.clone(),
+                                            arguments: serde_json::to_string(arguments)
+                                                .unwrap_or_default(),
+                                        }),
+                                    })
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect(),
+                    )
+                } else {
+                    None
+                };
+
+                OpenAiMessage {
+                    role: "assistant".to_string(),
+                    content: Some(convert_message_content(&message.content)?),
+                    tool_calls: tool_calls_openai,
+                    tool_call_id: None,
+                }
+            }
             MessageRole::Developer => OpenAiMessage {
                 role: "developer".to_string(),
                 content: Some(convert_message_content(&message.content)?),
                 tool_calls: None,
                 tool_call_id: None,
             },
-            MessageRole::Tool => OpenAiMessage {
-                role: "tool".to_string(),
-                content: Some(convert_message_content(&message.content)?),
-                tool_calls: None,
-                tool_call_id: message.tool_call_id.clone(),
-            },
+            MessageRole::Tool => {
+                // Extract tool call ID from tool result in content
+                let tool_results = message.tool_results();
+                let tool_call_id = tool_results.first().and_then(|part| {
+                    if let crate::types::ContentPart::ToolResult { tool_call_id, .. } = part {
+                        Some(tool_call_id.clone())
+                    } else {
+                        None
+                    }
+                });
+
+                OpenAiMessage {
+                    role: "tool".to_string(),
+                    content: Some(convert_message_content(&message.content)?),
+                    tool_calls: None,
+                    tool_call_id,
+                }
+            }
         };
 
         openai_messages.push(openai_message);

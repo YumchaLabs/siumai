@@ -41,11 +41,12 @@ mod tests;
 pub use agent::ToolLoopAgent;
 pub use prepare_step::{PrepareStepContext, PrepareStepFn, PrepareStepResult, ToolChoice};
 pub use stop_condition::{
-    StopCondition, all_of, any_of, custom_condition, has_text_response, has_tool_call,
-    step_count_is,
+    StopCondition, all_of, any_of, custom_condition, has_no_tool_calls, has_text_response,
+    has_tool_call, has_tool_result, step_count_is,
 };
 pub use types::{
-    OrchestratorOptions, OrchestratorStreamOptions, StepResult, ToolApproval, ToolResolver,
+    AgentResult, OrchestratorOptions, OrchestratorStreamOptions, StepResult, ToolApproval,
+    ToolExecutionResult, ToolResolver,
 };
 
 // Re-export main functions

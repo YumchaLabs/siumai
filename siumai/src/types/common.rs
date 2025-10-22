@@ -4,6 +4,56 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// Warning from the model provider
+///
+/// Warnings indicate non-fatal issues during generation, such as unsupported settings
+/// or deprecated features. The generation continues despite warnings.
+///
+/// # Examples
+///
+/// ```rust
+/// use siumai::types::Warning;
+///
+/// let warning = Warning::unsupported_setting("topK", Some("This provider doesn't support topK"));
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum Warning {
+    /// An unsupported setting was provided
+    UnsupportedSetting {
+        /// The name of the unsupported setting
+        setting: String,
+        /// Optional details about why it's unsupported
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+    },
+    /// Other warning types
+    Other {
+        /// Warning message
+        message: String,
+    },
+}
+
+impl Warning {
+    /// Create an unsupported setting warning
+    pub fn unsupported_setting(
+        setting: impl Into<String>,
+        details: Option<impl Into<String>>,
+    ) -> Self {
+        Self::UnsupportedSetting {
+            setting: setting.into(),
+            details: details.map(|d| d.into()),
+        }
+    }
+
+    /// Create a generic warning
+    pub fn other(message: impl Into<String>) -> Self {
+        Self::Other {
+            message: message.into(),
+        }
+    }
+}
+
 /// Provider type enumeration
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderType {

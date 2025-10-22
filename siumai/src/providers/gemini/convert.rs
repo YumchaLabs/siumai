@@ -137,6 +137,18 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                             }
                         }
                     }
+                    crate::types::ContentPart::ToolCall { .. } => {
+                        // Tool calls are handled separately in convert_messages
+                        // Skip them here as they're not part of content array
+                    }
+                    crate::types::ContentPart::ToolResult { .. } => {
+                        // Tool results are handled separately in convert_messages
+                        // Skip them here as they're not part of content array
+                    }
+                    crate::types::ContentPart::Reasoning { .. } => {
+                        // Reasoning/thinking is handled separately
+                        // Skip it here as it's not part of content array
+                    }
                 }
             }
         }
@@ -149,35 +161,39 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         }
     }
 
-    // Tool calls
-    if let Some(tool_calls) = &message.tool_calls {
-        for tool_call in tool_calls {
-            if let Some(function) = &tool_call.function {
-                let args = serde_json::from_str(&function.arguments).ok();
-                parts.push(Part::FunctionCall {
-                    function_call: FunctionCall {
-                        name: function.name.clone(),
-                        args,
-                    },
-                });
-            }
+    // Tool calls (extract from content)
+    let tool_calls = message.tool_calls();
+    for part in tool_calls {
+        if let crate::types::ContentPart::ToolCall {
+            tool_name,
+            arguments,
+            ..
+        } = part
+        {
+            parts.push(Part::FunctionCall {
+                function_call: FunctionCall {
+                    name: tool_name.clone(),
+                    args: Some(arguments.clone()),
+                },
+            });
         }
     }
 
-    // Tool results
-    if let Some(tool_call_id) = &message.tool_call_id {
-        let response = match &message.content {
-            MessageContent::Text(text) => serde_json::json!(text),
-            #[cfg(feature = "structured-messages")]
-            MessageContent::Json(v) => v.clone(),
-            _ => serde_json::json!({}),
-        };
-        parts.push(Part::FunctionResponse {
-            function_response: super::types::FunctionResponse {
-                name: tool_call_id.clone(),
-                response,
-            },
-        });
+    // Tool results (extract from content)
+    let tool_results = message.tool_results();
+    for part in tool_results {
+        if let crate::types::ContentPart::ToolResult {
+            tool_name, output, ..
+        } = part
+        {
+            let response = output.to_json_value();
+            parts.push(Part::FunctionResponse {
+                function_response: super::types::FunctionResponse {
+                    name: tool_name.clone(),
+                    response,
+                },
+            });
+        }
     }
 
     if parts.is_empty() {
@@ -193,19 +209,31 @@ pub fn convert_tools_to_gemini(tools: &[Tool]) -> Result<Vec<GeminiTool>, LlmErr
     let mut function_declarations = Vec::new();
 
     for tool in tools {
-        if tool.r#type == "function" {
-            let parameters = tool.function.parameters.clone();
-            function_declarations.push(FunctionDeclaration {
-                name: tool.function.name.clone(),
-                description: tool.function.description.clone(),
-                parameters: Some(parameters),
-                response: None,
-            });
-        } else {
-            return Err(LlmError::UnsupportedOperation(format!(
-                "Tool type {} not supported by Gemini",
-                tool.r#type
-            )));
+        match tool {
+            Tool::Function { function } => {
+                let parameters = function.parameters.clone();
+                function_declarations.push(FunctionDeclaration {
+                    name: function.name.clone(),
+                    description: function.description.clone(),
+                    parameters: Some(parameters),
+                    response: None,
+                });
+            }
+            Tool::ProviderDefined(provider_tool) => {
+                // Check if this is a Google/Gemini provider-defined tool
+                if provider_tool.provider() == Some("google")
+                    || provider_tool.provider() == Some("gemini")
+                {
+                    // For Google provider-defined tools (like code_execution),
+                    // we need to handle them specially
+                    // For now, we'll skip them as they're handled differently in Gemini API
+                    // TODO: Implement proper handling for Google provider-defined tools
+                    continue;
+                } else {
+                    // Ignore provider-defined tools from other providers
+                    continue;
+                }
+            }
         }
     }
 

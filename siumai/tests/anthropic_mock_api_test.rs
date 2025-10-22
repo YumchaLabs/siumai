@@ -231,15 +231,24 @@ async fn test_anthropic_tool_use_response() {
         .unwrap();
 
     // Verify response
+    use siumai::types::ContentPart;
+
     assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
-    assert!(response.tool_calls.is_some());
+    assert!(response.has_tool_calls());
 
-    let tool_calls = response.tool_calls.unwrap();
+    let tool_calls = response.tool_calls();
     assert_eq!(tool_calls.len(), 1);
-    assert_eq!(tool_calls[0].function.as_ref().unwrap().name, "get_weather");
 
-    // Verify tool arguments
-    let args: serde_json::Value =
-        serde_json::from_str(&tool_calls[0].function.as_ref().unwrap().arguments).unwrap();
-    assert_eq!(args["location"], "San Francisco, CA");
+    // Extract tool call details
+    if let ContentPart::ToolCall {
+        tool_name,
+        arguments,
+        ..
+    } = &tool_calls[0]
+    {
+        assert_eq!(tool_name, "get_weather");
+        assert_eq!(arguments["location"], "San Francisco, CA");
+    } else {
+        panic!("Expected ToolCall content part");
+    }
 }

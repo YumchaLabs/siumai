@@ -14,9 +14,7 @@ use crate::transformers::{
 };
 use crate::types::EmbeddingRequest;
 use crate::types::ImageGenerationRequest;
-use crate::types::{
-    ChatRequest, ChatResponse, FinishReason, FunctionCall, MessageContent, ToolCall, Usage,
-};
+use crate::types::{ChatRequest, ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
 use std::future::Future;
 use std::pin::Pin;
@@ -325,25 +323,21 @@ impl ResponseTransformer for GeminiResponseTransformer {
             .ok_or_else(|| LlmError::api_error(400, "No content in candidate"))?;
 
         let mut text_content = String::new();
-        let mut tool_calls = Vec::new();
         let mut content_parts = Vec::new();
-        let mut thinking_content = String::new();
         let mut has_multimodal_content = false;
 
         for part in &content.parts {
             match part {
                 Part::Text { text, thought } => {
                     if thought.unwrap_or(false) {
-                        if !thinking_content.is_empty() {
-                            thinking_content.push('\n');
-                        }
-                        thinking_content.push_str(text);
+                        // Add reasoning content
+                        content_parts.push(ContentPart::reasoning(text));
                     } else {
                         if !text_content.is_empty() {
                             text_content.push('\n');
                         }
                         text_content.push_str(text);
-                        content_parts.push(crate::types::ContentPart::Text { text: text.clone() });
+                        content_parts.push(ContentPart::text(text));
                     }
                 }
                 Part::InlineData { inline_data } => {
@@ -405,19 +399,16 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     }
                 }
                 Part::FunctionCall { function_call } => {
-                    let arguments = if let Some(args) = &function_call.args {
-                        serde_json::to_string(args).unwrap_or_default()
-                    } else {
-                        "{}".to_string()
-                    };
-                    tool_calls.push(ToolCall {
-                        id: format!("call_{}", uuid::Uuid::new_v4()),
-                        r#type: "function".to_string(),
-                        function: Some(FunctionCall {
-                            name: function_call.name.clone(),
-                            arguments,
-                        }),
-                    });
+                    let arguments = function_call
+                        .args
+                        .clone()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    content_parts.push(ContentPart::tool_call(
+                        format!("call_{}", uuid::Uuid::new_v4()),
+                        function_call.name.clone(),
+                        arguments,
+                        None,
+                    ));
                 }
                 _ => {}
             }
@@ -468,19 +459,10 @@ impl ResponseTransformer for GeminiResponseTransformer {
             model: response.model_version.clone(),
             usage,
             finish_reason,
-            tool_calls: if tool_calls.is_empty() {
-                None
-            } else {
-                Some(tool_calls)
-            },
-            thinking: if thinking_content.is_empty() {
-                None
-            } else {
-                Some(thinking_content)
-            },
             audio: None, // Gemini doesn't support audio output in this format
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: std::collections::HashMap::new(),
         })
     }

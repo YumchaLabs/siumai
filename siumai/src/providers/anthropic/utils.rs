@@ -109,6 +109,87 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             }));
                         }
                     }
+                    ContentPart::ToolCall {
+                        tool_call_id,
+                        tool_name,
+                        arguments,
+                        ..
+                    } => {
+                        // Tool calls in Anthropic format
+                        content_parts.push(serde_json::json!({
+                            "type": "tool_use",
+                            "id": tool_call_id,
+                            "name": tool_name,
+                            "input": arguments
+                        }));
+                    }
+                    ContentPart::ToolResult {
+                        tool_call_id,
+                        output,
+                        ..
+                    } => {
+                        // Tool results in Anthropic format
+                        use crate::types::ToolResultOutput;
+
+                        let (content_value, is_error) = match output {
+                            ToolResultOutput::Text { value } => (serde_json::json!(value), false),
+                            ToolResultOutput::Json { value } => (value.clone(), false),
+                            ToolResultOutput::ErrorText { value } => {
+                                (serde_json::json!(value), true)
+                            }
+                            ToolResultOutput::ErrorJson { value } => (value.clone(), true),
+                            ToolResultOutput::ExecutionDenied { reason } => {
+                                let msg = reason
+                                    .as_ref()
+                                    .map(|r| format!("Execution denied: {}", r))
+                                    .unwrap_or_else(|| "Execution denied".to_string());
+                                (serde_json::json!(msg), true)
+                            }
+                            ToolResultOutput::Content { value } => {
+                                // Convert multimodal content to Anthropic format
+                                let content_array: Vec<serde_json::Value> = value.iter().map(|part| {
+                                    use crate::types::ToolResultContentPart;
+                                    match part {
+                                        ToolResultContentPart::Text { text } => {
+                                            serde_json::json!({"type": "text", "text": text})
+                                        }
+                                        ToolResultContentPart::Image { source, .. } => {
+                                            use crate::types::MediaSource;
+                                            match source {
+                                                MediaSource::Url { url } => {
+                                                    serde_json::json!({"type": "image", "source": {"type": "url", "url": url}})
+                                                }
+                                                MediaSource::Base64 { data } => {
+                                                    serde_json::json!({"type": "image", "source": {"type": "base64", "data": data}})
+                                                }
+                                                MediaSource::Binary { .. } => {
+                                                    serde_json::json!({"type": "text", "text": "[Binary image data]"})
+                                                }
+                                            }
+                                        }
+                                        ToolResultContentPart::File { .. } => {
+                                            serde_json::json!({"type": "text", "text": "[File attachment]"})
+                                        }
+                                    }
+                                }).collect();
+                                (serde_json::Value::Array(content_array), false)
+                            }
+                        };
+
+                        content_parts.push(serde_json::json!({
+                            "type": "tool_result",
+                            "tool_use_id": tool_call_id,
+                            "content": content_value,
+                            "is_error": is_error
+                        }));
+                    }
+                    ContentPart::Reasoning { text } => {
+                        // Reasoning content as text
+                        content_parts.push(serde_json::json!({
+                            "type": "text",
+                            "text": format!("<thinking>{}</thinking>", text)
+                        }));
+                    }
                 }
             }
 
@@ -265,9 +346,11 @@ pub fn parse_response_content(content_blocks: &[AnthropicContentBlock]) -> Messa
 /// Parse Anthropic response content and extract tool calls
 pub fn parse_response_content_and_tools(
     content_blocks: &[AnthropicContentBlock],
-) -> (MessageContent, Option<Vec<crate::types::ToolCall>>) {
+) -> MessageContent {
+    use crate::types::ContentPart;
+
+    let mut parts = Vec::new();
     let mut text_content = String::new();
-    let mut tool_calls = Vec::new();
 
     for content_block in content_blocks {
         match content_block.r#type.as_str() {
@@ -280,35 +363,41 @@ pub fn parse_response_content_and_tools(
                 }
             }
             "tool_use" => {
+                // First, add accumulated text if any
+                if !text_content.is_empty() {
+                    parts.push(ContentPart::text(&text_content));
+                    text_content.clear();
+                }
+
+                // Add tool call
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
-                    tool_calls.push(crate::types::ToolCall {
-                        id: id.clone(),
-                        r#type: "function".to_string(),
-                        function: Some(crate::types::FunctionCall {
-                            name: name.clone(),
-                            arguments: serde_json::to_string(input).unwrap_or_default(),
-                        }),
-                    });
+                    parts.push(ContentPart::tool_call(
+                        id.clone(),
+                        name.clone(),
+                        input.clone(),
+                        None,
+                    ));
                 }
             }
             _ => {}
         }
     }
 
-    let content = if text_content.is_empty() {
-        MessageContent::Text(String::new())
-    } else {
-        MessageContent::Text(text_content)
-    };
+    // Add any remaining text
+    if !text_content.is_empty() {
+        parts.push(ContentPart::text(&text_content));
+    }
 
-    let tools = if tool_calls.is_empty() {
-        None
+    // Return appropriate content type
+    if parts.is_empty() {
+        MessageContent::Text(String::new())
+    } else if parts.len() == 1 && parts[0].is_text() {
+        MessageContent::Text(text_content)
     } else {
-        Some(tool_calls)
-    };
-    (content, tools)
+        MessageContent::MultiModal(parts)
+    }
 }
 
 /// Extract thinking content from Anthropic response
@@ -385,12 +474,41 @@ pub fn convert_tools_to_anthropic_format(
     let mut anthropic_tools = Vec::new();
 
     for tool in tools {
-        let anthropic_tool = serde_json::json!({
-            "name": tool.function.name,
-            "description": tool.function.description,
-            "input_schema": tool.function.parameters
-        });
-        anthropic_tools.push(anthropic_tool);
+        match tool {
+            crate::types::Tool::Function { function } => {
+                let anthropic_tool = serde_json::json!({
+                    "name": function.name,
+                    "description": function.description,
+                    "input_schema": function.parameters
+                });
+                anthropic_tools.push(anthropic_tool);
+            }
+            crate::types::Tool::ProviderDefined(provider_tool) => {
+                // Check if this is an Anthropic provider-defined tool
+                if provider_tool.provider() == Some("anthropic") {
+                    // For Anthropic provider-defined tools, use the tool directly
+                    // The args should already be in Anthropic format
+                    let mut anthropic_tool = serde_json::json!({
+                        "name": provider_tool.name,
+                    });
+
+                    // Merge args into the tool definition
+                    if let serde_json::Value::Object(args_map) = &provider_tool.args {
+                        if let serde_json::Value::Object(tool_map) = &mut anthropic_tool {
+                            for (k, v) in args_map {
+                                tool_map.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+
+                    anthropic_tools.push(anthropic_tool);
+                } else {
+                    // Ignore provider-defined tools from other providers
+                    // This allows users to mix tools for different providers
+                    continue;
+                }
+            }
+        }
     }
 
     Ok(anthropic_tools)
@@ -430,24 +548,37 @@ mod tests {
             },
         ];
 
-        let (content, tool_calls) = parse_response_content_and_tools(&content_blocks);
+        let content = parse_response_content_and_tools(&content_blocks);
 
-        // Check content
-        match content {
-            MessageContent::Text(text) => assert_eq!(text, "I'll help you get the weather."),
-            _ => panic!("Expected text content"),
+        // Check content - should be multimodal with text and tool call
+        match &content {
+            MessageContent::MultiModal(parts) => {
+                assert_eq!(parts.len(), 2);
+
+                // First part should be text
+                if let ContentPart::Text { text } = &parts[0] {
+                    assert_eq!(text, "I'll help you get the weather.");
+                } else {
+                    panic!("Expected text content part");
+                }
+
+                // Second part should be tool call
+                if let ContentPart::ToolCall {
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                    ..
+                } = &parts[1]
+                {
+                    assert_eq!(tool_call_id, "toolu_123");
+                    assert_eq!(tool_name, "get_weather");
+                    assert_eq!(arguments, &serde_json::json!({"location": "San Francisco"}));
+                } else {
+                    panic!("Expected tool call content part");
+                }
+            }
+            _ => panic!("Expected multimodal content"),
         }
-
-        // Check tool calls
-        assert!(tool_calls.is_some());
-        let tools = tool_calls.unwrap();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].id, "toolu_123");
-        assert_eq!(tools[0].r#type, "function");
-        assert!(tools[0].function.is_some());
-        let function = tools[0].function.as_ref().unwrap();
-        assert_eq!(function.name, "get_weather");
-        assert_eq!(function.arguments, r#"{"location":"San Francisco"}"#);
     }
 
     #[test]
@@ -465,16 +596,13 @@ mod tests {
             is_error: None,
         }];
 
-        let (content, tool_calls) = parse_response_content_and_tools(&content_blocks);
+        let content = parse_response_content_and_tools(&content_blocks);
 
-        // Check content
+        // Check content - should be simple text
         match content {
             MessageContent::Text(text) => assert_eq!(text, "Hello world"),
             _ => panic!("Expected text content"),
         }
-
-        // Check no tool calls
-        assert!(tool_calls.is_none());
     }
 }
 

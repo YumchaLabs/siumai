@@ -380,8 +380,6 @@ pub mod helpers {
             role: crate::types::MessageRole::User,
             content: MessageContent::Text(content.into()),
             metadata: crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         };
 
         let params = thinking_config.to_request_params();
@@ -392,9 +390,11 @@ pub mod helpers {
     pub fn extract_and_analyze_thinking(
         response: &ChatResponse,
     ) -> Option<(String, ReasoningAnalysis)> {
-        if let Some(thinking_content) = response.thinking.as_ref() {
-            let analysis = ReasoningAnalyzer::analyze_reasoning(thinking_content);
-            return Some((thinking_content.to_string(), analysis));
+        let reasoning_parts = response.reasoning();
+        if let Some(first_reasoning) = reasoning_parts.first() {
+            let thinking_content = first_reasoning.to_string();
+            let analysis = ReasoningAnalyzer::analyze_reasoning(&thinking_content);
+            return Some((thinking_content, analysis));
         }
         None
     }

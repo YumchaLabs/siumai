@@ -60,12 +60,16 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 if let Some(tools) = &req.tools
                     && !tools.is_empty()
                 {
-                    body["tools"] = serde_json::to_value(tools)?;
+                    let openai_tools =
+                        crate::providers::openai::utils::convert_tools_to_openai_format(tools)?;
+                    if !openai_tools.is_empty() {
+                        body["tools"] = serde_json::Value::Array(openai_tools);
 
-                    // Add tool_choice if specified
-                    if let Some(choice) = &req.tool_choice {
-                        body["tool_choice"] =
-                            crate::providers::openai::utils::convert_tool_choice(choice);
+                        // Add tool_choice if specified
+                        if let Some(choice) = &req.tool_choice {
+                            body["tool_choice"] =
+                                crate::providers::openai::utils::convert_tool_choice(choice);
+                        }
                     }
                 }
 
@@ -345,9 +349,34 @@ impl OpenAiResponsesRequestTransformer {
 
         // Tool role message becomes function_call_output item
         if matches!(msg.role, MessageRole::Tool) {
-            let call_id = msg.tool_call_id.as_ref().ok_or_else(|| {
-                LlmError::InvalidInput("Tool message missing tool_call_id".into())
-            })?;
+            // Extract tool_call_id and output from tool result in content
+            let tool_results = msg.tool_results();
+            let first_result = tool_results
+                .first()
+                .ok_or_else(|| LlmError::InvalidInput("Tool message missing tool result".into()))?;
+
+            let (call_id, output) = if let ContentPart::ToolResult {
+                tool_call_id,
+                output,
+                ..
+            } = first_result
+            {
+                (tool_call_id.as_str(), output)
+            } else {
+                return Err(LlmError::InvalidInput(
+                    "Tool message missing tool_call_id".into(),
+                ));
+            };
+
+            // Check if output is JSON type - if so, use output_json field
+            if let crate::types::ToolResultOutput::Json { value } = output {
+                return Ok(serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output_json": value,
+                }));
+            }
+
             // Prefer JSON output when structured content is used
             #[cfg(feature = "structured-messages")]
             if let MessageContent::Json(v) = &msg.content {
@@ -357,9 +386,41 @@ impl OpenAiResponsesRequestTransformer {
                     "output_json": v,
                 }));
             }
+
+            // Otherwise, convert to text output
             let output_text = match &msg.content {
                 MessageContent::Text(t) => t.clone(),
-                MessageContent::MultiModal(_) => String::new(),
+                MessageContent::MultiModal(_) => {
+                    // Convert output to string
+                    match output {
+                        crate::types::ToolResultOutput::Text { value } => value.clone(),
+                        crate::types::ToolResultOutput::Json { value } => {
+                            serde_json::to_string(value).unwrap_or_default()
+                        }
+                        crate::types::ToolResultOutput::ErrorText { value } => value.clone(),
+                        crate::types::ToolResultOutput::ErrorJson { value } => {
+                            serde_json::to_string(value).unwrap_or_default()
+                        }
+                        crate::types::ToolResultOutput::ExecutionDenied { reason } => reason
+                            .clone()
+                            .unwrap_or_else(|| "Execution denied".to_string()),
+                        crate::types::ToolResultOutput::Content { value } => {
+                            // Convert content parts to text
+                            value
+                                .iter()
+                                .filter_map(|part| {
+                                    if let crate::types::ToolResultContentPart::Text { text } = part
+                                    {
+                                        Some(text.as_str())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                    }
+                }
                 #[cfg(feature = "structured-messages")]
                 MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
             };
@@ -381,7 +442,8 @@ impl OpenAiResponsesRequestTransformer {
         let mut api_message = serde_json::json!({ "role": role });
 
         // Assistant tool calls → tool_use content parts
-        if matches!(msg.role, MessageRole::Assistant) && msg.tool_calls.is_some() {
+        let tool_calls = msg.tool_calls();
+        if matches!(msg.role, MessageRole::Assistant) && !tool_calls.is_empty() {
             let mut content_parts: Vec<serde_json::Value> = Vec::new();
             match &msg.content {
                 MessageContent::Text(text) => {
@@ -392,9 +454,26 @@ impl OpenAiResponsesRequestTransformer {
                 }
                 MessageContent::MultiModal(parts) => {
                     for part in parts {
-                        if let ContentPart::Text { text } = part {
-                            content_parts
-                                .push(serde_json::json!({ "type": "input_text", "text": text }));
+                        match part {
+                            ContentPart::Text { text } => {
+                                content_parts.push(
+                                    serde_json::json!({ "type": "input_text", "text": text }),
+                                );
+                            }
+                            ContentPart::ToolCall {
+                                tool_call_id,
+                                tool_name,
+                                arguments,
+                                ..
+                            } => {
+                                content_parts.push(serde_json::json!({
+                                    "type": "tool_use",
+                                    "id": tool_call_id,
+                                    "name": tool_name,
+                                    "input": arguments
+                                }));
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -407,29 +486,7 @@ impl OpenAiResponsesRequestTransformer {
                     }));
                 }
             }
-            if let Some(tool_calls) = &msg.tool_calls {
-                for call in tool_calls {
-                    let (name, args_str) = if let Some(func) = &call.function {
-                        (func.name.clone(), func.arguments.clone())
-                    } else {
-                        (String::new(), String::new())
-                    };
-                    if !name.is_empty() {
-                        let input_json = serde_json::from_str::<serde_json::Value>(&args_str)
-                            .unwrap_or_else(|_| serde_json::json!({}));
-                        content_parts.push(serde_json::json!({
-                            "type": "tool_use",
-                            "id": call.id,
-                            "name": name,
-                            "input": input_json
-                        }));
-                    }
-                }
-            }
             api_message["content"] = serde_json::Value::Array(content_parts);
-            if let Some(tool_call_id) = &msg.tool_call_id {
-                api_message["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
-            }
             return Ok(api_message);
         }
 
@@ -544,6 +601,29 @@ impl OpenAiResponsesRequestTransformer {
                                 }));
                             }
                         }
+                        ContentPart::ToolCall { .. } => {
+                            // Tool calls are handled separately above
+                        }
+                        ContentPart::ToolResult {
+                            tool_call_id,
+                            output,
+                            ..
+                        } => {
+                            // Tool results in Responses API format
+                            let output_json = output.to_json_value();
+                            content_parts.push(serde_json::json!({
+                                "type": "tool_result",
+                                "tool_call_id": tool_call_id,
+                                "output": output_json
+                            }));
+                        }
+                        ContentPart::Reasoning { text } => {
+                            // Reasoning content as text
+                            content_parts.push(serde_json::json!({
+                                "type": "input_text",
+                                "text": format!("<thinking>{}</thinking>", text)
+                            }));
+                        }
                     }
                 }
                 api_message["content"] = serde_json::Value::Array(content_parts);
@@ -558,9 +638,6 @@ impl OpenAiResponsesRequestTransformer {
             }
         }
 
-        if let Some(tool_call_id) = &msg.tool_call_id {
-            api_message["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
-        }
         Ok(api_message)
     }
 }
@@ -592,23 +669,16 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
                 // tools (flattened)
                 if let Some(tools) = &req.tools {
-                    let t: Vec<serde_json::Value> = tools
-                        .iter()
-                        .map(|tool| {
-                            serde_json::json!({
-                                "type": tool.r#type,
-                                "name": tool.function.name,
-                                "description": tool.function.description,
-                                "parameters": tool.function.parameters
-                            })
-                        })
-                        .collect();
-                    body["tools"] = serde_json::Value::Array(t);
+                    let openai_tools =
+                        crate::providers::openai::utils::convert_tools_to_responses_format(tools)?;
+                    if !openai_tools.is_empty() {
+                        body["tools"] = serde_json::Value::Array(openai_tools);
 
-                    // Add tool_choice if specified
-                    if let Some(choice) = &req.tool_choice {
-                        body["tool_choice"] =
-                            crate::providers::openai::utils::convert_tool_choice(choice);
+                        // Add tool_choice if specified
+                        if let Some(choice) = &req.tool_choice {
+                            body["tool_choice"] =
+                                crate::providers::openai::utils::convert_tool_choice(choice);
+                        }
                     }
                 }
 
@@ -722,8 +792,6 @@ mod tests {
             role: MessageRole::User,
             content: MessageContent::Json(serde_json::json!({"a":1})),
             metadata: MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         };
         let v = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
         // Expect content array with input_json item
@@ -752,13 +820,17 @@ mod tests {
     #[cfg(feature = "structured-messages")]
     #[test]
     fn convert_tool_output_json_maps_to_output_json() {
-        use crate::types::{ChatMessage, MessageContent, MessageMetadata, MessageRole};
-        let mut msg = ChatMessage {
+        use crate::types::{
+            ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
+        };
+        let msg = ChatMessage {
             role: MessageRole::Tool,
-            content: MessageContent::Json(serde_json::json!({"r":42})),
+            content: MessageContent::MultiModal(vec![ContentPart::tool_result_json(
+                "call-1",
+                "test_tool",
+                serde_json::json!({"r":42}),
+            )]),
             metadata: MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: Some("call-1".into()),
         };
         let v = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
         assert_eq!(
@@ -778,9 +850,17 @@ mod tests {
             42
         );
 
-        // Fallback to output text for Text content
-        msg.content = MessageContent::Text("ok".into());
-        let v2 = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        // Fallback to output text for Text output
+        let msg2 = ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![ContentPart::tool_result_text(
+                "call-2",
+                "test_tool",
+                "ok",
+            )]),
+            metadata: MessageMetadata::default(),
+        };
+        let v2 = OpenAiResponsesRequestTransformer::convert_message(&msg2).expect("convert");
         assert_eq!(
             v2.get("output").and_then(|x| x.as_str()).unwrap_or(""),
             "ok"

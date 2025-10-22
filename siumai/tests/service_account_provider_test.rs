@@ -51,22 +51,20 @@ async fn service_account_token_provider_fetch_and_cache() {
         scopes: vec!["https://www.googleapis.com/auth/cloud-platform".to_string()],
     };
 
-    // Run blocking client and provider inside a blocking thread to avoid dropping
-    // the blocking client in async context.
-    tokio::task::spawn_blocking(move || {
-        let http = reqwest::blocking::Client::new();
-        // Use assertion override in tests to bypass RSA signing
-        let provider = ServiceAccountTokenProvider::new_with_assertion_override(
-            creds,
-            http,
-            None,
-            "test-assertion".to_string(),
-        );
-        let t1 = provider.token().expect("token fetch should succeed");
-        assert_eq!(t1, "ya29.test-token");
-        let t2 = provider.token().expect("token cache should serve");
-        assert_eq!(t2, "ya29.test-token");
-    })
-    .await
-    .expect("spawn_blocking should succeed");
+    // Use async reqwest client
+    let http = reqwest::Client::new();
+
+    // Use assertion override in tests to bypass RSA signing
+    let provider = ServiceAccountTokenProvider::new_with_assertion_override(
+        creds,
+        http,
+        None,
+        "test-assertion".to_string(),
+    );
+
+    let t1 = provider.token().await.expect("token fetch should succeed");
+    assert_eq!(t1, "ya29.test-token");
+
+    let t2 = provider.token().await.expect("token cache should serve");
+    assert_eq!(t2, "ya29.test-token");
 }

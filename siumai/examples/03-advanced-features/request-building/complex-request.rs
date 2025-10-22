@@ -51,7 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = client.chat_request(request).await?;
 
-    if let Some(tool_calls) = &response.tool_calls {
+    if response.has_tool_calls() {
+        let tool_calls = response.tool_calls();
         println!("🔧 Tool calls: {:#?}", tool_calls);
     } else {
         println!("AI: {}", response.content_text().unwrap());

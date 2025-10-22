@@ -79,6 +79,18 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
                                 "File content not supported by xAI".to_string(),
                             ));
                         }
+                        ContentPart::ToolCall { .. } => {
+                            // Tool calls are handled separately in convert_messages
+                            // Skip them here as they're not part of content array
+                        }
+                        ContentPart::ToolResult { .. } => {
+                            // Tool results are handled separately in convert_messages
+                            // Skip them here as they're not part of content array
+                        }
+                        ContentPart::Reasoning { .. } => {
+                            // Reasoning/thinking is handled separately
+                            // Skip it here as it's not part of content array
+                        }
                     }
                 }
                 msg["content"] = serde_json::Value::Array(content_parts);
@@ -90,27 +102,43 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
             }
         }
 
-        // Add tool calls if present
-        if let Some(ref tool_calls) = message.tool_calls {
+        // Add tool calls if present (extract from content)
+        let tool_calls = message.tool_calls();
+        if !tool_calls.is_empty() {
             let tool_calls_json: Vec<serde_json::Value> = tool_calls
                 .iter()
-                .map(|call| {
-                    serde_json::json!({
-                        "id": call.id,
-                        "type": call.r#type,
-                        "function": call.function.as_ref().map(|f| serde_json::json!({
-                            "name": f.name,
-                            "arguments": f.arguments
+                .filter_map(|part| {
+                    if let crate::types::ContentPart::ToolCall {
+                        tool_call_id,
+                        tool_name,
+                        arguments,
+                        ..
+                    } = part
+                    {
+                        Some(serde_json::json!({
+                            "id": tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": arguments
+                            }
                         }))
-                    })
+                    } else {
+                        None
+                    }
                 })
                 .collect();
-            msg["tool_calls"] = serde_json::Value::Array(tool_calls_json);
+            if !tool_calls_json.is_empty() {
+                msg["tool_calls"] = serde_json::Value::Array(tool_calls_json);
+            }
         }
 
-        // Add tool call ID if present (for tool response messages)
-        if let Some(ref tool_call_id) = message.tool_call_id {
-            msg["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
+        // Add tool call ID if present (for tool response messages - extract from content)
+        let tool_results = message.tool_results();
+        if let Some(first_result) = tool_results.first() {
+            if let crate::types::ContentPart::ToolResult { tool_call_id, .. } = first_result {
+                msg["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
+            }
         }
 
         converted.push(msg);

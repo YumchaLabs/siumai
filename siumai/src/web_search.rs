@@ -335,6 +335,7 @@ impl GeminiSearchConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Tool;
 
     #[test]
     fn test_web_search_config() {
@@ -359,7 +360,12 @@ mod tests {
         assert_eq!(tool.max_results, Some(10));
 
         let tool_def = tool.to_tool();
-        assert_eq!(tool_def.function.name, "web_search");
+        match tool_def {
+            Tool::Function { function } => {
+                assert_eq!(function.name, "web_search");
+            }
+            _ => panic!("Expected Function variant"),
+        }
     }
 
     #[test]

@@ -154,10 +154,14 @@ impl ResponseTransformer for MockResponseTransformer {
                 total_tokens: 30,
                 cached_tokens: None,
                 reasoning_tokens: None,
+                completion_tokens_details: None,
+                prompt_tokens_details: None,
             }),
-            tool_calls: None,
-            thinking: None,
             metadata: Default::default(),
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            warnings: None,
         })
     }
 }

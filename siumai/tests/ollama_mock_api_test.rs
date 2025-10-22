@@ -7,6 +7,7 @@
 use serde_json::json;
 use siumai::builder::LlmBuilder;
 use siumai::prelude::*;
+use siumai::types::ContentPart;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -208,20 +209,30 @@ async fn test_ollama_tool_calling() {
         .unwrap();
 
     // Verify tool call
-    assert!(response.tool_calls.is_some());
-    let tool_calls = response.tool_calls.unwrap();
+    assert!(response.has_tool_calls());
+    let tool_calls = response.tool_calls();
     assert_eq!(tool_calls.len(), 1);
 
-    let function = tool_calls[0].function.as_ref().unwrap();
-    assert_eq!(function.name, "get_current_weather");
+    if let ContentPart::ToolCall {
+        tool_name,
+        arguments,
+        ..
+    } = &tool_calls[0]
+    {
+        assert_eq!(tool_name, "get_current_weather");
 
-    // Parse arguments JSON string
-    let args: serde_json::Value = serde_json::from_str(&function.arguments).unwrap();
-    assert_eq!(
-        args.get("location").and_then(|v| v.as_str()),
-        Some("Paris, FR")
-    );
-    assert_eq!(args.get("format").and_then(|v| v.as_str()), Some("celsius"));
+        // Verify arguments
+        assert_eq!(
+            arguments.get("location").and_then(|v| v.as_str()),
+            Some("Paris, FR")
+        );
+        assert_eq!(
+            arguments.get("format").and_then(|v| v.as_str()),
+            Some("celsius")
+        );
+    } else {
+        panic!("Expected ToolCall");
+    }
 }
 
 #[tokio::test]

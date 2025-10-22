@@ -15,6 +15,7 @@ fn test_anthropic_max_tokens_default() {
         model: "claude-3-5-sonnet-20241022".to_string(),
         temperature: Some(0.7),
         max_tokens: None, // No max_tokens provided
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -23,6 +24,7 @@ fn test_anthropic_max_tokens_default() {
     let req = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_without_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -39,6 +41,7 @@ fn test_anthropic_max_tokens_default() {
         model: "claude-3-5-sonnet-20241022".to_string(),
         temperature: Some(0.7),
         max_tokens: Some(2000), // Explicit max_tokens
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -47,6 +50,7 @@ fn test_anthropic_max_tokens_default() {
     let req2 = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_with_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -68,6 +72,7 @@ fn test_openai_max_tokens_optional() {
         model: "gpt-4".to_string(),
         temperature: Some(0.7),
         max_tokens: None, // No max_tokens provided
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -76,6 +81,7 @@ fn test_openai_max_tokens_optional() {
     let req = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_without_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -92,6 +98,7 @@ fn test_openai_max_tokens_optional() {
         model: "gpt-4".to_string(),
         temperature: Some(0.7),
         max_tokens: Some(2000), // Explicit max_tokens
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -100,6 +107,7 @@ fn test_openai_max_tokens_optional() {
     let req2 = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_with_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -125,6 +133,7 @@ fn test_gemini_max_tokens_optional() {
         model: "gemini-1.5-pro".to_string(),
         temperature: Some(0.7),
         max_tokens: None, // No max_tokens provided
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -133,6 +142,7 @@ fn test_gemini_max_tokens_optional() {
     let req = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_without_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -154,6 +164,7 @@ fn test_gemini_max_tokens_optional() {
         model: "gemini-1.5-pro".to_string(),
         temperature: Some(0.7),
         max_tokens: Some(2000), // Explicit max_tokens
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -162,6 +173,7 @@ fn test_gemini_max_tokens_optional() {
     let req2 = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_with_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -185,6 +197,7 @@ fn test_ollama_max_tokens_optional() {
         model: "llama3.2".to_string(),
         temperature: Some(0.7),
         max_tokens: None, // No max_tokens provided
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -193,6 +206,7 @@ fn test_ollama_max_tokens_optional() {
     let req = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_without_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -214,6 +228,7 @@ fn test_ollama_max_tokens_optional() {
         model: "llama3.2".to_string(),
         temperature: Some(0.7),
         max_tokens: Some(2000), // Explicit max_tokens
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -222,6 +237,7 @@ fn test_ollama_max_tokens_optional() {
     let req2 = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_with_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -243,6 +259,7 @@ fn test_groq_max_tokens_optional() {
         model: "llama-3.3-70b-versatile".to_string(),
         temperature: Some(0.7),
         max_tokens: None, // No max_tokens provided
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -251,6 +268,7 @@ fn test_groq_max_tokens_optional() {
     let req = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_without_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -267,6 +285,7 @@ fn test_groq_max_tokens_optional() {
         model: "llama-3.3-70b-versatile".to_string(),
         temperature: Some(0.7),
         max_tokens: Some(2000), // Explicit max_tokens
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -275,6 +294,7 @@ fn test_groq_max_tokens_optional() {
     let req2 = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_with_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -296,6 +316,7 @@ fn test_xai_max_tokens_optional() {
         model: "grok-3-latest".to_string(),
         temperature: Some(0.7),
         max_tokens: None, // No max_tokens provided
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -304,6 +325,7 @@ fn test_xai_max_tokens_optional() {
     let req = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_without_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -320,6 +342,7 @@ fn test_xai_max_tokens_optional() {
         model: "grok-3-latest".to_string(),
         temperature: Some(0.7),
         max_tokens: Some(2000), // Explicit max_tokens
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -328,6 +351,7 @@ fn test_xai_max_tokens_optional() {
     let req2 = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_with_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,
@@ -350,6 +374,7 @@ async fn test_anthropic_validation_requires_max_tokens() {
         model: "claude-3-5-sonnet-20241022".to_string(),
         temperature: Some(0.7),
         max_tokens: None,
+        max_completion_tokens: None,
         top_p: Some(0.9),
         stop_sequences: None,
         seed: None,
@@ -359,6 +384,7 @@ async fn test_anthropic_validation_requires_max_tokens() {
     let req = ChatRequest {
         messages: vec![],
         tools: None,
+        tool_choice: None,
         common_params: params_without_max_tokens,
         provider_options: ProviderOptions::None,
         http_config: None,

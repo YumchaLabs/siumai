@@ -187,15 +187,32 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
         _req: &ChatRequest,
         mut resp: ChatResponse,
     ) -> Result<ChatResponse, LlmError> {
-        // 1. Priority: response.thinking field (already extracted by provider)
-        if resp.thinking.is_some() {
+        use crate::types::ContentPart;
+
+        // 1. Priority: check if reasoning already exists in content
+        if resp.has_reasoning() {
             return Ok(resp);
         }
 
         // 2. Extract from metadata (Anthropic etc.)
         if let Some(thinking_value) = resp.metadata.get("thinking") {
             if let Some(thinking_str) = thinking_value.as_str() {
-                resp.thinking = Some(thinking_str.to_string());
+                // Add reasoning to content
+                let mut parts = match &resp.content {
+                    MessageContent::Text(text) if !text.is_empty() => {
+                        vec![ContentPart::text(text)]
+                    }
+                    MessageContent::MultiModal(parts) => parts.clone(),
+                    #[cfg(feature = "structured-messages")]
+                    MessageContent::Json(v) => {
+                        vec![ContentPart::text(
+                            &serde_json::to_string(v).unwrap_or_default(),
+                        )]
+                    }
+                    _ => vec![],
+                };
+                parts.push(ContentPart::reasoning(thinking_str));
+                resp.content = MessageContent::MultiModal(parts);
                 return Ok(resp);
             }
         }
@@ -209,8 +226,10 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
             for result in &results {
                 if result.complete {
                     if let Some(thinking) = &result.tag_content_extracted {
-                        // Trim the thinking content to remove leading/trailing whitespace
-                        resp.thinking = Some(thinking.trim().to_string());
+                        let thinking_trimmed = thinking.trim().to_string();
+
+                        // Build new content
+                        let mut parts = Vec::new();
 
                         // Remove from text if configured
                         if self.config.remove_from_text {
@@ -223,19 +242,38 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
 
                             let trimmed = clean_text.trim();
                             if !trimmed.is_empty() {
-                                resp.content = MessageContent::Text(trimmed.to_string());
+                                parts.push(ContentPart::text(trimmed));
                             }
+                        } else {
+                            parts.push(ContentPart::text(text));
                         }
+
+                        // Add reasoning
+                        parts.push(ContentPart::reasoning(&thinking_trimmed));
+
+                        resp.content = if parts.len() == 1 && parts[0].is_text() {
+                            MessageContent::Text(text.to_string())
+                        } else {
+                            MessageContent::MultiModal(parts)
+                        };
                         break;
                     }
                 }
             }
 
             // Check for any remaining content in finalize
-            if resp.thinking.is_none() {
+            if !resp.has_reasoning() {
                 if let Some(final_result) = extractor.finalize() {
                     if let Some(thinking) = final_result.tag_content_extracted {
-                        resp.thinking = Some(thinking.trim().to_string());
+                        let mut parts = match &resp.content {
+                            MessageContent::Text(text) if !text.is_empty() => {
+                                vec![ContentPart::text(text)]
+                            }
+                            MessageContent::MultiModal(parts) => parts.clone(),
+                            _ => vec![],
+                        };
+                        parts.push(ContentPart::reasoning(thinking.trim()));
+                        resp.content = MessageContent::MultiModal(parts);
                     }
                 }
             }
@@ -261,10 +299,14 @@ mod tests {
                 total_tokens: 30,
                 cached_tokens: None,
                 reasoning_tokens: None,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
             }),
             finish_reason: Some(FinishReason::Stop),
-            tool_calls: None,
-            thinking: None,
+            system_fingerprint: None,
+            service_tier: None,
+            audio: None,
+            warnings: None,
             metadata: Default::default(),
         }
     }
@@ -277,7 +319,10 @@ mod tests {
 
         let result = middleware.post_generate(&req, resp).unwrap();
 
-        assert_eq!(result.thinking, Some("This is thinking".to_string()));
+        // Check reasoning was extracted
+        let reasoning = result.reasoning();
+        assert_eq!(reasoning.len(), 1);
+        assert_eq!(reasoning[0], "This is thinking");
         // Note: separator (\n) is added between tag content and regular text
         assert_eq!(result.content.text(), Some("Hello \n World"));
     }
@@ -290,7 +335,10 @@ mod tests {
 
         let result = middleware.post_generate(&req, resp).unwrap();
 
-        assert_eq!(result.thinking, Some("This is thinking".to_string()));
+        // Check reasoning was extracted
+        let reasoning = result.reasoning();
+        assert_eq!(reasoning.len(), 1);
+        assert_eq!(reasoning[0], "This is thinking");
         // Note: separator (\n) is added between tag content and regular text
         assert_eq!(result.content.text(), Some("Hello \n World"));
     }
@@ -303,21 +351,31 @@ mod tests {
 
         let result = middleware.post_generate(&req, resp).unwrap();
 
-        assert_eq!(result.thinking, None);
+        // No reasoning should be extracted
+        assert_eq!(result.reasoning().len(), 0);
         assert_eq!(result.content.text(), Some("Hello World"));
     }
 
     #[test]
     fn test_provider_already_extracted() {
+        use crate::types::{ContentPart, MessageContent};
+
         let middleware = ExtractReasoningMiddleware::default();
         let req = ChatRequest::default();
-        let mut resp = create_test_response("Hello <think>This is thinking</think> World");
-        resp.thinking = Some("Provider extracted".to_string());
+        let mut resp = create_test_response("Hello World");
+
+        // Simulate provider already extracted reasoning
+        resp.content = MessageContent::MultiModal(vec![
+            ContentPart::text("Hello World"),
+            ContentPart::reasoning("Provider extracted"),
+        ]);
 
         let result = middleware.post_generate(&req, resp).unwrap();
 
         // Should keep provider's extraction
-        assert_eq!(result.thinking, Some("Provider extracted".to_string()));
+        let reasoning = result.reasoning();
+        assert_eq!(reasoning.len(), 1);
+        assert_eq!(reasoning[0], "Provider extracted");
     }
 
     #[test]

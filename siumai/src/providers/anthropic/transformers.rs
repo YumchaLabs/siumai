@@ -9,7 +9,7 @@ use crate::streaming::SseEventConverter;
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
-use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, ToolCall, Usage};
+use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
 
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
@@ -156,15 +156,31 @@ impl ResponseTransformer for AnthropicResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
+        use crate::types::ContentPart;
+
         let response: AnthropicChatResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Anthropic response: {e}")))?;
 
-        let (content, tool_calls): (MessageContent, Option<Vec<ToolCall>>) =
-            parse_response_content_and_tools(&response.content);
+        let mut content = parse_response_content_and_tools(&response.content);
+
+        // Add thinking/reasoning if present
+        if let Some(thinking) = extract_thinking_content(&response.content) {
+            if !thinking.is_empty() {
+                let mut parts = match content {
+                    MessageContent::Text(ref text) if !text.is_empty() => {
+                        vec![ContentPart::text(text)]
+                    }
+                    MessageContent::MultiModal(ref parts) => parts.clone(),
+                    _ => Vec::new(),
+                };
+                parts.push(ContentPart::reasoning(&thinking));
+                content = MessageContent::MultiModal(parts);
+            }
+        }
+
         let usage: Option<Usage> = create_usage_from_response(response.usage.clone());
         let finish_reason: Option<FinishReason> =
             parse_finish_reason(response.stop_reason.as_deref());
-        let thinking = extract_thinking_content(&response.content);
 
         Ok(ChatResponse {
             id: Some(response.id),
@@ -172,11 +188,10 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             content,
             usage,
             finish_reason,
-            tool_calls,
-            thinking,
             audio: None, // Anthropic doesn't support audio output
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: std::collections::HashMap::new(),
         })
     }

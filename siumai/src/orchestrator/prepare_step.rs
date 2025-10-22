@@ -125,7 +125,13 @@ pub(crate) fn filter_active_tools(tools: &[Tool], active_tools: &Option<Vec<Stri
     if let Some(active) = active_tools {
         tools
             .iter()
-            .filter(|t| active.contains(&t.function.name))
+            .filter(|t| {
+                let tool_name = match t {
+                    Tool::Function { function } => &function.name,
+                    Tool::ProviderDefined(provider_tool) => &provider_tool.name,
+                };
+                active.contains(tool_name)
+            })
             .cloned()
             .collect()
     } else {
@@ -155,41 +161,38 @@ mod tests {
 
     #[test]
     fn test_filter_active_tools() {
-        use crate::types::{Tool, ToolFunction};
+        use crate::types::Tool;
 
         let tools = vec![
-            Tool {
-                r#type: "function".to_string(),
-                function: ToolFunction {
-                    name: "tool1".to_string(),
-                    description: "Tool 1".to_string(),
-                    parameters: serde_json::json!({}),
-                },
-            },
-            Tool {
-                r#type: "function".to_string(),
-                function: ToolFunction {
-                    name: "tool2".to_string(),
-                    description: "Tool 2".to_string(),
-                    parameters: serde_json::json!({}),
-                },
-            },
-            Tool {
-                r#type: "function".to_string(),
-                function: ToolFunction {
-                    name: "tool3".to_string(),
-                    description: "Tool 3".to_string(),
-                    parameters: serde_json::json!({}),
-                },
-            },
+            Tool::function(
+                "tool1".to_string(),
+                "Tool 1".to_string(),
+                serde_json::json!({}),
+            ),
+            Tool::function(
+                "tool2".to_string(),
+                "Tool 2".to_string(),
+                serde_json::json!({}),
+            ),
+            Tool::function(
+                "tool3".to_string(),
+                "Tool 3".to_string(),
+                serde_json::json!({}),
+            ),
         ];
 
         // Test with active_tools filter
         let active = Some(vec!["tool1".to_string(), "tool3".to_string()]);
         let filtered = filter_active_tools(&tools, &active);
         assert_eq!(filtered.len(), 2);
-        assert_eq!(filtered[0].function.name, "tool1");
-        assert_eq!(filtered[1].function.name, "tool3");
+        match &filtered[0] {
+            Tool::Function { function } => assert_eq!(function.name, "tool1"),
+            _ => panic!("Expected Function variant"),
+        }
+        match &filtered[1] {
+            Tool::Function { function } => assert_eq!(function.name, "tool3"),
+            _ => panic!("Expected Function variant"),
+        }
 
         // Test without filter
         let filtered = filter_active_tools(&tools, &None);

@@ -135,8 +135,11 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        use crate::types::{FinishReason, FunctionCall, MessageContent, ToolCall, Usage};
+        use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
         let root = raw.get("response").unwrap_or(raw);
+
+        // Build content parts
+        let mut content_parts = Vec::new();
 
         // Extract text content from output[*].content[*].text
         let mut text_content = String::new();
@@ -155,8 +158,12 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             }
         }
 
+        // Add text content if present
+        if !text_content.is_empty() {
+            content_parts.push(ContentPart::text(&text_content));
+        }
+
         // Tool calls (support nested function object or flattened)
-        let mut tool_calls: Vec<ToolCall> = Vec::new();
         if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
             for item in output {
                 if let Some(calls) = item.get("tool_calls").and_then(|tc| tc.as_array()) {
@@ -190,11 +197,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             )
                         };
                         if !name.is_empty() {
-                            tool_calls.push(ToolCall {
-                                id,
-                                r#type: "function".into(),
-                                function: Some(FunctionCall { name, arguments }),
-                            });
+                            // Parse arguments string to JSON Value
+                            let args_value = serde_json::from_str(&arguments)
+                                .unwrap_or_else(|_| serde_json::Value::String(arguments));
+                            content_parts.push(ContentPart::tool_call(id, name, args_value, None));
                         }
                     }
                 }
@@ -254,28 +260,32 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 other => FinishReason::Other(other.to_string()),
             });
 
+        // Determine final content
+        let content = if content_parts.is_empty() {
+            MessageContent::Text(String::new())
+        } else if content_parts.len() == 1 && content_parts[0].is_text() {
+            MessageContent::Text(text_content)
+        } else {
+            MessageContent::MultiModal(content_parts)
+        };
+
         // Extract warnings and provider metadata if present
         Ok(ChatResponse {
             id: root
                 .get("id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            content: MessageContent::Text(text_content),
+            content,
             model: root
                 .get("model")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             usage,
             finish_reason,
-            tool_calls: if tool_calls.is_empty() {
-                None
-            } else {
-                Some(tool_calls)
-            },
-            thinking: None,
             audio: None, // Responses API doesn't support audio output yet
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: std::collections::HashMap::new(),
         })
     }

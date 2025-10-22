@@ -54,12 +54,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client.chat_request(request).await?;
 
     // Handle tool calls
-    if let Some(tool_calls) = &response.tool_calls {
+    if response.has_tool_calls() {
+        let tool_calls = response.tool_calls();
         println!("🔧 AI wants to call {} tool(s):\n", tool_calls.len());
+
+        // 🎉 New API: Use as_tool_call() for convenient access
         for call in tool_calls {
-            if let Some(function) = &call.function {
-                println!("  Function: {}", function.name);
-                println!("  Arguments: {}", function.arguments);
+            if let Some(info) = call.as_tool_call() {
+                println!("  Function: {}", info.tool_name);
+                println!("  Arguments: {}", info.arguments);
                 println!();
             }
         }

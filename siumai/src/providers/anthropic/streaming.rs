@@ -195,11 +195,10 @@ impl AnthropicEventConverter {
                         content: MessageContent::Text("".to_string()),
                         usage: None, // usage already emitted as UsageUpdate above if present
                         finish_reason: Some(reason),
-                        tool_calls: None,
-                        thinking: None,
                         audio: None,
                         system_fingerprint: None,
                         service_tier: None,
+                        warnings: None,
                         metadata: HashMap::new(),
                     };
                     builder = builder.add_stream_end(response);
@@ -217,11 +216,10 @@ impl AnthropicEventConverter {
                     content: MessageContent::Text("".to_string()),
                     usage: None,
                     finish_reason: Some(FinishReason::Stop),
-                    tool_calls: None,
-                    thinking: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
+                    warnings: None,
                     metadata: HashMap::new(),
                 };
                 EventBuilder::new().add_stream_end(response).build()
@@ -303,11 +301,10 @@ impl SseEventConverter for AnthropicEventConverter {
             content: MessageContent::Text("".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Unknown),
-            tool_calls: None,
-            thinking: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: HashMap::new(),
         };
 

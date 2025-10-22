@@ -64,8 +64,6 @@ impl Default for BenchmarkScenario {
                 role: MessageRole::User,
                 content: MessageContent::Text("Hello, how are you?".to_string()),
                 metadata: MessageMetadata::default(),
-                tool_calls: None,
-                tool_call_id: None,
             }],
             expected: ExpectedResponse::default(),
             weight: 1.0,

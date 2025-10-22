@@ -7,6 +7,7 @@
 use serde_json::json;
 use siumai::prelude::*;
 use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
+use siumai::types::ContentPart;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -197,9 +198,15 @@ async fn test_openai_tool_calls_response() {
         .unwrap();
 
     // Verify tool calls
-    assert!(response.tool_calls.is_some());
-    let tool_calls = response.tool_calls.unwrap();
+    assert!(response.has_tool_calls());
+    let tool_calls = response.tool_calls();
     assert_eq!(tool_calls.len(), 1);
-    assert_eq!(tool_calls[0].function.as_ref().unwrap().name, "get_weather");
+
+    if let ContentPart::ToolCall { tool_name, .. } = &tool_calls[0] {
+        assert_eq!(tool_name, "get_weather");
+    } else {
+        panic!("Expected ToolCall");
+    }
+
     assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
 }

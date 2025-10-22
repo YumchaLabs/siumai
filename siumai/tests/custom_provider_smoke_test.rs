@@ -78,9 +78,11 @@ impl CustomProvider for MiniProvider {
                     model: None,
                     usage: None,
                     finish_reason: Some(FinishReason::Stop),
-                    tool_calls: None,
-                    thinking: None,
                     metadata: std::collections::HashMap::new(),
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
                 },
             }),
         ];

@@ -53,9 +53,13 @@ mod tests {
                 }
 
                 // Check image part
-                if let ContentPart::Image { image_url, detail } = &parts[1] {
-                    assert_eq!(image_url, "https://example.com/image.jpg");
-                    assert_eq!(detail.as_ref().unwrap(), "high");
+                if let ContentPart::Image { source, detail } = &parts[1] {
+                    if let MediaSource::Url { url } = source {
+                        assert_eq!(url, "https://example.com/image.jpg");
+                    } else {
+                        panic!("Expected URL source");
+                    }
+                    assert_eq!(detail.as_ref().unwrap(), &ImageDetail::High);
                 } else {
                     panic!("Expected image part");
                 }
@@ -78,6 +82,7 @@ mod tests {
                 model: "gpt-4".to_string(),
                 temperature: Some(0.7),
                 max_tokens: Some(1000),
+                max_completion_tokens: None,
                 top_p: Some(0.9),
                 stop_sequences: None,
                 seed: Some(42),
@@ -168,6 +173,8 @@ mod tests {
             total_tokens: 150,
             reasoning_tokens: None,
             cached_tokens: None,
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
         };
 
         let usage2 = Usage {
@@ -176,6 +183,8 @@ mod tests {
             total_tokens: 275,
             reasoning_tokens: Some(25),
             cached_tokens: Some(10),
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
         };
 
         usage1.merge(&usage2);
@@ -247,6 +256,7 @@ mod tests {
             model: "gpt-4".to_string(),
             temperature: Some(0.7),
             max_tokens: Some(1000),
+            max_completion_tokens: None,
             top_p: Some(0.9),
             stop_sequences: None,
             seed: Some(42),

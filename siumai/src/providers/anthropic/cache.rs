@@ -259,6 +259,85 @@ impl CacheAwareMessageBuilder {
                                 }));
                             }
                         }
+                        ContentPart::ToolCall {
+                            tool_call_id,
+                            tool_name,
+                            arguments,
+                            ..
+                        } => {
+                            content_parts.push(serde_json::json!({
+                                "type": "tool_use",
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "input": arguments
+                            }));
+                        }
+                        ContentPart::ToolResult {
+                            tool_call_id,
+                            output,
+                            ..
+                        } => {
+                            use crate::types::ToolResultOutput;
+
+                            let (content_value, is_error) = match output {
+                                ToolResultOutput::Text { value } => {
+                                    (serde_json::json!(value), false)
+                                }
+                                ToolResultOutput::Json { value } => (value.clone(), false),
+                                ToolResultOutput::ErrorText { value } => {
+                                    (serde_json::json!(value), true)
+                                }
+                                ToolResultOutput::ErrorJson { value } => (value.clone(), true),
+                                ToolResultOutput::ExecutionDenied { reason } => {
+                                    let msg = reason
+                                        .as_ref()
+                                        .map(|r| format!("Execution denied: {}", r))
+                                        .unwrap_or_else(|| "Execution denied".to_string());
+                                    (serde_json::json!(msg), true)
+                                }
+                                ToolResultOutput::Content { value } => {
+                                    let content_array: Vec<serde_json::Value> = value.iter().map(|part| {
+                                        use crate::types::ToolResultContentPart;
+                                        match part {
+                                            ToolResultContentPart::Text { text } => {
+                                                serde_json::json!({"type": "text", "text": text})
+                                            }
+                                            ToolResultContentPart::Image { source, .. } => {
+                                                use crate::types::MediaSource;
+                                                match source {
+                                                    MediaSource::Url { url } => {
+                                                        serde_json::json!({"type": "image", "source": {"type": "url", "url": url}})
+                                                    }
+                                                    MediaSource::Base64 { data } => {
+                                                        serde_json::json!({"type": "image", "source": {"type": "base64", "data": data}})
+                                                    }
+                                                    MediaSource::Binary { .. } => {
+                                                        serde_json::json!({"type": "text", "text": "[Binary image data]"})
+                                                    }
+                                                }
+                                            }
+                                            ToolResultContentPart::File { .. } => {
+                                                serde_json::json!({"type": "text", "text": "[File attachment]"})
+                                            }
+                                        }
+                                    }).collect();
+                                    (serde_json::Value::Array(content_array), false)
+                                }
+                            };
+
+                            content_parts.push(serde_json::json!({
+                                "type": "tool_result",
+                                "tool_use_id": tool_call_id,
+                                "content": content_value,
+                                "is_error": is_error
+                            }));
+                        }
+                        ContentPart::Reasoning { text } => {
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": format!("<thinking>{}</thinking>", text)
+                            }));
+                        }
                     }
                 }
                 message_json["content"] = serde_json::Value::Array(content_parts);
@@ -341,8 +420,6 @@ pub mod patterns {
             role: crate::types::MessageRole::System,
             content: MessageContent::Text(content.into()),
             metadata: crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         };
 
         CacheAwareMessageBuilder::new(message).with_cache_control(CacheControl::ephemeral())
@@ -358,8 +435,6 @@ pub mod patterns {
             role: crate::types::MessageRole::User,
             content: MessageContent::Text(content),
             metadata: crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         };
 
         CacheAwareMessageBuilder::new(message).with_cache_control(CacheControl::ephemeral())

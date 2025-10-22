@@ -63,7 +63,7 @@ impl OllamaChatCapability {
         let tools = request
             .tools
             .as_ref()
-            .map(|tools| tools.iter().map(convert_tool).collect());
+            .map(|tools| tools.iter().filter_map(convert_tool).collect());
 
         // Build model options
         let options = build_model_options(
@@ -177,11 +177,10 @@ impl OllamaChatCapability {
             model: Some(response.model),
             usage,
             finish_reason,
-            tool_calls: message.tool_calls,
-            thinking: response.message.thinking,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata,
         }
     }
@@ -313,8 +312,6 @@ mod tests {
                 role: crate::types::MessageRole::User,
                 content: crate::types::MessageContent::Text("Hello".to_string()),
                 metadata: crate::types::MessageMetadata::default(),
-                tool_calls: None,
-                tool_call_id: None,
             }],
             tools: None,
             common_params,

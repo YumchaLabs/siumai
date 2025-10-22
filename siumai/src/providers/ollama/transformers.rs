@@ -31,10 +31,11 @@ impl RequestTransformer for OllamaRequestTransformer {
             .collect();
 
         // Tools
-        let tools = req
-            .tools
-            .as_ref()
-            .map(|v| v.iter().map(super::utils::convert_tool).collect::<Vec<_>>());
+        let tools = req.tools.as_ref().map(|v| {
+            v.iter()
+                .filter_map(super::utils::convert_tool)
+                .collect::<Vec<_>>()
+        });
 
         // Options from common params + provider params
         let options = Some(super::utils::build_model_options(
@@ -121,20 +122,17 @@ impl ResponseTransformer for OllamaResponseTransformer {
             _ => Some(FinishReason::Stop),
         };
 
-        // Tool calls converted in convert_from_ollama_message? It populates tool_calls field
-        let tool_calls = message.tool_calls.clone();
-
+        // Tool calls and thinking are now part of message.content (converted in convert_from_ollama_message)
         Ok(ChatResponse {
             id: None,
             model: Some(response.model),
             content: message.content,
             usage,
             finish_reason,
-            tool_calls,
-            thinking: None,
             audio: None, // Ollama doesn't support audio output
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: std::collections::HashMap::new(),
         })
     }

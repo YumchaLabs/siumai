@@ -5,7 +5,7 @@ use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
 use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
-use crate::types::{ChatRequest, ChatResponse, FunctionCall, MessageContent, ToolCall, Usage};
+use crate::types::{ChatRequest, ChatResponse, ContentPart, MessageContent, Usage};
 use eventsource_stream::Event;
 use std::future::Future;
 use std::pin::Pin;
@@ -197,19 +197,36 @@ impl ResponseTransformer for GroqResponseTransformer {
             MessageContent::Text(String::new())
         };
 
-        let tool_calls = choice.message.tool_calls.map(|calls| {
-            calls
-                .into_iter()
-                .map(|call| ToolCall {
-                    id: call.id,
-                    r#type: call.r#type,
-                    function: call.function.map(|f| FunctionCall {
-                        name: f.name,
-                        arguments: f.arguments,
-                    }),
-                })
-                .collect()
-        });
+        // Add tool calls to content if present
+        let mut final_content = content;
+        if let Some(calls) = choice.message.tool_calls {
+            let mut parts = match final_content {
+                MessageContent::Text(ref text) if !text.is_empty() => vec![ContentPart::text(text)],
+                MessageContent::MultiModal(ref parts) => parts.clone(),
+                _ => Vec::new(),
+            };
+
+            for call in calls {
+                if let Some(function) = call.function {
+                    // Parse arguments string to JSON Value
+                    let arguments = serde_json::from_str(&function.arguments)
+                        .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
+
+                    parts.push(ContentPart::tool_call(
+                        call.id,
+                        function.name,
+                        arguments,
+                        None,
+                    ));
+                }
+            }
+
+            final_content = if parts.len() == 1 && parts[0].is_text() {
+                MessageContent::Text(parts[0].as_text().unwrap_or_default().to_string())
+            } else {
+                MessageContent::MultiModal(parts)
+            };
+        }
 
         let finish_reason = Some(super::utils::parse_finish_reason(
             choice.finish_reason.as_deref(),
@@ -225,15 +242,14 @@ impl ResponseTransformer for GroqResponseTransformer {
 
         Ok(ChatResponse {
             id: Some(response.id),
-            content,
+            content: final_content,
             model: Some(response.model),
             usage,
             finish_reason,
-            tool_calls,
-            thinking: None,
             audio: None, // Groq doesn't support audio output
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: std::collections::HashMap::new(),
         })
     }

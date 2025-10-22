@@ -4,7 +4,9 @@
 
 use super::types::*;
 use crate::error::LlmError;
-use crate::types::{ChatMessage, Tool, ToolCall};
+#[allow(deprecated)]
+use crate::types::ToolCall;
+use crate::types::{ChatMessage, Tool};
 use crate::utils::http_headers::ProviderHeaders;
 use base64::Engine;
 use reqwest::header::HeaderMap;
@@ -85,27 +87,58 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
     }
 
     // Convert tool calls if present
-    if let Some(tool_calls) = &message.tool_calls {
-        ollama_message.tool_calls = Some(tool_calls.iter().map(convert_tool_call).collect());
+    let tool_calls = message.tool_calls();
+    if !tool_calls.is_empty() {
+        ollama_message.tool_calls = Some(
+            tool_calls
+                .iter()
+                .filter_map(|part| {
+                    if let crate::types::ContentPart::ToolCall {
+                        tool_name,
+                        arguments,
+                        ..
+                    } = part
+                    {
+                        Some(OllamaToolCall {
+                            function: OllamaFunctionCall {
+                                name: tool_name.clone(),
+                                arguments: arguments.clone(),
+                            },
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        );
     }
 
     ollama_message
 }
 
 /// Convert common Tool to Ollama format
-pub fn convert_tool(tool: &Tool) -> OllamaTool {
-    OllamaTool {
-        tool_type: "function".to_string(),
-        function: OllamaFunction {
-            name: tool.function.name.clone(),
-            description: tool.function.description.clone(),
-            parameters: tool.function.parameters.clone(),
-        },
+pub fn convert_tool(tool: &Tool) -> Option<OllamaTool> {
+    match tool {
+        Tool::Function { function } => Some(OllamaTool {
+            tool_type: "function".to_string(),
+            function: OllamaFunction {
+                name: function.name.clone(),
+                description: function.description.clone(),
+                parameters: function.parameters.clone(),
+            },
+        }),
+        Tool::ProviderDefined(_) => {
+            // Ollama doesn't support provider-defined tools
+            // Return None to skip them
+            None
+        }
     }
 }
 
 /// Convert common `ToolCall` to Ollama format
-pub fn convert_tool_call(tool_call: &ToolCall) -> OllamaToolCall {
+#[deprecated(note = "Use ContentPart::ToolCall instead")]
+#[allow(deprecated)]
+pub fn convert_tool_call(tool_call: &crate::types::ToolCall) -> OllamaToolCall {
     OllamaToolCall {
         function: OllamaFunctionCall {
             name: tool_call
@@ -135,13 +168,12 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
         _ => crate::types::MessageRole::Assistant, // Default fallback
     };
 
-    let mut content = crate::types::MessageContent::Text(message.content.clone());
+    let mut parts = vec![crate::types::ContentPart::Text {
+        text: message.content.clone(),
+    }];
 
-    // If there are images, create multimodal content
+    // Add images if present
     if let Some(images) = &message.images {
-        let mut parts = vec![crate::types::ContentPart::Text {
-            text: message.content.clone(),
-        }];
         for image_url in images {
             parts.push(crate::types::ContentPart::Image {
                 source: crate::types::chat::MediaSource::Url {
@@ -150,31 +182,41 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
                 detail: None,
             });
         }
-        content = crate::types::MessageContent::MultiModal(parts);
     }
 
-    let mut chat_message = ChatMessage {
+    // Add tool calls if present
+    if let Some(tool_calls) = &message.tool_calls {
+        for tc in tool_calls {
+            parts.push(crate::types::ContentPart::tool_call(
+                format!("call_{}", chrono::Utc::now().timestamp_millis()),
+                tc.function.name.clone(),
+                tc.function.arguments.clone(),
+                None,
+            ));
+        }
+    }
+
+    // Add thinking content if present
+    if let Some(thinking) = &message.thinking {
+        parts.push(crate::types::ContentPart::reasoning(thinking));
+    }
+
+    // Determine final content
+    let content = if parts.len() == 1 && parts[0].is_text() {
+        crate::types::MessageContent::Text(message.content.clone())
+    } else {
+        crate::types::MessageContent::MultiModal(parts)
+    };
+
+    ChatMessage {
         role,
         content,
         metadata: crate::types::MessageMetadata::default(),
-        tool_calls: None,
-        tool_call_id: None,
-    };
-
-    // Convert tool calls if present
-    if let Some(tool_calls) = &message.tool_calls {
-        chat_message.tool_calls = Some(
-            tool_calls
-                .iter()
-                .map(convert_from_ollama_tool_call)
-                .collect(),
-        );
     }
-
-    chat_message
 }
 
 /// Convert Ollama tool call to common format
+#[allow(deprecated)]
 pub fn convert_from_ollama_tool_call(tool_call: &OllamaToolCall) -> ToolCall {
     ToolCall {
         id: format!("call_{}", chrono::Utc::now().timestamp_millis()), // Generate ID since Ollama doesn't provide one
@@ -351,8 +393,6 @@ mod tests {
                 },
             ]),
             metadata: crate::types::MessageMetadata::default(),
-            tool_calls: None,
-            tool_call_id: None,
         };
 
         let ollama_message = convert_chat_message(&message);

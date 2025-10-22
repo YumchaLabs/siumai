@@ -376,8 +376,6 @@ fn test_core_interface_methods() {
         role: MessageRole::User,
         content: MessageContent::Text("Hello, world!".to_string()),
         metadata: Default::default(),
-        tool_calls: None,
-        tool_call_id: None,
     }];
 
     assert_eq!(messages.len(), 1);

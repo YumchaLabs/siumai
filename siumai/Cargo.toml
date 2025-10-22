@@ -228,6 +228,11 @@ path = "examples/03-advanced-features/orchestrator/tool-approval.rs"
 name = "streaming-orchestrator"
 path = "examples/03-advanced-features/orchestrator/streaming-orchestrator.rs"
 
+[[example]]
+name = "streaming-tool-execution"
+path = "examples/03-advanced-features/orchestrator/streaming-tool-execution.rs"
+required-features = ["openai"]
+
 # 04-provider-specific/openai
 [[example]]
 name = "responses-api"

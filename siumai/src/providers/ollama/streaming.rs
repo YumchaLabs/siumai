@@ -98,11 +98,10 @@ impl OllamaEventConverter {
                 content: MessageContent::Text(String::new()),
                 usage: self.extract_usage(&response),
                 finish_reason: Some(FinishReason::Stop),
-                tool_calls: None,
-                thinking: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
+                warnings: None,
                 metadata: std::collections::HashMap::new(),
             };
             builder = builder.add_stream_end(chat_response);
@@ -207,11 +206,10 @@ impl JsonEventConverter for OllamaEventConverter {
             content: MessageContent::Text("".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Unknown),
-            tool_calls: None,
-            thinking: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
+            warnings: None,
             metadata: std::collections::HashMap::new(),
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))

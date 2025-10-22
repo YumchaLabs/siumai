@@ -100,10 +100,11 @@ pub async fn generate_object<T: DeserializeOwned>(
     let resp = model.chat_request(request).await?;
 
     // Prefer tool call arguments if present (Tool mode or provider chose tools)
-    let mut text = if let Some(calls) = resp.get_tool_calls() {
-        if let Some(first) = calls.first() {
-            if let Some(func) = &first.function {
-                func.arguments.clone()
+    let mut text = {
+        let tool_calls = resp.tool_calls();
+        if let Some(first) = tool_calls.first() {
+            if let crate::types::ContentPart::ToolCall { arguments, .. } = first {
+                serde_json::to_string(arguments).unwrap_or_default()
             } else {
                 resp.content_text()
                     .map(|s| s.to_string())
@@ -114,10 +115,6 @@ pub async fn generate_object<T: DeserializeOwned>(
                 .map(|s| s.to_string())
                 .unwrap_or_default()
         }
-    } else {
-        resp.content_text()
-            .map(|s| s.to_string())
-            .unwrap_or_default()
     };
     if text.is_empty() {
         return Err(LlmError::ParseError(
@@ -659,10 +656,11 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     let resp = client.chat_request(request).await?;
 
     // Extract text content (prefer tool call arguments if present)
-    let mut text = if let Some(calls) = resp.get_tool_calls() {
-        if let Some(first) = calls.first() {
-            if let Some(func) = &first.function {
-                func.arguments.clone()
+    let mut text = {
+        let tool_calls = resp.tool_calls();
+        if let Some(first) = tool_calls.first() {
+            if let crate::types::ContentPart::ToolCall { arguments, .. } = first {
+                serde_json::to_string(arguments).unwrap_or_default()
             } else {
                 resp.content_text()
                     .map(|s| s.to_string())
@@ -673,10 +671,6 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
                 .map(|s| s.to_string())
                 .unwrap_or_default()
         }
-    } else {
-        resp.content_text()
-            .map(|s| s.to_string())
-            .unwrap_or_default()
     };
 
     if text.is_empty() {

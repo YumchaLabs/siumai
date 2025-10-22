@@ -11,7 +11,7 @@
 use futures::StreamExt;
 use siumai::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 use siumai::prelude::*;
-use siumai::types::{ChatStreamEvent, Tool, ToolFunction};
+use siumai::types::{ChatStreamEvent, ContentPart, Tool, ToolFunction};
 
 // Simple tool resolver
 struct NewsResolver;
@@ -155,8 +155,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\nStep {}:", i + 1);
         println!("  Tool calls: {}", step.tool_calls.len());
         for tc in &step.tool_calls {
-            if let Some(function) = &tc.function {
-                println!("    - {}", function.name);
+            if let ContentPart::ToolCall { tool_name, .. } = tc {
+                println!("    - {}", tool_name);
             }
         }
         if let Some(usage) = &step.usage {
