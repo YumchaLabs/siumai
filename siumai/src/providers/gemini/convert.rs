@@ -5,6 +5,7 @@
 
 use crate::error::LlmError;
 use crate::types::{ChatMessage, MessageContent, Tool};
+use base64::Engine;
 
 use super::types::{
     Content, FunctionCall, FunctionDeclaration, GeminiConfig, GeminiTool, GenerateContentRequest,
@@ -72,46 +73,68 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                             });
                         }
                     }
-                    crate::types::ContentPart::Image {
-                        image_url,
-                        detail: _,
-                    } => {
-                        if image_url.starts_with("data:") {
-                            if let Some((mime_type, data)) = parse_data_url(image_url) {
+                    crate::types::ContentPart::Image { source, .. }
+                    | crate::types::ContentPart::Audio { source, .. }
+                    | crate::types::ContentPart::File { source, .. } => {
+                        match source {
+                            crate::types::chat::MediaSource::Url { url } => {
+                                if url.starts_with("data:") {
+                                    // Parse data URL
+                                    if let Some((mime_type, data)) = parse_data_url(url) {
+                                        parts.push(Part::InlineData {
+                                            inline_data: super::types::Blob { mime_type, data },
+                                        });
+                                    }
+                                } else if url.starts_with("gs://") || url.starts_with("https://") {
+                                    // File URL
+                                    parts.push(Part::FileData {
+                                        file_data: super::types::FileData {
+                                            file_uri: url.clone(),
+                                            mime_type: Some(guess_mime_type(url)),
+                                        },
+                                    });
+                                }
+                            }
+                            crate::types::chat::MediaSource::Base64 { data } => {
+                                // Inline base64 data
+                                let mime_type = match content_part {
+                                    crate::types::ContentPart::Image { .. } => "image/jpeg",
+                                    crate::types::ContentPart::Audio { media_type, .. } => {
+                                        media_type.as_deref().unwrap_or("audio/wav")
+                                    }
+                                    crate::types::ContentPart::File { media_type, .. } => {
+                                        media_type.as_str()
+                                    }
+                                    _ => "application/octet-stream",
+                                };
                                 parts.push(Part::InlineData {
-                                    inline_data: super::types::Blob { mime_type, data },
+                                    inline_data: super::types::Blob {
+                                        mime_type: mime_type.to_string(),
+                                        data: data.clone(),
+                                    },
                                 });
                             }
-                        } else if image_url.starts_with("gs://")
-                            || image_url.starts_with("https://")
-                        {
-                            parts.push(Part::FileData {
-                                file_data: super::types::FileData {
-                                    file_uri: image_url.clone(),
-                                    mime_type: Some(guess_mime_type(image_url)),
-                                },
-                            });
-                        }
-                    }
-                    crate::types::ContentPart::Audio {
-                        audio_url,
-                        format: _,
-                    } => {
-                        if audio_url.starts_with("data:") {
-                            if let Some((mime_type, data)) = parse_data_url(audio_url) {
+                            crate::types::chat::MediaSource::Binary { data } => {
+                                // Convert binary to base64
+                                let encoded =
+                                    base64::engine::general_purpose::STANDARD.encode(data);
+                                let mime_type = match content_part {
+                                    crate::types::ContentPart::Image { .. } => "image/jpeg",
+                                    crate::types::ContentPart::Audio { media_type, .. } => {
+                                        media_type.as_deref().unwrap_or("audio/wav")
+                                    }
+                                    crate::types::ContentPart::File { media_type, .. } => {
+                                        media_type.as_str()
+                                    }
+                                    _ => "application/octet-stream",
+                                };
                                 parts.push(Part::InlineData {
-                                    inline_data: super::types::Blob { mime_type, data },
+                                    inline_data: super::types::Blob {
+                                        mime_type: mime_type.to_string(),
+                                        data: encoded,
+                                    },
                                 });
                             }
-                        } else if audio_url.starts_with("gs://")
-                            || audio_url.starts_with("https://")
-                        {
-                            parts.push(Part::FileData {
-                                file_data: super::types::FileData {
-                                    file_uri: audio_url.clone(),
-                                    mime_type: Some(guess_mime_type(audio_url)),
-                                },
-                            });
                         }
                     }
                 }
@@ -274,4 +297,106 @@ pub fn build_request_body(
         generation_config: Some(merged_generation_config),
         cached_content: None,
     })
+}
+
+/// Convert provider-agnostic ToolChoice to Gemini format
+///
+/// # Gemini Format
+///
+/// Gemini uses `tool_config` with `function_calling_config`:
+/// - `Auto` → `{"mode": "AUTO"}`
+/// - `Required` → `{"mode": "ANY"}`
+/// - `None` → `{"mode": "NONE"}`
+/// - `Tool { name }` → `{"mode": "ANY", "allowed_function_names": ["..."]}`
+///
+/// # Example
+///
+/// ```rust
+/// use siumai::types::ToolChoice;
+/// use siumai::providers::gemini::convert::convert_tool_choice;
+///
+/// let choice = ToolChoice::tool("weather");
+/// let gemini_format = convert_tool_choice(&choice);
+/// ```
+pub fn convert_tool_choice(choice: &crate::types::ToolChoice) -> serde_json::Value {
+    use crate::types::ToolChoice;
+
+    match choice {
+        ToolChoice::Auto => serde_json::json!({
+            "function_calling_config": {
+                "mode": "AUTO"
+            }
+        }),
+        ToolChoice::Required => serde_json::json!({
+            "function_calling_config": {
+                "mode": "ANY"
+            }
+        }),
+        ToolChoice::None => serde_json::json!({
+            "function_calling_config": {
+                "mode": "NONE"
+            }
+        }),
+        ToolChoice::Tool { name } => serde_json::json!({
+            "function_calling_config": {
+                "mode": "ANY",
+                "allowed_function_names": [name]
+            }
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tool_choice_tests {
+    use super::*;
+
+    #[test]
+    fn test_convert_tool_choice() {
+        use crate::types::ToolChoice;
+
+        // Test Auto
+        let result = convert_tool_choice(&ToolChoice::Auto);
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "function_calling_config": {
+                    "mode": "AUTO"
+                }
+            })
+        );
+
+        // Test Required (maps to "ANY" in Gemini)
+        let result = convert_tool_choice(&ToolChoice::Required);
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "function_calling_config": {
+                    "mode": "ANY"
+                }
+            })
+        );
+
+        // Test None
+        let result = convert_tool_choice(&ToolChoice::None);
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "function_calling_config": {
+                    "mode": "NONE"
+                }
+            })
+        );
+
+        // Test Tool
+        let result = convert_tool_choice(&ToolChoice::tool("weather"));
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "function_calling_config": {
+                    "mode": "ANY",
+                    "allowed_function_names": ["weather"]
+                }
+            })
+        );
+    }
 }

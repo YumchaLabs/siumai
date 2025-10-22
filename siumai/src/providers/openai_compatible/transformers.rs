@@ -257,8 +257,12 @@ impl ResponseTransformer for CompatResponseTransformer {
             prompt_tokens: u.prompt_tokens.unwrap_or(0),
             completion_tokens: u.completion_tokens.unwrap_or(0),
             total_tokens: u.total_tokens.unwrap_or(0),
+            #[allow(deprecated)]
             cached_tokens: None,
+            #[allow(deprecated)]
             reasoning_tokens: None,
+            prompt_tokens_details: None,
+            completion_tokens_details: None,
         });
 
         let finish_reason = choice.finish_reason.map(|r| match r.as_str() {
@@ -269,6 +273,26 @@ impl ResponseTransformer for CompatResponseTransformer {
             _ => FinishReason::Other(r),
         });
 
+        // Extract audio output if present (OpenAI audio modality)
+        let audio = raw
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|choice| choice.get("message"))
+            .and_then(|msg| msg.get("audio"))
+            .and_then(|aud| {
+                let id = aud.get("id")?.as_str()?.to_string();
+                let expires_at = aud.get("expires_at")?.as_i64()?;
+                let data = aud.get("data")?.as_str()?.to_string();
+                let transcript = aud.get("transcript")?.as_str()?.to_string();
+                Some(crate::types::AudioOutput {
+                    id,
+                    expires_at,
+                    data,
+                    transcript,
+                })
+            });
+
         Ok(ChatResponse {
             id: None,
             content,
@@ -277,6 +301,9 @@ impl ResponseTransformer for CompatResponseTransformer {
             finish_reason,
             tool_calls,
             thinking: thinking_content,
+            audio,
+            system_fingerprint: None,
+            service_tier: None,
             metadata: std::collections::HashMap::new(),
         })
     }

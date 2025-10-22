@@ -74,4 +74,12 @@ pub trait SseEventConverter: Send + Sync {
 pub trait JsonEventConverter: Send + Sync {
     /// Convert JSON data to zero or more ChatStreamEvents
     fn convert_json<'a>(&'a self, json_data: &'a str) -> JsonEventFuture<'a>;
+
+    /// Handle the end of stream
+    ///
+    /// Called when the JSON stream ends (e.g., connection closed).
+    /// Return Some(event) to emit a final event, or None to end silently.
+    fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        None
+    }
 }

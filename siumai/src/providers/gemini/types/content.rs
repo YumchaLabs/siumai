@@ -322,7 +322,10 @@ pub struct GoogleSearch {}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoogleSearchRetrieval {
     /// Optional dynamic retrieval configuration
-    #[serde(skip_serializing_if = "Option::is_none", rename = "dynamicRetrievalConfig")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "dynamicRetrievalConfig"
+    )]
     pub dynamic_retrieval_config: Option<DynamicRetrievalConfig>,
 }
 
@@ -532,7 +535,10 @@ pub struct GroundingMetadata {
     #[serde(skip_serializing_if = "Option::is_none", rename = "retrievalMetadata")]
     pub retrieval_metadata: Option<RetrievalMetadata>,
     /// Optional. Google Maps widget context token
-    #[serde(skip_serializing_if = "Option::is_none", rename = "googleMapsWidgetContextToken")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "googleMapsWidgetContextToken"
+    )]
     pub google_maps_widget_context_token: Option<String>,
 }
 
@@ -578,7 +584,10 @@ pub struct RetrievedContextChunk {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroundingSupport {
     /// List of indices (into grounding_chunk) specifying the citations associated with the claim
-    #[serde(skip_serializing_if = "Option::is_none", rename = "groundingChunkIndices")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "groundingChunkIndices"
+    )]
     pub grounding_chunk_indices: Option<Vec<i32>>,
     /// Confidence scores of the support references
     #[serde(skip_serializing_if = "Option::is_none", rename = "confidenceScores")]

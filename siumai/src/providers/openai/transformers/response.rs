@@ -202,30 +202,43 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         }
 
         // Usage
-        let usage = root.get("usage").map(|u| Usage {
-            prompt_tokens: u
+        let usage = root.get("usage").map(|u| {
+            let prompt_tokens = u
                 .get("input_tokens")
                 .or_else(|| u.get("prompt_tokens"))
                 .or_else(|| u.get("inputTokens"))
                 .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: u
+                .unwrap_or(0) as u32;
+
+            let completion_tokens = u
                 .get("output_tokens")
                 .or_else(|| u.get("completion_tokens"))
                 .or_else(|| u.get("outputTokens"))
                 .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: u
+                .unwrap_or(0) as u32;
+
+            let total_tokens = u
                 .get("total_tokens")
                 .or_else(|| u.get("totalTokens"))
                 .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            reasoning_tokens: u
+                .unwrap_or(0) as u32;
+
+            let reasoning_tokens = u
                 .get("reasoning_tokens")
                 .or_else(|| u.get("reasoningTokens"))
                 .and_then(|v| v.as_u64())
-                .map(|v| v as u32),
-            cached_tokens: None,
+                .map(|v| v as u32);
+
+            let mut builder = Usage::builder()
+                .prompt_tokens(prompt_tokens)
+                .completion_tokens(completion_tokens)
+                .total_tokens(total_tokens);
+
+            if let Some(reasoning) = reasoning_tokens {
+                builder = builder.with_reasoning_tokens(reasoning);
+            }
+
+            builder.build()
         });
 
         // Finish reason
@@ -260,6 +273,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 Some(tool_calls)
             },
             thinking: None,
+            audio: None, // Responses API doesn't support audio output yet
+            system_fingerprint: None,
+            service_tier: None,
             metadata: std::collections::HashMap::new(),
         })
     }

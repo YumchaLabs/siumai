@@ -1,13 +1,17 @@
-//! JSON repair utilities for streaming
+//! JSON repair utilities for streaming and non-streaming responses
 //!
 //! This module provides utilities for automatically repairing malformed JSON
-//! in LLM streaming responses. When the `json-repair` feature is enabled,
-//! it uses the `jsonrepair` crate which has a fast path for valid JSON.
+//! in LLM responses (both streaming and non-streaming). When the `json-repair`
+//! feature is enabled, it uses the `jsonrepair` crate which has a fast path
+//! for valid JSON.
 
 /// Parse JSON with automatic repair when json-repair feature is enabled
 ///
 /// This is a drop-in replacement for `serde_json::from_str` that automatically
 /// repairs malformed JSON when the `json-repair` feature is enabled.
+///
+/// This function is used in both streaming (SSE events) and non-streaming
+/// (HTTP response body) scenarios.
 ///
 /// # Fast Path
 ///
@@ -32,7 +36,7 @@
 pub(crate) fn parse_json_with_repair<T: serde::de::DeserializeOwned>(
     json_str: &str,
 ) -> Result<T, serde_json::Error> {
-    use jsonrepair::{repair_json, Options};
+    use jsonrepair::{Options, repair_json};
 
     // Try direct parse first (jsonrepair will also do this, but we can provide better errors)
     match serde_json::from_str::<T>(json_str) {
@@ -206,4 +210,3 @@ mod tests {
         assert_eq!(value["user"]["age"], 30);
     }
 }
-

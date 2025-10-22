@@ -78,9 +78,17 @@ impl RequestTransformer for GeminiRequestTransformer {
 
             fn post_process_chat(
                 &self,
-                _req: &ChatRequest,
-                _body: &mut serde_json::Value,
+                req: &ChatRequest,
+                body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
+                // Add tool_choice if specified
+                if req.tools.is_some() && req.tool_choice.is_some() {
+                    if let Some(choice) = &req.tool_choice {
+                        body["tool_config"] =
+                            crate::providers::gemini::convert::convert_tool_choice(choice);
+                    }
+                }
+
                 // All provider-specific features are now handled via provider_options
                 // in ProviderSpec::chat_before_send()
                 Ok(())
@@ -340,17 +348,28 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 }
                 Part::InlineData { inline_data } => {
                     has_multimodal_content = true;
-                    let data_url =
-                        format!("data:{};base64,{}", inline_data.mime_type, inline_data.data);
                     if inline_data.mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
-                            image_url: data_url,
+                            source: crate::types::chat::MediaSource::Base64 {
+                                data: inline_data.data.clone(),
+                            },
                             detail: None,
                         });
                     } else if inline_data.mime_type.starts_with("audio/") {
                         content_parts.push(crate::types::ContentPart::Audio {
-                            audio_url: data_url,
-                            format: inline_data.mime_type.clone(),
+                            source: crate::types::chat::MediaSource::Base64 {
+                                data: inline_data.data.clone(),
+                            },
+                            media_type: Some(inline_data.mime_type.clone()),
+                        });
+                    } else {
+                        // Other file types
+                        content_parts.push(crate::types::ContentPart::File {
+                            source: crate::types::chat::MediaSource::Base64 {
+                                data: inline_data.data.clone(),
+                            },
+                            media_type: inline_data.mime_type.clone(),
+                            filename: None,
                         });
                     }
                 }
@@ -362,13 +381,26 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         .unwrap_or("application/octet-stream");
                     if mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
-                            image_url: file_data.file_uri.clone(),
+                            source: crate::types::chat::MediaSource::Url {
+                                url: file_data.file_uri.clone(),
+                            },
                             detail: None,
                         });
                     } else if mime_type.starts_with("audio/") {
                         content_parts.push(crate::types::ContentPart::Audio {
-                            audio_url: file_data.file_uri.clone(),
-                            format: mime_type.to_string(),
+                            source: crate::types::chat::MediaSource::Url {
+                                url: file_data.file_uri.clone(),
+                            },
+                            media_type: Some(mime_type.to_string()),
+                        });
+                    } else {
+                        // Other file types
+                        content_parts.push(crate::types::ContentPart::File {
+                            source: crate::types::chat::MediaSource::Url {
+                                url: file_data.file_uri.clone(),
+                            },
+                            media_type: mime_type.to_string(),
+                            filename: None,
                         });
                     }
                 }
@@ -395,8 +427,24 @@ impl ResponseTransformer for GeminiResponseTransformer {
             prompt_tokens: m.prompt_token_count.unwrap_or(0) as u32,
             completion_tokens: m.candidates_token_count.unwrap_or(0) as u32,
             total_tokens: m.total_token_count.unwrap_or(0) as u32,
+            #[allow(deprecated)]
             cached_tokens: m.cached_content_token_count.map(|t| t as u32),
+            #[allow(deprecated)]
             reasoning_tokens: m.thoughts_token_count.map(|t| t as u32),
+            prompt_tokens_details: m.cached_content_token_count.map(|cached| {
+                crate::types::PromptTokensDetails {
+                    audio_tokens: None,
+                    cached_tokens: Some(cached as u32),
+                }
+            }),
+            completion_tokens_details: m.thoughts_token_count.map(|reasoning| {
+                crate::types::CompletionTokensDetails {
+                    reasoning_tokens: Some(reasoning as u32),
+                    audio_tokens: None,
+                    accepted_prediction_tokens: None,
+                    rejected_prediction_tokens: None,
+                }
+            }),
         });
 
         let finish_reason = candidate.finish_reason.as_ref().map(|reason| match reason {
@@ -430,6 +478,9 @@ impl ResponseTransformer for GeminiResponseTransformer {
             } else {
                 Some(thinking_content)
             },
+            audio: None, // Gemini doesn't support audio output in this format
+            system_fingerprint: None,
+            service_tier: None,
             metadata: std::collections::HashMap::new(),
         })
     }

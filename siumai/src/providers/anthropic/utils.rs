@@ -6,6 +6,7 @@ use super::types::*;
 use crate::error::LlmError;
 use crate::types::*;
 use crate::utils::http_headers::ProviderHeaders;
+use base64::Engine;
 use reqwest::header::HeaderMap;
 
 /// Build HTTP headers for Anthropic API requests according to official documentation
@@ -32,29 +33,81 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             "text": text
                         }));
                     }
-                    ContentPart::Image {
-                        image_url,
-                        detail: _,
-                    } => {
-                        // Anthropic uses a different image format
+                    ContentPart::Image { source, .. } => {
+                        // Anthropic requires base64-encoded images
+                        let (media_type, data) = match source {
+                            crate::types::chat::MediaSource::Base64 { data } => {
+                                ("image/jpeg", data.clone())
+                            }
+                            crate::types::chat::MediaSource::Binary { data } => {
+                                let encoded =
+                                    base64::engine::general_purpose::STANDARD.encode(data);
+                                ("image/jpeg", encoded)
+                            }
+                            crate::types::chat::MediaSource::Url { url } => {
+                                // Anthropic doesn't support URLs, convert to text
+                                content_parts.push(serde_json::json!({
+                                    "type": "text",
+                                    "text": format!("[Image: {}]", url)
+                                }));
+                                continue;
+                            }
+                        };
+
                         content_parts.push(serde_json::json!({
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": image_url // Base64 encoding needs to be handled here
+                                "media_type": media_type,
+                                "data": data
                             }
                         }));
                     }
-                    ContentPart::Audio {
-                        audio_url,
-                        format: _,
-                    } => {
-                        // Anthropic does not currently support audio, treating it as text
+                    ContentPart::Audio { source, .. } => {
+                        // Anthropic does not support audio input
+                        let placeholder = match source {
+                            crate::types::chat::MediaSource::Url { url } => {
+                                format!("[Audio: {}]", url)
+                            }
+                            _ => "[Audio input not supported by Anthropic]".to_string(),
+                        };
                         content_parts.push(serde_json::json!({
                             "type": "text",
-                            "text": format!("[Audio: {}]", audio_url)
+                            "text": placeholder
                         }));
+                    }
+                    ContentPart::File {
+                        source, media_type, ..
+                    } => {
+                        // Anthropic supports PDF files
+                        if media_type == "application/pdf" {
+                            let data = match source {
+                                crate::types::chat::MediaSource::Base64 { data } => data.clone(),
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    base64::engine::general_purpose::STANDARD.encode(data)
+                                }
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    content_parts.push(serde_json::json!({
+                                        "type": "text",
+                                        "text": format!("[PDF: {}]", url)
+                                    }));
+                                    continue;
+                                }
+                            };
+                            content_parts.push(serde_json::json!({
+                                "type": "document",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": data
+                                }
+                            }));
+                        } else {
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": format!("[Unsupported file type: {}]", media_type)
+                            }));
+                        }
                     }
                 }
             }
@@ -274,8 +327,17 @@ pub fn create_usage_from_response(usage: Option<AnthropicUsage>) -> Option<Usage
         prompt_tokens: u.input_tokens,
         completion_tokens: u.output_tokens,
         total_tokens: u.input_tokens + u.output_tokens,
+        #[allow(deprecated)]
         reasoning_tokens: None,
+        #[allow(deprecated)]
         cached_tokens: u.cache_read_input_tokens,
+        prompt_tokens_details: u.cache_read_input_tokens.map(|cached| {
+            crate::types::PromptTokensDetails {
+                audio_tokens: None,
+                cached_tokens: Some(cached),
+            }
+        }),
+        completion_tokens_details: None,
     })
 }
 
@@ -413,5 +475,78 @@ mod tests {
 
         // Check no tool calls
         assert!(tool_calls.is_none());
+    }
+}
+
+/// Convert provider-agnostic ToolChoice to Anthropic format
+///
+/// # Anthropic Format
+///
+/// - `Auto` → `{"type": "auto"}`
+/// - `Required` → `{"type": "any"}`
+/// - `None` → `None` (tools should be removed from request)
+/// - `Tool { name }` → `{"type": "tool", "name": "..."}`
+///
+/// Note: Anthropic doesn't support "none" tool choice. When `ToolChoice::None` is used,
+/// the caller should remove tools from the request entirely.
+///
+/// # Example
+///
+/// ```rust
+/// use siumai::types::ToolChoice;
+/// use siumai::providers::anthropic::utils::convert_tool_choice;
+///
+/// let choice = ToolChoice::tool("weather");
+/// if let Some(anthropic_format) = convert_tool_choice(&choice) {
+///     // Use anthropic_format in request
+/// }
+/// ```
+pub fn convert_tool_choice(choice: &crate::types::ToolChoice) -> Option<serde_json::Value> {
+    use crate::types::ToolChoice;
+
+    match choice {
+        ToolChoice::Auto => Some(serde_json::json!({
+            "type": "auto"
+        })),
+        ToolChoice::Required => Some(serde_json::json!({
+            "type": "any"
+        })),
+        ToolChoice::None => None, // Anthropic doesn't support 'none', remove tools instead
+        ToolChoice::Tool { name } => Some(serde_json::json!({
+            "type": "tool",
+            "name": name
+        })),
+    }
+}
+
+#[cfg(test)]
+mod tool_choice_tests {
+    use super::*;
+
+    #[test]
+    fn test_convert_tool_choice() {
+        use crate::types::ToolChoice;
+
+        // Test Auto
+        let result = convert_tool_choice(&ToolChoice::Auto);
+        assert_eq!(result, Some(serde_json::json!({"type": "auto"})));
+
+        // Test Required (maps to "any" in Anthropic)
+        let result = convert_tool_choice(&ToolChoice::Required);
+        assert_eq!(result, Some(serde_json::json!({"type": "any"})));
+
+        // Test None (returns None, tools should be removed)
+        let result = convert_tool_choice(&ToolChoice::None);
+        assert_eq!(result, None);
+
+        // Test Tool
+        let result = convert_tool_choice(&ToolChoice::tool("weather"));
+        assert_eq!(
+            result,
+            Some(serde_json::json!({
+                "type": "tool",
+                "name": "weather"
+            }))
+        );
     }
 }

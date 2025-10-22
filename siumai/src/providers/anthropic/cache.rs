@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use crate::error::LlmError;
 use crate::types::{ChatMessage, ContentPart, MessageContent};
+use base64::Engine;
 
 /// Cache control configuration for Anthropic
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,29 +180,84 @@ impl CacheAwareMessageBuilder {
                                 "text": text
                             }));
                         }
-                        ContentPart::Image { image_url, detail } => {
+                        ContentPart::Image { source, detail } => {
+                            let (media_type, data) = match source {
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    ("image/jpeg", data.clone())
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    ("image/jpeg", encoded)
+                                }
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    content_parts.push(serde_json::json!({
+                                        "type": "text",
+                                        "text": format!("[Image: {}]", url)
+                                    }));
+                                    continue;
+                                }
+                            };
+
                             let mut image_part = serde_json::json!({
                                 "type": "image",
                                 "source": {
                                     "type": "base64",
-                                    "media_type": "image/jpeg", // Default, should be detected
-                                    "data": image_url
+                                    "media_type": media_type,
+                                    "data": data
                                 }
                             });
                             if let Some(detail) = detail {
-                                image_part["detail"] = serde_json::Value::String(detail.clone());
+                                image_part["detail"] = serde_json::json!(detail);
                             }
                             content_parts.push(image_part);
                         }
-                        ContentPart::Audio { audio_url, format } => {
-                            content_parts.push(serde_json::json!({
-                                "type": "audio",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": format,
-                                    "data": audio_url
+                        ContentPart::Audio { source, .. } => {
+                            // Anthropic does not support audio
+                            let placeholder = match source {
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    format!("[Audio: {}]", url)
                                 }
+                                _ => "[Audio not supported]".to_string(),
+                            };
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": placeholder
                             }));
+                        }
+                        ContentPart::File {
+                            source, media_type, ..
+                        } => {
+                            if media_type == "application/pdf" {
+                                let data = match source {
+                                    crate::types::chat::MediaSource::Base64 { data } => {
+                                        data.clone()
+                                    }
+                                    crate::types::chat::MediaSource::Binary { data } => {
+                                        base64::engine::general_purpose::STANDARD.encode(data)
+                                    }
+                                    crate::types::chat::MediaSource::Url { url } => {
+                                        content_parts.push(serde_json::json!({
+                                            "type": "text",
+                                            "text": format!("[PDF: {}]", url)
+                                        }));
+                                        continue;
+                                    }
+                                };
+                                content_parts.push(serde_json::json!({
+                                    "type": "document",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": media_type,
+                                        "data": data
+                                    }
+                                }));
+                            } else {
+                                content_parts.push(serde_json::json!({
+                                    "type": "text",
+                                    "text": format!("[Unsupported file: {}]", media_type)
+                                }));
+                            }
                         }
                     }
                 }

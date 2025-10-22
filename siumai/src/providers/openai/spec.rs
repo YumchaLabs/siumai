@@ -118,27 +118,39 @@ impl ProviderSpec for OpenAiSpec {
             return Some(hook);
         }
 
-        // 2. Handle OpenAI-specific options (built_in_tools, responses_api, etc.)
+        // 2. Handle OpenAI-specific options (built_in_tools, responses_api, modalities, audio, prediction, web_search_options, etc.)
         // Extract options from provider_options
-        let (builtins, responses_api_config, reasoning_effort, service_tier) =
-            if let ProviderOptions::OpenAi(ref options) = req.provider_options {
-                let builtins = if !options.built_in_tools.is_empty() {
-                    // 🎯 Call to_json() on each tool to get proper JSON representation
-                    let tools_json: Vec<serde_json::Value> =
-                        options.built_in_tools.iter().map(|t| t.to_json()).collect();
-                    Some(serde_json::Value::Array(tools_json))
-                } else {
-                    None
-                };
-                (
-                    builtins,
-                    options.responses_api.clone(),
-                    options.reasoning_effort.clone(),
-                    options.service_tier.clone(),
-                )
+        let (
+            builtins,
+            responses_api_config,
+            reasoning_effort,
+            service_tier,
+            modalities,
+            audio,
+            prediction,
+            web_search_options,
+        ) = if let ProviderOptions::OpenAi(ref options) = req.provider_options {
+            let builtins = if !options.built_in_tools.is_empty() {
+                // 🎯 Call to_json() on each tool to get proper JSON representation
+                let tools_json: Vec<serde_json::Value> =
+                    options.built_in_tools.iter().map(|t| t.to_json()).collect();
+                Some(serde_json::Value::Array(tools_json))
             } else {
-                return None;
+                None
             };
+            (
+                builtins,
+                options.responses_api.clone(),
+                options.reasoning_effort.clone(),
+                options.service_tier.clone(),
+                options.modalities.clone(),
+                options.audio.clone(),
+                options.prediction.clone(),
+                options.web_search_options.clone(),
+            )
+        } else {
+            return None;
+        };
 
         let builtins = builtins.unwrap_or(serde_json::Value::Array(vec![]));
 
@@ -189,6 +201,10 @@ impl ProviderSpec for OpenAiSpec {
         let has_text_verbosity = text_verbosity.is_some();
         let has_metadata = metadata.is_some();
         let has_parallel_tool_calls = parallel_tool_calls.is_some();
+        let has_modalities = modalities.is_some();
+        let has_audio = audio.is_some();
+        let has_prediction = prediction.is_some();
+        let has_web_search_options = web_search_options.is_some();
 
         if !has_builtins
             && !has_prev_id
@@ -204,6 +220,10 @@ impl ProviderSpec for OpenAiSpec {
             && !has_text_verbosity
             && !has_metadata
             && !has_parallel_tool_calls
+            && !has_modalities
+            && !has_audio
+            && !has_prediction
+            && !has_web_search_options
         {
             return None;
         }
@@ -311,6 +331,34 @@ impl ProviderSpec for OpenAiSpec {
             if let Some(ref tier) = service_tier {
                 if let Ok(val) = serde_json::to_value(tier) {
                     out["service_tier"] = val;
+                }
+            }
+
+            // 🎯 Inject modalities (for multimodal audio output)
+            if let Some(ref mods) = modalities {
+                if let Ok(val) = serde_json::to_value(mods) {
+                    out["modalities"] = val;
+                }
+            }
+
+            // 🎯 Inject audio configuration (voice and format for audio output)
+            if let Some(ref aud) = audio {
+                if let Ok(val) = serde_json::to_value(aud) {
+                    out["audio"] = val;
+                }
+            }
+
+            // 🎯 Inject prediction (Predicted Outputs for faster response times)
+            if let Some(ref pred) = prediction {
+                if let Ok(val) = serde_json::to_value(pred) {
+                    out["prediction"] = val;
+                }
+            }
+
+            // 🎯 Inject web_search_options (context size and user location)
+            if let Some(ref ws_opts) = web_search_options {
+                if let Ok(val) = serde_json::to_value(ws_opts) {
+                    out["web_search_options"] = val;
                 }
             }
 

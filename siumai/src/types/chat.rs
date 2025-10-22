@@ -69,20 +69,229 @@ impl MessageContent {
     }
 }
 
-/// Content part
+/// Media source - unified way to represent media data across providers
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum MediaSource {
+    /// URL (http, https, gs, data URLs, etc.)
+    Url { url: String },
+    /// Base64-encoded data
+    Base64 { data: String },
+    /// Binary data (will be base64-encoded when needed)
+    #[serde(skip)]
+    Binary { data: Vec<u8> },
+}
+
+impl MediaSource {
+    /// Create from URL string
+    pub fn url(url: impl Into<String>) -> Self {
+        Self::Url { url: url.into() }
+    }
+
+    /// Create from base64 string
+    pub fn base64(data: impl Into<String>) -> Self {
+        Self::Base64 { data: data.into() }
+    }
+
+    /// Create from binary data
+    pub fn binary(data: Vec<u8>) -> Self {
+        Self::Binary { data }
+    }
+
+    /// Get as URL if available
+    pub fn as_url(&self) -> Option<&str> {
+        match self {
+            Self::Url { url } => Some(url),
+            _ => None,
+        }
+    }
+
+    /// Get as base64 if available, or convert binary to base64
+    pub fn as_base64(&self) -> Option<String> {
+        match self {
+            Self::Base64 { data } => Some(data.clone()),
+            Self::Binary { data } => Some(base64_encode(data)),
+            _ => None,
+        }
+    }
+
+    /// Check if this is a URL
+    pub fn is_url(&self) -> bool {
+        matches!(self, Self::Url { .. })
+    }
+
+    /// Check if this is base64 data
+    pub fn is_base64(&self) -> bool {
+        matches!(self, Self::Base64 { .. })
+    }
+
+    /// Check if this is binary data
+    pub fn is_binary(&self) -> bool {
+        matches!(self, Self::Binary { .. })
+    }
+}
+
+/// Image detail level (for providers that support it)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageDetail {
+    Auto,
+    Low,
+    High,
+}
+
+impl From<&str> for ImageDetail {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "low" => ImageDetail::Low,
+            "high" => ImageDetail::High,
+            _ => ImageDetail::Auto,
+        }
+    }
+}
+
+/// Content part - provider-agnostic multimodal content
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum ContentPart {
-    Text {
-        text: String,
-    },
+    /// Text content
+    Text { text: String },
+
+    /// Image content - supports URL, base64, or binary data
     Image {
-        image_url: String,
-        detail: Option<String>,
+        /// Image data source
+        #[serde(flatten)]
+        source: MediaSource,
+        /// Optional detail level (for providers that support it, e.g., OpenAI)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<ImageDetail>,
     },
+
+    /// Audio content - supports URL, base64, or binary data
     Audio {
-        audio_url: String,
-        format: String,
+        /// Audio data source
+        #[serde(flatten)]
+        source: MediaSource,
+        /// Media type (e.g., "audio/wav", "audio/mp3", "audio/mpeg")
+        #[serde(skip_serializing_if = "Option::is_none")]
+        media_type: Option<String>,
     },
+
+    /// File content (PDF, documents, etc.)
+    File {
+        /// File data source
+        #[serde(flatten)]
+        source: MediaSource,
+        /// Media type (e.g., "application/pdf", "text/plain")
+        media_type: String,
+        /// Optional filename (for providers that support it)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+    },
+}
+
+// Helper function for base64 encoding
+fn base64_encode(data: &[u8]) -> String {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    STANDARD.encode(data)
+}
+
+impl ContentPart {
+    /// Create a text content part
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text { text: text.into() }
+    }
+
+    /// Create an image content part from URL
+    pub fn image_url(url: impl Into<String>) -> Self {
+        Self::Image {
+            source: MediaSource::url(url),
+            detail: None,
+        }
+    }
+
+    /// Create an image content part from URL with detail level
+    pub fn image_url_with_detail(url: impl Into<String>, detail: ImageDetail) -> Self {
+        Self::Image {
+            source: MediaSource::url(url),
+            detail: Some(detail),
+        }
+    }
+
+    /// Create an image content part from base64 data
+    pub fn image_base64(data: impl Into<String>) -> Self {
+        Self::Image {
+            source: MediaSource::base64(data),
+            detail: None,
+        }
+    }
+
+    /// Create an image content part from binary data
+    pub fn image_binary(data: Vec<u8>) -> Self {
+        Self::Image {
+            source: MediaSource::binary(data),
+            detail: None,
+        }
+    }
+
+    /// Create an audio content part from URL
+    pub fn audio_url(url: impl Into<String>, media_type: Option<String>) -> Self {
+        Self::Audio {
+            source: MediaSource::url(url),
+            media_type,
+        }
+    }
+
+    /// Create an audio content part from base64 data
+    pub fn audio_base64(data: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self::Audio {
+            source: MediaSource::base64(data),
+            media_type: Some(media_type.into()),
+        }
+    }
+
+    /// Create an audio content part from binary data
+    pub fn audio_binary(data: Vec<u8>, media_type: impl Into<String>) -> Self {
+        Self::Audio {
+            source: MediaSource::binary(data),
+            media_type: Some(media_type.into()),
+        }
+    }
+
+    /// Create a file content part from URL
+    pub fn file_url(url: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self::File {
+            source: MediaSource::url(url),
+            media_type: media_type.into(),
+            filename: None,
+        }
+    }
+
+    /// Create a file content part from base64 data
+    pub fn file_base64(
+        data: impl Into<String>,
+        media_type: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        Self::File {
+            source: MediaSource::base64(data),
+            media_type: media_type.into(),
+            filename,
+        }
+    }
+
+    /// Create a file content part from binary data
+    pub fn file_binary(
+        data: Vec<u8>,
+        media_type: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        Self::File {
+            source: MediaSource::binary(data),
+            media_type: media_type.into(),
+            filename,
+        }
+    }
 }
 
 /// Cache control
@@ -209,8 +418,13 @@ impl ChatMessage {
                 .iter()
                 .map(|part| match part {
                     ContentPart::Text { text } => text.len(),
-                    ContentPart::Image { image_url, .. } => image_url.len(),
-                    ContentPart::Audio { audio_url, .. } => audio_url.len(),
+                    ContentPart::Image { source, .. }
+                    | ContentPart::Audio { source, .. }
+                    | ContentPart::File { source, .. } => match source {
+                        MediaSource::Url { url } => url.len(),
+                        MediaSource::Base64 { data } => data.len(),
+                        MediaSource::Binary { data } => data.len(),
+                    },
                 })
                 .sum(),
             #[cfg(feature = "structured-messages")]
@@ -365,7 +579,10 @@ impl ChatMessageBuilder {
 
     /// Adds image content
     pub fn with_image(mut self, image_url: String, detail: Option<String>) -> Self {
-        let image_part = ContentPart::Image { image_url, detail };
+        let image_part = ContentPart::Image {
+            source: MediaSource::Url { url: image_url },
+            detail: detail.map(|d| ImageDetail::from(d.as_str())),
+        };
 
         match self.content {
             Some(MessageContent::Text(text)) => {
@@ -418,6 +635,26 @@ pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
     /// Optional tools to use in the chat
     pub tools: Option<Vec<Tool>>,
+    /// Tool choice strategy
+    ///
+    /// Controls how the model should use the provided tools:
+    /// - `Auto` (default): Model decides whether to call tools
+    /// - `Required`: Model must call at least one tool
+    /// - `None`: Model cannot call any tools
+    /// - `Tool { name }`: Model must call the specified tool
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::{ChatRequest, ChatMessage, ToolChoice};
+    ///
+    /// let request = ChatRequest::new(vec![
+    ///     ChatMessage::user("What's the weather?").build()
+    /// ])
+    /// .with_tool_choice(ToolChoice::tool("weather"));
+    /// ```
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<crate::types::ToolChoice>,
     /// Common parameters (for backward compatibility)
     pub common_params: CommonParams,
 
@@ -441,6 +678,7 @@ impl ChatRequest {
         Self {
             messages,
             tools: None,
+            tool_choice: None,
             common_params: CommonParams::default(),
             provider_options: crate::types::ProviderOptions::None,
             http_config: None,
@@ -469,6 +707,32 @@ impl ChatRequest {
     /// Add tools to the request
     pub fn with_tools(mut self, tools: Vec<Tool>) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    /// Set tool choice strategy
+    ///
+    /// Controls how the model should use the provided tools.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::{ChatRequest, ChatMessage, ToolChoice};
+    ///
+    /// // Force the model to call a specific tool
+    /// let request = ChatRequest::new(vec![
+    ///     ChatMessage::user("What's the weather?").build()
+    /// ])
+    /// .with_tool_choice(ToolChoice::tool("weather"));
+    ///
+    /// // Require the model to call at least one tool
+    /// let request = ChatRequest::new(vec![
+    ///     ChatMessage::user("Help me").build()
+    /// ])
+    /// .with_tool_choice(ToolChoice::Required);
+    /// ```
+    pub fn with_tool_choice(mut self, choice: crate::types::ToolChoice) -> Self {
+        self.tool_choice = Some(choice);
         self
     }
 
@@ -593,6 +857,7 @@ impl ChatRequest {
 pub struct ChatRequestBuilder {
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
+    tool_choice: Option<crate::types::ToolChoice>,
     common_params: CommonParams,
     provider_options: crate::types::ProviderOptions,
     http_config: Option<HttpConfig>,
@@ -605,6 +870,7 @@ impl ChatRequestBuilder {
         Self {
             messages: Vec::new(),
             tools: None,
+            tool_choice: None,
             common_params: CommonParams::default(),
             provider_options: crate::types::ProviderOptions::None,
             http_config: None,
@@ -627,6 +893,22 @@ impl ChatRequestBuilder {
     /// Add tools to the request
     pub fn tools(mut self, tools: Vec<Tool>) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    /// Set tool choice strategy
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::{ChatRequestBuilder, ToolChoice};
+    ///
+    /// let request = ChatRequestBuilder::new()
+    ///     .tool_choice(ToolChoice::tool("weather"))
+    ///     .build();
+    /// ```
+    pub fn tool_choice(mut self, choice: crate::types::ToolChoice) -> Self {
+        self.tool_choice = Some(choice);
         self
     }
 
@@ -743,6 +1025,7 @@ impl ChatRequestBuilder {
         ChatRequest {
             messages: self.messages,
             tools: self.tools,
+            tool_choice: self.tool_choice,
             common_params: self.common_params,
             provider_options: self.provider_options,
             http_config: self.http_config,
@@ -756,6 +1039,19 @@ impl Default for ChatRequestBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Audio output from the model
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AudioOutput {
+    /// Unique identifier for this audio response
+    pub id: String,
+    /// Unix timestamp (in seconds) when this audio expires
+    pub expires_at: i64,
+    /// Base64-encoded audio data
+    pub data: String,
+    /// Transcript of the audio
+    pub transcript: String,
 }
 
 /// Chat response from the provider
@@ -775,6 +1071,21 @@ pub struct ChatResponse {
     pub tool_calls: Option<Vec<ToolCall>>,
     /// Thinking content (if available)
     pub thinking: Option<String>,
+    /// Audio output (if audio modality was requested)
+    pub audio: Option<AudioOutput>,
+    /// System fingerprint (backend configuration identifier)
+    ///
+    /// This fingerprint represents the backend configuration that the model runs with.
+    /// Can be used in conjunction with the `seed` request parameter to understand when
+    /// backend changes have been made that might impact determinism.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_fingerprint: Option<String>,
+    /// Service tier used for processing the request
+    ///
+    /// Indicates the actual service tier used (e.g., "default", "scale", "flex", "priority").
+    /// May differ from the requested service tier based on availability.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
     /// Provider-specific metadata
     pub metadata: HashMap<String, serde_json::Value>,
     // Reserved for future: warnings/provider_metadata (kept in metadata for now)
@@ -791,6 +1102,43 @@ impl ChatResponse {
             finish_reason: None,
             tool_calls: None,
             thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// Create an empty response (typically used for stream end events)
+    pub fn empty() -> Self {
+        Self {
+            id: None,
+            content: MessageContent::Text(String::new()),
+            model: None,
+            usage: None,
+            finish_reason: None,
+            tool_calls: None,
+            thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// Create an empty response with a specific finish reason
+    pub fn empty_with_finish_reason(reason: FinishReason) -> Self {
+        Self {
+            id: None,
+            content: MessageContent::Text(String::new()),
+            model: None,
+            usage: None,
+            finish_reason: Some(reason),
+            tool_calls: None,
+            thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata: HashMap::new(),
         }
     }

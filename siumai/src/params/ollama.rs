@@ -253,6 +253,7 @@ mod tests {
             model: "llama3.2".to_string(),
             temperature: Some(0.7),
             max_tokens: Some(1000),
+            max_completion_tokens: None,
             top_p: Some(0.9),
             stop_sequences: Some(vec!["\\n".to_string()]),
             seed: Some(42),

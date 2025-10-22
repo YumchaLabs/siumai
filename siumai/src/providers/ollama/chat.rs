@@ -121,14 +121,15 @@ impl OllamaChatCapability {
 
         // Calculate usage if metrics are available
         let usage = if response.prompt_eval_count.is_some() || response.eval_count.is_some() {
-            Some(Usage {
-                prompt_tokens: response.prompt_eval_count.unwrap_or(0),
-                completion_tokens: response.eval_count.unwrap_or(0),
-                total_tokens: response.prompt_eval_count.unwrap_or(0)
-                    + response.eval_count.unwrap_or(0),
-                cached_tokens: None,
-                reasoning_tokens: None,
-            })
+            let prompt = response.prompt_eval_count.unwrap_or(0);
+            let completion = response.eval_count.unwrap_or(0);
+            Some(
+                Usage::builder()
+                    .prompt_tokens(prompt)
+                    .completion_tokens(completion)
+                    .total_tokens(prompt + completion)
+                    .build(),
+            )
         } else {
             None
         };
@@ -178,6 +179,9 @@ impl OllamaChatCapability {
             finish_reason,
             tool_calls: message.tool_calls,
             thinking: response.message.thinking,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata,
         }
     }

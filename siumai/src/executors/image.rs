@@ -92,8 +92,10 @@ impl ImageExecutor for HttpImageExecutor {
             .text()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
-        let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| LlmError::ParseError(e.to_string()))?;
+
+        // Use parse_json_with_repair for automatic JSON repair when enabled
+        let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
+            .map_err(|e| LlmError::ParseError(e.to_string()))?;
         self.response_transformer.transform_image_response(&json)
     }
 
@@ -142,8 +144,10 @@ impl ImageExecutor for HttpImageExecutor {
             .text()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
-        let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| LlmError::ParseError(e.to_string()))?;
+
+        // Use parse_json_with_repair for automatic JSON repair when enabled
+        let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
+            .map_err(|e| LlmError::ParseError(e.to_string()))?;
         self.response_transformer.transform_image_response(&json)
     }
 
@@ -192,8 +196,10 @@ impl ImageExecutor for HttpImageExecutor {
             .text()
             .await
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
-        let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| LlmError::ParseError(e.to_string()))?;
+
+        // Use parse_json_with_repair for automatic JSON repair when enabled
+        let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
+            .map_err(|e| LlmError::ParseError(e.to_string()))?;
         self.response_transformer.transform_image_response(&json)
     }
 }

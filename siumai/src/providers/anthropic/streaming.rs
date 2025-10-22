@@ -5,7 +5,7 @@
 
 use crate::error::LlmError;
 use crate::params::AnthropicParams;
-use crate::streaming::{ChatStream, ChatStreamEvent};
+use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
 use crate::streaming::{SseEventConverter, StreamFactory};
 use crate::transformers::request::RequestTransformer;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
@@ -103,11 +103,15 @@ pub struct AnthropicEventConverter {
     #[allow(dead_code)]
     // Retained for potential future behavior toggles; not read in the current converter
     config: AnthropicParams,
+    state_tracker: StreamStateTracker,
 }
 
 impl AnthropicEventConverter {
     pub fn new(config: AnthropicParams) -> Self {
-        Self { config }
+        Self {
+            config,
+            state_tracker: StreamStateTracker::new(),
+        }
     }
 
     /// Convert Anthropic stream event to one or more ChatStreamEvents
@@ -159,8 +163,12 @@ impl AnthropicEventConverter {
                         completion_tokens: usage.output_tokens.unwrap_or(0),
                         total_tokens: usage.input_tokens.unwrap_or(0)
                             + usage.output_tokens.unwrap_or(0),
+                        #[allow(deprecated)]
                         cached_tokens: None,
+                        #[allow(deprecated)]
                         reasoning_tokens: None,
+                        prompt_tokens_details: None,
+                        completion_tokens_details: None,
                     };
                     builder = builder.add_usage_update(usage_info);
                 }
@@ -178,6 +186,9 @@ impl AnthropicEventConverter {
                         _ => FinishReason::Stop,
                     };
 
+                    // Mark that StreamEnd is being emitted
+                    self.state_tracker.mark_stream_ended();
+
                     let response = ChatResponse {
                         id: None,
                         model: None,
@@ -186,6 +197,9 @@ impl AnthropicEventConverter {
                         finish_reason: Some(reason),
                         tool_calls: None,
                         thinking: None,
+                        audio: None,
+                        system_fingerprint: None,
+                        service_tier: None,
                         metadata: HashMap::new(),
                     };
                     builder = builder.add_stream_end(response);
@@ -194,6 +208,9 @@ impl AnthropicEventConverter {
                 builder.build()
             }
             "message_stop" => {
+                // Mark that StreamEnd is being emitted
+                self.state_tracker.mark_stream_ended();
+
                 let response = ChatResponse {
                     id: None,
                     model: None,
@@ -202,6 +219,9 @@ impl AnthropicEventConverter {
                     finish_reason: Some(FinishReason::Stop),
                     tool_calls: None,
                     thinking: None,
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
                     metadata: HashMap::new(),
                 };
                 EventBuilder::new().add_stream_end(response).build()
@@ -239,7 +259,8 @@ impl SseEventConverter for AnthropicEventConverter {
                     tracing::warn!("Raw event data: {}", event.data);
 
                     // Try to parse as a generic JSON to see if it's a different format
-                    if let Ok(generic_json) = crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data)
+                    if let Ok(generic_json) =
+                        crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data)
                     {
                         tracing::warn!("Event parsed as generic JSON: {:#}", generic_json);
 
@@ -266,14 +287,27 @@ impl SseEventConverter for AnthropicEventConverter {
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        // Anthropic normally emits StreamEnd via message_stop event in convert_event.
+        // If we reach here without seeing message_stop, the model has not transmitted
+        // a finish reason (e.g., connection lost, server error, client cancelled).
+        // Always emit StreamEnd with Unknown reason so users can detect this.
+
+        // Check if StreamEnd was already emitted
+        if !self.state_tracker.needs_stream_end() {
+            return None; // StreamEnd already emitted
+        }
+
         let response = ChatResponse {
             id: None,
             model: None,
             content: MessageContent::Text("".to_string()),
             usage: None,
-            finish_reason: Some(FinishReason::Stop),
+            finish_reason: Some(FinishReason::Unknown),
             tool_calls: None,
             thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata: HashMap::new(),
         };
 

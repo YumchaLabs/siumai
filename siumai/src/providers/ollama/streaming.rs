@@ -6,7 +6,7 @@
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
 use crate::streaming::{JsonEventConverter, StreamFactory};
-use crate::types::{ResponseMetadata, Usage};
+use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
@@ -62,12 +62,12 @@ impl OllamaEventConverter {
         response: OllamaStreamResponse,
     ) -> Vec<ChatStreamEvent> {
         use crate::streaming::EventBuilder;
-        use crate::types::{ChatResponse, MessageContent, FinishReason};
+        use crate::types::{ChatResponse, FinishReason, MessageContent};
 
         let mut builder = EventBuilder::new();
 
         // Check if we need to emit StreamStart first
-        if self.needs_stream_start().await {
+        if self.needs_stream_start() {
             let metadata = self.create_stream_start_metadata(&response);
             builder = builder.add_stream_start(metadata);
         }
@@ -89,6 +89,9 @@ impl OllamaEventConverter {
 
         // Process stream end
         if response.done == Some(true) {
+            // Mark that StreamEnd is being emitted
+            self.state_tracker.mark_stream_ended();
+
             let chat_response = ChatResponse {
                 id: None,
                 model: response.model.clone(),
@@ -97,6 +100,9 @@ impl OllamaEventConverter {
                 finish_reason: Some(FinishReason::Stop),
                 tool_calls: None,
                 thinking: None,
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
                 metadata: std::collections::HashMap::new(),
             };
             builder = builder.add_stream_end(chat_response);
@@ -106,8 +112,8 @@ impl OllamaEventConverter {
     }
 
     /// Check if StreamStart event needs to be emitted
-    async fn needs_stream_start(&self) -> bool {
-        self.state_tracker.needs_stream_start().await
+    fn needs_stream_start(&self) -> bool {
+        self.state_tracker.needs_stream_start()
     }
 
     /// Extract content from Ollama response
@@ -138,13 +144,13 @@ impl OllamaEventConverter {
             && let (Some(prompt_tokens), Some(completion_tokens)) =
                 (response.prompt_eval_count, response.eval_count)
         {
-            return Some(Usage {
-                prompt_tokens,
-                completion_tokens,
-                total_tokens: prompt_tokens + completion_tokens,
-                cached_tokens: None,
-                reasoning_tokens: None,
-            });
+            return Some(
+                Usage::builder()
+                    .prompt_tokens(prompt_tokens)
+                    .completion_tokens(completion_tokens)
+                    .total_tokens(prompt_tokens + completion_tokens)
+                    .build(),
+            );
         }
         None
     }
@@ -182,6 +188,33 @@ impl JsonEventConverter for OllamaEventConverter {
                 }
             }
         })
+    }
+
+    fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        // Ollama normally emits `done: true` in the stream (handled in convert_ollama_response_async).
+        // If we reach here without seeing `done: true`, the model has not transmitted
+        // a finish reason (e.g., connection lost, server error, client cancelled).
+        // Always emit StreamEnd with Unknown reason so users can detect this.
+
+        // Check if StreamEnd was already emitted
+        if !self.state_tracker.needs_stream_end() {
+            return None; // StreamEnd already emitted
+        }
+
+        let response = ChatResponse {
+            id: None,
+            model: None,
+            content: MessageContent::Text("".to_string()),
+            usage: None,
+            finish_reason: Some(FinishReason::Unknown),
+            tool_calls: None,
+            thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            metadata: std::collections::HashMap::new(),
+        };
+        Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
 }
 

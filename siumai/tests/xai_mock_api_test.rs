@@ -7,8 +7,8 @@
 use serde_json::json;
 use siumai::{ChatCapability, ChatMessage, FinishReason, LlmBuilder, Tool};
 use wiremock::{
-    matchers::{header, method, path},
     Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path},
 };
 
 /// Helper function to create a standard xAI chat response
@@ -157,9 +157,7 @@ async fn test_xai_error_response() {
         .unwrap();
 
     // Make request and expect error
-    let result = client
-        .chat(vec![ChatMessage::user("Hello").build()])
-        .await;
+    let result = client.chat(vec![ChatMessage::user("Hello").build()]).await;
 
     assert!(result.is_err());
     let error = result.unwrap_err();
@@ -257,10 +255,7 @@ async fn test_xai_tool_calling() {
     assert!(response.tool_calls.is_some());
     let tool_calls = response.tool_calls.unwrap();
     assert_eq!(tool_calls.len(), 1);
-    assert_eq!(
-        tool_calls[0].function.as_ref().unwrap().name,
-        "get_weather"
-    );
+    assert_eq!(tool_calls[0].function.as_ref().unwrap().name, "get_weather");
     assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
 }
 
@@ -292,4 +287,3 @@ async fn test_xai_system_fingerprint() {
     // Verify response ID is preserved
     assert_eq!(response.id, Some("chatcmpl-123".to_string()));
 }
-

@@ -200,6 +200,9 @@ impl StreamFactory {
         let reader = StreamReader::new(byte_stream);
         let lines = FramedRead::new(reader, LinesCodec::new());
 
+        // Clone converter for the end-of-stream handler
+        let end_converter = converter.clone();
+
         let chat_stream = lines
             .map(|res| match res {
                 Ok(line) => Ok(line),
@@ -220,7 +223,14 @@ impl StreamFactory {
                     }
                 }
             })
-            .flat_map(futures::stream::iter);
+            .flat_map(futures::stream::iter)
+            // Chain the end-of-stream event
+            .chain(futures::stream::iter(
+                end_converter
+                    .handle_stream_end()
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+            ));
 
         Ok(Box::pin(chat_stream))
     }

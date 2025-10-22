@@ -10,6 +10,7 @@ use crate::types::{
     ChatRequest, EmbeddingRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
     ModerationRequest, RerankRequest,
 };
+use base64::Engine;
 use reqwest::multipart::{Form, Part};
 
 #[derive(Clone)]
@@ -43,7 +44,10 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 if let Some(tp) = req.common_params.top_p {
                     body["top_p"] = serde_json::json!(tp);
                 }
-                if let Some(max) = req.common_params.max_tokens {
+                // Prefer max_completion_tokens for o1/o3 models, fallback to max_tokens
+                if let Some(max) = req.common_params.max_completion_tokens {
+                    body["max_completion_tokens"] = serde_json::json!(max);
+                } else if let Some(max) = req.common_params.max_tokens {
                     body["max_tokens"] = serde_json::json!(max);
                 }
                 if let Some(stops) = &req.common_params.stop_sequences {
@@ -57,6 +61,12 @@ impl RequestTransformer for OpenAiRequestTransformer {
                     && !tools.is_empty()
                 {
                     body["tools"] = serde_json::to_value(tools)?;
+
+                    // Add tool_choice if specified
+                    if let Some(choice) = &req.tool_choice {
+                        body["tool_choice"] =
+                            crate::providers::openai::utils::convert_tool_choice(choice);
+                    }
                 }
 
                 if req.stream {
@@ -439,21 +449,100 @@ impl OpenAiResponsesRequestTransformer {
                             content_parts
                                 .push(serde_json::json!({ "type": "input_text", "text": text }));
                         }
-                        ContentPart::Image { image_url, detail } => {
+                        ContentPart::Image { source, detail } => {
                             // Responses API prefers `input_image` items
+                            let url = match source {
+                                crate::types::chat::MediaSource::Url { url } => url.clone(),
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    format!("data:image/jpeg;base64,{}", data)
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    format!("data:image/jpeg;base64,{}", encoded)
+                                }
+                            };
+
                             let mut image_part = serde_json::json!({
                                 "type": "input_image",
-                                "image_url": { "url": image_url }
+                                "image_url": { "url": url }
                             });
                             if let Some(d) = detail {
-                                image_part["image_url"]["detail"] =
-                                    serde_json::Value::String(d.clone());
+                                image_part["image_url"]["detail"] = serde_json::json!(d);
                             }
                             content_parts.push(image_part);
                         }
-                        ContentPart::Audio { audio_url, format } => {
-                            // Responses API prefers `input_audio` items
-                            content_parts.push(serde_json::json!({ "type": "input_audio", "audio_url": audio_url, "format": format }));
+                        ContentPart::Audio { source, media_type } => {
+                            // Responses API audio input format
+                            match source {
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    let format = super::super::utils::infer_audio_format(
+                                        media_type.as_deref(),
+                                    );
+                                    content_parts.push(serde_json::json!({
+                                        "type": "input_audio",
+                                        "input_audio": {
+                                            "data": data,
+                                            "format": format
+                                        }
+                                    }));
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    let format = super::super::utils::infer_audio_format(
+                                        media_type.as_deref(),
+                                    );
+                                    content_parts.push(serde_json::json!({
+                                        "type": "input_audio",
+                                        "input_audio": {
+                                            "data": encoded,
+                                            "format": format
+                                        }
+                                    }));
+                                }
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    // Convert to text placeholder
+                                    content_parts.push(serde_json::json!({
+                                        "type": "input_text",
+                                        "text": format!("[Audio: {}]", url)
+                                    }));
+                                }
+                            }
+                        }
+                        ContentPart::File {
+                            source, media_type, ..
+                        } => {
+                            // Responses API file support
+                            if media_type == "application/pdf" {
+                                let data = match source {
+                                    crate::types::chat::MediaSource::Base64 { data } => {
+                                        data.clone()
+                                    }
+                                    crate::types::chat::MediaSource::Binary { data } => {
+                                        base64::engine::general_purpose::STANDARD.encode(data)
+                                    }
+                                    crate::types::chat::MediaSource::Url { url } => {
+                                        content_parts.push(serde_json::json!({
+                                            "type": "input_text",
+                                            "text": format!("[PDF: {}]", url)
+                                        }));
+                                        continue;
+                                    }
+                                };
+                                content_parts.push(serde_json::json!({
+                                    "type": "input_file",
+                                    "file": {
+                                        "data": data,
+                                        "media_type": media_type
+                                    }
+                                }));
+                            } else {
+                                content_parts.push(serde_json::json!({
+                                    "type": "input_text",
+                                    "text": format!("[Unsupported file type: {}]", media_type)
+                                }));
+                            }
                         }
                     }
                 }
@@ -515,6 +604,12 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                         })
                         .collect();
                     body["tools"] = serde_json::Value::Array(t);
+
+                    // Add tool_choice if specified
+                    if let Some(choice) = &req.tool_choice {
+                        body["tool_choice"] =
+                            crate::providers::openai::utils::convert_tool_choice(choice);
+                    }
                 }
 
                 // stream options
@@ -527,8 +622,10 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                     body["temperature"] = serde_json::json!(temp);
                 }
 
-                // max_output_tokens (prefer common max_tokens)
-                if let Some(max_tokens) = req.common_params.max_tokens {
+                // max_output_tokens (prefer max_completion_tokens, fallback to max_tokens)
+                if let Some(max_tokens) = req.common_params.max_completion_tokens {
+                    body["max_output_tokens"] = serde_json::json!(max_tokens);
+                } else if let Some(max_tokens) = req.common_params.max_tokens {
                     body["max_output_tokens"] = serde_json::json!(max_tokens);
                 }
 

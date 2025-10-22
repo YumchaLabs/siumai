@@ -87,7 +87,7 @@ impl GeminiEventConverter {
         let mut builder = EventBuilder::new();
 
         // Check if we need to emit StreamStart first
-        if self.needs_stream_start().await {
+        if self.needs_stream_start() {
             builder = builder.add_stream_start(self.create_stream_start_metadata());
         }
 
@@ -118,8 +118,8 @@ impl GeminiEventConverter {
     }
 
     /// Check if StreamStart event needs to be emitted
-    async fn needs_stream_start(&self) -> bool {
-        self.state_tracker.needs_stream_start().await
+    fn needs_stream_start(&self) -> bool {
+        self.state_tracker.needs_stream_start()
     }
 
     /// Extract content from Gemini response
@@ -201,6 +201,9 @@ impl GeminiEventConverter {
                 _ => FinishReason::Stop,
             };
 
+            // Mark that StreamEnd is being emitted
+            self.state_tracker.mark_stream_ended();
+
             let response = ChatResponse {
                 id: None,
                 model: None,
@@ -209,6 +212,9 @@ impl GeminiEventConverter {
                 finish_reason: Some(finish_reason),
                 tool_calls: None,
                 thinking: None,
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
                 metadata: std::collections::HashMap::new(),
             };
 
@@ -227,8 +233,19 @@ impl GeminiEventConverter {
                 total_tokens: meta.total_token_count.unwrap_or(
                     meta.prompt_token_count.unwrap_or(0) + meta.candidates_token_count.unwrap_or(0),
                 ),
+                #[allow(deprecated)]
                 cached_tokens: None,
+                #[allow(deprecated)]
                 reasoning_tokens: meta.thoughts_token_count,
+                prompt_tokens_details: None,
+                completion_tokens_details: meta.thoughts_token_count.map(|reasoning| {
+                    crate::types::CompletionTokensDetails {
+                        reasoning_tokens: Some(reasoning),
+                        audio_tokens: None,
+                        accepted_prediction_tokens: None,
+                        rejected_prediction_tokens: None,
+                    }
+                }),
             });
         }
         None
@@ -273,6 +290,33 @@ impl SseEventConverter for GeminiEventConverter {
                 }
             }
         })
+    }
+
+    fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        // Gemini normally emits finish_reason in the stream (handled in extract_completion).
+        // If we reach here without seeing finish_reason, the model has not transmitted
+        // a finish reason (e.g., connection lost, server error, client cancelled).
+        // Always emit StreamEnd with Unknown reason so users can detect this.
+
+        // Check if StreamEnd was already emitted
+        if !self.state_tracker.needs_stream_end() {
+            return None; // StreamEnd already emitted
+        }
+
+        let response = ChatResponse {
+            id: None,
+            model: None,
+            content: MessageContent::Text("".to_string()),
+            usage: None,
+            finish_reason: Some(FinishReason::Unknown),
+            tool_calls: None,
+            thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            metadata: std::collections::HashMap::new(),
+        };
+        Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
 }
 

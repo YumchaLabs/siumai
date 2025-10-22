@@ -8,7 +8,9 @@ use futures_util::StreamExt;
 use siumai::error::LlmError;
 use siumai::streaming::{ChatStream, ChatStreamEvent};
 use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatResponse, FinishReason, MessageContent, ResponseMetadata, Tool, Usage};
+use siumai::types::{
+    ChatMessage, ChatResponse, FinishReason, MessageContent, ResponseMetadata, Tool, Usage,
+};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -358,4 +360,3 @@ async fn test_custom_provider_usage_updates() {
         panic!("Expected StreamEnd event");
     }
 }
-

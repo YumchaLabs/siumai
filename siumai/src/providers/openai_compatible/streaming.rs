@@ -111,7 +111,7 @@ impl OpenAiCompatibleEventConverter {
         let mut builder = EventBuilder::new();
 
         // Check if we need to emit StreamStart first
-        if self.needs_stream_start().await {
+        if self.needs_stream_start() {
             let metadata = self.create_stream_start_metadata(&event);
             builder = builder.add_stream_start(metadata);
         }
@@ -155,7 +155,7 @@ impl OpenAiCompatibleEventConverter {
         let mut builder = EventBuilder::new();
 
         // First event: emit StreamStart (extracted directly from JSON)
-        if self.needs_stream_start().await {
+        if self.needs_stream_start() {
             let metadata = self.create_stream_start_metadata_from_json(json);
             builder = builder.add_stream_start(metadata);
         }
@@ -212,6 +212,9 @@ impl OpenAiCompatibleEventConverter {
             .and_then(|c0| c0.get("finish_reason"))
             .and_then(|v| v.as_str())
         {
+            // Mark that StreamEnd is being emitted
+            self.state_tracker.mark_stream_ended();
+
             // Build a StreamEnd using accumulated content snapshot
             let text = self
                 .accumulated_content
@@ -240,6 +243,9 @@ impl OpenAiCompatibleEventConverter {
                 finish_reason: crate::providers::openai::utils::parse_finish_reason(Some(reason)),
                 tool_calls: None,
                 thinking: None,
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
                 metadata: std::collections::HashMap::new(),
             };
             builder = builder.add_stream_end(response);
@@ -249,8 +255,8 @@ impl OpenAiCompatibleEventConverter {
     }
 
     /// Check if StreamStart event needs to be emitted
-    async fn needs_stream_start(&self) -> bool {
-        self.state_tracker.needs_stream_start().await
+    fn needs_stream_start(&self) -> bool {
+        self.state_tracker.needs_stream_start()
     }
 
     /// Create stream start metadata
@@ -547,48 +553,75 @@ impl OpenAiCompatibleEventConverter {
     /// Extract usage information
     #[allow(dead_code)]
     fn extract_usage(&self, event: &OpenAiCompatibleStreamEvent) -> Option<Usage> {
-        event.usage.as_ref().map(|usage| Usage {
-            prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-            completion_tokens: usage.completion_tokens.unwrap_or(0),
-            total_tokens: usage.total_tokens.unwrap_or(0),
-            cached_tokens: usage
+        event.usage.as_ref().map(|usage| {
+            let mut builder = Usage::builder()
+                .prompt_tokens(usage.prompt_tokens.unwrap_or(0))
+                .completion_tokens(usage.completion_tokens.unwrap_or(0))
+                .total_tokens(usage.total_tokens.unwrap_or(0));
+
+            if let Some(cached) = usage
                 .prompt_tokens_details
                 .as_ref()
-                .and_then(|details| details.cached_tokens),
-            reasoning_tokens: usage
+                .and_then(|details| details.cached_tokens)
+            {
+                builder = builder.with_cached_tokens(cached);
+            }
+
+            if let Some(reasoning) = usage
                 .completion_tokens_details
                 .as_ref()
-                .and_then(|details| details.reasoning_tokens),
+                .and_then(|details| details.reasoning_tokens)
+            {
+                builder = builder.with_reasoning_tokens(reasoning);
+            }
+
+            builder.build()
         })
     }
 
     /// Extract usage info from raw JSON
     fn extract_usage_from_json(&self, json: &serde_json::Value) -> Option<Usage> {
         let usage = json.get("usage")?;
-        Some(Usage {
-            prompt_tokens: usage
-                .get("prompt_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: usage
-                .get("completion_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: usage
-                .get("total_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            cached_tokens: usage
-                .get("prompt_tokens_details")
-                .and_then(|d| d.get("cached_tokens"))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32),
-            reasoning_tokens: usage
-                .get("completion_tokens_details")
-                .and_then(|d| d.get("reasoning_tokens"))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32),
-        })
+
+        let mut builder = Usage::builder()
+            .prompt_tokens(
+                usage
+                    .get("prompt_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+            )
+            .completion_tokens(
+                usage
+                    .get("completion_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+            )
+            .total_tokens(
+                usage
+                    .get("total_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+            );
+
+        if let Some(cached) = usage
+            .get("prompt_tokens_details")
+            .and_then(|d| d.get("cached_tokens"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+        {
+            builder = builder.with_cached_tokens(cached);
+        }
+
+        if let Some(reasoning) = usage
+            .get("completion_tokens_details")
+            .and_then(|d| d.get("reasoning_tokens"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+        {
+            builder = builder.with_reasoning_tokens(reasoning);
+        }
+
+        Some(builder.build())
     }
 }
 
@@ -614,8 +647,19 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        // OpenAI-compatible providers normally emit finish_reason in the stream.
+        // If we reach here without seeing finish_reason, the model has not transmitted
+        // a finish reason (e.g., connection lost, server error, client cancelled).
+        // Always emit StreamEnd with Unknown reason so users can detect this.
+        //
         // Carry accumulated text into StreamEnd so the factory can inject a synthetic
-        // ContentDelta when no deltas were observed during the stream
+        // ContentDelta when no deltas were observed during the stream.
+
+        // Check if StreamEnd was already emitted
+        if !self.state_tracker.needs_stream_end() {
+            return None; // StreamEnd already emitted
+        }
+
         let response = ChatResponse {
             id: None,
             model: None,
@@ -626,9 +670,12 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     .unwrap_or_default(),
             ),
             usage: None,
-            finish_reason: Some(FinishReason::Stop),
+            finish_reason: Some(FinishReason::Unknown),
             tool_calls: None,
             thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata: HashMap::new(),
         };
 

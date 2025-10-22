@@ -116,7 +116,10 @@ async fn test_gemini_generate_content_non_streaming() {
         .unwrap();
 
     // Verify response content
-    assert_eq!(response.content.text(), Some("Hello! How can I help you today?"));
+    assert_eq!(
+        response.content.text(),
+        Some("Hello! How can I help you today?")
+    );
 
     // Verify response metadata (now correctly parsed)
     assert_eq!(response.id, Some("resp_abc123".to_string()));
@@ -154,9 +157,7 @@ async fn test_gemini_error_response() {
         .unwrap();
 
     // Send request and expect error
-    let result = client
-        .chat(vec![ChatMessage::user("Hello").build()])
-        .await;
+    let result = client.chat(vec![ChatMessage::user("Hello").build()]).await;
 
     assert!(result.is_err());
 }
@@ -248,9 +249,9 @@ async fn test_gemini_function_calling_response() {
     assert_eq!(tool_calls[0].function.as_ref().unwrap().name, "get_weather");
 
     // Verify tool arguments
-    let args: serde_json::Value = serde_json::from_str(&tool_calls[0].function.as_ref().unwrap().arguments).unwrap();
+    let args: serde_json::Value =
+        serde_json::from_str(&tool_calls[0].function.as_ref().unwrap().arguments).unwrap();
     assert_eq!(args["location"], "San Francisco, CA");
 
     // Note: Gemini transformer may not set finish_reason to ToolCalls
 }
-

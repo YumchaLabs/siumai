@@ -94,8 +94,6 @@ async fn test_openai_chat_completion_non_streaming() {
     assert_eq!(usage.total_tokens, 21);
 }
 
-
-
 #[tokio::test]
 async fn test_openai_error_response() {
     let mock_server = MockServer::start().await;
@@ -118,9 +116,7 @@ async fn test_openai_error_response() {
         .with_model("gpt-4");
     let client = OpenAiClient::new_with_config(config);
 
-    let result = client
-        .chat(vec![ChatMessage::user("Hello").build()])
-        .await;
+    let result = client.chat(vec![ChatMessage::user("Hello").build()]).await;
 
     // Should return error
     assert!(result.is_err());
@@ -146,9 +142,7 @@ async fn test_openai_request_headers() {
         .with_model("gpt-4");
     let client = OpenAiClient::new_with_config(config);
 
-    let _ = client
-        .chat(vec![ChatMessage::user("Hello").build()])
-        .await;
+    let _ = client.chat(vec![ChatMessage::user("Hello").build()]).await;
 
     // Mock will verify headers automatically
 }
@@ -206,10 +200,6 @@ async fn test_openai_tool_calls_response() {
     assert!(response.tool_calls.is_some());
     let tool_calls = response.tool_calls.unwrap();
     assert_eq!(tool_calls.len(), 1);
-    assert_eq!(
-        tool_calls[0].function.as_ref().unwrap().name,
-        "get_weather"
-    );
+    assert_eq!(tool_calls[0].function.as_ref().unwrap().name, "get_weather");
     assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
 }
-

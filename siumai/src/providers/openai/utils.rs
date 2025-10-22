@@ -6,7 +6,17 @@ use super::types::*;
 use crate::error::LlmError;
 use crate::types::*;
 use crate::utils::http_headers::ProviderHeaders;
+use base64::Engine;
 use reqwest::header::HeaderMap;
+
+/// Infer audio format from media type
+pub(crate) fn infer_audio_format(media_type: Option<&str>) -> &'static str {
+    match media_type {
+        Some("audio/wav") | Some("audio/wave") | Some("audio/x-wav") => "wav",
+        Some("audio/mp3") | Some("audio/mpeg") => "mp3",
+        _ => "wav", // default to wav
+    }
+}
 
 /// Build HTTP headers for `OpenAI` API requests
 pub fn build_headers(
@@ -33,30 +43,101 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             "text": text
                         }));
                     }
-                    ContentPart::Image { image_url, detail } => {
+                    ContentPart::Image { source, detail } => {
+                        // Extract URL or base64 data
+                        let url = match source {
+                            crate::types::chat::MediaSource::Url { url } => url.clone(),
+                            crate::types::chat::MediaSource::Base64 { data } => {
+                                format!("data:image/jpeg;base64,{}", data)
+                            }
+                            crate::types::chat::MediaSource::Binary { data } => {
+                                let encoded =
+                                    base64::engine::general_purpose::STANDARD.encode(data);
+                                format!("data:image/jpeg;base64,{}", encoded)
+                            }
+                        };
+
                         let mut image_obj = serde_json::json!({
                             "type": "image_url",
                             "image_url": {
-                                "url": image_url
+                                "url": url
                             }
                         });
 
                         if let Some(detail) = detail {
-                            image_obj["image_url"]["detail"] =
-                                serde_json::Value::String(detail.clone());
+                            image_obj["image_url"]["detail"] = serde_json::json!(detail);
                         }
 
                         content_parts.push(image_obj);
                     }
-                    ContentPart::Audio {
-                        audio_url,
-                        format: _,
+                    ContentPart::Audio { source, media_type } => {
+                        // OpenAI supports base64 audio input
+                        match source {
+                            crate::types::chat::MediaSource::Base64 { data } => {
+                                // Infer format from media_type
+                                let format = infer_audio_format(media_type.as_deref());
+                                content_parts.push(serde_json::json!({
+                                    "type": "input_audio",
+                                    "input_audio": {
+                                        "data": data,
+                                        "format": format
+                                    }
+                                }));
+                            }
+                            crate::types::chat::MediaSource::Binary { data } => {
+                                let encoded =
+                                    base64::engine::general_purpose::STANDARD.encode(data);
+                                let format = infer_audio_format(media_type.as_deref());
+                                content_parts.push(serde_json::json!({
+                                    "type": "input_audio",
+                                    "input_audio": {
+                                        "data": encoded,
+                                        "format": format
+                                    }
+                                }));
+                            }
+                            crate::types::chat::MediaSource::Url { url } => {
+                                // OpenAI doesn't support audio URLs, convert to text placeholder
+                                content_parts.push(serde_json::json!({
+                                    "type": "text",
+                                    "text": format!("[Audio: {}]", url)
+                                }));
+                            }
+                        }
+                    }
+                    ContentPart::File {
+                        source, media_type, ..
                     } => {
-                        // OpenAI does not currently support audio content directly in chat
-                        content_parts.push(serde_json::json!({
-                            "type": "text",
-                            "text": format!("[Audio: {}]", audio_url)
-                        }));
+                        // OpenAI supports PDF files
+                        if media_type == "application/pdf" {
+                            let data = match source {
+                                crate::types::chat::MediaSource::Base64 { data } => data.clone(),
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    base64::engine::general_purpose::STANDARD.encode(data)
+                                }
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    // Convert to text placeholder for URLs
+                                    content_parts.push(serde_json::json!({
+                                        "type": "text",
+                                        "text": format!("[PDF: {}]", url)
+                                    }));
+                                    continue;
+                                }
+                            };
+                            content_parts.push(serde_json::json!({
+                                "type": "file",
+                                "file": {
+                                    "data": data,
+                                    "media_type": media_type
+                                }
+                            }));
+                        } else {
+                            // Unsupported file type, convert to text placeholder
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": format!("[Unsupported file type: {}]", media_type)
+                            }));
+                        }
                     }
                 }
             }
@@ -305,6 +386,45 @@ mod tests {
         assert!(!contains_thinking_tags("no tags"));
         assert!(!contains_thinking_tags(""));
     }
+}
+
+/// Convert provider-agnostic ToolChoice to OpenAI format
+///
+/// # OpenAI Format
+///
+/// - `Auto` → `"auto"`
+/// - `Required` → `"required"`
+/// - `None` → `"none"`
+/// - `Tool { name }` → `{"type": "function", "function": {"name": "..."}}`
+///
+/// # Example
+///
+/// ```rust
+/// use siumai::types::ToolChoice;
+/// use siumai::providers::openai::utils::convert_tool_choice;
+///
+/// let choice = ToolChoice::tool("weather");
+/// let openai_format = convert_tool_choice(&choice);
+/// ```
+pub fn convert_tool_choice(choice: &crate::types::ToolChoice) -> serde_json::Value {
+    use crate::types::ToolChoice;
+
+    match choice {
+        ToolChoice::Auto => serde_json::json!("auto"),
+        ToolChoice::Required => serde_json::json!("required"),
+        ToolChoice::None => serde_json::json!("none"),
+        ToolChoice::Tool { name } => serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": name
+            }
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tool_choice_tests {
+    use super::*;
 
     #[test]
     fn test_extract_content_without_thinking() {
@@ -315,6 +435,33 @@ mod tests {
         assert_eq!(
             extract_content_without_thinking(content),
             "No thinking tags"
+        );
+    }
+
+    #[test]
+    fn test_convert_tool_choice() {
+        use crate::types::ToolChoice;
+
+        // Test Auto
+        let result = convert_tool_choice(&ToolChoice::Auto);
+        assert_eq!(result, serde_json::json!("auto"));
+
+        // Test Required
+        let result = convert_tool_choice(&ToolChoice::Required);
+        assert_eq!(result, serde_json::json!("required"));
+
+        // Test None
+        let result = convert_tool_choice(&ToolChoice::None);
+        assert_eq!(result, serde_json::json!("none"));
+
+        // Test Tool
+        let result = convert_tool_choice(&ToolChoice::tool("weather"));
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "type": "function",
+                "function": { "name": "weather" }
+            })
         );
     }
 }

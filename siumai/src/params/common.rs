@@ -207,6 +207,7 @@ mod tests {
             model: "test-model".to_string(),
             temperature: Some(0.7),
             max_tokens: Some(1000),
+            max_completion_tokens: None,
             top_p: Some(0.9),
             stop_sequences: None,
             seed: Some(42),

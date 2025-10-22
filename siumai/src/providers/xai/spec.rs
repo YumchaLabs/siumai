@@ -39,10 +39,7 @@ impl ProviderSpec for XaiSpec {
         ctx: &ProviderContext,
     ) -> String {
         // xAI uses OpenAI-compatible API with /v1 prefix
-        format!(
-            "{}/v1/chat/completions",
-            ctx.base_url.trim_end_matches('/')
-        )
+        format!("{}/v1/chat/completions", ctx.base_url.trim_end_matches('/'))
     }
 
     fn choose_chat_transformers(

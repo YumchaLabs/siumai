@@ -94,9 +94,7 @@ async fn test_ollama_error_response() {
         .await
         .unwrap();
 
-    let result = client
-        .chat(vec![ChatMessage::user("Hello!").build()])
-        .await;
+    let result = client.chat(vec![ChatMessage::user("Hello!").build()]).await;
 
     // Verify error
     assert!(result.is_err());
@@ -219,7 +217,10 @@ async fn test_ollama_tool_calling() {
 
     // Parse arguments JSON string
     let args: serde_json::Value = serde_json::from_str(&function.arguments).unwrap();
-    assert_eq!(args.get("location").and_then(|v| v.as_str()), Some("Paris, FR"));
+    assert_eq!(
+        args.get("location").and_then(|v| v.as_str()),
+        Some("Paris, FR")
+    );
     assert_eq!(args.get("format").and_then(|v| v.as_str()), Some("celsius"));
 }
 
@@ -262,7 +263,10 @@ async fn test_ollama_json_mode() {
 
     let response = client
         .chat(vec![
-            ChatMessage::user("What color is the sky at different times of the day? Respond using JSON").build(),
+            ChatMessage::user(
+                "What color is the sky at different times of the day? Respond using JSON",
+            )
+            .build(),
         ])
         .await
         .unwrap();
@@ -276,4 +280,3 @@ async fn test_ollama_json_mode() {
     let parsed: serde_json::Value = serde_json::from_str(content).unwrap();
     assert!(parsed.get("morning").is_some());
 }
-

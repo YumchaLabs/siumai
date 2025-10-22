@@ -215,12 +215,12 @@ impl ResponseTransformer for GroqResponseTransformer {
             choice.finish_reason.as_deref(),
         ));
 
-        let usage = response.usage.map(|u| Usage {
-            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-            completion_tokens: u.completion_tokens.unwrap_or(0),
-            total_tokens: u.total_tokens.unwrap_or(0),
-            cached_tokens: None,
-            reasoning_tokens: None,
+        let usage = response.usage.map(|u| {
+            Usage::builder()
+                .prompt_tokens(u.prompt_tokens.unwrap_or(0))
+                .completion_tokens(u.completion_tokens.unwrap_or(0))
+                .total_tokens(u.total_tokens.unwrap_or(0))
+                .build()
         });
 
         Ok(ChatResponse {
@@ -231,6 +231,9 @@ impl ResponseTransformer for GroqResponseTransformer {
             finish_reason,
             tool_calls,
             thinking: None,
+            audio: None, // Groq doesn't support audio output
+            system_fingerprint: None,
+            service_tier: None,
             metadata: std::collections::HashMap::new(),
         })
     }

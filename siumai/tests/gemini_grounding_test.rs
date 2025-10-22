@@ -6,8 +6,8 @@ use serde_json::json;
 use siumai::builder::LlmBuilder;
 use siumai::prelude::*;
 use siumai::providers::gemini::{
-    DynamicRetrievalConfig, DynamicRetrievalMode, GeminiTool, GoogleSearch,
-    GoogleSearchRetrieval, UrlContext,
+    DynamicRetrievalConfig, DynamicRetrievalMode, GeminiTool, GoogleSearch, GoogleSearchRetrieval,
+    UrlContext,
 };
 use wiremock::matchers::{header, method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -121,7 +121,10 @@ async fn test_google_search_in_request() {
         .await
         .unwrap();
 
-    assert_eq!(response.content.text(), Some("This is a grounded response."));
+    assert_eq!(
+        response.content.text(),
+        Some("This is a grounded response.")
+    );
 }
 
 #[tokio::test]
@@ -214,4 +217,3 @@ async fn test_combined_grounding_tools() {
         ])
     );
 }
-

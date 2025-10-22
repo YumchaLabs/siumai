@@ -6,6 +6,7 @@ use super::types::*;
 use crate::error::LlmError;
 use crate::types::{ChatMessage, Tool, ToolCall};
 use crate::utils::http_headers::ProviderHeaders;
+use base64::Engine;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 
@@ -61,8 +62,17 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
         let images: Vec<String> = parts
             .iter()
             .filter_map(|part| {
-                if let crate::types::ContentPart::Image { image_url, .. } = part {
-                    Some(image_url.clone())
+                if let crate::types::ContentPart::Image { source, .. } = part {
+                    match source {
+                        crate::types::chat::MediaSource::Url { url } => Some(url.clone()),
+                        crate::types::chat::MediaSource::Base64 { data } => {
+                            Some(format!("data:image/jpeg;base64,{}", data))
+                        }
+                        crate::types::chat::MediaSource::Binary { data } => {
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                            Some(format!("data:image/jpeg;base64,{}", encoded))
+                        }
+                    }
                 } else {
                     None
                 }
@@ -134,7 +144,9 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
         }];
         for image_url in images {
             parts.push(crate::types::ContentPart::Image {
-                image_url: image_url.clone(),
+                source: crate::types::chat::MediaSource::Url {
+                    url: image_url.clone(),
+                },
                 detail: None,
             });
         }
@@ -332,7 +344,9 @@ mod tests {
                     text: "Hello".to_string(),
                 },
                 crate::types::ContentPart::Image {
-                    image_url: "image1".to_string(),
+                    source: crate::types::chat::MediaSource::Url {
+                        url: "image1".to_string(),
+                    },
                     detail: None,
                 },
             ]),

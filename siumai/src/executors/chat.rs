@@ -923,7 +923,10 @@ impl ChatExecutor for HttpChatExecutor {
                         .text()
                         .await
                         .map_err(|e| LlmError::HttpError(e.to_string()))?;
-                    let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+
+                    // Use parse_json_with_repair for automatic JSON repair when enabled
+                    let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
+                        .map_err(|e| {
                         LlmError::ParseError(format!("Failed to parse response JSON: {e}"))
                     })?;
                     let resp = response_tx.transform_chat_response(&json)?;

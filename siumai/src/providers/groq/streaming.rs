@@ -42,7 +42,7 @@ impl GroqEventConverter {
         let mut builder = EventBuilder::new();
 
         // Check if we need to emit StreamStart first
-        if self.needs_stream_start().await {
+        if self.needs_stream_start() {
             let metadata = self.create_stream_start_metadata(&response);
             builder = builder.add_stream_start(metadata);
         }
@@ -57,12 +57,46 @@ impl GroqEventConverter {
             builder = builder.add_usage_update(usage);
         }
 
+        // Process finish_reason -> StreamEnd
+        if let Some(finish_reason_str) = response
+            .choices
+            .first()
+            .and_then(|choice| choice.finish_reason.as_ref())
+        {
+            let finish_reason = match finish_reason_str.as_str() {
+                "stop" => FinishReason::Stop,
+                "length" => FinishReason::Length,
+                "tool_calls" => FinishReason::ToolCalls,
+                "content_filter" => FinishReason::ContentFilter,
+                _ => FinishReason::Stop,
+            };
+
+            // Mark that StreamEnd is being emitted
+            self.state_tracker.mark_stream_ended();
+
+            let response = ChatResponse {
+                id: None,
+                model: None,
+                content: MessageContent::Text("".to_string()),
+                usage: None,
+                finish_reason: Some(finish_reason),
+                tool_calls: None,
+                thinking: None,
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                metadata: std::collections::HashMap::new(),
+            };
+
+            builder = builder.add_stream_end(response);
+        }
+
         builder.build()
     }
 
     /// Check if StreamStart event needs to be emitted
-    async fn needs_stream_start(&self) -> bool {
-        self.state_tracker.needs_stream_start().await
+    fn needs_stream_start(&self) -> bool {
+        self.state_tracker.needs_stream_start()
     }
 
     /// Extract content from Groq response
@@ -84,12 +118,12 @@ impl GroqEventConverter {
 
     /// Extract usage information
     fn extract_usage(&self, response: &GroqChatStreamChunk) -> Option<Usage> {
-        response.usage.as_ref().map(|usage| Usage {
-            prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-            completion_tokens: usage.completion_tokens.unwrap_or(0),
-            total_tokens: usage.total_tokens.unwrap_or(0),
-            cached_tokens: None,
-            reasoning_tokens: None,
+        response.usage.as_ref().map(|usage| {
+            Usage::builder()
+                .prompt_tokens(usage.prompt_tokens.unwrap_or(0))
+                .completion_tokens(usage.completion_tokens.unwrap_or(0))
+                .total_tokens(usage.total_tokens.unwrap_or(0))
+                .build()
         })
     }
 
@@ -135,14 +169,27 @@ impl SseEventConverter for GroqEventConverter {
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        // Groq normally emits finish_reason in the stream.
+        // If we reach here without seeing finish_reason, the model has not transmitted
+        // a finish reason (e.g., connection lost, server error, client cancelled).
+        // Always emit StreamEnd with Unknown reason so users can detect this.
+
+        // Check if StreamEnd was already emitted
+        if !self.state_tracker.needs_stream_end() {
+            return None; // StreamEnd already emitted
+        }
+
         let response = ChatResponse {
             id: None,
             model: None,
             content: MessageContent::Text("".to_string()),
             usage: None,
-            finish_reason: Some(FinishReason::Stop),
+            finish_reason: Some(FinishReason::Unknown),
             tool_calls: None,
             thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata: std::collections::HashMap::new(),
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))

@@ -1,90 +1,13 @@
-//! OpenAI-specific Provider Options
-//!
-//! This module contains types for OpenAI-specific features including:
-//! - Responses API configuration
-//! - Built-in tools (web search, file search, computer use)
-//! - Reasoning effort settings
-//! - Service tier preferences
+//! Responses API configuration types
 
 use serde::{Deserialize, Serialize};
 
-// Re-export OpenAiBuiltInTool from tools module to avoid duplication
-pub use crate::types::tools::OpenAiBuiltInTool;
-
-/// OpenAI-specific options
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct OpenAiOptions {
-    /// Responses API configuration
-    pub responses_api: Option<ResponsesApiConfig>,
-    /// Built-in tools (web search, file search, computer use)
-    pub built_in_tools: Vec<OpenAiBuiltInTool>,
-    /// Reasoning effort (for o1/o3 models)
-    pub reasoning_effort: Option<ReasoningEffort>,
-    /// Service tier preference
-    pub service_tier: Option<ServiceTier>,
-}
-
-impl OpenAiOptions {
-    /// Create new OpenAI options
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Enable Responses API with configuration
-    pub fn with_responses_api(mut self, config: ResponsesApiConfig) -> Self {
-        self.responses_api = Some(config);
-        self
-    }
-
-    /// Add a built-in tool
-    pub fn with_built_in_tool(mut self, tool: OpenAiBuiltInTool) -> Self {
-        self.built_in_tools.push(tool);
-        self
-    }
-
-    /// Enable web search (shorthand for built-in tool)
-    pub fn with_web_search(mut self) -> Self {
-        self.built_in_tools.push(OpenAiBuiltInTool::WebSearch);
-        self
-    }
-
-    /// Enable file search with vector store IDs
-    pub fn with_file_search(mut self, vector_store_ids: Vec<String>) -> Self {
-        self.built_in_tools.push(OpenAiBuiltInTool::FileSearch {
-            vector_store_ids: Some(vector_store_ids),
-        });
-        self
-    }
-
-    /// Enable computer use with display settings
-    pub fn with_computer_use(
-        mut self,
-        display_width: u32,
-        display_height: u32,
-        environment: String,
-    ) -> Self {
-        self.built_in_tools.push(OpenAiBuiltInTool::ComputerUse {
-            display_width,
-            display_height,
-            environment,
-        });
-        self
-    }
-
-    /// Set reasoning effort
-    pub fn with_reasoning_effort(mut self, effort: ReasoningEffort) -> Self {
-        self.reasoning_effort = Some(effort);
-        self
-    }
-
-    /// Set service tier
-    pub fn with_service_tier(mut self, tier: ServiceTier) -> Self {
-        self.service_tier = Some(tier);
-        self
-    }
-}
+use super::enums::{TextVerbosity, Truncation};
 
 /// Responses API configuration
+///
+/// Configuration for OpenAI's Responses API, which provides enhanced features
+/// like built-in tools, structured outputs, and response continuation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponsesApiConfig {
     /// Whether to use Responses API endpoint
@@ -203,45 +126,33 @@ impl ResponsesApiConfig {
         self
     }
 
-    /// Set whether to allow parallel tool calls
+    /// Set parallel tool calls
     pub fn with_parallel_tool_calls(mut self, parallel: bool) -> Self {
         self.parallel_tool_calls = Some(parallel);
         self
     }
 }
 
-/// Truncation strategy for Responses API
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Truncation {
-    /// Drop items in the middle to fit context window
-    Auto,
-    /// Error if exceeding context window
-    Disabled,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Text verbosity level for Responses API
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TextVerbosity {
-    Low,
-    Medium,
-    High,
-}
+    #[test]
+    fn test_responses_api_config_default() {
+        let config = ResponsesApiConfig::default();
+        assert!(config.enabled);
+        assert!(config.previous_response_id.is_none());
+    }
 
-/// Reasoning effort for o1/o3 models
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ReasoningEffort {
-    Low,
-    Medium,
-    High,
-}
+    #[test]
+    fn test_responses_api_config_builder() {
+        let config = ResponsesApiConfig::new()
+            .with_previous_response("resp_123".to_string())
+            .with_background(true)
+            .with_store(true);
 
-/// Service tier preference
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ServiceTier {
-    Auto,
-    Default,
+        assert_eq!(config.previous_response_id, Some("resp_123".to_string()));
+        assert_eq!(config.background, Some(true));
+        assert_eq!(config.store, Some(true));
+    }
 }

@@ -16,10 +16,8 @@ fn make_xai_converter() -> XaiEventConverter {
 
 #[tokio::test]
 async fn xai_simple_content_stop_fixture() {
-    let bytes = support::load_sse_fixture_as_bytes(
-        "tests/fixtures/xai/simple_content_stop.sse",
-    )
-    .expect("load fixture");
+    let bytes = support::load_sse_fixture_as_bytes("tests/fixtures/xai/simple_content_stop.sse")
+        .expect("load fixture");
 
     let converter = make_xai_converter();
     let events = support::collect_sse_events(bytes, converter).await;
@@ -41,7 +39,10 @@ async fn xai_simple_content_stop_fixture() {
             ChatStreamEvent::UsageUpdate { usage } => usage_total = usage.total_tokens,
             ChatStreamEvent::StreamEnd { response } => {
                 saw_end = true;
-                assert_eq!(response.finish_reason, Some(siumai::types::FinishReason::Stop));
+                assert_eq!(
+                    response.finish_reason,
+                    Some(siumai::types::FinishReason::Stop)
+                );
             }
             _ => {}
         }
@@ -52,4 +53,3 @@ async fn xai_simple_content_stop_fixture() {
     assert_eq!(usage_total, 18); // 10 + 8
     assert!(saw_end, "expect stream end");
 }
-

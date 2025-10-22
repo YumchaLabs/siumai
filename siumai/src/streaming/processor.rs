@@ -324,6 +324,9 @@ impl StreamProcessor {
             finish_reason,
             tool_calls,
             thinking,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata,
         }
     }

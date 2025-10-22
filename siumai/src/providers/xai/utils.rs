@@ -2,6 +2,7 @@
 //!
 //! This module contains utility functions for the `xAI` provider.
 
+use base64::Engine;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 
@@ -43,22 +44,39 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
                                 "text": text
                             }));
                         }
-                        ContentPart::Image { image_url, detail } => {
+                        ContentPart::Image { source, detail } => {
+                            // xAI supports image URLs and base64
+                            let url = match source {
+                                crate::types::chat::MediaSource::Url { url } => url.clone(),
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    format!("data:image/jpeg;base64,{}", data)
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    format!("data:image/jpeg;base64,{}", encoded)
+                                }
+                            };
+
                             let mut image_part = serde_json::json!({
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": image_url
+                                    "url": url
                                 }
                             });
                             if let Some(detail) = detail {
-                                image_part["image_url"]["detail"] =
-                                    serde_json::Value::String(detail.clone());
+                                image_part["image_url"]["detail"] = serde_json::json!(detail);
                             }
                             content_parts.push(image_part);
                         }
-                        ContentPart::Audio { audio_url: _, .. } => {
+                        ContentPart::Audio { .. } => {
                             return Err(LlmError::UnsupportedOperation(
                                 "Audio content not supported by xAI".to_string(),
+                            ));
+                        }
+                        ContentPart::File { .. } => {
+                            return Err(LlmError::UnsupportedOperation(
+                                "File content not supported by xAI".to_string(),
                             ));
                         }
                     }

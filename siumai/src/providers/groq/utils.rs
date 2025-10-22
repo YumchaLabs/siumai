@@ -2,6 +2,7 @@
 //!
 //! Utility functions for the Groq provider.
 
+use base64::Engine;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 
@@ -42,24 +43,55 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
                                 "text": text
                             }));
                         }
-                        crate::types::ContentPart::Image { image_url, detail } => {
+                        crate::types::ContentPart::Image { source, detail } => {
+                            // Groq supports image URLs and base64
+                            let url = match source {
+                                crate::types::chat::MediaSource::Url { url } => url.clone(),
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    format!("data:image/jpeg;base64,{}", data)
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    format!("data:image/jpeg;base64,{}", encoded)
+                                }
+                            };
+
                             let mut image_part = serde_json::json!({
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": image_url
+                                    "url": url
                                 }
                             });
                             if let Some(detail) = detail {
-                                image_part["image_url"]["detail"] =
-                                    serde_json::Value::String(detail.clone());
+                                image_part["image_url"]["detail"] = serde_json::json!(detail);
                             }
                             content_parts.push(image_part);
                         }
-                        crate::types::ContentPart::Audio { audio_url, format } => {
+                        crate::types::ContentPart::Audio { source, .. } => {
+                            // Groq does not support audio input
+                            let placeholder = match source {
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    format!("[Audio: {}]", url)
+                                }
+                                _ => "[Audio not supported]".to_string(),
+                            };
                             content_parts.push(serde_json::json!({
-                                "type": "audio",
-                                "audio_url": audio_url,
-                                "format": format
+                                "type": "text",
+                                "text": placeholder
+                            }));
+                        }
+                        crate::types::ContentPart::File { source, .. } => {
+                            // Groq does not support file input
+                            let placeholder = match source {
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    format!("[File: {}]", url)
+                                }
+                                _ => "[File not supported]".to_string(),
+                            };
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": placeholder
                             }));
                         }
                     }

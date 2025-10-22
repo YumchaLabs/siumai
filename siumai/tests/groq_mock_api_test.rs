@@ -7,8 +7,8 @@
 use serde_json::json;
 use siumai::{ChatCapability, ChatMessage, FinishReason, LlmBuilder, Tool};
 use wiremock::{
-    matchers::{header, method, path},
     Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path},
 };
 
 /// Helper function to create a standard Groq chat response
@@ -129,17 +129,18 @@ async fn test_groq_chat_non_streaming() {
 
     // Make request
     let response = client
-        .chat(vec![ChatMessage::user(
-            "Explain the importance of fast language models",
-        )
-        .build()])
+        .chat(vec![
+            ChatMessage::user("Explain the importance of fast language models").build(),
+        ])
         .await
         .unwrap();
 
     // Verify response
     assert_eq!(
         response.content.text(),
-        Some("Fast language models are important because they enable real-time applications and improve user experience.")
+        Some(
+            "Fast language models are important because they enable real-time applications and improve user experience."
+        )
     );
     assert_eq!(response.model, Some("llama-3.3-70b-versatile".to_string()));
     assert_eq!(response.finish_reason, Some(FinishReason::Stop));
@@ -174,9 +175,7 @@ async fn test_groq_error_response() {
         .unwrap();
 
     // Make request and expect error
-    let result = client
-        .chat(vec![ChatMessage::user("Hello").build()])
-        .await;
+    let result = client.chat(vec![ChatMessage::user("Hello").build()]).await;
 
     assert!(result.is_err());
     let error = result.unwrap_err();
@@ -307,6 +306,8 @@ async fn test_groq_system_fingerprint() {
         .unwrap();
 
     // Verify Groq-specific fields are preserved
-    assert_eq!(response.id, Some("chatcmpl-f51b2cd2-bef7-417e-964e-a08f0b513c22".to_string()));
+    assert_eq!(
+        response.id,
+        Some("chatcmpl-f51b2cd2-bef7-417e-964e-a08f0b513c22".to_string())
+    );
 }
-

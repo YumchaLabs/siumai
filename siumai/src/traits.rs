@@ -113,6 +113,8 @@ mod tests {
                     finish_reason: Some(crate::types::FinishReason::Stop),
                     tool_calls: None,
                     thinking: None,
+                    system_fingerprint: None,
+                    service_tier: None,
                     metadata: std::collections::HashMap::new(),
                 })
             }

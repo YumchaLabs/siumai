@@ -240,10 +240,16 @@ pub struct UsageMetadata {
     #[serde(skip_serializing_if = "Option::is_none", rename = "totalTokenCount")]
     pub total_token_count: Option<i32>,
     /// Number of tokens in the cached part of the prompt.
-    #[serde(skip_serializing_if = "Option::is_none", rename = "cachedContentTokenCount")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "cachedContentTokenCount"
+    )]
     pub cached_content_token_count: Option<i32>,
     /// Number of tokens in the response candidate.
-    #[serde(skip_serializing_if = "Option::is_none", rename = "candidatesTokenCount")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "candidatesTokenCount"
+    )]
     pub candidates_token_count: Option<i32>,
     /// Number of tokens used for thinking (only for thinking models).
     #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtsTokenCount")]

@@ -37,7 +37,7 @@ impl XaiEventConverter {
         let mut builder = EventBuilder::new();
 
         // Check if we need to emit StreamStart first
-        if self.needs_stream_start().await {
+        if self.needs_stream_start() {
             let metadata = self.create_stream_start_metadata(&event);
             builder = builder.add_stream_start(metadata);
         }
@@ -52,12 +52,38 @@ impl XaiEventConverter {
             builder = builder.add_thinking_delta(thinking);
         }
 
+        // Process usage updates
+        if let Some(usage) = self.extract_usage(&event) {
+            builder = builder.add_usage_update(usage);
+        }
+
+        // Process stream end (when finish_reason is present)
+        if let Some(finish_reason) = self.extract_finish_reason(&event) {
+            // Mark that StreamEnd is being emitted
+            self.state_tracker.mark_stream_ended();
+
+            let chat_response = ChatResponse {
+                id: Some(event.id.clone()),
+                model: Some(event.model.clone()),
+                content: MessageContent::Text(String::new()),
+                usage: self.extract_usage(&event),
+                finish_reason: Some(finish_reason),
+                tool_calls: None,
+                thinking: None,
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                metadata: HashMap::new(),
+            };
+            builder = builder.add_stream_end(chat_response);
+        }
+
         builder.build()
     }
 
     /// Check if StreamStart event needs to be emitted
-    async fn needs_stream_start(&self) -> bool {
-        self.state_tracker.needs_stream_start().await
+    fn needs_stream_start(&self) -> bool {
+        self.state_tracker.needs_stream_start()
     }
 
     /// Extract content from xAI event
@@ -87,6 +113,33 @@ impl XaiEventConverter {
     /// Extract choice index
     fn extract_choice_index(&self, event: &XaiStreamChunk) -> Option<usize> {
         Some(event.choices.first()?.index as usize)
+    }
+
+    /// Extract usage information
+    fn extract_usage(&self, event: &XaiStreamChunk) -> Option<crate::types::Usage> {
+        let usage = event.usage.as_ref()?;
+        let mut builder = crate::types::Usage::builder()
+            .prompt_tokens(usage.prompt_tokens.unwrap_or(0))
+            .completion_tokens(usage.completion_tokens.unwrap_or(0))
+            .total_tokens(usage.total_tokens.unwrap_or(0));
+
+        if let Some(reasoning) = usage.reasoning_tokens {
+            builder = builder.with_reasoning_tokens(reasoning);
+        }
+
+        Some(builder.build())
+    }
+
+    /// Extract finish reason
+    fn extract_finish_reason(&self, event: &XaiStreamChunk) -> Option<FinishReason> {
+        let finish_reason_str = event.choices.first()?.finish_reason.as_ref()?;
+        match finish_reason_str.as_str() {
+            "stop" => Some(FinishReason::Stop),
+            "length" => Some(FinishReason::Length),
+            "tool_calls" => Some(FinishReason::ToolCalls),
+            "content_filter" => Some(FinishReason::ContentFilter),
+            _ => Some(FinishReason::Stop),
+        }
     }
 
     /// Create StreamStart metadata
@@ -134,17 +187,29 @@ impl SseEventConverter for XaiEventConverter {
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        // xAI normally emits finish_reason in the stream (handled in convert_xai_event_async).
+        // If we reach here without seeing finish_reason, the model has not transmitted
+        // a finish reason (e.g., connection lost, server error, client cancelled).
+        // Always emit StreamEnd with Unknown reason so users can detect this.
+
+        // Check if StreamEnd was already emitted
+        if !self.state_tracker.needs_stream_end() {
+            return None; // StreamEnd already emitted
+        }
+
         let response = ChatResponse {
             id: None,
             model: None,
             content: MessageContent::Text("".to_string()),
             usage: None,
-            finish_reason: Some(FinishReason::Stop),
+            finish_reason: Some(FinishReason::Unknown),
             tool_calls: None,
             thinking: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata: HashMap::new(),
         };
-
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
 }

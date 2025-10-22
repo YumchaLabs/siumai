@@ -246,7 +246,10 @@ impl CustomChatResponse {
                 _ => FinishReason::Other(r.clone()),
             }),
             tool_calls: self.tool_calls.clone(),
+            audio: None,
             thinking: None,
+            system_fingerprint: None,
+            service_tier: None,
             metadata: self.metadata.clone(),
         }
     }

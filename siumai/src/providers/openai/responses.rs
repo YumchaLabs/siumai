@@ -109,8 +109,19 @@ impl OpenAiResponsesEventConverter {
                 prompt_tokens,
                 completion_tokens,
                 total_tokens,
+                #[allow(deprecated)]
                 reasoning_tokens,
+                #[allow(deprecated)]
                 cached_tokens: None,
+                prompt_tokens_details: None,
+                completion_tokens_details: reasoning_tokens.map(|r| {
+                    crate::types::CompletionTokensDetails {
+                        reasoning_tokens: Some(r),
+                        audio_tokens: None,
+                        accepted_prediction_tokens: None,
+                        rejected_prediction_tokens: None,
+                    }
+                }),
             };
             return Some(crate::streaming::ChatStreamEvent::UsageUpdate { usage: usage_info });
         }

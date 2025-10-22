@@ -38,7 +38,13 @@ async fn ollama_simple_content_then_done_fixture() {
             }
             ChatStreamEvent::ContentDelta { delta, .. } => content.push_str(&delta),
             ChatStreamEvent::UsageUpdate { usage } => usage_total = usage.total_tokens,
-            ChatStreamEvent::StreamEnd { .. } => saw_end = true,
+            ChatStreamEvent::StreamEnd { response } => {
+                saw_end = true;
+                assert_eq!(
+                    response.finish_reason,
+                    Some(siumai::types::FinishReason::Stop)
+                );
+            }
             _ => {}
         }
     }
@@ -51,10 +57,9 @@ async fn ollama_simple_content_then_done_fixture() {
 
 #[tokio::test]
 async fn ollama_thinking_and_content_fixture() {
-    let bytes = support::load_jsonl_fixture_as_bytes(
-        "tests/fixtures/ollama/thinking_and_content.jsonl",
-    )
-    .expect("load fixture");
+    let bytes =
+        support::load_jsonl_fixture_as_bytes("tests/fixtures/ollama/thinking_and_content.jsonl")
+            .expect("load fixture");
 
     let converter = make_ollama_converter();
     let events = support::collect_json_events(bytes, converter).await;
@@ -67,7 +72,13 @@ async fn ollama_thinking_and_content_fixture() {
         match e {
             ChatStreamEvent::ThinkingDelta { delta } => thinking.push_str(&delta),
             ChatStreamEvent::ContentDelta { delta, .. } => content.push_str(&delta),
-            ChatStreamEvent::StreamEnd { .. } => saw_end = true,
+            ChatStreamEvent::StreamEnd { response } => {
+                saw_end = true;
+                assert_eq!(
+                    response.finish_reason,
+                    Some(siumai::types::FinishReason::Stop)
+                );
+            }
             _ => {}
         }
     }
@@ -77,4 +88,3 @@ async fn ollama_thinking_and_content_fixture() {
     assert_eq!(content, "The answer is 42.");
     assert!(saw_end);
 }
-

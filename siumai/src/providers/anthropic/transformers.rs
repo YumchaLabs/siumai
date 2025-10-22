@@ -79,6 +79,16 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     let arr = convert_tools_to_anthropic_format(tools)?;
                     if !arr.is_empty() {
                         body["tools"] = serde_json::Value::Array(arr);
+
+                        // Add tool_choice if specified
+                        if let Some(choice) = &req.tool_choice {
+                            if let Some(anthropic_choice) =
+                                crate::providers::anthropic::utils::convert_tool_choice(choice)
+                            {
+                                body["tool_choice"] = anthropic_choice;
+                            }
+                            // If None is returned, tools should be removed (handled by caller if needed)
+                        }
                     }
                 }
                 if let Some(spec) = self.specific {
@@ -164,6 +174,9 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             finish_reason,
             tool_calls,
             thinking,
+            audio: None, // Anthropic doesn't support audio output
+            system_fingerprint: None,
+            service_tier: None,
             metadata: std::collections::HashMap::new(),
         })
     }

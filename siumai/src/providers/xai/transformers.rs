@@ -162,12 +162,21 @@ impl ResponseTransformer for XaiResponseTransformer {
             choice.finish_reason.as_deref(),
         ));
 
-        let usage = response.usage.map(|u| Usage {
-            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-            completion_tokens: u.completion_tokens.unwrap_or(0),
-            total_tokens: u.total_tokens.unwrap_or(0),
-            reasoning_tokens: u.reasoning_tokens,
-            cached_tokens: u.prompt_tokens_details.and_then(|d| d.cached_tokens),
+        let usage = response.usage.map(|u| {
+            let mut builder = Usage::builder()
+                .prompt_tokens(u.prompt_tokens.unwrap_or(0))
+                .completion_tokens(u.completion_tokens.unwrap_or(0))
+                .total_tokens(u.total_tokens.unwrap_or(0));
+
+            if let Some(cached) = u.prompt_tokens_details.and_then(|d| d.cached_tokens) {
+                builder = builder.with_cached_tokens(cached);
+            }
+
+            if let Some(reasoning) = u.reasoning_tokens {
+                builder = builder.with_reasoning_tokens(reasoning);
+            }
+
+            builder.build()
         });
 
         Ok(ChatResponse {
@@ -178,6 +187,9 @@ impl ResponseTransformer for XaiResponseTransformer {
             finish_reason,
             tool_calls,
             thinking: thinking_content,
+            audio: None, // xAI doesn't support audio output
+            system_fingerprint: None,
+            service_tier: None,
             metadata: std::collections::HashMap::new(),
         })
     }
