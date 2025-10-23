@@ -1,14 +1,34 @@
 //! Server adapters: convert ChatStream into framework-specific responses
 //!
-//! This module provides utilities to convert `ChatStream` into responses
-//! compatible with various web frameworks (Axum, Actix, Warp, etc.).
+//! **⚠️ MIGRATION NOTICE**: Framework-specific integrations (Axum, etc.) have been moved to `siumai-extras`.
 //!
-//! ## Features
+//! This module now only provides framework-agnostic utilities (`text_stream`, `sse_lines`, `SseOptions`).
+//! For framework-specific integrations, please use the `siumai-extras` crate:
 //!
-//! - **Framework-agnostic helpers**: `text_stream()`, `sse_lines()`
-//! - **Axum integration**: `axum::to_sse_response()` (requires `server-adapters` feature)
-//! - **Error masking**: Configurable error message sanitization for production
-//! - **Type-safe**: Strongly typed event streams with proper error handling
+//! ```toml
+//! [dependencies]
+//! siumai-extras = { version = "0.11", features = ["server-axum"] }
+//! ```
+//!
+//! ## Migration Guide
+//!
+//! ### Before (deprecated):
+//! ```rust,ignore
+//! use siumai::server_adapters::axum::to_sse_response;
+//! ```
+//!
+//! ### After (recommended):
+//! ```rust,ignore
+//! use siumai_extras::server::axum::to_sse_response;
+//! ```
+//!
+//! ## Framework-agnostic utilities
+//!
+//! These utilities remain in the main library and can be used to build custom integrations:
+//!
+//! - `text_stream()` - Convert ChatStream to plain text stream
+//! - `sse_lines()` - Convert ChatStream to SSE-formatted lines
+//! - `SseOptions` - Configuration for SSE encoding
 //!
 //! ## Example (Framework-agnostic)
 //!
@@ -25,20 +45,6 @@
 //!         mask_errors: true,
 //!         masked_error_message: None,
 //!     });
-//! }
-//! ```
-//!
-//! ## Example (Axum)
-//!
-//! ```rust,no_run
-//! #[cfg(feature = "server-adapters")]
-//! use siumai::server_adapters::axum::to_sse_response;
-//! use siumai::streaming::ChatStream;
-//! use axum::response::sse::Sse;
-//!
-//! #[cfg(feature = "server-adapters")]
-//! async fn chat_handler(stream: ChatStream) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
-//!     to_sse_response(stream, Default::default())
 //! }
 //! ```
 
@@ -184,38 +190,61 @@ pub fn sse_lines(
 ) -> Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>> {
     let s = async_stream::try_stream! {
         futures::pin_mut!(stream);
+        // Reuse buffer to reduce allocations
+        let mut buffer = String::with_capacity(256);
+
         while let Some(item) = stream.next().await {
+            buffer.clear();
+
             match item? {
                 ChatStreamEvent::StreamStart { metadata } => {
                     if opts.include_start {
                         let data = serde_json::to_string(&metadata).unwrap_or("{}".into());
-                        yield format!("event: start\ndata: {}\n\n", data);
+                        buffer.push_str("event: start\ndata: ");
+                        buffer.push_str(&data);
+                        buffer.push_str("\n\n");
+                        yield buffer.clone();
                     }
                 }
                 ChatStreamEvent::ContentDelta { delta, index } => {
                     let data = serde_json::json!({"delta": delta, "index": index});
-                    yield format!("event: delta\ndata: {}\n\n", data.to_string());
+                    buffer.push_str("event: delta\ndata: ");
+                    buffer.push_str(&data.to_string());
+                    buffer.push_str("\n\n");
+                    yield buffer.clone();
                 }
                 ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, index } => {
                     let data = serde_json::json!({
                         "id": id, "name": function_name, "arguments_delta": arguments_delta, "index": index
                     });
-                    yield format!("event: tool\ndata: {}\n\n", data.to_string());
+                    buffer.push_str("event: tool\ndata: ");
+                    buffer.push_str(&data.to_string());
+                    buffer.push_str("\n\n");
+                    yield buffer.clone();
                 }
                 ChatStreamEvent::ThinkingDelta { delta } => {
                     let data = serde_json::json!({"delta": delta});
-                    yield format!("event: reasoning\ndata: {}\n\n", data.to_string());
+                    buffer.push_str("event: reasoning\ndata: ");
+                    buffer.push_str(&data.to_string());
+                    buffer.push_str("\n\n");
+                    yield buffer.clone();
                 }
                 ChatStreamEvent::UsageUpdate { usage } => {
                     if opts.include_usage {
                         let data = serde_json::to_string(&usage).unwrap_or("{}".into());
-                        yield format!("event: usage\ndata: {}\n\n", data);
+                        buffer.push_str("event: usage\ndata: ");
+                        buffer.push_str(&data);
+                        buffer.push_str("\n\n");
+                        yield buffer.clone();
                     }
                 }
                 ChatStreamEvent::StreamEnd { response } => {
                     if opts.include_end {
                         let data = serde_json::to_string(&response).unwrap_or("{}".into());
-                        yield format!("event: end\ndata: {}\n\n", data);
+                        buffer.push_str("event: end\ndata: ");
+                        buffer.push_str(&data);
+                        buffer.push_str("\n\n");
+                        yield buffer.clone();
                     }
                 }
                 ChatStreamEvent::Error { error } => {
@@ -226,13 +255,21 @@ pub fn sse_lines(
                     } else {
                         error
                     };
-                    yield format!("event: error\ndata: {}\n\n", serde_json::json!({"error": msg}));
+                    buffer.push_str("event: error\ndata: ");
+                    buffer.push_str(&serde_json::json!({"error": msg}).to_string());
+                    buffer.push_str("\n\n");
+                    yield buffer.clone();
                     // also return an error to allow upstream to stop if desired
                     Err::<(), LlmError>(LlmError::InternalError(msg))?;
                 }
                 ChatStreamEvent::Custom { event_type, data } => {
                     // Forward custom events as-is
-                    yield format!("event: {}\ndata: {}\n\n", event_type, data.to_string());
+                    buffer.push_str("event: ");
+                    buffer.push_str(&event_type);
+                    buffer.push_str("\ndata: ");
+                    buffer.push_str(&data.to_string());
+                    buffer.push_str("\n\n");
+                    yield buffer.clone();
                 }
             }
         }

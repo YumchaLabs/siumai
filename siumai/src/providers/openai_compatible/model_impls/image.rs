@@ -6,21 +6,9 @@ use crate::provider_model::ImageModel;
 use crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
 use crate::providers::openai_compatible::spec::OpenAiCompatibleSpec;
 use crate::retry_api::RetryOptions;
+use crate::utils::http_headers::headermap_to_hashmap;
 use crate::utils::http_interceptor::HttpInterceptor;
-use std::collections::HashMap;
 use std::sync::Arc;
-
-/// Convert HeaderMap to HashMap<String, String>
-fn headermap_to_hashmap(headers: &reqwest::header::HeaderMap) -> HashMap<String, String> {
-    headers
-        .iter()
-        .filter_map(|(k, v)| {
-            v.to_str()
-                .ok()
-                .map(|v_str| (k.as_str().to_string(), v_str.to_string()))
-        })
-        .collect()
-}
 
 /// OpenAI-Compatible Image Model
 ///

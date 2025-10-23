@@ -144,6 +144,30 @@
 
 ### Changed
 
+- **Code Organization Improvements**:
+  - **types/chat module refactoring**: Split monolithic `types/chat.rs` (2523 lines) into focused modules
+    - `content.rs` (~990 lines): MessageContent, MediaSource, ImageDetail, ContentPart, ToolResultOutput
+    - `metadata.rs` (~56 lines): CacheControl, MessageMetadata, ToolCallInfo, ToolResultInfo
+    - `message.rs` (~600 lines): MessageRole, ChatMessage, ChatMessageBuilder
+    - `request.rs` (~420 lines): ChatRequest, ChatRequestBuilder
+    - `response.rs` (~471 lines): AudioOutput, ChatResponse
+    - `mod.rs`: Re-exports all public types for backward compatibility
+    - **Migration**: No code changes required - all types are re-exported from `types::chat`
+  - **server_adapters migration**: Framework-specific integrations moved to `siumai-extras`
+    - Core utilities (`SseOptions`, `text_stream`, `sse_lines`) remain in main library
+    - Axum integration now in `siumai-extras::server::axum`
+    - **Migration**: Replace `use siumai::server_adapters::axum` with `use siumai_extras::server::axum`
+    - Add `siumai-extras = { version = "0.11", features = ["server"] }` to dependencies
+  - **Code quality optimizations**:
+    - Extracted `headermap_to_hashmap()` to `utils::http_headers` for reuse across providers
+    - Optimized `sse_lines()` to reuse String buffer, reducing allocations in streaming scenarios
+    - Added `defaults::profiles` module with preset configurations:
+      - `dev()`: Fast feedback, minimal retries for development
+      - `prod()`: Balanced reliability and performance for production
+      - `fast()`: Optimized for speed and interactive applications
+      - `extended()`: For large models and complex operations
+      - `long_running()`: For batch processing and reasoning models
+
 - **Workspace structure**: Migrated to virtual workspace
   - Root `Cargo.toml` is now a virtual workspace manifest
   - Core package moved to `siumai/` directory

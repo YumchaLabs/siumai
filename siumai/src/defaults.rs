@@ -271,6 +271,124 @@ pub mod model_params {
     pub const FREQUENCY_PENALTY: f32 = 0.0;
 }
 
+/// Preset configuration profiles for common use cases
+///
+/// These profiles combine timeout, retry, and other settings for specific scenarios.
+/// Use these as starting points and customize as needed for your application.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use siumai::defaults::profiles;
+/// use siumai::retry_api::RetryOptions;
+///
+/// // Development: Fast feedback, verbose errors
+/// let retry = RetryOptions::default()
+///     .with_max_retries(profiles::dev().max_retries)
+///     .with_timeout(profiles::dev().timeout);
+///
+/// // Production: Balanced reliability and performance
+/// let retry = RetryOptions::default()
+///     .with_max_retries(profiles::prod().max_retries)
+///     .with_timeout(profiles::prod().timeout);
+/// ```
+pub mod profiles {
+    use super::*;
+
+    /// Configuration profile for a specific use case
+    #[derive(Debug, Clone, Copy)]
+    pub struct Profile {
+        /// Request timeout
+        pub timeout: Duration,
+        /// Maximum number of retry attempts
+        pub max_retries: u32,
+        /// Base delay for exponential backoff (in milliseconds)
+        pub base_retry_delay_ms: u64,
+        /// Maximum delay for exponential backoff
+        pub max_retry_delay: Duration,
+    }
+
+    /// Development profile: Fast feedback, minimal retries
+    ///
+    /// - Fast timeout (30s) for quick iteration
+    /// - Minimal retries (1) to fail fast
+    /// - Short retry delays for quick feedback
+    ///
+    /// Suitable for: Local development, debugging, testing
+    pub const fn dev() -> Profile {
+        Profile {
+            timeout: timeouts::FAST,
+            max_retries: 1,
+            base_retry_delay_ms: 500,
+            max_retry_delay: Duration::from_secs(5),
+        }
+    }
+
+    /// Production profile: Balanced reliability and performance
+    ///
+    /// - Standard timeout (60s) for most models
+    /// - Standard retries (3) for reliability
+    /// - Standard retry delays with exponential backoff
+    ///
+    /// Suitable for: Production applications, user-facing features
+    pub const fn prod() -> Profile {
+        Profile {
+            timeout: timeouts::STANDARD,
+            max_retries: rate_limiting::MAX_RETRIES,
+            base_retry_delay_ms: rate_limiting::BASE_RETRY_DELAY_MS,
+            max_retry_delay: rate_limiting::MAX_RETRY_DELAY,
+        }
+    }
+
+    /// Fast profile: Optimized for speed
+    ///
+    /// - Fast timeout (30s) for quick responses
+    /// - Minimal retries (2) to balance speed and reliability
+    /// - Short retry delays
+    ///
+    /// Suitable for: Interactive applications, real-time features, small models
+    pub const fn fast() -> Profile {
+        Profile {
+            timeout: timeouts::FAST,
+            max_retries: 2,
+            base_retry_delay_ms: 500,
+            max_retry_delay: Duration::from_secs(10),
+        }
+    }
+
+    /// Long-running profile: Optimized for complex tasks
+    ///
+    /// - Long timeout (300s) for complex operations
+    /// - More retries (5) for reliability
+    /// - Longer retry delays to avoid overwhelming the service
+    ///
+    /// Suitable for: Batch processing, reasoning models, complex analysis
+    pub const fn long_running() -> Profile {
+        Profile {
+            timeout: timeouts::LONG_RUNNING,
+            max_retries: 5,
+            base_retry_delay_ms: 2000,
+            max_retry_delay: Duration::from_secs(60),
+        }
+    }
+
+    /// Extended profile: For large models and complex operations
+    ///
+    /// - Extended timeout (120s) for large models
+    /// - Standard retries (3) for reliability
+    /// - Standard retry delays
+    ///
+    /// Suitable for: Large models (72B+), multimodal models, code generation
+    pub const fn extended() -> Profile {
+        Profile {
+            timeout: timeouts::EXTENDED,
+            max_retries: rate_limiting::MAX_RETRIES,
+            base_retry_delay_ms: rate_limiting::BASE_RETRY_DELAY_MS,
+            max_retry_delay: rate_limiting::MAX_RETRY_DELAY,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,5 +419,53 @@ mod tests {
 
         // Reasoning models need extended time
         assert_eq!(model_timeouts::REASONING_MODELS, timeouts::EXTENDED);
+    }
+
+    #[test]
+    fn test_profile_dev() {
+        let profile = profiles::dev();
+        assert_eq!(profile.timeout, timeouts::FAST);
+        assert_eq!(profile.max_retries, 1);
+        assert_eq!(profile.base_retry_delay_ms, 500);
+    }
+
+    #[test]
+    fn test_profile_prod() {
+        let profile = profiles::prod();
+        assert_eq!(profile.timeout, timeouts::STANDARD);
+        assert_eq!(profile.max_retries, rate_limiting::MAX_RETRIES);
+        assert_eq!(
+            profile.base_retry_delay_ms,
+            rate_limiting::BASE_RETRY_DELAY_MS
+        );
+    }
+
+    #[test]
+    fn test_profile_fast() {
+        let profile = profiles::fast();
+        assert_eq!(profile.timeout, timeouts::FAST);
+        assert_eq!(profile.max_retries, 2);
+    }
+
+    #[test]
+    fn test_profile_long_running() {
+        let profile = profiles::long_running();
+        assert_eq!(profile.timeout, timeouts::LONG_RUNNING);
+        assert_eq!(profile.max_retries, 5);
+    }
+
+    #[test]
+    fn test_profile_extended() {
+        let profile = profiles::extended();
+        assert_eq!(profile.timeout, timeouts::EXTENDED);
+        assert_eq!(profile.max_retries, rate_limiting::MAX_RETRIES);
+    }
+
+    #[test]
+    fn test_profile_timeout_ordering() {
+        // Ensure profiles have logical timeout ordering
+        assert!(profiles::fast().timeout <= profiles::prod().timeout);
+        assert!(profiles::prod().timeout <= profiles::extended().timeout);
+        assert!(profiles::extended().timeout <= profiles::long_running().timeout);
     }
 }

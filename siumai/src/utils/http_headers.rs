@@ -317,6 +317,36 @@ pub fn apply_extra_headers(base: &mut HeaderMap, extra: &HashMap<String, String>
     }
 }
 
+/// Convert reqwest HeaderMap to HashMap<String, String>
+///
+/// This is a utility function to convert HTTP headers from reqwest's HeaderMap
+/// format to a standard HashMap. Invalid UTF-8 header values are filtered out.
+///
+/// # Arguments
+/// * `headers` - The reqwest HeaderMap to convert
+///
+/// # Returns
+/// A HashMap containing all valid UTF-8 headers as String key-value pairs
+///
+/// # Example
+/// ```rust,ignore
+/// use reqwest::header::HeaderMap;
+/// use siumai::utils::http_headers::headermap_to_hashmap;
+///
+/// let headers = HeaderMap::new();
+/// let map = headermap_to_hashmap(&headers);
+/// ```
+pub fn headermap_to_hashmap(headers: &HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|v_str| (k.as_str().to_string(), v_str.to_string()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

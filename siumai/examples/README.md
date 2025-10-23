@@ -156,11 +156,11 @@ Integration with the broader ecosystem.
 **mcp/**
 - **stdio-client.rs** - Model Context Protocol
 
-**server-adapters/**
-- **axum-sse.rs** - HTTP server with SSE streaming
+**server-adapters/** (moved to `siumai-extras`)
+- See `siumai-extras` crate for server integration examples
 
-**telemetry/**
-- **basic-telemetry.rs** - Track and export operations
+**telemetry/** (moved to `siumai-extras`)
+- See `siumai-extras` crate for telemetry examples
 
 ### 06-applications/ (Complete Apps)
 Full applications demonstrating real-world usage.
@@ -233,9 +233,6 @@ cargo run --example basic-chat --features openai
 
 # With multiple providers
 cargo run --example provider-switching --features "openai,anthropic,google"
-
-# With all features
-cargo run --example api-server --features "openai,server-adapters"
 ```
 
 ---
@@ -265,10 +262,9 @@ cargo run --example api-server --features "openai,server-adapters"
 
 ## 🔗 Additional Resources
 
-- **Complete Examples**: See `examples/05_use_cases/` for full-featured applications
-- **MCP Integration**: See `examples/06_mcp_integration/` for complete MCP examples
-- **Server Adapters**: See `examples/07_server_adapters/` for Axum and Actix examples
-- **Telemetry**: See `examples/08_telemetry/` for observability examples
+- **MCP Integration**: See `siumai-extras` crate with `mcp` feature for complete MCP examples
+- **Server Adapters**: See `siumai-extras` crate with `server` feature for Axum integration
+- **Telemetry**: See `siumai-extras` crate with `telemetry` and `opentelemetry` features for observability
 
 ---
 
