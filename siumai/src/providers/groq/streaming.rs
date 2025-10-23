@@ -1,21 +1,19 @@
 //! `Groq` Streaming Implementation
 //!
-//! This module provides Groq-specific streaming functionality for chat completions.
+//! Provides SSE event conversion for Groq streaming responses.
+//! The legacy GroqStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
-use crate::streaming::{SseEventConverter, StreamFactory};
-use crate::types::{ChatRequest, ResponseMetadata, Usage};
+use crate::streaming::SseEventConverter;
+use crate::streaming::{ChatStreamEvent, StreamStateTracker};
 use crate::types::{ChatResponse, FinishReason, MessageContent};
+use crate::types::{ResponseMetadata, Usage};
 use eventsource_stream::Event;
 
 use std::future::Future;
 use std::pin::Pin;
 
-use super::config::GroqConfig;
 use super::types::*;
-use super::utils::*;
-use crate::transformers::request::RequestTransformer;
 
 /// Groq event converter for SSE events
 #[derive(Clone)]
@@ -194,59 +192,5 @@ impl SseEventConverter for GroqEventConverter {
     }
 }
 
-/// `Groq` streaming client
-#[derive(Clone)]
-pub struct GroqStreaming {
-    /// `Groq` configuration
-    config: GroqConfig,
-    /// HTTP client
-    http_client: reqwest::Client,
-}
-
-impl GroqStreaming {
-    /// Create a new `Groq` streaming client
-    pub fn new(config: GroqConfig, http_client: reqwest::Client) -> Self {
-        Self {
-            config,
-            http_client,
-        }
-    }
-
-    /// Create a streaming chat completion request
-    pub async fn create_chat_stream(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        let url = format!("{}/chat/completions", self.config.base_url);
-
-        // Build request body via transformer
-        let transformer = super::transformers::GroqRequestTransformer;
-        let mut request_body = transformer.transform_chat(&request)?;
-
-        // Override with streaming-specific settings
-        request_body["stream"] = serde_json::Value::Bool(true);
-        request_body["stream_options"] = serde_json::json!({
-            "include_usage": true
-        });
-
-        // Validate parameters
-        validate_groq_params(&request_body)?;
-
-        // Build closure for one-shot 401 retry with header rebuild
-        let http = self.http_client.clone();
-        let api_key = self.config.api_key.clone();
-        let extra_headers = self.config.http_config.headers.clone();
-        let url_for_retry = url.clone();
-        let body_for_retry = request_body.clone();
-        let build_request = move || {
-            use secrecy::ExposeSecret;
-            let mut headers = build_headers(api_key.expose_secret(), &extra_headers)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok(http
-                .post(&url_for_retry)
-                .headers(headers)
-                .json(&body_for_retry))
-        };
-
-        let converter = GroqEventConverter::new();
-        StreamFactory::create_eventsource_stream_with_retry("groq", true, build_request, converter)
-            .await
-    }
-}
+// Legacy GroqStreaming client has been removed in favor of the unified HttpChatExecutor.
+// The GroqEventConverter is still used for SSE event conversion in tests.

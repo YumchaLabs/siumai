@@ -18,6 +18,8 @@ pub struct HttpEmbeddingExecutor {
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
     pub provider_context: crate::provider_core::ProviderContext,
+    /// HTTP interceptors for request/response observation and modification
+    pub interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
     /// Optional retry options for controlling retry behavior (including 401 retry)
@@ -28,66 +30,42 @@ pub struct HttpEmbeddingExecutor {
 #[async_trait::async_trait]
 impl EmbeddingExecutor for HttpEmbeddingExecutor {
     async fn execute(&self, req: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
-        let body = self.request_transformer.transform_embedding(&req)?;
+        // 1. Transform request to JSON
+        let mut body = self.request_transformer.transform_embedding(&req)?;
+
+        // 2. Apply before_send hook if present
+        if let Some(cb) = &self.before_send {
+            body = cb(&body)?;
+        }
+
+        // 3. Get URL from provider spec
         let url = self
             .provider_spec
             .embedding_url(&req, &self.provider_context);
-        let headers = self.provider_spec.build_headers(&self.provider_context)?;
 
-        let body = if let Some(cb) = &self.before_send {
-            cb(&body)?
-        } else {
-            body
+        // 4. Build execution config for common HTTP layer
+        let config = crate::executors::common::HttpExecutionConfig {
+            provider_id: self.provider_id.clone(),
+            http_client: self.http_client.clone(),
+            provider_spec: self.provider_spec.clone(),
+            provider_context: self.provider_context.clone(),
+            interceptors: self.interceptors.clone(),
+            retry_options: self.retry_options.clone(),
         };
 
-        let resp = self
-            .http_client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-        let resp = if !resp.status().is_success() {
-            let status = resp.status();
-            let should_retry_401 = self
-                .retry_options
-                .as_ref()
-                .map(|opts| opts.retry_401)
-                .unwrap_or(true);
-            if status.as_u16() == 401 && should_retry_401 {
-                // Retry once with rebuilt headers
-                let headers = self.provider_spec.build_headers(&self.provider_context)?;
-                self.http_client
-                    .post(&url)
-                    .headers(headers)
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| LlmError::HttpError(e.to_string()))?
-            } else {
-                let headers = resp.headers().clone();
-                let text = resp.text().await.unwrap_or_default();
-                return Err(crate::retry_api::classify_http_error(
-                    &self.provider_id,
-                    status.as_u16(),
-                    &text,
-                    &headers,
-                    None,
-                ));
-            }
-        } else {
-            resp
-        };
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
+        // 5. Execute request using common HTTP layer
+        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
+        let result = crate::executors::common::execute_json_request(
+            &config,
+            &url,
+            crate::executors::common::HttpBody::Json(body),
+            per_request_headers,
+            false, // stream = false for embedding
+        )
+        .await?;
 
-        // Use parse_json_with_repair for automatic JSON repair when enabled
-        let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
-            .map_err(|e| LlmError::ParseError(e.to_string()))?;
+        // 6. Transform response
         self.response_transformer
-            .transform_embedding_response(&json)
+            .transform_embedding_response(&result.json)
     }
 }

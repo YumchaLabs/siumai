@@ -770,6 +770,7 @@ mod files_tests {
             mime_type: Some("text/plain".into()),
             purpose: "general".into(),
             metadata: std::collections::HashMap::new(),
+            http_config: None,
         };
         match tx.build_upload_body(&req).unwrap() {
             FilesHttpBody::Multipart(_) => {}

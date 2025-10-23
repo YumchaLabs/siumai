@@ -21,7 +21,6 @@ use super::config::{OllamaConfig, OllamaParams};
 use super::embeddings::OllamaEmbeddings;
 use super::get_default_models;
 use super::models::OllamaModelsCapability;
-use super::streaming::OllamaStreaming;
 
 /// Ollama Client
 pub struct OllamaClient {
@@ -31,8 +30,6 @@ pub struct OllamaClient {
     embedding_capability: OllamaEmbeddings,
     /// Models capability implementation
     models_capability: OllamaModelsCapability,
-    /// Streaming capability implementation
-    streaming_capability: OllamaStreaming,
     /// Common parameters
     common_params: CommonParams,
     /// Ollama-specific parameters
@@ -61,7 +58,6 @@ impl Clone for OllamaClient {
             chat_capability: self.chat_capability.clone(),
             embedding_capability: self.embedding_capability.clone(),
             models_capability: self.models_capability.clone(),
-            streaming_capability: self.streaming_capability.clone(),
             common_params: self.common_params.clone(),
             ollama_params: self.ollama_params.clone(),
             http_client: self.http_client.clone(),
@@ -121,13 +117,10 @@ impl OllamaClient {
             config.http_config.clone(),
         );
 
-        let streaming_capability = OllamaStreaming::new(http_client.clone());
-
         Self {
             chat_capability,
             embedding_capability,
             models_capability,
-            streaming_capability,
             common_params: config.common_params,
             ollama_params: config.ollama_params,
             http_client,
@@ -351,20 +344,14 @@ impl OllamaClient {
     }
 
     /// Execute streaming chat request via spec (unified implementation)
+    /// This method is deprecated and will be removed. Use chat_stream() instead which uses HttpChatExecutor.
     async fn chat_stream_request_via_spec(
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        // Use streaming capability directly with full request mapping
-        let headers = crate::providers::ollama::utils::build_headers(
-            &self.chat_capability.http_config.headers,
-        )?;
-        let body = self.chat_capability.build_chat_request_body(&request)?;
-        let url = format!("{}/api/chat", self.base_url);
-        self.streaming_capability
-            .clone()
-            .create_chat_stream(url, headers, body)
-            .await
+        // Delegate to the new HttpChatExecutor-based implementation
+        use crate::traits::ChatCapability;
+        self.chat_stream(request.messages, request.tools).await
     }
 }
 

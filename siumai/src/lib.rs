@@ -194,6 +194,12 @@ pub use custom_provider::{CustomProvider, CustomProviderConfig};
 // Provider features
 pub use provider_features::ProviderFeatures;
 
+// Registry - unified provider access (recommended)
+pub use registry::{
+    EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderRegistryHandle,
+    global as registry_global,
+};
+
 // Model constants (simplified access)
 pub use types::models::model_constants as models;
 
@@ -222,6 +228,28 @@ pub mod prelude {
     pub use crate::models;
     pub use crate::{Provider, assistant, provider, system, tool, user, user_with_image};
     pub use crate::{conversation, conversation_with_system, messages, quick_chat};
+
+    // Registry - unified provider access
+    /// Provider registry module for unified access to all providers
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::prelude::*;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let reg = registry::global();
+    /// let model = reg.language_model("openai:gpt-4")?;
+    /// let resp = model.chat(vec![user!("Hello!")], None).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub mod registry {
+        pub use crate::registry::{
+            EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
+            ProviderRegistryHandle, create_provider_registry, create_registry_with_defaults,
+            global,
+        };
+    }
 
     // Conditional provider quick functions
     #[cfg(feature = "anthropic")]

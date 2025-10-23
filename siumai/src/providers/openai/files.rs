@@ -166,6 +166,8 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            interceptors: vec![], // No interceptors for legacy API
+            retry_options: None,
         };
         exec.upload(request).await
     }
@@ -192,6 +194,8 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            interceptors: vec![], // No interceptors for legacy API
+            retry_options: None,
         };
         exec.list(query).await
     }
@@ -218,6 +222,8 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            interceptors: vec![], // No interceptors for legacy API
+            retry_options: None,
         };
         exec.retrieve(file_id).await
     }
@@ -244,6 +250,8 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            interceptors: vec![], // No interceptors for legacy API
+            retry_options: None,
         };
         exec.delete(file_id).await
     }
@@ -270,6 +278,8 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            interceptors: vec![], // No interceptors for legacy API
+            retry_options: None,
         };
         exec.get_content(file_id).await
     }

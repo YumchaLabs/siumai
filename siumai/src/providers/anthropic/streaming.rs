@@ -1,16 +1,14 @@
 //! Anthropic streaming implementation using eventsource-stream
 //!
-//! This module provides Anthropic streaming functionality using the
-//! eventsource-stream infrastructure for reliable UTF-8 and SSE handling.
+//! Provides SSE event conversion for Anthropic streaming responses.
+//! The legacy AnthropicStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use crate::error::LlmError;
 use crate::params::AnthropicParams;
-use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
-use crate::streaming::{SseEventConverter, StreamFactory};
-use crate::transformers::request::RequestTransformer;
+use crate::streaming::SseEventConverter;
+use crate::streaming::{ChatStreamEvent, StreamStateTracker};
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use eventsource_stream::Event;
-use secrecy::SecretString;
 use serde::Deserialize;
 
 use std::future::Future;
@@ -312,91 +310,8 @@ impl SseEventConverter for AnthropicEventConverter {
     }
 }
 
-/// Anthropic streaming client
-#[derive(Clone)]
-pub struct AnthropicStreaming {
-    config: AnthropicParams,
-    http_client: reqwest::Client,
-    api_key: SecretString,
-    base_url: String,
-    http_config: crate::types::HttpConfig,
-}
-
-impl AnthropicStreaming {
-    /// Create a new Anthropic streaming client
-    pub fn new(
-        config: AnthropicParams,
-        http_client: reqwest::Client,
-        api_key: SecretString,
-        base_url: String,
-        http_config: crate::types::HttpConfig,
-    ) -> Self {
-        Self {
-            config,
-            http_client,
-            api_key,
-            base_url,
-            http_config,
-        }
-    }
-
-    // Legacy request merging helper removed; handled by Transformers
-
-    /// Create a chat stream from ChatRequest
-    pub async fn create_chat_stream(
-        self,
-        request: crate::types::ChatRequest,
-    ) -> Result<ChatStream, LlmError> {
-        // Build request body via transformer
-        let transformer = super::transformers::AnthropicRequestTransformer::new(None);
-        let mut request_body = transformer.transform_chat(&request)?;
-        request_body["stream"] = serde_json::Value::Bool(true);
-
-        // Build the API URL
-        let url = crate::utils::url::join_url(&self.base_url, "/v1/messages");
-
-        // Build closure for one-shot 401 retry with header rebuild
-        let http = self.http_client.clone();
-        let base_headers = self.http_config.headers.clone();
-        let api_key = self.api_key.clone();
-        let url_for_retry = url.clone();
-        let body_for_retry = request_body.clone();
-        let disable_compression = self.http_config.stream_disable_compression;
-        let build_request = move || {
-            use secrecy::ExposeSecret;
-            let mut headers = crate::utils::http_headers::ProviderHeaders::anthropic(
-                api_key.expose_secret(),
-                &base_headers,
-            )?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            // Ensure SSE stability: explicit Accept and disable compression on long-lived stream
-            let mut builder = http
-                .post(url_for_retry.clone())
-                .headers(headers)
-                .header(reqwest::header::ACCEPT, "text/event-stream")
-                .header(reqwest::header::CACHE_CONTROL, "no-cache")
-                .header(reqwest::header::CONNECTION, "keep-alive")
-                .json(&body_for_retry);
-            if disable_compression {
-                builder = builder.header(reqwest::header::ACCEPT_ENCODING, "identity");
-            }
-            Ok(builder)
-        };
-
-        let converter = AnthropicEventConverter::new(self.config);
-        StreamFactory::create_eventsource_stream_with_retry(
-            "anthropic",
-            true,
-            build_request,
-            converter,
-        )
-        .await
-    }
-
-    // Legacy message conversion helper removed; handled by Transformers
-
-    // Legacy tools conversion helper removed; handled by Transformers
-}
+// Legacy AnthropicStreaming client has been removed in favor of the unified HttpChatExecutor.
+// The AnthropicEventConverter is still used for SSE event conversion in tests.
 
 #[cfg(test)]
 mod tests {

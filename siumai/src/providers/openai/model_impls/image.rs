@@ -59,7 +59,7 @@ impl ImageModel for OpenAiImageModel {
     fn create_executor(
         &self,
         http_client: reqwest::Client,
-        _interceptors: Vec<Arc<dyn HttpInterceptor>>,
+        interceptors: Vec<Arc<dyn HttpInterceptor>>,
         retry_options: Option<RetryOptions>,
     ) -> HttpImageExecutor {
         // Create OpenAI Standard (with optional adapter)
@@ -99,6 +99,7 @@ impl ImageModel for OpenAiImageModel {
             response_transformer: bundle.response,
             provider_spec: spec,
             provider_context: ctx,
+            interceptors,
             before_send: None,
             retry_options,
         }

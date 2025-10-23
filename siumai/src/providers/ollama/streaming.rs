@@ -1,11 +1,11 @@
 //! Ollama streaming implementation using eventsource-stream
 //!
-//! This module provides Ollama streaming functionality using the
-//! eventsource-stream infrastructure for JSON streaming.
+//! Provides JSON event conversion for Ollama streaming responses.
+//! The legacy OllamaStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
-use crate::streaming::{JsonEventConverter, StreamFactory};
+use crate::streaming::JsonEventConverter;
+use crate::streaming::{ChatStreamEvent, StreamStateTracker};
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use serde::Deserialize;
 use std::future::Future;
@@ -216,88 +216,8 @@ impl JsonEventConverter for OllamaEventConverter {
     }
 }
 
-/// Ollama streaming client
-#[derive(Clone)]
-pub struct OllamaStreaming {
-    http_client: reqwest::Client,
-}
-
-impl OllamaStreaming {
-    /// Create a new Ollama streaming client
-    pub fn new(http_client: reqwest::Client) -> Self {
-        Self { http_client }
-    }
-
-    /// Create a chat stream from URL, headers, and body
-    pub async fn create_chat_stream(
-        self,
-        url: String,
-        headers: reqwest::header::HeaderMap,
-        body: crate::providers::ollama::types::OllamaChatRequest,
-    ) -> Result<ChatStream, LlmError> {
-        // Make the HTTP request
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: format!("Ollama API error {status}: {error_text}"),
-                details: None,
-            });
-        }
-
-        // Create the stream using our new infrastructure
-        let converter = OllamaEventConverter::new();
-        StreamFactory::create_json_stream(response, converter).await
-    }
-
-    /// Create a completion stream from URL, headers, and body
-    pub async fn create_completion_stream(
-        self,
-        url: String,
-        headers: reqwest::header::HeaderMap,
-        body: crate::providers::ollama::types::OllamaGenerateRequest,
-    ) -> Result<ChatStream, LlmError> {
-        // Make the HTTP request
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: format!("Ollama API error {status}: {error_text}"),
-                details: None,
-            });
-        }
-
-        // Create the stream using our new infrastructure
-        let converter = OllamaEventConverter::new();
-        StreamFactory::create_json_stream(response, converter).await
-    }
-}
+// Legacy OllamaStreaming client has been removed in favor of the unified HttpChatExecutor.
+// The OllamaEventConverter is still used for JSON event conversion in tests.
 
 #[cfg(test)]
 mod tests {

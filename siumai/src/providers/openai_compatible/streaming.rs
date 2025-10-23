@@ -1,15 +1,12 @@
 //! OpenAI Compatible Streaming Implementation
 //!
-//! This module provides streaming functionality for OpenAI-compatible providers
-//! like DeepSeek, OpenRouter, SiliconFlow, etc. It uses the same SSE format as
-//! OpenAI but with provider-specific adaptations for thinking/reasoning content.
+//! Provides SSE event conversion for OpenAI-compatible providers.
+//! The legacy OpenAiCompatibleStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
-use crate::streaming::{SseEventConverter, StreamFactory};
-use crate::types::{
-    ChatRequest, ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage,
-};
+use crate::streaming::SseEventConverter;
+use crate::streaming::{ChatStreamEvent, StreamStateTracker};
+use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use eventsource_stream::Event;
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +16,6 @@ use std::sync::Arc;
 
 use super::adapter::ProviderAdapter;
 use super::openai_config::OpenAiCompatibleConfig;
-use crate::transformers::request::RequestTransformer;
 
 // Type alias for better readability and to reduce type complexity lints
 type ToolCallDelta = (String, Option<String>, Option<String>, Option<usize>);
@@ -681,103 +677,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
     }
 }
 
-/// OpenAI-compatible streaming client
-#[derive(Clone)]
-pub struct OpenAiCompatibleStreaming {
-    config: OpenAiCompatibleConfig,
-    adapter: Arc<dyn ProviderAdapter>,
-    http_client: reqwest::Client,
-}
-
-impl OpenAiCompatibleStreaming {
-    /// Create a new OpenAI-compatible streaming client
-    pub fn new(
-        config: OpenAiCompatibleConfig,
-        adapter: Arc<dyn ProviderAdapter>,
-        http_client: reqwest::Client,
-    ) -> Self {
-        Self {
-            config,
-            adapter,
-            http_client,
-        }
-    }
-
-    /// Create a chat stream from ChatRequest
-    pub async fn create_chat_stream(self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        let url = format!("{}/chat/completions", self.config.base_url);
-
-        // Build request body using the same logic as non-streaming
-        let mut request_body = self.build_request_body(&request)?;
-
-        // Override with streaming-specific settings
-        request_body["stream"] = serde_json::Value::Bool(true);
-
-        // Build closure for one-shot 401 retry with header rebuild
-        let http = self.http_client.clone();
-        let url_for_retry = url.clone();
-        let body_for_retry = request_body.clone();
-        let api_key = self.config.api_key.clone();
-        let headers_builder = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            );
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key))
-                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {e}")))?,
-            );
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            Ok::<reqwest::header::HeaderMap, LlmError>(headers)
-        };
-        let build_request = move || {
-            let headers = headers_builder()?;
-            Ok(http
-                .post(&url_for_retry)
-                .headers(headers)
-                .json(&body_for_retry))
-        };
-
-        let converter = OpenAiCompatibleEventConverter::new(self.config, self.adapter);
-        StreamFactory::create_eventsource_stream_with_retry(
-            "openai-compatible",
-            true,
-            build_request,
-            converter,
-        )
-        .await
-    }
-
-    /// Build request body via unified transformer
-    fn build_request_body(&self, request: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        let transformer = super::transformers::CompatRequestTransformer {
-            config: self.config.clone(),
-            adapter: self.adapter.clone(),
-        };
-        transformer.transform_chat(request)
-    }
-
-    /// Build HTTP headers
-    #[allow(dead_code)]
-    fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let mut headers = reqwest::header::HeaderMap::new();
-
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            reqwest::header::HeaderValue::from_static("application/json"),
-        );
-
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.config.api_key))
-                .map_err(|e| LlmError::ConfigurationError(format!("Invalid API key: {e}")))?,
-        );
-
-        Ok(headers)
-    }
-}
+// Legacy OpenAiCompatibleStreaming client has been removed in favor of the unified HttpChatExecutor.
+// The OpenAiCompatibleEventConverter is still used for SSE event conversion in tests.
 
 // Convert a dotted path like "a.b.0.c" to a JSON Pointer "/a/b/0/c"
 fn to_pointer(path: &str) -> String {

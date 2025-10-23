@@ -7,8 +7,10 @@ use crate::error::LlmError;
 use crate::streaming::{
     ChatStream, ChatStreamEvent, JsonEventConverter, SseEventConverter, SseStreamExt,
 };
+use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
 use futures_util::StreamExt;
 use futures_util::TryStreamExt;
+use std::sync::Arc;
 
 /// Stream Factory
 ///
@@ -25,22 +27,32 @@ impl StreamFactory {
     ///
     /// # Arguments
     /// * `provider_id` - Provider identifier for error classification
+    /// * `url` - Request URL for interceptor context
     /// * `retry_401` - Whether to retry 401 errors with rebuilt request
     /// * `build_request` - Closure that builds a fresh request (called on retry)
     /// * `converter` - SSE event converter for this provider
+    /// * `interceptors` - HTTP interceptors to call on retry/error
     ///
     /// # Returns
     /// A ChatStream that yields ChatStreamEvents
     pub async fn create_eventsource_stream_with_retry<B, C>(
         provider_id: &str,
+        url: &str,
         retry_401: bool,
         build_request: B,
         converter: C,
+        interceptors: &[Arc<dyn HttpInterceptor>],
     ) -> Result<ChatStream, LlmError>
     where
         B: Fn() -> Result<reqwest::RequestBuilder, LlmError>,
         C: SseEventConverter + Clone + Send + 'static,
     {
+        let ctx = HttpRequestContext {
+            provider_id: provider_id.to_string(),
+            url: url.to_string(),
+            stream: true,
+        };
+
         // First attempt
         let response = build_request()?
             .send()
@@ -50,6 +62,11 @@ impl StreamFactory {
         let response = if !response.status().is_success() {
             let status = response.status();
             if status.as_u16() == 401 && retry_401 {
+                // Notify interceptors of retry
+                let retry_error = LlmError::HttpError("401 Unauthorized".to_string());
+                for interceptor in interceptors {
+                    interceptor.on_retry(&ctx, &retry_error, 1);
+                }
                 // Retry once with rebuilt headers/request
                 build_request()?
                     .send()
@@ -58,13 +75,18 @@ impl StreamFactory {
             } else {
                 let headers = response.headers().clone();
                 let text = response.text().await.unwrap_or_default();
-                return Err(crate::retry_api::classify_http_error(
+                let error = crate::retry_api::classify_http_error(
                     provider_id,
                     status.as_u16(),
                     &text,
                     &headers,
                     None,
-                ));
+                );
+                // Notify interceptors of error
+                for interceptor in interceptors {
+                    interceptor.on_error(&ctx, &error);
+                }
+                return Err(error);
             }
         } else {
             response

@@ -219,29 +219,14 @@ impl ChatCapability for OllamaChatCapability {
 
     async fn chat_stream(
         &self,
-        messages: Vec<ChatMessage>,
-        tools: Option<Vec<Tool>>,
+        _messages: Vec<ChatMessage>,
+        _tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        // Create a default ChatRequest for streaming
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: CommonParams {
-                model: "llama3.2".to_string(), // Default model
-                ..Default::default()
-            },
-            stream: true,
-            ..Default::default()
-        };
-
-        // Create streaming capability
-        let streaming = super::streaming::OllamaStreaming::new(reqwest::Client::new());
-
-        let headers = super::utils::build_headers(&self.http_config.headers)?;
-        let body = self.build_chat_request_body(&request)?;
-        let url = crate::utils::url::join_url(&self.base_url, "api/chat");
-
-        streaming.create_chat_stream(url, headers, body).await
+        // This method is deprecated. The OllamaClient now uses HttpChatExecutor for streaming.
+        // This implementation is kept for backward compatibility but should not be used directly.
+        Err(LlmError::ConfigurationError(
+            "OllamaChatCapability::chat_stream is deprecated. Use OllamaClient::chat_stream instead.".to_string()
+        ))
     }
 }
 

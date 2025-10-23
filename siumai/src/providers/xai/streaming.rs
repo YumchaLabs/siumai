@@ -1,20 +1,18 @@
 //! `xAI` Streaming Implementation
 //!
-//! Implements streaming chat completions for the `xAI` provider using eventsource-stream.
+//! Provides SSE event conversion for xAI streaming responses.
+//! The legacy XaiStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
-use crate::streaming::{SseEventConverter, StreamFactory};
-use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, ResponseMetadata};
+use crate::streaming::SseEventConverter;
+use crate::streaming::{ChatStreamEvent, StreamStateTracker};
+use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use eventsource_stream::Event;
 
 use std::future::Future;
 use std::pin::Pin;
 
-use super::config::XaiConfig;
 use super::types::*;
-use super::utils::*;
-use crate::transformers::request::RequestTransformer;
 
 /// `xAI` event converter
 #[derive(Clone)]
@@ -212,50 +210,5 @@ impl SseEventConverter for XaiEventConverter {
     }
 }
 
-/// `xAI` Streaming Client
-#[derive(Clone)]
-pub struct XaiStreaming {
-    config: XaiConfig,
-    http_client: reqwest::Client,
-}
-
-impl XaiStreaming {
-    /// Create a new `xAI` streaming client
-    pub const fn new(config: XaiConfig, http_client: reqwest::Client) -> Self {
-        Self {
-            config,
-            http_client,
-        }
-    }
-
-    /// Create a chat stream from ChatRequest
-    pub async fn create_chat_stream(self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        let url = format!("{}/chat/completions", self.config.base_url);
-
-        // Build request body via transformer
-        let transformer = super::transformers::XaiRequestTransformer;
-        let mut request_body = transformer.transform_chat(&request)?;
-
-        // Override with streaming-specific settings
-        request_body["stream"] = serde_json::Value::Bool(true);
-
-        // Build closure for one-shot 401 retry with header rebuild
-        let http = self.http_client.clone();
-        let api_key = self.config.api_key.clone();
-        let extra = self.config.http_config.headers.clone();
-        let url_for_retry = url.clone();
-        let body_for_retry = request_body.clone();
-        let build_request = move || {
-            use secrecy::ExposeSecret;
-            let headers = build_headers(api_key.expose_secret(), &extra)?;
-            Ok(http
-                .post(&url_for_retry)
-                .headers(headers)
-                .json(&body_for_retry))
-        };
-
-        let converter = XaiEventConverter::new();
-        StreamFactory::create_eventsource_stream_with_retry("xai", true, build_request, converter)
-            .await
-    }
-}
+// Legacy XaiStreaming client has been removed in favor of the unified HttpChatExecutor.
+// The XaiEventConverter is still used for SSE event conversion in tests.

@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use super::HttpConfig;
+
 /// File upload request
 #[derive(Debug, Clone)]
 pub struct FileUploadRequest {
@@ -15,6 +17,8 @@ pub struct FileUploadRequest {
     pub purpose: String,
     /// Additional metadata
     pub metadata: HashMap<String, String>,
+    /// Per-request HTTP configuration (headers, timeout, etc.)
+    pub http_config: Option<HttpConfig>,
 }
 
 /// File object metadata
@@ -49,6 +53,24 @@ pub struct FileListQuery {
     pub after: Option<String>,
     /// Sort order
     pub order: Option<String>,
+    /// Per-request HTTP configuration (headers, timeout, etc.)
+    pub http_config: Option<HttpConfig>,
+}
+
+impl FileListQuery {
+    /// Add per-request HTTP configuration
+    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
+        self.http_config = Some(config);
+        self
+    }
+
+    /// Add a custom header to the request
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let mut config = self.http_config.take().unwrap_or_default();
+        config.headers.insert(key.into(), value.into());
+        self.http_config = Some(config);
+        self
+    }
 }
 
 /// File list response

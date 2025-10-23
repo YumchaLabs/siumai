@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::HttpConfig;
+
 /// Embedding request configuration
 #[derive(Debug, Clone, Default)]
 pub struct EmbeddingRequest {
@@ -21,6 +23,8 @@ pub struct EmbeddingRequest {
     pub user: Option<String>,
     /// Provider-specific parameters
     pub provider_params: HashMap<String, serde_json::Value>,
+    /// Per-request HTTP configuration (headers, timeout, etc.)
+    pub http_config: Option<HttpConfig>,
 }
 
 impl EmbeddingRequest {
@@ -124,6 +128,20 @@ impl EmbeddingRequest {
     /// Set provider-specific parameters from a map
     pub fn with_provider_params(mut self, params: HashMap<String, serde_json::Value>) -> Self {
         self.provider_params.extend(params);
+        self
+    }
+
+    /// Set per-request HTTP configuration
+    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
+        self.http_config = Some(config);
+        self
+    }
+
+    /// Add a custom header for this request
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let mut config = self.http_config.take().unwrap_or_default();
+        config.headers.insert(key.into(), value.into());
+        self.http_config = Some(config);
         self
     }
 }

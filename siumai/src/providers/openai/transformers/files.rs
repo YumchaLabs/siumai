@@ -164,6 +164,7 @@ mod files_tests {
             limit: Some(10),
             after: Some("cursor123".to_string()),
             order: Some("desc".to_string()),
+            http_config: None,
         };
         let ep = tx.list_endpoint(&Some(q));
         assert!(ep.starts_with("files?"));
@@ -189,6 +190,7 @@ mod files_tests {
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: std::collections::HashMap::new(),
+            http_config: None,
         };
         match tx.build_upload_body(&req).unwrap() {
             FilesHttpBody::Multipart(_) => {}

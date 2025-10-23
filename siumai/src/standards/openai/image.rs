@@ -458,6 +458,7 @@ mod tests {
             size: Some("512x512".to_string()),
             response_format: Some("url".to_string()),
             extra_params: std::collections::HashMap::new(),
+            http_config: None,
         };
 
         let result = transformers.request.transform_image_edit(&request);
@@ -483,6 +484,7 @@ mod tests {
             size: Some("1024x1024".to_string()),
             response_format: Some("b64_json".to_string()),
             extra_params: std::collections::HashMap::new(),
+            http_config: None,
         };
 
         let result = transformers.request.transform_image_variation(&request);

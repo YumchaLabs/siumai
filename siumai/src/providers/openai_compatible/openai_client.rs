@@ -530,6 +530,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -547,6 +548,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };
@@ -845,6 +847,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -862,6 +865,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };

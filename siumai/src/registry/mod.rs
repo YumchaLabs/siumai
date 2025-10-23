@@ -313,6 +313,33 @@ pub fn global_registry() -> &'static Mutex<ProviderRegistry> {
     GLOBAL_REGISTRY.get_or_init(|| Mutex::new(ProviderRegistry::with_builtin_providers()))
 }
 
+/// Get the global registry handle (recommended for most use cases)
+///
+/// This returns a `ProviderRegistryHandle` that provides unified access to all providers
+/// via the `provider:model` format, similar to Vercel AI SDK.
+///
+/// # Features
+/// - Unified access: `registry.language_model("openai:gpt-4")`
+/// - LRU cache with TTL for performance
+/// - Automatic middleware injection
+/// - Support for all provider types
+///
+/// # Example
+/// ```rust,no_run
+/// use siumai::registry;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let reg = registry::global();
+/// let model = reg.language_model("openai:gpt-4")?;
+/// let resp = model.chat(vec![siumai::user!("Hello!")], None).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn global() -> &'static entry::ProviderRegistryHandle {
+    static GLOBAL_HANDLE: OnceLock<entry::ProviderRegistryHandle> = OnceLock::new();
+    GLOBAL_HANDLE.get_or_init(|| helpers::create_registry_with_defaults())
+}
+
 /// Convenience function to get an adapter for an OpenAI-compatible provider
 #[cfg(feature = "openai")]
 pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
@@ -326,7 +353,13 @@ pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter
 #[cfg(feature = "openai")]
 pub mod factory;
 
-/// Experimental registry entry (Iteration A): minimal handle + options
+/// Provider registry handle - unified access to all providers
+///
+/// This module provides a Vercel AI SDK-aligned registry system with:
+/// - Unified `provider:model` access pattern
+/// - LRU cache with TTL for performance
+/// - Automatic middleware injection
+/// - Factory-based provider creation
 pub mod entry;
 /// Provider factory implementations
 pub mod factories;
@@ -378,7 +411,9 @@ mod tests {
 
 // Re-export commonly used items for convenience
 pub use entry::{
-    ProviderFactory, ProviderRegistryHandle, RegistryOptions, create_provider_registry,
+    EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
+    ProviderRegistryHandle, RegistryOptions, SpeechModelHandle, TranscriptionModelHandle,
+    create_provider_registry,
 };
 pub use helpers::{create_empty_registry, create_registry_with_defaults};
 

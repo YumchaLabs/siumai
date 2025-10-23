@@ -111,18 +111,47 @@ siumai = "0.11"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 ```
 
-Hello world (unified interface):
+### Method 1: Registry Pattern (Recommended)
+
+Unified access to all providers with automatic caching and middleware:
 
 ```rust
 use siumai::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Choose a provider (OpenAI here) and build a unified client
+    // Get the global registry
+    let reg = registry::global();
+
+    // Access any provider with unified syntax
+    let model = reg.language_model("openai:gpt-4o-mini")?;
+    let resp = model.chat(vec![user!("Hello, world!")], None).await?;
+    println!("{}", resp.content_text().unwrap_or("<no content>"));
+    Ok(())
+}
+```
+
+**Why Registry?**
+- ✅ **Unified Access**: Same API for all providers (`provider:model`)
+- ✅ **Auto Caching**: LRU cache with TTL for better performance
+- ✅ **Auto Middleware**: Automatic middleware injection based on model
+- ✅ **Easy Switching**: Change providers by changing the string
+
+### Method 2: Builder Pattern (Flexible Configuration)
+
+For advanced configuration and provider-specific features:
+
+```rust
+use siumai::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Build a client with custom configuration
     let client = Siumai::builder()
         .openai()
         .api_key(std::env::var("OPENAI_API_KEY")?)
         .model("gpt-4o-mini")
+        .temperature(0.7)
         .build()
         .await?;
 
@@ -132,62 +161,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## 通过 Registry 使用 OpenAI-Compatible Provider（实验）
+## Registry Pattern - Unified Provider Access
 
-以下示例展示两种方式来使用 Provider Registry（实验）按 `provider:model` 解析模型并自动挂载“模型级中间件”。
+The Registry pattern provides a unified interface for accessing all providers, similar to Vercel AI SDK. This is the **recommended approach** for most use cases.
+
+### Basic Usage
 
 ```rust,no_run
-use siumai::registry::helpers::create_registry_with_defaults;
+use siumai::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 方式 A：使用内置便捷函数（推荐）
-    let reg = create_registry_with_defaults();
+    // Get the global registry
+    let reg = registry::global();
 
-    // 2) 解析 "provider:model"
-    // 例如：OpenAI 原生 -> "openai:gpt-4o"；OpenAI-Compatible -> "openrouter:openai/gpt-4o-mini"
-    let lm = reg.language_model("openai:gpt-4o")?;
-
-    // 3) 发送对话（此处仅示意，需设置对应环境变量，例如 OPENAI_API_KEY）
-    let messages = vec![siumai::user!("Hello from registry!")];
-    let _resp = lm.chat(messages, None).await?;
+    // Access any provider with unified syntax
+    let model = reg.language_model("openai:gpt-4o")?;
+    let resp = model.chat(vec![user!("Hello from registry!")], None).await?;
+    println!("{}", resp.content_text().unwrap_or_default());
     Ok(())
 }
 ```
 
-方式 B：自定义中间件
+### Supported Providers
+
+All providers use the `provider:model` format:
+
+**Native Providers:**
+- OpenAI: `openai:gpt-4o`, `openai:gpt-4o-mini`
+- Anthropic: `anthropic:claude-3-5-sonnet-20240620`
+- Google Gemini: `gemini:gemini-2.0-flash-exp` (or `google:gemini-2.0-flash-exp`)
+- Groq: `groq:llama-3.1-70b-versatile`
+- xAI: `xai:grok-beta`
+- Ollama: `ollama:llama3.2`
+
+**OpenAI-Compatible Providers:**
+- DeepSeek: `deepseek:deepseek-chat` (env: `DEEPSEEK_API_KEY`)
+- OpenRouter: `openrouter:openai/gpt-4o-mini` (env: `OPENROUTER_API_KEY`)
+- SiliconFlow: `siliconflow:deepseek-ai/DeepSeek-V3` (env: `SILICONFLOW_API_KEY`)
+- Together AI: `together:meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo` (env: `TOGETHER_API_KEY`)
+- And more...
+
+**Note**: For OpenAI-Compatible providers, the registry automatically reads API keys from environment variables using the pattern `{PROVIDER_ID}_API_KEY`. See `docs/ENV_VARS.md` for details.
+
+### Advanced: Custom Middleware
+
 ```rust,no_run
-use siumai::registry::entry::{create_provider_registry, RegistryOptions};
+use siumai::registry::{create_provider_registry, RegistryOptions};
 use siumai::middleware::samples::chain_default_and_clamp;
 use std::collections::HashMap;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 自定义中间件与分隔符
+    // Create registry with custom middleware
     let reg = create_provider_registry(
         HashMap::new(),
-        Some(RegistryOptions { separator: ':', language_model_middleware: chain_default_and_clamp() }),
+        Some(RegistryOptions {
+            separator: ':',
+            language_model_middleware: chain_default_and_clamp(),
+            max_cache_entries: Some(100),
+            client_ttl: None,
+            auto_middleware: true,
+        }),
     );
-    let lm = reg.language_model("openai:gpt-4o")?;
-    let _resp = lm.chat(vec![siumai::user!("Hello")], None).await?;
+
+    let model = reg.language_model("openai:gpt-4o")?;
+    let resp = model.chat(vec![user!("Hello")], None).await?;
     Ok(())
 }
 ```
 
-示例（OpenAI-Compatible）
-- DeepSeek：
-  - 环境变量：`DEEPSEEK_API_KEY`
-  - 代码：`let lm = reg.language_model("deepseek:deepseek-chat")?;`
-- OpenRouter：
-  - 环境变量：`OPENROUTER_API_KEY`
-  - 代码：`let lm = reg.language_model("openrouter:openai/gpt-4o-mini")?;`
-- SiliconFlow：
-  - 环境变量：`SILICONFLOW_API_KEY`
-  - 代码：`let lm = reg.language_model("siliconflow:deepseek-ai/DeepSeek-V3")?;`
+### Features
 
-注意：若 provider 归属 OpenAI-Compatible（在 `src/providers/openai_compatible/config.rs` 列表中），Registry 会使用 `{PROVIDER_ID}_API_KEY` 从环境变量读取 Key 并自动构建客户端。
+- **LRU Cache**: Automatic client caching with configurable TTL
+- **Auto Middleware**: Automatic middleware injection based on provider and model
+- **Environment Variables**: Automatic API key loading from env vars
+- **Extensible**: Easy to add custom providers via `ProviderFactory` trait
 
-环境变量命名规则与清单见 `docs/ENV_VARS.md`。可参考示例：`examples/registry_basic.rs`。
+See `examples/registry_basic.rs` for more examples.
 
 ## Custom OpenAI-Compatible Providers
 

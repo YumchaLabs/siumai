@@ -564,6 +564,7 @@ impl EmbeddingCapability for OpenAiClient {
             response_transformer: bundle.response,
             provider_spec: spec_arc,
             provider_context: ctx,
+            interceptors: vec![],
             before_send: None,
             retry_options: None,
         });
@@ -656,6 +657,7 @@ impl EmbeddingExtensions for OpenAiClient {
                             response_transformer: bundle.response,
                             provider_spec: spec_arc,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -687,6 +689,7 @@ impl EmbeddingExtensions for OpenAiClient {
                 response_transformer: bundle.response,
                 provider_spec: spec_arc,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };
@@ -982,6 +985,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             response_transformer: bundle.response,
                             provider_spec: spec_arc,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -1013,6 +1017,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 response_transformer: bundle.response,
                 provider_spec: spec_arc,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };
@@ -1064,6 +1069,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             response_transformer: bundle.response,
                             provider_spec: spec_arc,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -1095,6 +1101,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 response_transformer: bundle.response,
                 provider_spec: spec_arc,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };
@@ -1146,6 +1153,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             response_transformer: bundle.response,
                             provider_spec: spec_arc,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -1177,6 +1185,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 response_transformer: bundle.response,
                 provider_spec: spec_arc,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };

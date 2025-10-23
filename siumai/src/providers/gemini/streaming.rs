@@ -1,12 +1,12 @@
 //! Gemini streaming implementation using eventsource-stream
 //!
-//! This module provides Gemini streaming functionality using the
-//! eventsource-stream infrastructure for JSON streaming.
+//! Provides SSE event conversion for Gemini streaming responses.
+//! The legacy GeminiStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use crate::error::LlmError;
 use crate::providers::gemini::types::GeminiConfig;
-use crate::streaming::{ChatStream, ChatStreamEvent, StreamStateTracker};
-use crate::streaming::{SseEventConverter, StreamFactory};
+use crate::streaming::SseEventConverter;
+use crate::streaming::{ChatStreamEvent, StreamStateTracker};
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use serde::Deserialize;
@@ -318,106 +318,8 @@ impl SseEventConverter for GeminiEventConverter {
     }
 }
 
-/// Gemini streaming client
-#[derive(Debug, Clone)]
-pub struct GeminiStreaming {
-    config: GeminiConfig,
-    http_client: reqwest::Client,
-}
-
-impl GeminiStreaming {
-    /// Create a new Gemini streaming client
-    pub fn new(http_client: reqwest::Client) -> Self {
-        Self {
-            config: GeminiConfig::default(),
-            http_client,
-        }
-    }
-
-    /// Create a chat stream from URL, API key, and request
-    pub async fn create_chat_stream(
-        self,
-        url: String,
-        api_key: String,
-        request: serde_json::Value,
-    ) -> Result<ChatStream, LlmError> {
-        // Make the HTTP request
-        let mut rb = self
-            .http_client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&request);
-        if !api_key.is_empty() {
-            rb = rb.header("x-goog-api-key", &api_key);
-        }
-        let response = rb
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: format!("Gemini API error {status}: {error_text}"),
-                details: None,
-            });
-        }
-
-        // Determine compression behavior for streaming
-        let disable_compression = self.config.http_config.stream_disable_compression;
-
-        // Create the stream using SSE infrastructure (Gemini uses SSE format)
-        use secrecy::SecretString;
-        let mut config = self.config;
-        config.api_key = SecretString::from(api_key.clone());
-        let converter = GeminiEventConverter::new(config);
-        // Build closure for one-shot 401 retry with header rebuild
-        let http = self.http_client.clone();
-        let url_for_retry = url.clone();
-        let body_for_retry = request.clone();
-        let key_for_retry = api_key.clone();
-        let build_request = move || {
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            );
-            if !key_for_retry.is_empty() {
-                headers.insert(
-                    reqwest::header::HeaderName::from_static("x-goog-api-key"),
-                    reqwest::header::HeaderValue::from_str(&key_for_retry).map_err(|e| {
-                        LlmError::ConfigurationError(format!("Invalid api key: {e}"))
-                    })?,
-                );
-            }
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
-            let mut builder = http
-                .post(&url_for_retry)
-                .headers(headers)
-                // SSE expectations: explicit Accept + disable compression
-                .header(reqwest::header::ACCEPT, "text/event-stream")
-                .header(reqwest::header::CACHE_CONTROL, "no-cache")
-                .header(reqwest::header::CONNECTION, "keep-alive")
-                .json(&body_for_retry);
-            if disable_compression {
-                builder = builder.header(reqwest::header::ACCEPT_ENCODING, "identity");
-            }
-            Ok(builder)
-        };
-        StreamFactory::create_eventsource_stream_with_retry(
-            "gemini",
-            true,
-            build_request,
-            converter,
-        )
-        .await
-    }
-}
+// Legacy GeminiStreaming client has been removed in favor of the unified HttpChatExecutor.
+// The GeminiEventConverter is still used for SSE event conversion in tests.
 
 #[cfg(test)]
 mod tests {

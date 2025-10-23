@@ -713,6 +713,7 @@ impl EmbeddingCapability for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -730,6 +731,7 @@ impl EmbeddingCapability for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };
@@ -884,6 +886,7 @@ impl EmbeddingExtensions for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -901,6 +904,7 @@ impl EmbeddingExtensions for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };
@@ -1046,6 +1050,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
+                            interceptors: vec![],
                             before_send: None,
                             retry_options: None,
                         };
@@ -1063,6 +1068,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
+                interceptors: vec![],
                 before_send: None,
                 retry_options: None,
             };

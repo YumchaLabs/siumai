@@ -59,7 +59,7 @@ impl EmbeddingModel for OpenAiEmbeddingModel {
     fn create_executor(
         &self,
         http_client: reqwest::Client,
-        _interceptors: Vec<Arc<dyn HttpInterceptor>>,
+        interceptors: Vec<Arc<dyn HttpInterceptor>>,
         retry_options: Option<RetryOptions>,
     ) -> HttpEmbeddingExecutor {
         // Create OpenAI Standard (with optional adapter)
@@ -101,6 +101,7 @@ impl EmbeddingModel for OpenAiEmbeddingModel {
             response_transformer: bundle.response,
             provider_spec: spec,
             provider_context: ctx,
+            interceptors,
             before_send: None, // TODO: Implement before_send for embedding
             retry_options,
         }

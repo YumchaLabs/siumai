@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::HttpConfig;
+
 /// Image generation request
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImageGenerationRequest {
@@ -32,6 +34,9 @@ pub struct ImageGenerationRequest {
     pub response_format: Option<String>,
     /// Additional provider-specific parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Per-request HTTP configuration (headers, timeout, etc.)
+    #[serde(skip)]
+    pub http_config: Option<HttpConfig>,
 }
 
 /// Image edit request
@@ -51,6 +56,9 @@ pub struct ImageEditRequest {
     pub response_format: Option<String>,
     /// Additional parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Per-request HTTP configuration (headers, timeout, etc.)
+    #[serde(skip)]
+    pub http_config: Option<HttpConfig>,
 }
 
 /// Image variation request
@@ -66,6 +74,9 @@ pub struct ImageVariationRequest {
     pub response_format: Option<String>,
     /// Additional parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Per-request HTTP configuration (headers, timeout, etc.)
+    #[serde(skip)]
+    pub http_config: Option<HttpConfig>,
 }
 
 /// Image generation response

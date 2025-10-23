@@ -1356,9 +1356,11 @@ impl ChatExecutor for HttpChatExecutor {
                         .unwrap_or(true);
                     StreamFactory::create_eventsource_stream_with_retry(
                         &provider_id,
+                        &url,
                         should_retry_401,
                         build_request,
                         intercepting,
+                        &interceptors,
                     )
                     .await
                 } else if let Some(jsonc) = json_tx {
@@ -1391,13 +1393,18 @@ impl ChatExecutor for HttpChatExecutor {
                         let headers = response.headers().clone();
                         let error_text = response.text().await.unwrap_or_default();
                         // Use classify_http_error for consistent error handling across providers
-                        return Err(crate::retry_api::classify_http_error(
+                        let error = crate::retry_api::classify_http_error(
                             &provider_id,
                             status.as_u16(),
                             &error_text,
                             &headers,
                             None,
-                        ));
+                        );
+                        // Notify interceptors of error
+                        for it in &interceptors {
+                            it.on_error(&ctx, &error);
+                        }
+                        return Err(error);
                     }
                     // Wrap JSON converter with middlewares
                     #[derive(Clone)]
