@@ -105,7 +105,7 @@ async fn factory_injects_contentdelta_when_end_with_text_and_no_deltas() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = EndOnlyConverter;
-    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter)
+    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter)
         .await
         .expect("stream created");
 
@@ -150,7 +150,7 @@ async fn factory_does_not_inject_when_delta_already_seen() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = DeltaThenEndConverter;
-    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter)
+    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter)
         .await
         .expect("stream created");
 
@@ -192,7 +192,7 @@ async fn factory_no_stream_end_when_no_done_and_converter_end_only() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = EndOnlyConverter; // emits StreamEnd only on [DONE]
-    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter)
+    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter)
         .await
         .expect("stream created");
 
@@ -256,7 +256,7 @@ async fn factory_disconnect_mid_stream_after_delta_no_end() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = DeltaOnlyConverter;
-    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter)
+    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter)
         .await
         .expect("stream created");
 
@@ -310,7 +310,7 @@ async fn factory_retries_on_401_then_succeeds() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = DeltaOnlyConverter;
-    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter)
+    let stream = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter)
         .await
         .expect("stream created");
     let events: Vec<_> = stream.collect::<Vec<_>>().await.into_iter().map(|e| e.unwrap()).collect();
@@ -342,7 +342,7 @@ async fn factory_http_429_classified_as_rate_limit() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = DeltaOnlyConverter;
-    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter).await;
+    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter).await;
 
     match res {
         Err(LlmError::RateLimitError(msg)) => assert!(msg.contains("provider=factory-test")),
@@ -375,7 +375,7 @@ async fn factory_http_503_classified_as_api_error() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = DeltaOnlyConverter;
-    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter).await;
+    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter).await;
 
     match res {
         Err(LlmError::ApiError { code, message, .. }) => {
@@ -411,7 +411,7 @@ async fn factory_http_502_classified_as_api_error() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = DeltaOnlyConverter;
-    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter).await;
+    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter).await;
 
     match res {
         Err(LlmError::ApiError { code, .. }) => {
@@ -446,7 +446,7 @@ async fn factory_http_504_classified_as_api_error() {
     let build_request = move || -> Result<reqwest::RequestBuilder, LlmError> { Ok(client.get(url.clone())) };
 
     let converter = DeltaOnlyConverter;
-    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", build_request, converter).await;
+    let res = StreamFactory::create_eventsource_stream_with_retry("factory-test", true, build_request, converter).await;
 
     match res {
         Err(LlmError::ApiError { code, .. }) => {

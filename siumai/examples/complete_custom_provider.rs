@@ -227,6 +227,7 @@ impl MyCustomProviderClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         };
 
         executor.execute(request).await

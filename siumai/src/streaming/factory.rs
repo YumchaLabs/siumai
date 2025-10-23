@@ -17,7 +17,7 @@ use futures_util::TryStreamExt;
 pub struct StreamFactory;
 
 impl StreamFactory {
-    /// Create a chat stream with one-shot 401 retry and error classification.
+    /// Create a chat stream with optional 401 retry and error classification.
     ///
     /// The `build_request` closure must construct a fresh RequestBuilder each call
     /// with up-to-date headers (e.g., refreshed Bearer token). On non-401 errors,
@@ -25,6 +25,7 @@ impl StreamFactory {
     ///
     /// # Arguments
     /// * `provider_id` - Provider identifier for error classification
+    /// * `retry_401` - Whether to retry 401 errors with rebuilt request
     /// * `build_request` - Closure that builds a fresh request (called on retry)
     /// * `converter` - SSE event converter for this provider
     ///
@@ -32,6 +33,7 @@ impl StreamFactory {
     /// A ChatStream that yields ChatStreamEvents
     pub async fn create_eventsource_stream_with_retry<B, C>(
         provider_id: &str,
+        retry_401: bool,
         build_request: B,
         converter: C,
     ) -> Result<ChatStream, LlmError>
@@ -47,7 +49,7 @@ impl StreamFactory {
 
         let response = if !response.status().is_success() {
             let status = response.status();
-            if status.as_u16() == 401 {
+            if status.as_u16() == 401 && retry_401 {
                 // Retry once with rebuilt headers/request
                 build_request()?
                     .send()

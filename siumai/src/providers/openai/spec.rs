@@ -4,6 +4,7 @@ use crate::provider_core::{
 };
 use crate::standards::openai::chat::OpenAiChatStandard;
 use crate::standards::openai::embedding::OpenAiEmbeddingStandard;
+use crate::standards::openai::image::OpenAiImageStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, EmbeddingRequest, ProviderOptions};
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
@@ -20,6 +21,8 @@ pub struct OpenAiSpec {
     chat_standard: OpenAiChatStandard,
     /// Standard OpenAI Embedding implementation
     embedding_standard: OpenAiEmbeddingStandard,
+    /// Standard OpenAI Image implementation
+    image_standard: OpenAiImageStandard,
 }
 
 impl OpenAiSpec {
@@ -27,6 +30,7 @@ impl OpenAiSpec {
         Self {
             chat_standard: OpenAiChatStandard::new(),
             embedding_standard: OpenAiEmbeddingStandard::new(),
+            image_standard: OpenAiImageStandard::new(),
         }
     }
 
@@ -378,6 +382,19 @@ impl ProviderSpec for OpenAiSpec {
             response: self
                 .embedding_standard
                 .create_response_transformer("openai"),
+        }
+    }
+
+    fn choose_image_transformers(
+        &self,
+        _req: &crate::types::ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> crate::provider_core::ImageTransformers {
+        // Use standard OpenAI Image API from standards layer
+        let transformers = self.image_standard.create_transformers("openai");
+        crate::provider_core::ImageTransformers {
+            request: transformers.request,
+            response: transformers.response,
         }
     }
 

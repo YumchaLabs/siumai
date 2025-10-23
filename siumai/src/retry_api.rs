@@ -55,6 +55,10 @@ pub struct RetryOptions {
     pub provider: Option<ProviderType>,
     // Policy-based options
     pub policy: Option<RetryPolicy>,
+    /// Whether to retry 401 Unauthorized errors (useful for token refresh scenarios)
+    pub retry_401: bool,
+    /// Whether the request is idempotent (safe to retry without side effects)
+    pub idempotent: bool,
 }
 
 impl Default for RetryOptions {
@@ -63,6 +67,8 @@ impl Default for RetryOptions {
             backend: RetryBackend::Backoff,
             provider: None,
             policy: None,
+            retry_401: true,  // Default to true for backward compatibility
+            idempotent: true, // Default to true (most LLM requests are idempotent)
         }
     }
 }
@@ -96,6 +102,18 @@ impl RetryOptions {
         if let Some(policy) = self.policy.take() {
             self.policy = Some(policy.with_max_attempts(attempts));
         }
+        self
+    }
+
+    /// Set whether to retry 401 errors
+    pub fn with_retry_401(mut self, retry_401: bool) -> Self {
+        self.retry_401 = retry_401;
+        self
+    }
+
+    /// Set whether the request is idempotent
+    pub fn with_idempotent(mut self, idempotent: bool) -> Self {
+        self.idempotent = idempotent;
         self
     }
 }

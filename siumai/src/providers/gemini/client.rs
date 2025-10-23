@@ -714,6 +714,7 @@ impl EmbeddingCapability for GeminiClient {
                             provider_spec: spec,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -730,6 +731,7 @@ impl EmbeddingCapability for GeminiClient {
                 provider_spec: spec,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             EmbeddingExecutor::execute(&exec, req).await
         }
@@ -883,6 +885,7 @@ impl EmbeddingExtensions for GeminiClient {
                             provider_spec: spec,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -899,6 +902,7 @@ impl EmbeddingExtensions for GeminiClient {
                 provider_spec: spec,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             EmbeddingExecutor::execute(&exec, request).await
         }
@@ -1043,6 +1047,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                             provider_spec: spec,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         ImageExecutor::execute(&exec, rq).await
                     }
@@ -1059,6 +1064,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 provider_spec: spec,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             ImageExecutor::execute(&exec, request).await
         }

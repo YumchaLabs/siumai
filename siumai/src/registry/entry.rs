@@ -160,6 +160,8 @@ impl ProviderRegistryHandle {
     /// Uses LRU cache with optional TTL to avoid rebuilding clients repeatedly.
     /// Cache key is the full "provider:model" identifier.
     ///
+    /// Applies middleware provider_id override if configured.
+    ///
     /// # Example
     /// ```rust,no_run
     /// # use siumai::registry::create_provider_registry;
@@ -169,8 +171,7 @@ impl ProviderRegistryHandle {
     /// # Ok::<(), siumai::error::LlmError>(())
     /// ```
     pub fn language_model(&self, id: &str) -> Result<LanguageModelHandle, LlmError> {
-        let (provider_id, model_id) = self.split_id(id)?;
-        let factory = self.get_provider(&provider_id)?;
+        let (mut provider_id, model_id) = self.split_id(id)?;
 
         // Combine global middlewares with auto middlewares
         let mut middlewares = self.middlewares.clone();
@@ -179,6 +180,16 @@ impl ProviderRegistryHandle {
                 crate::middleware::build_auto_middlewares_vec(&provider_id, &model_id);
             middlewares.extend(auto_middlewares);
         }
+
+        // Apply middleware provider_id override (aligned with Vercel AI SDK)
+        if !middlewares.is_empty() {
+            provider_id = crate::middleware::language_model::apply_provider_id_override(
+                &middlewares,
+                &provider_id,
+            );
+        }
+
+        let factory = self.get_provider(&provider_id)?;
 
         Ok(LanguageModelHandle {
             factory: factory.clone(),

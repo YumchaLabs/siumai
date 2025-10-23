@@ -195,7 +195,7 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
         }
 
         // 2. Extract from metadata (Anthropic etc.)
-        if let Some(thinking_value) = resp.metadata.get("thinking") {
+        if let Some(thinking_value) = resp.get_metadata("anthropic", "thinking") {
             if let Some(thinking_str) = thinking_value.as_str() {
                 // Add reasoning to content
                 let mut parts = match &resp.content {
@@ -307,7 +307,7 @@ mod tests {
             service_tier: None,
             audio: None,
             warnings: None,
-            metadata: Default::default(),
+            provider_metadata: None,
         }
     }
 

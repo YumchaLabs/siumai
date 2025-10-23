@@ -215,6 +215,7 @@ async fn image_executor_retries_on_401() {
         provider_spec: spec,
         provider_context: ctx,
         before_send: None,
+        retry_options: None,
     };
 
     // execute

@@ -25,6 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         backend: siumai::retry_api::RetryBackend::Policy,
         provider: None,
         policy: Some(retry_policy),
+        retry_401: false,
+        idempotent: true,
     };
 
     let client = Siumai::builder()

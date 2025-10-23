@@ -4,14 +4,11 @@
 
 use async_trait::async_trait;
 use reqwest::Client as HttpClient;
-// use std::time::Instant; // removed after executors migration
 
 use crate::error::LlmError;
-use crate::types::ChatRequest;
-// use crate::transformers::request::RequestTransformer;
-// use crate::transformers::response::ResponseTransformer;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::types::ChatRequest;
 
 use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
@@ -62,8 +59,6 @@ impl GeminiChatCapability {
     ) -> Result<GenerateContentRequest, LlmError> {
         super::convert::build_request_body(&self.config, messages, tools)
     }
-
-    // Removed legacy direct convert/make_request; Executors + Transformers handle mapping/HTTP
 }
 
 #[async_trait]
@@ -167,6 +162,7 @@ impl ChatCapability for GeminiChatCapability {
             provider_spec: spec_wrapper,
             provider_context: ctx_with_token,
             before_send: None,
+            retry_options: None,
         };
         exec.execute(req).await
     }
@@ -290,6 +286,7 @@ impl ChatCapability for GeminiChatCapability {
             provider_spec: spec_wrapper,
             provider_context: ctx_with_token,
             before_send: None,
+            retry_options: None,
         };
         exec.execute_stream(req).await
     }

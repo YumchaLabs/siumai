@@ -4,7 +4,6 @@
 
 use async_trait::async_trait;
 use secrecy::SecretString;
-// use std::time::Instant; // replaced by executor path
 
 use crate::error::LlmError;
 use crate::middleware::language_model::LanguageModelMiddleware;
@@ -14,9 +13,6 @@ use crate::traits::ChatCapability;
 use crate::types::*;
 use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
-
-// use super::types::*;
-// use super::utils::*;
 
 /// `Groq` Chat Capability Implementation
 #[derive(Clone)]
@@ -98,6 +94,7 @@ impl ChatCapability for GroqChatCapability {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         };
         exec.execute(request).await
     }
@@ -141,6 +138,7 @@ impl ChatCapability for GroqChatCapability {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         };
         exec.execute_stream(request).await
     }

@@ -179,7 +179,7 @@ impl CodeExecutionParser {
         let mut results = Vec::new();
 
         // Check provider data for code execution results
-        if let Some(execution_data) = response.metadata.get("code_execution") {
+        if let Some(execution_data) = response.get_metadata("gemini", "code_execution") {
             if let Some(executions) = execution_data.as_array() {
                 for execution in executions {
                     if let Ok(result) = Self::parse_execution_result(execution) {

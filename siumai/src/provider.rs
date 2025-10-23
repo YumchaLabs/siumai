@@ -1170,7 +1170,7 @@ mod tests {
                 service_tier: None,
                 audio: None,
                 warnings: None,
-                metadata: std::collections::HashMap::new(),
+                provider_metadata: None,
             })
         }
 

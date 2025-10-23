@@ -214,7 +214,7 @@ impl GeminiEventConverter {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
-                metadata: std::collections::HashMap::new(),
+                provider_metadata: None,
             };
 
             Some(response)
@@ -312,7 +312,7 @@ impl SseEventConverter for GeminiEventConverter {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: std::collections::HashMap::new(),
+            provider_metadata: None,
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
@@ -409,8 +409,13 @@ impl GeminiStreaming {
             }
             Ok(builder)
         };
-        StreamFactory::create_eventsource_stream_with_retry("gemini", build_request, converter)
-            .await
+        StreamFactory::create_eventsource_stream_with_retry(
+            "gemini",
+            true,
+            build_request,
+            converter,
+        )
+        .await
     }
 }
 

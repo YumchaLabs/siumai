@@ -3,7 +3,6 @@
 //! Implements the `ChatCapability` trait for `xAI`.
 
 use async_trait::async_trait;
-// use std::time::Instant; // replaced by executor path
 
 use crate::error::LlmError;
 use crate::provider_core::ProviderSpec;
@@ -98,6 +97,7 @@ impl ChatCapability for XaiChatCapability {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         };
         exec.execute(request).await
     }
@@ -141,6 +141,7 @@ impl ChatCapability for XaiChatCapability {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         };
         exec.execute_stream(request).await
     }
@@ -223,6 +224,7 @@ impl XaiChatCapability {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         };
         exec.execute(request).await
     }

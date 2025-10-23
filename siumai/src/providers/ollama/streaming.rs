@@ -102,7 +102,7 @@ impl OllamaEventConverter {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
-                metadata: std::collections::HashMap::new(),
+                provider_metadata: None,
             };
             builder = builder.add_stream_end(chat_response);
         }
@@ -210,7 +210,7 @@ impl JsonEventConverter for OllamaEventConverter {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: std::collections::HashMap::new(),
+            provider_metadata: None,
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }

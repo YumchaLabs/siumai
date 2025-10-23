@@ -121,18 +121,24 @@ impl ProviderRegistry {
 
         // Google Gemini
         #[cfg(feature = "google")]
-        self.register_native(
-            "gemini",
-            "Google Gemini",
-            Some("https://generativelanguage.googleapis.com".to_string()),
-            ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools()
-                .with_vision()
-                .with_embedding()
-                .with_custom_feature("thinking", true),
-        );
+        {
+            self.register_native(
+                "gemini",
+                "Google Gemini",
+                Some("https://generativelanguage.googleapis.com".to_string()),
+                ProviderCapabilities::new()
+                    .with_chat()
+                    .with_streaming()
+                    .with_tools()
+                    .with_vision()
+                    .with_embedding()
+                    .with_custom_feature("thinking", true),
+            );
+            // Add "google" as an alias for "gemini"
+            if let Some(record) = self.by_id.get_mut("gemini") {
+                record.aliases.push("google".to_string());
+            }
+        }
 
         // Groq
         #[cfg(feature = "groq")]
@@ -326,6 +332,49 @@ pub mod entry;
 pub mod factories;
 /// Convenience helpers to bootstrap registries with common defaults
 pub mod helpers;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registry_resolve_by_id() {
+        let registry = ProviderRegistry::with_builtin_providers();
+
+        #[cfg(feature = "openai")]
+        assert!(registry.resolve("openai").is_some());
+
+        #[cfg(feature = "anthropic")]
+        assert!(registry.resolve("anthropic").is_some());
+
+        #[cfg(feature = "google")]
+        assert!(registry.resolve("gemini").is_some());
+    }
+
+    #[test]
+    #[cfg(feature = "google")]
+    fn test_registry_resolve_gemini_by_google_alias() {
+        let registry = ProviderRegistry::with_builtin_providers();
+
+        // Resolve by primary ID
+        let gemini_by_id = registry.resolve("gemini");
+        assert!(gemini_by_id.is_some());
+
+        // Resolve by alias
+        let gemini_by_alias = registry.resolve("google");
+        assert!(gemini_by_alias.is_some());
+
+        // Both should resolve to the same provider
+        assert_eq!(gemini_by_id.unwrap().id, gemini_by_alias.unwrap().id);
+        assert_eq!(gemini_by_id.unwrap().id, "gemini");
+    }
+
+    #[test]
+    fn test_registry_resolve_unknown_provider() {
+        let registry = ProviderRegistry::with_builtin_providers();
+        assert!(registry.resolve("unknown_provider").is_none());
+    }
+}
 
 // Re-export commonly used items for convenience
 pub use entry::{

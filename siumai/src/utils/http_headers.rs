@@ -261,6 +261,62 @@ pub fn inject_tracing_headers(headers: &mut HeaderMap) {
     }
 }
 
+/// Merge extra headers into base headers (immutable version).
+///
+/// Creates a new HeaderMap by cloning the base headers and adding extra headers.
+/// Extra headers will override base headers if they have the same name.
+///
+/// # Arguments
+/// * `base` - Base HeaderMap to start with
+/// * `extra` - HashMap of additional headers to merge
+///
+/// # Returns
+/// A new HeaderMap with merged headers
+///
+/// # Example
+/// ```rust,ignore
+/// let base_headers = /* ... */;
+/// let extra = HashMap::from([("X-Custom".to_string(), "value".to_string())]);
+/// let merged = merge_headers(base_headers, &extra);
+/// ```
+pub fn merge_headers(mut base: HeaderMap, extra: &HashMap<String, String>) -> HeaderMap {
+    for (k, v) in extra {
+        if let (Ok(name), Ok(val)) = (
+            HeaderName::from_bytes(k.as_bytes()),
+            HeaderValue::from_str(v),
+        ) {
+            base.insert(name, val);
+        }
+    }
+    base
+}
+
+/// Apply extra headers to a mutable HeaderMap (mutable version).
+///
+/// Modifies the base HeaderMap in place by adding extra headers.
+/// Extra headers will override base headers if they have the same name.
+///
+/// # Arguments
+/// * `base` - Mutable reference to HeaderMap to modify
+/// * `extra` - HashMap of additional headers to apply
+///
+/// # Example
+/// ```rust,ignore
+/// let mut headers = /* ... */;
+/// let extra = HashMap::from([("X-Custom".to_string(), "value".to_string())]);
+/// apply_extra_headers(&mut headers, &extra);
+/// ```
+pub fn apply_extra_headers(base: &mut HeaderMap, extra: &HashMap<String, String>) {
+    for (k, v) in extra {
+        if let (Ok(name), Ok(val)) = (
+            HeaderName::from_bytes(k.as_bytes()),
+            HeaderValue::from_str(v),
+        ) {
+            base.insert(name, val);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

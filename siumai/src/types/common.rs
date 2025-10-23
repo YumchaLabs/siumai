@@ -15,6 +15,7 @@ use std::time::Duration;
 /// use siumai::types::Warning;
 ///
 /// let warning = Warning::unsupported_setting("topK", Some("This provider doesn't support topK"));
+/// let tool_warning = Warning::unsupported_tool("calculator", Some("This model doesn't support custom tools"));
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -23,6 +24,14 @@ pub enum Warning {
     UnsupportedSetting {
         /// The name of the unsupported setting
         setting: String,
+        /// Optional details about why it's unsupported
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+    },
+    /// An unsupported tool was provided
+    UnsupportedTool {
+        /// The name of the unsupported tool
+        tool_name: String,
         /// Optional details about why it's unsupported
         #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<String>,
@@ -42,6 +51,17 @@ impl Warning {
     ) -> Self {
         Self::UnsupportedSetting {
             setting: setting.into(),
+            details: details.map(|d| d.into()),
+        }
+    }
+
+    /// Create an unsupported tool warning
+    pub fn unsupported_tool(
+        tool_name: impl Into<String>,
+        details: Option<impl Into<String>>,
+    ) -> Self {
+        Self::UnsupportedTool {
+            tool_name: tool_name.into(),
             details: details.map(|d| d.into()),
         }
     }

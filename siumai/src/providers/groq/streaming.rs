@@ -84,7 +84,7 @@ impl GroqEventConverter {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
-                metadata: std::collections::HashMap::new(),
+                provider_metadata: None,
             };
 
             builder = builder.add_stream_end(response);
@@ -188,7 +188,7 @@ impl SseEventConverter for GroqEventConverter {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: std::collections::HashMap::new(),
+            provider_metadata: None,
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
@@ -246,6 +246,7 @@ impl GroqStreaming {
         };
 
         let converter = GroqEventConverter::new();
-        StreamFactory::create_eventsource_stream_with_retry("groq", build_request, converter).await
+        StreamFactory::create_eventsource_stream_with_retry("groq", true, build_request, converter)
+            .await
     }
 }

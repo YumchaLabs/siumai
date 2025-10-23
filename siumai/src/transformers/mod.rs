@@ -8,5 +8,7 @@ pub mod audio;
 pub mod files;
 pub mod hook_builder;
 pub mod request;
+pub mod rerank_request;
+pub mod rerank_response;
 pub mod response;
 pub mod stream;

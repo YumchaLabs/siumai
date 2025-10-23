@@ -44,6 +44,17 @@ pub trait HttpInterceptor: Send + Sync {
     /// Called when an error occurs during sending or classification.
     fn on_error(&self, _ctx: &HttpRequestContext, _error: &LlmError) {}
 
+    /// Called before retrying a request.
+    ///
+    /// This is called when a request is about to be retried after an error.
+    /// Useful for logging, metrics, or implementing custom retry logic.
+    ///
+    /// # Arguments
+    /// * `ctx` - Request context
+    /// * `error` - The error that triggered the retry
+    /// * `attempt` - The retry attempt number (1-based, so 1 means first retry)
+    fn on_retry(&self, _ctx: &HttpRequestContext, _error: &LlmError, _attempt: usize) {}
+
     /// Called when an SSE event is received in a streaming request.
     fn on_sse_event(
         &self,
@@ -81,6 +92,10 @@ impl HttpInterceptor for LoggingInterceptor {
 
     fn on_error(&self, ctx: &HttpRequestContext, error: &LlmError) {
         tracing::debug!(target: "siumai::http", provider=%ctx.provider_id, url=%ctx.url, stream=%ctx.stream, err=%error, "request error");
+    }
+
+    fn on_retry(&self, ctx: &HttpRequestContext, error: &LlmError, attempt: usize) {
+        tracing::debug!(target: "siumai::http", provider=%ctx.provider_id, url=%ctx.url, stream=%ctx.stream, err=%error, attempt=%attempt, "retrying request");
     }
 
     fn on_sse_event(

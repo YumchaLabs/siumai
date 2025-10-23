@@ -138,6 +138,7 @@ impl OpenAiCompatibleClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         });
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -196,6 +197,7 @@ impl OpenAiCompatibleClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         });
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -529,6 +531,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                             provider_spec: spec,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         EmbeddingExecutor::execute(&exec, rqc).await
                     }
@@ -545,6 +548,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                 provider_spec: spec,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             exec.execute(req).await
         }
@@ -842,6 +846,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                             provider_spec: spec,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         ImageExecutor::execute(&exec, rqc).await
                     }
@@ -858,6 +863,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                 provider_spec: spec,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             exec.execute(request).await
         }

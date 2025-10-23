@@ -255,6 +255,7 @@ impl OpenAiClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send,
+            retry_options: None,
         };
         exec.execute_stream(request).await
     }
@@ -296,6 +297,7 @@ impl OpenAiClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send,
+            retry_options: None,
         };
         exec.execute(request).await
     }
@@ -340,6 +342,7 @@ impl OpenAiClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send,
+            retry_options: None,
         };
         exec.execute_stream(request).await
     }
@@ -477,6 +480,7 @@ impl OpenAiClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send,
+            retry_options: None,
         };
         exec.execute(request).await
     }
@@ -561,6 +565,7 @@ impl EmbeddingCapability for OpenAiClient {
             provider_spec: spec_arc,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         });
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -652,6 +657,7 @@ impl EmbeddingExtensions for OpenAiClient {
                             provider_spec: spec_arc,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -682,6 +688,7 @@ impl EmbeddingExtensions for OpenAiClient {
                 provider_spec: spec_arc,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             exec.execute(request).await
         }
@@ -976,6 +983,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             provider_spec: spec_arc,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         ImageExecutor::execute(&exec, rq).await
                     }
@@ -1006,6 +1014,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 provider_spec: spec_arc,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             exec.execute(request).await
         }
@@ -1056,6 +1065,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             provider_spec: spec_arc,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         ImageExecutor::execute_edit(&exec, rq).await
                     }
@@ -1086,6 +1096,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 provider_spec: spec_arc,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             exec.execute_edit(request).await
         }
@@ -1136,6 +1147,7 @@ impl ImageGenerationCapability for OpenAiClient {
                             provider_spec: spec_arc,
                             provider_context: ctx,
                             before_send: None,
+                            retry_options: None,
                         };
                         ImageExecutor::execute_variation(&exec, rq).await
                     }
@@ -1166,6 +1178,7 @@ impl ImageGenerationCapability for OpenAiClient {
                 provider_spec: spec_arc,
                 provider_context: ctx,
                 before_send: None,
+                retry_options: None,
             };
             exec.execute_variation(request).await
         }

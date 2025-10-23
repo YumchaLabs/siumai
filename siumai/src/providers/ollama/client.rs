@@ -437,6 +437,7 @@ impl ChatCapability for OllamaClient {
             provider_spec: spec,
             provider_context: ctx,
             before_send: None,
+            retry_options: None,
         };
         exec.execute_stream(request).await
     }

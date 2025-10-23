@@ -25,7 +25,11 @@
 
 pub mod chat;
 pub mod embedding;
+pub mod image;
+pub mod rerank;
 
 // Re-export main types
 pub use chat::{OpenAiChatAdapter, OpenAiChatStandard};
 pub use embedding::{OpenAiEmbeddingAdapter, OpenAiEmbeddingStandard};
+pub use image::{OpenAiImageAdapter, OpenAiImageStandard};
+pub use rerank::{OpenAiRerankAdapter, OpenAiRerankStandard};

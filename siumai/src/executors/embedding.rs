@@ -20,6 +20,9 @@ pub struct HttpEmbeddingExecutor {
     pub provider_context: crate::provider_core::ProviderContext,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
+    /// Optional retry options for controlling retry behavior (including 401 retry)
+    /// If None, uses default behavior (401 retry enabled)
+    pub retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
 #[async_trait::async_trait]
@@ -47,7 +50,12 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
             .map_err(|e| LlmError::HttpError(e.to_string()))?;
         let resp = if !resp.status().is_success() {
             let status = resp.status();
-            if status.as_u16() == 401 {
+            let should_retry_401 = self
+                .retry_options
+                .as_ref()
+                .map(|opts| opts.retry_401)
+                .unwrap_or(true);
+            if status.as_u16() == 401 && should_retry_401 {
                 // Retry once with rebuilt headers
                 let headers = self.provider_spec.build_headers(&self.provider_context)?;
                 self.http_client

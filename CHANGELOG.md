@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.11.0] - 2025-01-XX
+## [0.11.0] - 2025-01-23 ✅
 
 ### Breaking Changes
 
@@ -9,7 +9,49 @@
   - Removed `OutputFormat` and `TracingConfig` from `siumai` root exports
   - These functions were deprecated in v0.10.3 and have been moved to `siumai-extras::telemetry`
 
+- **BREAKING**: ChatResponse metadata structure changed
+  - Changed `metadata: HashMap<String, serde_json::Value>` to `provider_metadata: Option<HashMap<String, HashMap<String, serde_json::Value>>>`
+  - Metadata is now namespaced by provider (e.g., `{"anthropic": {...}, "openai": {...}}`)
+  - `get_metadata()` signature changed from `get_metadata(&self, key: &str)` to `get_metadata(&self, provider: &str, key: &str)`
+  - Migration: Replace `response.metadata.get("key")` with `response.get_metadata("provider", "key")`
+  - Or use type-safe accessors: `response.anthropic_metadata()`, `response.openai_metadata()`, `response.gemini_metadata()`
+
+### Fixed
+
+- **Technical Debt Resolution**:
+  - **Header Merge Logic Unification**: Eliminated duplicate header merge code in chat executor
+    - Added centralized `merge_headers()` and `apply_extra_headers()` functions in `siumai/src/utils/http_headers.rs`
+    - Replaced duplicate code at two locations (non-streaming and streaming execution paths)
+  - **SSE Event-Level Adapter Hooks**: Fixed missing adapter transformations for SSE events
+    - Modified `OpenAiChatStreamTransformer::convert_event` to apply adapter transformations
+    - Modified `AnthropicChatStreamTransformer::convert_event` to apply adapter transformations
+    - SSE events now: parse JSON → apply adapter transformation → re-serialize → convert
+    - Removed TODO comments indicating this missing functionality
+
 ### Added
+
+- **Type-safe Provider Metadata Access**:
+  - Added `AnthropicMetadata`, `OpenAiMetadata`, `GeminiMetadata` structs
+  - Added type-safe accessor methods to `ChatResponse`:
+    - `anthropic_metadata() -> Option<AnthropicMetadata>`
+    - `openai_metadata() -> Option<OpenAiMetadata>`
+    - `gemini_metadata() -> Option<GeminiMetadata>`
+  - Example:
+    ```rust
+    if let Some(meta) = response.anthropic_metadata() {
+        if let Some(cache_read) = meta.cache_read_input_tokens {
+            println!("Cache read tokens: {}", cache_read);
+        }
+    }
+    ```
+
+- **Warning System Enhancement**:
+  - Added `Warning::UnsupportedTool` variant (aligned with Vercel AI SDK)
+  - Added `Warning::unsupported_tool()` constructor
+  - Now supports three warning types:
+    - `UnsupportedSetting`: For unsupported request settings
+    - `UnsupportedTool`: For unsupported tools
+    - `Other`: For generic warnings
 
 - **Middleware System Enhancements** (inspired by Cherry Studio and Vercel AI SDK):
   - **NamedMiddleware**: Each middleware has a unique name for identification and manipulation
@@ -44,11 +86,24 @@
     - `MiddlewareConfig`: Configuration for automatic middleware addition
     - Smart defaults: reasoning extraction enabled for models that support it
     - User can override: remove, replace, or insert custom middlewares
+  - **New Middleware Hooks** (aligned with Vercel AI SDK and Cherry Studio):
+    - `transform_json_body()`: Transform JSON request body before HTTP send
+    - `on_stream_end()`: Called when a stream completes successfully
+    - `on_stream_error()`: Called when a stream encounters an error
+    - `override_provider_id()`: Override provider ID for routing (A/B testing, fallback)
+    - `override_model_id()`: Override model ID for routing (already existed, now documented)
+  - **HTTP Interceptor Enhancements**:
+    - `on_retry()`: Called before retrying a request after an error
+  - **SSE Event-Level Adapter Hooks**:
+    - SSE events now flow through adapter transformations before being converted
+    - Enables provider-specific SSE event transformations at the standard layer
   - **Examples**: `examples/03-advanced-features/middleware_builder.rs`
   - **Documentation**:
     - `docs/MIDDLEWARE_IMPLEMENTATION_SUMMARY.md`: Complete implementation summary
     - `docs/MIDDLEWARE_COMPARISON.md`: Comparison with Cherry Studio and Vercel AI SDK
     - `docs/THINKING_EXTRACTION_DESIGN.md`: Thinking extraction design details
+    - `docs/MIDDLEWARE_HOOKS_ANALYSIS.md`: Comprehensive middleware hooks analysis
+    - `docs/MIDDLEWARE_HOOKS_IMPLEMENTATION_PLAN.md`: Implementation plan and design
 
 - **siumai-extras** package with optional features:
   - `schema`: JSON schema validation using `jsonschema` crate

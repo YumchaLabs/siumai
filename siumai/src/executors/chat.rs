@@ -51,6 +51,9 @@ pub struct HttpChatExecutor {
     pub provider_context: crate::provider_core::ProviderContext,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
+    /// Optional retry options for controlling retry behavior (including 401 retry)
+    /// If None, uses default behavior (401 retry enabled)
+    pub retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
 #[cfg(test)]
@@ -171,6 +174,7 @@ mod tests {
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
             before_send: Some(hook),
+            retry_options: None,
         };
 
         let mut req = crate::types::ChatRequest::new(vec![]);
@@ -277,6 +281,7 @@ mod tests {
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
             before_send: None,
+            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -362,6 +367,7 @@ mod tests {
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
             before_send: None,
+            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -417,6 +423,7 @@ mod tests {
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
             before_send: Some(hook),
+            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -483,6 +490,7 @@ mod tests {
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
             before_send: None,
+            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -592,6 +600,7 @@ mod tests {
             provider_spec: Arc::new(TestSpecWithHeaders),
             provider_context,
             before_send: None,
+            retry_options: None,
         };
 
         let mut req = crate::types::ChatRequest::new(vec![]);
@@ -706,6 +715,7 @@ mod tests {
             provider_spec: Arc::new(TestSpecWithHeaders),
             provider_context,
             before_send: None,
+            retry_options: None,
         };
         let mut req = crate::types::ChatRequest::new(vec![]);
         let mut hc = crate::types::HttpConfig::default();
@@ -785,6 +795,7 @@ impl ChatExecutor for HttpChatExecutor {
         let response_tx = self.response_transformer.clone();
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
+        let middlewares = self.middlewares.clone();
         // Pre-compute URL and initial headers (provider/base-level). Request-level headers are merged later per-request.
         let url = self
             .provider_spec
@@ -793,6 +804,7 @@ impl ChatExecutor for HttpChatExecutor {
         let headers_for_interceptors_initial = headers_initial.clone();
         let provider_spec = self.provider_spec.clone();
         let provider_context = self.provider_context.clone();
+        let retry_options = self.retry_options.clone();
 
         // Base async generator (no post_generate here)
         let base: Arc<GenerateAsyncFn> = Arc::new(move |req_in: ChatRequest| {
@@ -807,9 +819,19 @@ impl ChatExecutor for HttpChatExecutor {
             let provider_id = provider_id.clone();
             let provider_spec = provider_spec.clone();
             let provider_context = provider_context.clone();
+            let middlewares = middlewares.clone();
+            let retry_options = retry_options.clone();
             Box::pin({
                 async move {
-                    let body = request_tx.transform_chat(&req_in)?;
+                    let mut body = request_tx.transform_chat(&req_in)?;
+
+                    // Apply middleware JSON body transformations
+                    crate::middleware::language_model::apply_json_body_transform_chain(
+                        &middlewares,
+                        &req_in,
+                        &mut body,
+                    )?;
+
                     let json_body = if let Some(cb) = &before_send {
                         cb(&body)?
                     } else {
@@ -818,19 +840,13 @@ impl ChatExecutor for HttpChatExecutor {
 
                     // Build request and run interceptors
                     // Merge per-request http_config.headers on top of provider/base headers
-                    let merged_headers = {
-                        let mut h = headers_initial.clone();
-                        if let Some(hc) = &req_in.http_config {
-                            for (k, v) in &hc.headers {
-                                if let (Ok(name), Ok(val)) = (
-                                    reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                                    reqwest::header::HeaderValue::from_str(v),
-                                ) {
-                                    h.insert(name, val);
-                                }
-                            }
-                        }
-                        h
+                    let merged_headers = if let Some(hc) = &req_in.http_config {
+                        crate::utils::http_headers::merge_headers(
+                            headers_initial.clone(),
+                            &hc.headers,
+                        )
+                    } else {
+                        headers_initial.clone()
                     };
                     let mut rb = client.post(url.clone()).headers(merged_headers);
                     let ctx = HttpRequestContext {
@@ -853,7 +869,11 @@ impl ChatExecutor for HttpChatExecutor {
                         .map_err(|e| LlmError::HttpError(e.to_string()))?;
                     let resp = if !resp.status().is_success() {
                         let status = resp.status();
-                        if status.as_u16() == 401 {
+                        let should_retry_401 = retry_options
+                            .as_ref()
+                            .map(|opts| opts.retry_401)
+                            .unwrap_or(true);
+                        if status.as_u16() == 401 && should_retry_401 {
                             // Rebuild headers and retry once
                             let headers_retry = provider_spec.build_headers(&provider_context)?;
                             let headers_retry = {
@@ -1085,6 +1105,7 @@ impl ChatExecutor for HttpChatExecutor {
         let middlewares = self.middlewares.clone();
         let provider_spec = self.provider_spec.clone();
         let provider_context = self.provider_context.clone();
+        let retry_options = self.retry_options.clone();
 
         // Base async stream builder
         let base: Arc<StreamAsyncFn> = Arc::new(move |req_in: ChatRequest| {
@@ -1100,8 +1121,17 @@ impl ChatExecutor for HttpChatExecutor {
             let middlewares = middlewares.clone();
             let _provider_spec = provider_spec.clone();
             let _provider_context = provider_context.clone();
+            let retry_options = retry_options.clone();
             Box::pin(async move {
-                let body = request_tx.transform_chat(&req_in)?;
+                let mut body = request_tx.transform_chat(&req_in)?;
+
+                // Apply middleware JSON body transformations
+                crate::middleware::language_model::apply_json_body_transform_chain(
+                    &middlewares,
+                    &req_in,
+                    &mut body,
+                )?;
+
                 let transformed = if let Some(cb) = &before_send {
                     cb(&body)?
                 } else {
@@ -1121,19 +1151,13 @@ impl ChatExecutor for HttpChatExecutor {
                         req_in.http_config.as_ref().map(|hc| hc.headers.clone());
                     move || -> Result<reqwest::RequestBuilder, LlmError> {
                         // Merge per-request headers into base headers
-                        let headers_effective = {
-                            let mut h = headers_base.clone();
-                            if let Some(ref headers_map) = req_headers_extra {
-                                for (k, v) in headers_map.iter() {
-                                    if let (Ok(name), Ok(val)) = (
-                                        reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                                        reqwest::header::HeaderValue::from_str(v),
-                                    ) {
-                                        h.insert(name, val);
-                                    }
-                                }
-                            }
-                            h
+                        let headers_effective = if let Some(ref headers_map) = req_headers_extra {
+                            crate::utils::http_headers::merge_headers(
+                                headers_base.clone(),
+                                headers_map,
+                            )
+                        } else {
+                            headers_base.clone()
                         };
                         let mut rb = http
                             .post(url_for_retry.clone())
@@ -1326,8 +1350,13 @@ impl ChatExecutor for HttpChatExecutor {
                         },
                         convert: mw_wrapped,
                     };
+                    let should_retry_401 = retry_options
+                        .as_ref()
+                        .map(|opts| opts.retry_401)
+                        .unwrap_or(true);
                     StreamFactory::create_eventsource_stream_with_retry(
                         &provider_id,
+                        should_retry_401,
                         build_request,
                         intercepting,
                     )
@@ -1513,6 +1542,7 @@ pub struct ChatExecutorBuilder {
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     before_send: Option<crate::executors::BeforeSendHook>,
+    retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
 impl ChatExecutorBuilder {
@@ -1531,6 +1561,7 @@ impl ChatExecutorBuilder {
             interceptors: Vec::new(),
             middlewares: Vec::new(),
             before_send: None,
+            retry_options: None,
         }
     }
 
@@ -1604,6 +1635,12 @@ impl ChatExecutorBuilder {
         self
     }
 
+    /// Set retry options
+    pub fn with_retry_options(mut self, retry_options: crate::retry_api::RetryOptions) -> Self {
+        self.retry_options = Some(retry_options);
+        self
+    }
+
     /// Build the HttpChatExecutor
     ///
     /// # Panics
@@ -1626,6 +1663,7 @@ impl ChatExecutorBuilder {
             provider_spec: self.spec.expect("provider_spec is required"),
             provider_context: self.context.expect("provider_context is required"),
             before_send: self.before_send,
+            retry_options: self.retry_options,
         })
     }
 }

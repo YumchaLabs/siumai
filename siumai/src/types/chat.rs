@@ -2124,8 +2124,26 @@ pub struct ChatResponse {
     /// Warnings from the model provider (e.g., unsupported settings)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warnings: Option<Vec<Warning>>,
-    /// Provider-specific metadata
-    pub metadata: HashMap<String, serde_json::Value>,
+    /// Provider-specific metadata (nested structure for namespace isolation)
+    ///
+    /// This field contains provider-specific metadata in a nested structure:
+    /// `{ "provider_name": { "key": value, ... }, ... }`
+    ///
+    /// For type-safe access to common provider metadata, use the helper methods:
+    /// - `anthropic_metadata()` for Anthropic-specific metadata
+    /// - `openai_metadata()` for OpenAI-specific metadata
+    /// - `gemini_metadata()` for Gemini-specific metadata
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// if let Some(meta) = response.anthropic_metadata() {
+    ///     if let Some(cache_tokens) = meta.cache_read_input_tokens {
+    ///         println!("Cache hit! Saved {} tokens", cache_tokens);
+    ///     }
+    /// }
+    /// ```
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
 }
 
 impl ChatResponse {
@@ -2141,7 +2159,7 @@ impl ChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: HashMap::new(),
+            provider_metadata: None,
         }
     }
 
@@ -2157,7 +2175,7 @@ impl ChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: HashMap::new(),
+            provider_metadata: None,
         }
     }
 
@@ -2173,7 +2191,7 @@ impl ChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: HashMap::new(),
+            provider_metadata: None,
         }
     }
 
@@ -2371,7 +2389,7 @@ impl ChatResponse {
         self.id.as_deref()
     }
 
-    /// Get provider-specific metadata value by key
+    /// Get provider-specific metadata value by provider and key
     ///
     /// # Example
     /// ```rust,no_run
@@ -2379,19 +2397,88 @@ impl ChatResponse {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o-mini").build().await?;
     /// let response = client.chat(vec![user!("Hello")]).await?;
-    /// if let Some(value) = response.get_metadata("openai.response_id") {
+    /// if let Some(value) = response.get_metadata("openai", "response_id") {
     ///     println!("OpenAI Response ID: {:?}", value);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn get_metadata(&self, key: &str) -> Option<&serde_json::Value> {
-        self.metadata.get(key)
+    pub fn get_metadata(&self, provider: &str, key: &str) -> Option<&serde_json::Value> {
+        self.provider_metadata.as_ref()?.get(provider)?.get(key)
     }
 
     /// Check if response has any metadata
     pub fn has_metadata(&self) -> bool {
-        !self.metadata.is_empty()
+        self.provider_metadata
+            .as_ref()
+            .map(|m| !m.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Get Anthropic-specific metadata with type safety
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use siumai::prelude::*;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = Siumai::builder().anthropic().api_key("key").model("claude-3-5-sonnet-20241022").build().await?;
+    /// let response = client.chat(vec![user!("Hello")]).await?;
+    /// if let Some(meta) = response.anthropic_metadata() {
+    ///     if let Some(cache_tokens) = meta.cache_read_input_tokens {
+    ///         println!("Cache hit! Saved {} tokens", cache_tokens);
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn anthropic_metadata(&self) -> Option<crate::types::AnthropicMetadata> {
+        use crate::types::provider_metadata::FromMetadata;
+        let meta = self.provider_metadata.as_ref()?.get("anthropic")?;
+        crate::types::AnthropicMetadata::from_metadata(meta)
+    }
+
+    /// Get OpenAI-specific metadata with type safety
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use siumai::prelude::*;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o").build().await?;
+    /// let response = client.chat(vec![user!("Hello")]).await?;
+    /// if let Some(meta) = response.openai_metadata() {
+    ///     if let Some(reasoning_tokens) = meta.reasoning_tokens {
+    ///         println!("Reasoning tokens used: {}", reasoning_tokens);
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn openai_metadata(&self) -> Option<crate::types::OpenAiMetadata> {
+        use crate::types::provider_metadata::FromMetadata;
+        let meta = self.provider_metadata.as_ref()?.get("openai")?;
+        crate::types::OpenAiMetadata::from_metadata(meta)
+    }
+
+    /// Get Gemini-specific metadata with type safety
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use siumai::prelude::*;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = Siumai::builder().gemini().api_key("key").model("gemini-2.0-flash-exp").build().await?;
+    /// let response = client.chat(vec![user!("Hello")]).await?;
+    /// if let Some(meta) = response.gemini_metadata() {
+    ///     if let Some(grounding) = &meta.grounding_metadata {
+    ///         println!("Grounding support: {:?}", grounding.grounding_support);
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn gemini_metadata(&self) -> Option<crate::types::GeminiMetadata> {
+        use crate::types::provider_metadata::FromMetadata;
+        let meta = self.provider_metadata.as_ref()?.get("gemini")?;
+        crate::types::GeminiMetadata::from_metadata(meta)
     }
 }
 
@@ -2410,21 +2497,27 @@ mod tests {
 
         // Test get_metadata() and has_metadata()
         assert!(!response.has_metadata());
-        assert_eq!(response.get_metadata("key1"), None);
+        assert_eq!(response.get_metadata("openai", "key1"), None);
 
-        response
-            .metadata
-            .insert("key1".to_string(), serde_json::json!("value1"));
-        response
-            .metadata
-            .insert("key2".to_string(), serde_json::json!(42));
+        // Create nested metadata structure
+        let mut openai_meta = HashMap::new();
+        openai_meta.insert("key1".to_string(), serde_json::json!("value1"));
+        openai_meta.insert("key2".to_string(), serde_json::json!(42));
+
+        let mut provider_metadata = HashMap::new();
+        provider_metadata.insert("openai".to_string(), openai_meta);
+        response.provider_metadata = Some(provider_metadata);
 
         assert!(response.has_metadata());
         assert_eq!(
-            response.get_metadata("key1"),
+            response.get_metadata("openai", "key1"),
             Some(&serde_json::json!("value1"))
         );
-        assert_eq!(response.get_metadata("key2"), Some(&serde_json::json!(42)));
-        assert_eq!(response.get_metadata("nonexistent"), None);
+        assert_eq!(
+            response.get_metadata("openai", "key2"),
+            Some(&serde_json::json!(42))
+        );
+        assert_eq!(response.get_metadata("openai", "nonexistent"), None);
+        assert_eq!(response.get_metadata("anthropic", "key1"), None);
     }
 }

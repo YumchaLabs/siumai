@@ -114,7 +114,8 @@ mod tests {
                     system_fingerprint: None,
                     service_tier: None,
                     audio: None,
-                    metadata: std::collections::HashMap::new(),
+                    warnings: None,
+                    provider_metadata: None,
                 })
             }
 

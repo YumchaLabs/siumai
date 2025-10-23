@@ -122,6 +122,85 @@ pub trait LanguageModelMiddleware: Send + Sync {
     fn override_model_id(&self, _current: &str) -> Option<String> {
         None
     }
+
+    /// Transform JSON body before HTTP send.
+    ///
+    /// This hook is called after the request has been transformed to JSON
+    /// but before it's sent to the provider. This allows middleware to:
+    /// - Add custom fields to the request body
+    /// - Modify provider-specific parameters
+    /// - Inject debugging/tracing information
+    ///
+    /// # Arguments
+    /// * `req` - The original ChatRequest
+    /// * `body` - Mutable reference to the JSON body that will be sent
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// fn transform_json_body(
+    ///     &self,
+    ///     _req: &ChatRequest,
+    ///     body: &mut serde_json::Value,
+    /// ) -> Result<(), LlmError> {
+    ///     // Add custom field
+    ///     body["custom_field"] = json!("custom_value");
+    ///     Ok(())
+    /// }
+    /// ```
+    fn transform_json_body(
+        &self,
+        _req: &ChatRequest,
+        _body: &mut serde_json::Value,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    /// Stream end callback.
+    ///
+    /// Called when a stream completes successfully.
+    /// Receives the final ChatResponse from StreamEnd event.
+    ///
+    /// # Arguments
+    /// * `req` - The original ChatRequest
+    /// * `response` - The final ChatResponse from StreamEnd
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// fn on_stream_end(
+    ///     &self,
+    ///     _req: &ChatRequest,
+    ///     response: &ChatResponse,
+    /// ) -> Result<(), LlmError> {
+    ///     println!("Stream completed: {:?}", response.finish_reason);
+    ///     Ok(())
+    /// }
+    /// ```
+    fn on_stream_end(&self, _req: &ChatRequest, _response: &ChatResponse) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    /// Stream error callback.
+    ///
+    /// Called when a stream encounters an error.
+    ///
+    /// # Arguments
+    /// * `req` - The original ChatRequest
+    /// * `error` - The error that occurred
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// fn on_stream_error(
+    ///     &self,
+    ///     _req: &ChatRequest,
+    ///     error: &LlmError,
+    /// ) -> Result<(), LlmError> {
+    ///     eprintln!("Stream error: {}", error);
+    ///     Ok(())
+    /// }
+    /// ```
+    fn on_stream_error(&self, _req: &ChatRequest, _error: &LlmError) -> Result<(), LlmError> {
+        Ok(())
+    }
 }
 
 /// Apply `transform_params` across middlewares in order.
@@ -133,6 +212,30 @@ pub fn apply_transform_chain(
         req = mw.transform_params(req);
     }
     req
+}
+
+/// Apply `transform_json_body` across middlewares in order.
+///
+/// This is called after the request has been transformed to JSON
+/// but before it's sent to the provider.
+///
+/// # Arguments
+/// * `middlewares` - List of middlewares to apply
+/// * `req` - The original ChatRequest
+/// * `body` - Mutable reference to the JSON body
+///
+/// # Returns
+/// * `Ok(())` if all transformations succeeded
+/// * `Err(LlmError)` if any transformation failed
+pub fn apply_json_body_transform_chain(
+    middlewares: &[Arc<dyn LanguageModelMiddleware>],
+    req: &ChatRequest,
+    body: &mut serde_json::Value,
+) -> Result<(), LlmError> {
+    for mw in middlewares {
+        mw.transform_json_body(req, body)?;
+    }
+    Ok(())
 }
 
 /// Try pre-generate short-circuit middlewares in reverse order (last registered runs first).
@@ -181,6 +284,22 @@ pub fn apply_stream_event_chain(
     req: &ChatRequest,
     ev: ChatStreamEvent,
 ) -> Result<Vec<ChatStreamEvent>, LlmError> {
+    // Call on_stream_end or on_stream_error hooks before processing the event
+    match &ev {
+        ChatStreamEvent::StreamEnd { response } => {
+            for mw in middlewares {
+                mw.on_stream_end(req, response)?;
+            }
+        }
+        ChatStreamEvent::Error { error } => {
+            let llm_error = LlmError::InternalError(error.clone());
+            for mw in middlewares {
+                mw.on_stream_error(req, &llm_error)?;
+            }
+        }
+        _ => {}
+    }
+
     let mut events = vec![ev];
     for mw in middlewares {
         let mut next_batch = Vec::new();

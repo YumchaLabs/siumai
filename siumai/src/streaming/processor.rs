@@ -288,10 +288,10 @@ impl StreamProcessor {
         &self,
         finish_reason: Option<FinishReason>,
     ) -> ChatResponse {
-        let mut metadata = HashMap::new();
+        let mut stream_metadata = HashMap::new();
 
         if !self.thinking_buffer.is_empty() {
-            metadata.insert(
+            stream_metadata.insert(
                 "thinking".to_string(),
                 serde_json::Value::String(self.thinking_buffer.clone()),
             );
@@ -341,6 +341,15 @@ impl StreamProcessor {
             MessageContent::Text(String::new())
         };
 
+        // Convert to nested provider_metadata structure
+        let provider_metadata = if !stream_metadata.is_empty() {
+            let mut meta = HashMap::new();
+            meta.insert("stream".to_string(), stream_metadata);
+            Some(meta)
+        } else {
+            None
+        };
+
         ChatResponse {
             id: None,
             content,
@@ -351,7 +360,7 @@ impl StreamProcessor {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata,
+            provider_metadata,
         }
     }
 }

@@ -50,6 +50,10 @@ pub mod config;
 pub mod types;
 pub mod utils;
 
+// Provider-Model architecture
+pub mod model_impls;
+pub mod provider_impl;
+
 #[cfg(test)]
 mod thinking_utils_test;
 
@@ -79,6 +83,10 @@ pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
 pub use types::*;
+
+// Re-export Provider-Model architecture
+pub use model_impls::{OpenAiChatModel, OpenAiEmbeddingModel, OpenAiImageModel};
+pub use provider_impl::OpenAiProvider;
 
 // Re-export capability implementations
 pub use files::OpenAiFiles;

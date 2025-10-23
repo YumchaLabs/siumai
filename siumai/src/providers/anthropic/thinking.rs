@@ -179,9 +179,18 @@ impl ThinkingResponseParser {
         thinking_content: Option<String>,
     ) -> ChatResponse {
         if let Some(thinking) = thinking_content {
-            response
-                .metadata
-                .insert("thinking".to_string(), serde_json::Value::String(thinking));
+            // Add thinking to provider_metadata under "anthropic" namespace
+            let mut anthropic_meta = response
+                .provider_metadata
+                .as_ref()
+                .and_then(|m| m.get("anthropic").cloned())
+                .unwrap_or_default();
+
+            anthropic_meta.insert("thinking".to_string(), serde_json::Value::String(thinking));
+
+            let mut provider_metadata = response.provider_metadata.unwrap_or_default();
+            provider_metadata.insert("anthropic".to_string(), anthropic_meta);
+            response.provider_metadata = Some(provider_metadata);
         }
         response
     }

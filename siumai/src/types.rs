@@ -11,6 +11,7 @@ pub mod files;
 pub mod image;
 pub mod models;
 pub mod moderation;
+pub mod provider_metadata;
 pub mod provider_options;
 pub mod rerank;
 pub mod schema;
@@ -34,3 +35,6 @@ pub use schema::*;
 pub use streaming::*;
 pub use tools::*;
 pub use web_search::*;
+
+// Re-export provider metadata types (not wildcard to avoid conflicts)
+pub use provider_metadata::{AnthropicMetadata, GeminiMetadata, OpenAiMetadata};

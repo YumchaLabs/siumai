@@ -133,7 +133,7 @@ impl ResponseTransformer for OllamaResponseTransformer {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: std::collections::HashMap::new(),
+            provider_metadata: None,
         })
     }
 }

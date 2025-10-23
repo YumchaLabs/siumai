@@ -152,11 +152,11 @@ impl OllamaChatCapability {
             });
 
         // Create metadata with performance metrics
-        let mut metadata = std::collections::HashMap::new();
+        let mut ollama_metadata = std::collections::HashMap::new();
         if let Some(tokens_per_second) =
             calculate_tokens_per_second(response.eval_count, response.eval_duration)
         {
-            metadata.insert(
+            ollama_metadata.insert(
                 "tokens_per_second".to_string(),
                 serde_json::Value::Number(
                     serde_json::Number::from_f64(tokens_per_second)
@@ -165,11 +165,20 @@ impl OllamaChatCapability {
             );
         }
         if let Some(total_duration) = response.total_duration {
-            metadata.insert(
+            ollama_metadata.insert(
                 "total_duration_ms".to_string(),
                 serde_json::Value::Number(serde_json::Number::from(total_duration / 1_000_000)),
             );
         }
+
+        // Wrap in provider_metadata structure
+        let provider_metadata = if !ollama_metadata.is_empty() {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("ollama".to_string(), ollama_metadata);
+            Some(meta)
+        } else {
+            None
+        };
 
         ChatResponse {
             id: Some(format!("ollama-{}", chrono::Utc::now().timestamp_millis())),
@@ -181,7 +190,7 @@ impl OllamaChatCapability {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata,
+            provider_metadata,
         }
     }
 }
@@ -365,7 +374,11 @@ mod tests {
             Some(crate::types::FinishReason::Stop)
         );
         assert!(response.usage.is_some());
-        assert!(response.metadata.contains_key("total_duration_ms"));
+        assert!(
+            response
+                .get_metadata("ollama", "total_duration_ms")
+                .is_some()
+        );
     }
 
     // Test for structured_output via provider_params has been removed

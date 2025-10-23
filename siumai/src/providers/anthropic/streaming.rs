@@ -12,7 +12,7 @@ use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata,
 use eventsource_stream::Event;
 use secrecy::SecretString;
 use serde::Deserialize;
-use std::collections::HashMap;
+
 use std::future::Future;
 use std::pin::Pin;
 
@@ -199,7 +199,7 @@ impl AnthropicEventConverter {
                         system_fingerprint: None,
                         service_tier: None,
                         warnings: None,
-                        metadata: HashMap::new(),
+                        provider_metadata: None,
                     };
                     builder = builder.add_stream_end(response);
                 }
@@ -220,7 +220,7 @@ impl AnthropicEventConverter {
                     system_fingerprint: None,
                     service_tier: None,
                     warnings: None,
-                    metadata: HashMap::new(),
+                    provider_metadata: None,
                 };
                 EventBuilder::new().add_stream_end(response).build()
             }
@@ -305,7 +305,7 @@ impl SseEventConverter for AnthropicEventConverter {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: HashMap::new(),
+            provider_metadata: None,
         };
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
@@ -384,8 +384,13 @@ impl AnthropicStreaming {
         };
 
         let converter = AnthropicEventConverter::new(self.config);
-        StreamFactory::create_eventsource_stream_with_retry("anthropic", build_request, converter)
-            .await
+        StreamFactory::create_eventsource_stream_with_retry(
+            "anthropic",
+            true,
+            build_request,
+            converter,
+        )
+        .await
     }
 
     // Legacy message conversion helper removed; handled by Transformers

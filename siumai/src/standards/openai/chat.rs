@@ -331,28 +331,64 @@ impl StreamChunkTransformer for OpenAiChatStreamTransformer {
         // Reuse the existing OpenAI stream transformer logic
         use crate::streaming::SseEventConverter;
 
+        let chat_adapter = self.adapter.clone();
+
         // Create a minimal config for the converter
-        let adapter: Arc<dyn crate::providers::openai_compatible::adapter::ProviderAdapter> =
-            Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
-                base_url: String::new(),
-            });
+        let provider_adapter: Arc<
+            dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
+        > = Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
+            base_url: String::new(),
+        });
         let config =
             crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig::new(
                 &self.provider_id,
                 "",
                 "",
-                adapter.clone(),
+                provider_adapter.clone(),
             );
 
         let inner =
             crate::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter::new(
-                config, adapter,
+                config,
+                provider_adapter,
             );
 
-        // TODO: Apply adapter transformations to SSE events
-        // This requires modifying the event converter to support adapters
+        Box::pin(async move {
+            // Apply adapter transformation to SSE event if adapter is present
+            let event_to_process = if let Some(adapter) = chat_adapter {
+                // Parse JSON, apply adapter transformation, then re-serialize
+                match crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data) {
+                    Ok(mut json) => {
+                        // Apply adapter transformation
+                        if let Err(e) = adapter.transform_sse_event(&mut json) {
+                            return vec![Err(e)];
+                        }
+                        // Re-serialize to create modified event
+                        let modified_data = match serde_json::to_string(&json) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                return vec![Err(LlmError::ParseError(format!(
+                                    "Failed to serialize modified SSE event: {e}"
+                                )))];
+                            }
+                        };
+                        eventsource_stream::Event {
+                            data: modified_data,
+                            ..event
+                        }
+                    }
+                    Err(e) => {
+                        return vec![Err(LlmError::ParseError(format!(
+                            "Failed to parse SSE event for adapter transformation: {e}"
+                        )))];
+                    }
+                }
+            } else {
+                event
+            };
 
-        Box::pin(async move { inner.convert_event(event).await })
+            inner.convert_event(event_to_process).await
+        })
     }
 
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {

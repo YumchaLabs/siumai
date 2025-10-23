@@ -12,7 +12,7 @@ use crate::types::{
 };
 use eventsource_stream::Event;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -245,7 +245,7 @@ impl OpenAiCompatibleEventConverter {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
-                metadata: std::collections::HashMap::new(),
+                provider_metadata: None,
             };
             builder = builder.add_stream_end(response);
         }
@@ -674,7 +674,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: HashMap::new(),
+            provider_metadata: None,
         };
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
@@ -743,6 +743,7 @@ impl OpenAiCompatibleStreaming {
         let converter = OpenAiCompatibleEventConverter::new(self.config, self.adapter);
         StreamFactory::create_eventsource_stream_with_retry(
             "openai-compatible",
+            true,
             build_request,
             converter,
         )

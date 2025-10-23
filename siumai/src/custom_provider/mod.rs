@@ -264,6 +264,15 @@ impl CustomChatResponse {
             MessageContent::MultiModal(content_parts)
         };
 
+        // Convert flat metadata to nested provider_metadata structure
+        let provider_metadata = if !self.metadata.is_empty() {
+            let mut meta = HashMap::new();
+            meta.insert("custom".to_string(), self.metadata.clone());
+            Some(meta)
+        } else {
+            None
+        };
+
         ChatResponse {
             id: None,
             content,
@@ -280,7 +289,7 @@ impl CustomChatResponse {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            metadata: self.metadata.clone(),
+            provider_metadata,
         }
     }
 }

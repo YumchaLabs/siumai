@@ -307,6 +307,8 @@ mod tests {
                     )
                 })
                 .collect(),
+            tool_results: vec![],
+            warnings: None,
         }
     }
 
@@ -316,6 +318,8 @@ mod tests {
             finish_reason: None,
             usage: None,
             tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
         }
     }
 

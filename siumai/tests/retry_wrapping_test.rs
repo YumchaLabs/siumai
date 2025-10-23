@@ -40,11 +40,11 @@ impl ChatCapability for TestProvider {
                 model: Some("mock-model".into()),
                 usage: None,
                 finish_reason: Some(FinishReason::Stop),
-                metadata: std::collections::HashMap::new(),
+                provider_metadata: None,
+                warnings: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
-                warnings: None,
             })
         }
     }
