@@ -27,6 +27,8 @@ pub struct StreamProcessorConfig {
     pub max_thinking_buffer_size: Option<usize>,
     /// Maximum number of tool calls to track
     pub max_tool_calls: Option<usize>,
+    /// Maximum accumulated size for a single tool call's arguments (in bytes)
+    pub max_tool_arguments_size: Option<usize>,
     /// Handler for buffer overflow
     pub overflow_handler: Option<OverflowHandler>,
 }
@@ -37,6 +39,7 @@ impl std::fmt::Debug for StreamProcessorConfig {
             .field("max_content_buffer_size", &self.max_content_buffer_size)
             .field("max_thinking_buffer_size", &self.max_thinking_buffer_size)
             .field("max_tool_calls", &self.max_tool_calls)
+            .field("max_tool_arguments_size", &self.max_tool_arguments_size)
             .field(
                 "has_overflow_handler",
                 &self
@@ -56,6 +59,7 @@ impl StreamProcessorConfig {
             max_content_buffer_size: Some(10 * 1024 * 1024), // 10MB default
             max_thinking_buffer_size: Some(5 * 1024 * 1024), // 5MB default
             max_tool_calls: Some(100),                       // 100 tool calls max
+            max_tool_arguments_size: None,                   // default: no truncation for args
             overflow_handler: None,
         }
     }
@@ -224,7 +228,23 @@ impl StreamProcessor {
 
         // Accumulate arguments
         if let Some(args) = arguments_delta {
-            builder.arguments.push_str(&args);
+            if let Some(max_args) = self.config.max_tool_arguments_size {
+                let new_size = builder.arguments.len() + args.len();
+                if new_size > max_args {
+                    if let Some(handler) = &self.config.overflow_handler {
+                        (handler)("tool_arguments", new_size);
+                    }
+                    let available = max_args.saturating_sub(builder.arguments.len());
+                    if available > 0 {
+                        let truncated: String = args.chars().take(available).collect();
+                        builder.arguments.push_str(&truncated);
+                    }
+                } else {
+                    builder.arguments.push_str(&args);
+                }
+            } else {
+                builder.arguments.push_str(&args);
+            }
         }
 
         ProcessedEvent::ToolCallUpdate {
@@ -430,5 +450,34 @@ impl ToolCallBuilder {
             name: String::new(),
             arguments: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_arguments_respect_max_size() {
+        let mut cfg = StreamProcessorConfig::default();
+        cfg.max_tool_arguments_size = Some(8);
+        let mut called = false;
+        cfg.overflow_handler = Some(Box::new(|name, size| {
+            assert_eq!(name, "tool_arguments");
+            assert!(size > 8);
+            called = true;
+        }));
+        let mut sp = StreamProcessor::with_config(cfg);
+        let ev = ChatStreamEvent::ToolCallDelta {
+            id: "id1".into(),
+            function_name: Some("fn".into()),
+            arguments_delta: Some("abcdefghijk".into()),
+            index: Some(0),
+        };
+        let _ = sp.process_event(ev);
+        // Ensure builder exists and arguments have been truncated
+        let b = sp.tool_calls.get("id1").unwrap();
+        assert!(b.arguments.len() <= 8);
+        assert!(called);
     }
 }

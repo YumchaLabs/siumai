@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use siumai::providers::openai_compatible::adapter::ProviderAdapter;
 use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::types::{FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig};
 use siumai::providers::openai_compatible::types::RequestType;
+use siumai::providers::openai_compatible::types::{
+    FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig,
+};
 use siumai::traits::EmbeddingCapability;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -82,7 +84,7 @@ async fn embedding_request_includes_adapter_mapping() {
     });
     // Register custom adapter into the global registry so Spec can resolve it
     {
-        use siumai::registry::{global_registry, ProviderRecord};
+        use siumai::registry::{ProviderRecord, global_registry};
         let mut guard = global_registry().lock().unwrap();
         let record = ProviderRecord {
             id: "mapping-test".to_string(),
@@ -96,19 +98,13 @@ async fn embedding_request_includes_adapter_mapping() {
         };
         guard.register(record);
     }
-    let config = OpenAiCompatibleConfig::new(
-        "mapping-test",
-        "test-key",
-        &server.uri(),
-        adapter,
-    )
-    .with_model("text-embedding-test");
+    let config = OpenAiCompatibleConfig::new("mapping-test", "test-key", &server.uri(), adapter)
+        .with_model("text-embedding-test");
 
-    let client = siumai::providers::openai_compatible::openai_client::OpenAiCompatibleClient::new(
-        config,
-    )
-    .await
-    .unwrap();
+    let client =
+        siumai::providers::openai_compatible::openai_client::OpenAiCompatibleClient::new(config)
+            .await
+            .unwrap();
 
     // Issue embedding request
     let _ = client

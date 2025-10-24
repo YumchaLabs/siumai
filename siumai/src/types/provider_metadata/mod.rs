@@ -4,7 +4,6 @@
 //! returned in responses. While the response stores metadata as a nested HashMap
 //! for flexibility, these types provide type-safe access to common provider metadata.
 
-
 pub mod anthropic;
 pub mod gemini;
 pub mod openai;

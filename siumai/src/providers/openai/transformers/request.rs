@@ -99,6 +99,19 @@ impl RequestTransformer for OpenAiRequestTransformer {
                     from: "stop_sequences",
                     to: "stop",
                 },
+                // For o1-* models, prefer max_completion_tokens by moving max_tokens
+                Rule::When {
+                    condition: Condition::ModelPrefix("o1-"),
+                    rules: vec![
+                        Rule::Move {
+                            from: "max_tokens",
+                            to: "max_completion_tokens",
+                        },
+                        Rule::Drop {
+                            field: "max_tokens",
+                        },
+                    ],
+                },
                 // Stable ranges: temperature and top_p
                 Rule::Range {
                     field: "temperature",
@@ -220,14 +233,10 @@ impl RequestTransformer for OpenAiRequestTransformer {
 
             fn post_process_image(
                 &self,
-                req: &ImageGenerationRequest,
-                body: &mut serde_json::Value,
+                _req: &ImageGenerationRequest,
+                _body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                if let Some(obj) = body.as_object_mut() {
-                    for (k, v) in &req.extra_params {
-                        obj.insert(k.clone(), v.clone());
-                    }
-                }
+                // 合并额外参数已在 GenericRequestTransformer 中通过 merge_strategy 统一处理
                 Ok(())
             }
         }
@@ -333,6 +342,23 @@ impl RequestTransformer for OpenAiRequestTransformer {
         };
 
         Ok(serde_json::json!({ "model": model, "input": input_value }))
+    }
+}
+
+#[cfg(test)]
+mod tests_openai_rules {
+    use super::*;
+
+    #[test]
+    fn when_model_prefix_o1_moves_max_tokens() {
+        let tx = OpenAiRequestTransformer;
+        let mut req = ChatRequest::new(vec![]);
+        req.common_params.model = "o1-mini".to_string();
+        req.common_params.max_tokens = Some(123);
+        let body = tx.transform_chat(&req).expect("transform");
+        // max_tokens should be moved to max_completion_tokens
+        assert!(body.get("max_tokens").is_none());
+        assert_eq!(body["max_completion_tokens"], serde_json::json!(123));
     }
 }
 

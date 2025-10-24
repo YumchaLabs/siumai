@@ -28,9 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "openai")]
     {
         let model = reg.language_model("openai:gpt-4o-mini")?;
-        let resp = model
-            .chat(vec![user!("Say hello in one sentence")])
-            .await?;
+        let resp = model.chat(vec![user!("Say hello in one sentence")]).await?;
         println!("Response: {}\n", resp.content_text().unwrap_or_default());
     }
 

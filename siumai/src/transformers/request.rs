@@ -9,6 +9,7 @@ use crate::types::{
     ChatRequest, EmbeddingRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
     ModerationRequest, RerankRequest,
 };
+use std::collections::HashMap;
 
 /// Body for image HTTP requests
 pub enum ImageHttpBody {
@@ -138,6 +139,19 @@ pub enum Rule {
         condition: Condition,
         message: &'static str,
     },
+    /// Map a discrete string value from one field to another field according to a map
+    /// For example: map {"low"->"lite", "high"->"pro"}
+    EnumMap {
+        from: &'static str,
+        to: &'static str,
+        map: Vec<(String, serde_json::Value)>,
+        default: Option<serde_json::Value>,
+    },
+    /// Conditionally apply a list of rules when a condition holds
+    When {
+        condition: Condition,
+        rules: Vec<Rule>,
+    },
     /// Validate array field maximum length
     MaxLen {
         field: &'static str,
@@ -221,6 +235,51 @@ pub struct GenericRequestTransformer<H: ProviderRequestHooks> {
 }
 
 impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
+    /// Merge a key/value map into the request body using the configured strategy
+    fn merge_map(
+        strategy: &ProviderParamsMergeStrategy,
+        body: &mut serde_json::Value,
+        params: &HashMap<String, serde_json::Value>,
+    ) {
+        if params.is_empty() {
+            return;
+        }
+
+        match strategy {
+            ProviderParamsMergeStrategy::Flatten => {
+                if let Some(obj) = body.as_object_mut() {
+                    for (k, v) in params {
+                        obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            ProviderParamsMergeStrategy::Namespace(ns) => {
+                if let Some(root) = body.as_object_mut() {
+                    let entry = root
+                        .entry(ns.to_string())
+                        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+                    if let Some(obj) = entry.as_object_mut() {
+                        for (k, v) in params {
+                            obj.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove top-level nulls for a cleaner payload
+    fn clean_top_level_nulls(body: &mut serde_json::Value) {
+        if let serde_json::Value::Object(obj) = body {
+            let keys: Vec<String> = obj
+                .iter()
+                .filter_map(|(k, v)| if v.is_null() { Some(k.clone()) } else { None })
+                .collect();
+            for k in keys {
+                obj.remove(&k);
+            }
+        }
+    }
     fn get_path<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
         let mut cur = v;
         for seg in path.split('.') {
@@ -388,13 +447,13 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         Ok(())
     }
 
-    fn apply_rules(
+    fn apply_rule_list(
         &self,
         req: &crate::types::ChatRequest,
         body: &mut serde_json::Value,
+        rules: &[Rule],
     ) -> Result<(), LlmError> {
-        // First pass rules
-        for r in &self.profile.rules {
+        for r in rules {
             match r {
                 Rule::Move { from, to } => Self::move_field(body, from, to),
                 Rule::Drop { field } => Self::drop_field(body, field),
@@ -426,6 +485,44 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                         }
                     }
                 }
+                Rule::EnumMap {
+                    from,
+                    to,
+                    map,
+                    default,
+                } => {
+                    let current =
+                        Self::get_path(body, from).and_then(|v| v.as_str().map(|s| s.to_string()));
+                    if let Some(key) = current {
+                        // Find mapping for key
+                        if let Some((_, mapped)) = map.iter().find(|(k, _)| k == &key) {
+                            if let Some(parent) = Self::ensure_parent_object(body, to) {
+                                let leaf = to.split('.').next_back().unwrap();
+                                parent.insert(leaf.to_string(), mapped.clone());
+                            }
+                        } else if let Some(d) = default.clone() {
+                            if let Some(parent) = Self::ensure_parent_object(body, to) {
+                                let leaf = to.split('.').next_back().unwrap();
+                                parent.insert(leaf.to_string(), d);
+                            }
+                        }
+                    } else if let Some(d) = default.clone() {
+                        if let Some(parent) = Self::ensure_parent_object(body, to) {
+                            let leaf = to.split('.').next_back().unwrap();
+                            parent.insert(leaf.to_string(), d);
+                        }
+                    }
+                }
+                Rule::When { condition, rules } => {
+                    let cond = match condition {
+                        Condition::ModelPrefix(prefix) => {
+                            req.common_params.model.starts_with(prefix)
+                        }
+                    };
+                    if cond {
+                        self.apply_rule_list(req, body, rules)?;
+                    }
+                }
                 Rule::MaxLen {
                     field,
                     max,
@@ -433,6 +530,16 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                 } => Self::validate_max_len(body, field, *max, message)?,
             }
         }
+        Ok(())
+    }
+
+    fn apply_rules(
+        &self,
+        req: &crate::types::ChatRequest,
+        body: &mut serde_json::Value,
+    ) -> Result<(), LlmError> {
+        // First pass rules
+        self.apply_rule_list(req, body, &self.profile.rules)?;
 
         // Clean nulls at the top level only
         if let serde_json::Value::Object(obj) = body {
@@ -474,19 +581,18 @@ impl<H: ProviderRequestHooks> RequestTransformer for GenericRequestTransformer<H
         // Build via hooks
         let mut body = self.hooks.build_base_embedding_body(req)?;
 
+        // Merge provider-specific params according to profile strategy
+        Self::merge_map(
+            &self.profile.merge_strategy,
+            &mut body,
+            &req.provider_params,
+        );
+
         // Post-process
         self.hooks.post_process_embedding(req, &mut body)?;
 
         // Clean top-level nulls
-        if let serde_json::Value::Object(obj) = &mut body {
-            let keys: Vec<String> = obj
-                .iter()
-                .filter_map(|(k, v)| if v.is_null() { Some(k.clone()) } else { None })
-                .collect();
-            for k in keys {
-                obj.remove(&k);
-            }
-        }
+        Self::clean_top_level_nulls(&mut body);
 
         Ok(body)
     }
@@ -497,20 +603,179 @@ impl<H: ProviderRequestHooks> RequestTransformer for GenericRequestTransformer<H
     ) -> Result<serde_json::Value, LlmError> {
         let mut body = self.hooks.build_base_image_body(req)?;
 
+        // Merge extra params according to profile strategy
+        Self::merge_map(&self.profile.merge_strategy, &mut body, &req.extra_params);
+
         // Post-process image
         self.hooks.post_process_image(req, &mut body)?;
 
         // Clean top-level nulls
-        if let serde_json::Value::Object(obj) = &mut body {
-            let keys: Vec<String> = obj
-                .iter()
-                .filter_map(|(k, v)| if v.is_null() { Some(k.clone()) } else { None })
-                .collect();
-            for k in keys {
-                obj.remove(&k);
-            }
-        }
+        Self::clean_top_level_nulls(&mut body);
 
         Ok(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyHooks;
+    impl ProviderRequestHooks for DummyHooks {
+        fn build_base_embedding_body(
+            &self,
+            req: &crate::types::EmbeddingRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({
+                "model": req.model.clone().unwrap_or_else(|| "m".to_string()),
+                "input": req.input,
+                "nullable": serde_json::Value::Null,
+            }))
+        }
+
+        fn build_base_image_body(
+            &self,
+            req: &crate::types::ImageGenerationRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({
+                "prompt": req.prompt,
+                "size": req.size,
+                "nullable": serde_json::Value::Null,
+            }))
+        }
+    }
+
+    #[test]
+    fn merge_embedding_params_flatten_and_cleanup() {
+        let profile = MappingProfile {
+            provider_id: "test",
+            rules: vec![],
+            merge_strategy: ProviderParamsMergeStrategy::Flatten,
+        };
+        let tx = GenericRequestTransformer {
+            profile,
+            hooks: DummyHooks,
+        };
+
+        let mut req = EmbeddingRequest::new(vec!["hello".into()]).with_model("m");
+        req = req.with_provider_param("foo", serde_json::json!("bar"));
+        let mut body = tx.transform_embedding(&req).unwrap();
+        assert_eq!(body["foo"], serde_json::json!("bar"));
+        // top-level nulls removed
+        assert!(body.get("nullable").is_none());
+    }
+
+    #[test]
+    fn merge_embedding_params_namespace() {
+        let profile = MappingProfile {
+            provider_id: "test",
+            rules: vec![],
+            merge_strategy: ProviderParamsMergeStrategy::Namespace("ns"),
+        };
+        let tx = GenericRequestTransformer {
+            profile,
+            hooks: DummyHooks,
+        };
+
+        let mut req = EmbeddingRequest::new(vec!["hello".into()]).with_model("m");
+        req = req.with_provider_param("alpha", serde_json::json!(1));
+        let body = tx.transform_embedding(&req).unwrap();
+        assert_eq!(body["ns"]["alpha"], serde_json::json!(1));
+        assert!(body.get("alpha").is_none());
+    }
+
+    #[test]
+    fn merge_image_extra_params_flatten() {
+        let profile = MappingProfile {
+            provider_id: "test",
+            rules: vec![],
+            merge_strategy: ProviderParamsMergeStrategy::Flatten,
+        };
+        let tx = GenericRequestTransformer {
+            profile,
+            hooks: DummyHooks,
+        };
+
+        let mut req = ImageGenerationRequest::default();
+        req.prompt = "draw cat".into();
+        req.extra_params
+            .insert("style".into(), serde_json::json!("anime"));
+        let body = tx.transform_image(&req).unwrap();
+        assert_eq!(body["style"], serde_json::json!("anime"));
+    }
+
+    #[test]
+    fn enum_map_applies_to_chat_body() {
+        // Build a transformer with EnumMap rule
+        let profile = MappingProfile {
+            provider_id: "test",
+            rules: vec![Rule::EnumMap {
+                from: "service",
+                to: "service_tier",
+                map: vec![
+                    ("premium".to_string(), serde_json::json!("pro")),
+                    ("basic".to_string(), serde_json::json!("lite")),
+                ],
+                default: Some(serde_json::json!("standard")),
+            }],
+            merge_strategy: ProviderParamsMergeStrategy::Flatten,
+        };
+        struct ChatHooks;
+        impl ProviderRequestHooks for ChatHooks {
+            fn build_base_chat_body(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(serde_json::json!({ "service": "premium" }))
+            }
+        }
+        let tx = GenericRequestTransformer {
+            profile,
+            hooks: ChatHooks,
+        };
+
+        let mut req = crate::types::ChatRequest::new(vec![]);
+        req.common_params.model = "gpt-4".to_string();
+        let out = tx.transform_chat(&req).unwrap();
+        assert_eq!(out["service_tier"], serde_json::json!("pro"));
+    }
+
+    #[test]
+    fn when_condition_model_prefix_applies_rules() {
+        // When model starts with o1-, set max_completion_tokens default to 100
+        let profile = MappingProfile {
+            provider_id: "test",
+            rules: vec![Rule::When {
+                condition: Condition::ModelPrefix("o1-"),
+                rules: vec![Rule::Default {
+                    field: "max_completion_tokens",
+                    value: serde_json::json!(100),
+                }],
+            }],
+            merge_strategy: ProviderParamsMergeStrategy::Flatten,
+        };
+        struct ChatHooks;
+        impl ProviderRequestHooks for ChatHooks {
+            fn build_base_chat_body(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(serde_json::json!({ "model": "ignored" }))
+            }
+        }
+        let tx = GenericRequestTransformer {
+            profile,
+            hooks: ChatHooks,
+        };
+
+        let mut req = crate::types::ChatRequest::new(vec![]);
+        req.common_params.model = "o1-mini".to_string();
+        let out = tx.transform_chat(&req).unwrap();
+        assert_eq!(out["max_completion_tokens"], serde_json::json!(100));
+
+        let mut req2 = crate::types::ChatRequest::new(vec![]);
+        req2.common_params.model = "gpt-4o".to_string();
+        let out2 = tx.transform_chat(&req2).unwrap();
+        assert!(out2.get("max_completion_tokens").is_none());
     }
 }

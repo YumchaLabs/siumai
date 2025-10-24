@@ -50,7 +50,9 @@ impl ProviderSpec for OpenAiCompatibleSpec {
 
     fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
         // Resolve adapter to support providers with divergent chat routes
-        let adapter: std::sync::Arc<dyn crate::providers::openai_compatible::adapter::ProviderAdapter> = {
+        let adapter: std::sync::Arc<
+            dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
+        > = {
             #[cfg(feature = "openai")]
             {
                 crate::registry::get_provider_adapter(&ctx.provider_id).unwrap_or_else(|_| {
@@ -159,7 +161,11 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                                     .get("reasoning_content")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
-                                    .or_else(|| msg.get("reasoning").and_then(|v| v.as_str()).map(|s| s.to_string()));
+                                    .or_else(|| {
+                                        msg.get("reasoning")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                    });
                                 if let Some(text) = t {
                                     if let Some(obj) = msg.as_object_mut() {
                                         obj.insert("thinking".to_string(), serde_json::json!(text));
@@ -181,7 +187,12 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                                     .get("reasoning_content")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
-                                    .or_else(|| delta.get("reasoning").and_then(|v| v.as_str()).map(|s| s.to_string()));
+                                    .or_else(|| {
+                                        delta
+                                            .get("reasoning")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                    });
                                 if let Some(text) = t {
                                     if let Some(obj) = delta.as_object_mut() {
                                         obj.insert("thinking".to_string(), serde_json::json!(text));
@@ -273,8 +284,14 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         }
     }
 
-    fn embedding_url(&self, _req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
-        let adapter: std::sync::Arc<dyn crate::providers::openai_compatible::adapter::ProviderAdapter> = {
+    fn embedding_url(
+        &self,
+        _req: &crate::types::EmbeddingRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        let adapter: std::sync::Arc<
+            dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
+        > = {
             #[cfg(feature = "openai")]
             {
                 crate::registry::get_provider_adapter(&ctx.provider_id).unwrap_or_else(|_| {
@@ -310,7 +327,8 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 )
             }
         };
-        let path = adapter.route_for(crate::providers::openai_compatible::types::RequestType::Embedding);
+        let path =
+            adapter.route_for(crate::providers::openai_compatible::types::RequestType::Embedding);
         format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
     }
 
@@ -390,8 +408,14 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         }
     }
 
-    fn image_url(&self, _req: &crate::types::ImageGenerationRequest, ctx: &ProviderContext) -> String {
-        let adapter: std::sync::Arc<dyn crate::providers::openai_compatible::adapter::ProviderAdapter> = {
+    fn image_url(
+        &self,
+        _req: &crate::types::ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        let adapter: std::sync::Arc<
+            dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
+        > = {
             #[cfg(feature = "openai")]
             {
                 crate::registry::get_provider_adapter(&ctx.provider_id).unwrap_or_else(|_| {
@@ -427,7 +451,8 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 )
             }
         };
-        let path = adapter.route_for(crate::providers::openai_compatible::types::RequestType::ImageGeneration);
+        let path = adapter
+            .route_for(crate::providers::openai_compatible::types::RequestType::ImageGeneration);
         format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
     }
 }

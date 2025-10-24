@@ -450,7 +450,9 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
 impl RerankCapability for OpenAiCompatibleClient {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
         // Use OpenAI Rerank Standard with provider-aware adapter
-        struct LocalRerankAdapter { provider_id: String }
+        struct LocalRerankAdapter {
+            provider_id: String,
+        }
         impl crate::standards::openai::rerank::OpenAiRerankAdapter for LocalRerankAdapter {
             fn transform_request(
                 &self,
@@ -811,8 +813,7 @@ impl LlmClient for OpenAiCompatibleClient {
     fn as_rerank_capability(&self) -> Option<&dyn RerankCapability> {
         if self.config.adapter.capabilities().supports("rerank") {
             Some(self)
-        } else if self.config.model.contains("rerank")
-            || self.config.model.contains("bge-reranker")
+        } else if self.config.model.contains("rerank") || self.config.model.contains("bge-reranker")
         {
             Some(self)
         } else {

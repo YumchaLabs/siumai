@@ -86,8 +86,7 @@ impl ProviderSpec for TestImageSpec {
     }
 
     fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
-        siumai::traits::ProviderCapabilities::new()
-            .with_custom_feature("image_generation", true)
+        siumai::traits::ProviderCapabilities::new().with_custom_feature("image_generation", true)
     }
 
     fn build_headers(
@@ -234,7 +233,10 @@ async fn image_executor_retries_on_401() {
                     metadata: Default::default(),
                 })
                 .collect();
-            Ok(siumai::types::ImageGenerationResponse { images, metadata: Default::default() })
+            Ok(siumai::types::ImageGenerationResponse {
+                images,
+                metadata: Default::default(),
+            })
         }
     }
 

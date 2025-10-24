@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.11.0] - 2025-01-23 ✅
+## [Unreleased]
 
 ### Breaking Changes
 
@@ -29,6 +29,15 @@
     - Removed TODO comments indicating this missing functionality
 
 ### Added
+ - Transformers: declarative Rule system introduced in 0.11 with new variants
+   - When: conditionally apply nested rules (supports ModelPrefix)
+   - EnumMap: discrete value mapping with optional default
+   - Note: if you exhaustively match Rule downstream, add a catch‑all arm or handle these variants
+ - Provider-agnostic merge_strategy now applied
+   - Embedding: merges provider_params (Flatten/Namespace)
+   - Image: merges extra_params (Flatten/Namespace)
+ - Streaming: optional max_tool_arguments_size (default None) with overflow handler callback
+ - Executors: unified helpers for SSE/JSON streaming construction (no behavior change)
 
 - **Type-safe Provider Metadata Access**:
   - Added `AnthropicMetadata`, `OpenAiMetadata`, `GeminiMetadata` structs
@@ -143,6 +152,12 @@
   - `performance`: Performance metrics collection and monitoring
 
 ### Changed
+
+- **Transformers/Providers**:
+  - OpenAI (o1*): prefer `max_completion_tokens` (migrate from `max_tokens` when model id starts with `o1-`)
+  - Gemini Chat: move `temperature/top_p/max_tokens/stop_sequences` into `generationConfig` fields
+  - OpenAI Image: move `extra_params` injection into generic `merge_strategy` to avoid double writes (behavior unchanged)
+  - OpenAI client: use `ChatExecutorBuilder` for executor construction (consistency; no external behavior change)
 
 - **Code Organization Improvements**:
   - **types/chat module refactoring**: Split monolithic `types/chat.rs` (2523 lines) into focused modules

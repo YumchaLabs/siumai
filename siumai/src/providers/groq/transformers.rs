@@ -132,6 +132,16 @@ impl RequestTransformer for GroqRequestTransformer {
         let profile = crate::transformers::request::MappingProfile {
             provider_id: "groq",
             rules: vec![
+                // Map optional 'service' hint to a service_tier understood by provider
+                crate::transformers::request::Rule::EnumMap {
+                    from: "service",
+                    to: "service_tier",
+                    map: vec![
+                        ("basic".to_string(), serde_json::json!("lite")),
+                        ("premium".to_string(), serde_json::json!("pro")),
+                    ],
+                    default: None,
+                },
                 crate::transformers::request::Rule::Range {
                     field: "temperature",
                     min: 0.0,

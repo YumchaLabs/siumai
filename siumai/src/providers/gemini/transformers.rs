@@ -296,6 +296,42 @@ impl RequestTransformer for GeminiRequestTransformer {
     }
 }
 
+#[cfg(test)]
+mod tests_gemini_rules {
+    use super::*;
+
+    #[test]
+    fn move_common_params_into_generation_config() {
+        let cfg = GeminiConfig {
+            model: "gemini-1.5-flash".into(),
+            api_key: None,
+            base_url: "https://example".into(),
+            project: None,
+        };
+        let tx = GeminiRequestTransformer { config: cfg };
+        let mut req = ChatRequest::new(vec![]);
+        req.common_params.model = "gemini-1.5-flash".to_string();
+        req.common_params.temperature = Some(0.4);
+        req.common_params.top_p = Some(0.9);
+        req.common_params.max_tokens = Some(1024);
+        req.common_params.stop_sequences = Some(vec!["END".into()]);
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["generationConfig"]["temperature"],
+            serde_json::json!(0.4)
+        );
+        assert_eq!(body["generationConfig"]["topP"], serde_json::json!(0.9));
+        assert_eq!(
+            body["generationConfig"]["maxOutputTokens"],
+            serde_json::json!(1024)
+        );
+        assert_eq!(
+            body["generationConfig"]["stopSequences"],
+            serde_json::json!(["END"])
+        );
+    }
+}
+
 /// Response transformer for Gemini
 #[derive(Clone)]
 pub struct GeminiResponseTransformer {

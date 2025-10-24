@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::registry::{ConfigurableAdapter, ProviderConfig, ProviderFieldMappings};
+use siumai::providers::openai_compatible::registry::{
+    ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+};
 use siumai::traits::RerankCapability;
 use siumai::types::RerankRequest;
 use wiremock::matchers::{header, method, path};
@@ -42,18 +44,14 @@ async fn siliconflow_rerank_maps_meta_tokens_to_usage() {
     };
     let adapter = Arc::new(ConfigurableAdapter::new(provider_config));
 
-    let config = OpenAiCompatibleConfig::new(
-        "siliconflow",
-        "test-key",
-        &server.uri(),
-        adapter,
-    )
-    .with_model("bge-reranker-v2-m3");
+    let config = OpenAiCompatibleConfig::new("siliconflow", "test-key", &server.uri(), adapter)
+        .with_model("bge-reranker-v2-m3");
 
     // Create client
-    let client = siumai::providers::openai_compatible::openai_client::OpenAiCompatibleClient::new(config)
-        .await
-        .expect("client");
+    let client =
+        siumai::providers::openai_compatible::openai_client::OpenAiCompatibleClient::new(config)
+            .await
+            .expect("client");
 
     // Make rerank request
     let request = RerankRequest {
@@ -75,4 +73,3 @@ async fn siliconflow_rerank_maps_meta_tokens_to_usage() {
     assert_eq!(response.tokens.input_tokens, 123);
     assert_eq!(response.tokens.output_tokens, 4);
 }
-

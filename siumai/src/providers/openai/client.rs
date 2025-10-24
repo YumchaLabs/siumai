@@ -213,7 +213,7 @@ impl OpenAiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::executors::chat::{ChatExecutor, ChatExecutorBuilder};
         use crate::provider_core::{ProviderContext, ProviderSpec};
 
         let request = ChatRequest {
@@ -242,27 +242,25 @@ impl OpenAiClient {
         let before_send = spec.chat_before_send(&request, &ctx);
         let http = self.http_client.clone();
 
-        let exec = HttpChatExecutor {
-            provider_id: "openai".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send,
-            retry_options: None,
+        let builder = ChatExecutorBuilder::new("openai", http)
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
+        let builder = if let Some(h) = before_send {
+            builder.with_before_send(h)
+        } else {
+            builder
         };
+        let exec = builder.build();
         exec.execute_stream(request).await
     }
 
     /// Execute chat (non-stream) via ProviderSpec with a fully-formed ChatRequest
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::executors::chat::{ChatExecutor, ChatExecutorBuilder};
         use crate::provider_core::{ProviderContext, ProviderSpec};
 
         let mut extras = std::collections::HashMap::new();
@@ -284,21 +282,19 @@ impl OpenAiClient {
         let before_send = spec.chat_before_send(&request, &ctx);
         let http = self.http_client.clone();
 
-        let exec = HttpChatExecutor {
-            provider_id: "openai".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send,
-            retry_options: None,
+        let builder = ChatExecutorBuilder::new("openai", http)
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
+        let builder = if let Some(h) = before_send {
+            builder.with_before_send(h)
+        } else {
+            builder
         };
+        let exec = builder.build();
         exec.execute(request).await
     }
 
@@ -307,7 +303,7 @@ impl OpenAiClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::executors::chat::{ChatExecutor, ChatExecutorBuilder};
         use crate::provider_core::{ProviderContext, ProviderSpec};
 
         let mut extras = std::collections::HashMap::new();
@@ -329,21 +325,19 @@ impl OpenAiClient {
         let before_send = spec.chat_before_send(&request, &ctx);
         let http = self.http_client.clone();
 
-        let exec = HttpChatExecutor {
-            provider_id: "openai".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send,
-            retry_options: None,
+        let builder = ChatExecutorBuilder::new("openai", http)
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
+        let builder = if let Some(h) = before_send {
+            builder.with_before_send(h)
+        } else {
+            builder
         };
+        let exec = builder.build();
         exec.execute_stream(request).await
     }
 
@@ -439,7 +433,7 @@ impl OpenAiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::HttpChatExecutor;
+        use crate::executors::chat::ChatExecutorBuilder;
         use crate::provider_core::{ProviderContext, ProviderSpec};
 
         let request = ChatRequest {
@@ -467,21 +461,19 @@ impl OpenAiClient {
         let before_send = spec.chat_before_send(&request, &ctx);
         let http = self.http_client.clone();
 
-        let exec = HttpChatExecutor {
-            provider_id: "openai".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            stream_transformer: bundle.stream,
-            json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
-            middlewares: self.model_middlewares.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            before_send,
-            retry_options: None,
+        let builder = ChatExecutorBuilder::new("openai", http)
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
+        let builder = if let Some(h) = before_send {
+            builder.with_before_send(h)
+        } else {
+            builder
         };
+        let exec = builder.build();
         exec.execute(request).await
     }
 }
