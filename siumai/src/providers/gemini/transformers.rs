@@ -302,12 +302,9 @@ mod tests_gemini_rules {
 
     #[test]
     fn move_common_params_into_generation_config() {
-        let cfg = GeminiConfig {
-            model: "gemini-1.5-flash".into(),
-            api_key: None,
-            base_url: "https://example".into(),
-            project: None,
-        };
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-1.5-flash".into())
+            .with_base_url("https://example".into());
         let tx = GeminiRequestTransformer { config: cfg };
         let mut req = ChatRequest::new(vec![]);
         req.common_params.model = "gemini-1.5-flash".to_string();
@@ -316,11 +313,10 @@ mod tests_gemini_rules {
         req.common_params.max_tokens = Some(1024);
         req.common_params.stop_sequences = Some(vec!["END".into()]);
         let body = tx.transform_chat(&req).expect("transform");
-        assert_eq!(
-            body["generationConfig"]["temperature"],
-            serde_json::json!(0.4)
-        );
-        assert_eq!(body["generationConfig"]["topP"], serde_json::json!(0.9));
+        let got_temp = body["generationConfig"]["temperature"].as_f64().unwrap();
+        assert!((got_temp - 0.4).abs() < 1e-6);
+        let got_top_p = body["generationConfig"]["topP"].as_f64().unwrap();
+        assert!((got_top_p - 0.9).abs() < 1e-6);
         assert_eq!(
             body["generationConfig"]["maxOutputTokens"],
             serde_json::json!(1024)
@@ -360,7 +356,8 @@ impl ResponseTransformer for GeminiResponseTransformer {
 
         let mut text_content = String::new();
         let mut content_parts = Vec::new();
-        let mut has_multimodal_content = false;
+        // Track if any non-text parts are present (kept for future heuristics)
+        let mut _has_multimodal_content = false;
 
         for part in &content.parts {
             match part {
@@ -377,7 +374,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     }
                 }
                 Part::InlineData { inline_data } => {
-                    has_multimodal_content = true;
+                    _has_multimodal_content = true;
                     if inline_data.mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
                             source: crate::types::chat::MediaSource::Base64 {
@@ -404,7 +401,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     }
                 }
                 Part::FileData { file_data } => {
-                    has_multimodal_content = true;
+                    _has_multimodal_content = true;
                     let mime_type = file_data
                         .mime_type
                         .as_deref()

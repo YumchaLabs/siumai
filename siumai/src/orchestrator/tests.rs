@@ -7,8 +7,7 @@ use serde_json::{Value, json};
 use super::*;
 use crate::error::LlmError;
 use crate::types::{
-    ChatMessage, ChatResponse, FinishReason, FunctionCall, MessageContent, Tool, ToolCall,
-    ToolFunction, Usage,
+    ChatMessage, ChatResponse, FinishReason, FunctionCall, MessageContent, Tool, ToolCall, Usage,
 };
 
 // ============================================================================

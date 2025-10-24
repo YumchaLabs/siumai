@@ -236,7 +236,7 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 _req: &ImageGenerationRequest,
                 _body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                // 合并额外参数已在 GenericRequestTransformer 中通过 merge_strategy 统一处理
+                // Merging extra parameters is handled by GenericRequestTransformer via merge_strategy
                 Ok(())
             }
         }
@@ -808,7 +808,6 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[cfg(feature = "structured-messages")]
     #[test]
@@ -819,7 +818,7 @@ mod tests {
             content: MessageContent::Json(serde_json::json!({"a":1})),
             metadata: MessageMetadata::default(),
         };
-        let v = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        let v = super::OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
         // Expect content array with input_json item
         let content = v
             .get("content")
@@ -858,7 +857,7 @@ mod tests {
             )]),
             metadata: MessageMetadata::default(),
         };
-        let v = OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        let v = super::OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
         assert_eq!(
             v.get("type").and_then(|t| t.as_str()).unwrap_or(""),
             "function_call_output"
@@ -886,7 +885,7 @@ mod tests {
             )]),
             metadata: MessageMetadata::default(),
         };
-        let v2 = OpenAiResponsesRequestTransformer::convert_message(&msg2).expect("convert");
+        let v2 = super::OpenAiResponsesRequestTransformer::convert_message(&msg2).expect("convert");
         assert_eq!(
             v2.get("output").and_then(|x| x.as_str()).unwrap_or(""),
             "ok"

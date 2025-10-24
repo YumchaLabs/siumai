@@ -63,6 +63,7 @@ pub struct OpenAiBuilder {
     /// Responses API chaining id
     responses_previous_response_id: Option<String>,
     /// Responses API built-in tools
+    #[allow(deprecated)]
     responses_built_in_tools: Vec<crate::types::OpenAiBuiltInTool>,
 }
 
@@ -286,12 +287,14 @@ impl OpenAiBuilder {
     }
 
     /// Add a built-in tool for Responses API.
+    #[allow(deprecated)]
     pub fn responses_built_in_tool(mut self, tool: crate::types::OpenAiBuiltInTool) -> Self {
         self.responses_built_in_tools.push(tool);
         self
     }
 
     /// Add multiple built-in tools for Responses API.
+    #[allow(deprecated)]
     pub fn responses_built_in_tools(mut self, tools: Vec<crate::types::OpenAiBuiltInTool>) -> Self {
         self.responses_built_in_tools.extend(tools);
         self

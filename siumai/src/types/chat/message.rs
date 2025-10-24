@@ -545,6 +545,7 @@ impl ChatMessageBuilder {
         since = "0.12.0",
         note = "Tool calls are now part of content. Use `with_content_parts` or create message with `ChatMessage::assistant_with_content`"
     )]
+    #[allow(deprecated)]
     pub fn with_tool_calls(mut self, tool_calls: Vec<crate::types::ToolCall>) -> Self {
         // Convert old ToolCall to new ContentPart::ToolCall
         let mut parts = match self.content {

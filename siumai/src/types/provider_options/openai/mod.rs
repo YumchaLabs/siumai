@@ -27,6 +27,7 @@ pub use responses_api::ResponsesApiConfig;
 pub use web_search::{OpenAiWebSearchOptions, UserLocationWrapper, WebSearchLocation};
 
 // Re-export OpenAiBuiltInTool from tools module to avoid duplication
+#[allow(deprecated)]
 pub use crate::types::tools::OpenAiBuiltInTool;
 
 /// OpenAI-specific options
@@ -38,6 +39,7 @@ pub struct OpenAiOptions {
     /// Responses API configuration
     pub responses_api: Option<ResponsesApiConfig>,
     /// Built-in tools (web search, file search, computer use)
+    #[allow(deprecated)]
     pub built_in_tools: Vec<OpenAiBuiltInTool>,
     /// Reasoning effort (for o1/o3 models)
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -66,18 +68,21 @@ impl OpenAiOptions {
     }
 
     /// Add a built-in tool
+    #[allow(deprecated)]
     pub fn with_built_in_tool(mut self, tool: OpenAiBuiltInTool) -> Self {
         self.built_in_tools.push(tool);
         self
     }
 
     /// Enable web search (shorthand for built-in tool)
+    #[allow(deprecated)]
     pub fn with_web_search(mut self) -> Self {
         self.built_in_tools.push(OpenAiBuiltInTool::WebSearch);
         self
     }
 
     /// Enable file search with vector store IDs
+    #[allow(deprecated)]
     pub fn with_file_search(mut self, vector_store_ids: Vec<String>) -> Self {
         self.built_in_tools.push(OpenAiBuiltInTool::FileSearch {
             vector_store_ids: Some(vector_store_ids),
@@ -86,6 +91,7 @@ impl OpenAiOptions {
     }
 
     /// Enable computer use with display settings
+    #[allow(deprecated)]
     pub fn with_computer_use(
         mut self,
         display_width: u32,

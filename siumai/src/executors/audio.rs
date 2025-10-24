@@ -33,31 +33,55 @@ impl AudioExecutor for HttpAudioExecutor {
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.tts_endpoint());
 
-        let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
-        crate::utils::http_headers::inject_tracing_headers(&mut headers);
+        // Use common bytes execution (JSON only)
+        let config = crate::executors::common::HttpExecutionConfig {
+            provider_id: self.provider_id.clone(),
+            http_client: self.http_client.clone(),
+            provider_spec: self.provider_spec.clone(),
+            provider_context: self.provider_context.clone(),
+            interceptors: vec![],
+            retry_options: None,
+        };
 
-        let builder = self.http_client.post(url).headers(headers);
-        let resp = match body {
-            AudioHttpBody::Json(json) => builder.json(&json).send().await,
-            AudioHttpBody::Multipart(form) => builder.multipart(form).send().await,
+        match body {
+            AudioHttpBody::Json(json) => {
+                let result = crate::executors::common::execute_bytes_request(
+                    &config,
+                    &url,
+                    crate::executors::common::HttpBody::Json(json),
+                    None,
+                )
+                .await?;
+                Ok(result.bytes)
+            }
+            AudioHttpBody::Multipart(form) => {
+                // Fallback to direct send for multipart
+                let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
+                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                let resp = self
+                    .http_client
+                    .post(url)
+                    .headers(headers)
+                    .multipart(form)
+                    .send()
+                    .await
+                    .map_err(|e| LlmError::HttpError(e.to_string()))?;
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    return Err(LlmError::ApiError {
+                        code: status.as_u16(),
+                        message: text,
+                        details: None,
+                    });
+                }
+                let bytes = resp
+                    .bytes()
+                    .await
+                    .map_err(|e| LlmError::HttpError(e.to_string()))?;
+                Ok(bytes.to_vec())
+            }
         }
-        .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: text,
-                details: None,
-            });
-        }
-
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-        Ok(bytes.to_vec())
     }
 
     async fn stt(&self, req: SttRequest) -> Result<String, LlmError> {
@@ -71,33 +95,43 @@ impl AudioExecutor for HttpAudioExecutor {
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.stt_endpoint());
 
-        let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
-        crate::utils::http_headers::inject_tracing_headers(&mut headers);
+        let config = crate::executors::common::HttpExecutionConfig {
+            provider_id: self.provider_id.clone(),
+            http_client: self.http_client.clone(),
+            provider_spec: self.provider_spec.clone(),
+            provider_context: self.provider_context.clone(),
+            interceptors: vec![],
+            retry_options: None,
+        };
 
-        let builder = self.http_client.post(url).headers(headers);
-        let resp = match body {
-            AudioHttpBody::Json(json) => builder.json(&json).send().await,
-            AudioHttpBody::Multipart(form) => builder.multipart(form).send().await,
-        }
-        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+        let per_request_headers = None;
+        let result = match body {
+            AudioHttpBody::Json(json) => {
+                crate::executors::common::execute_json_request(
+                    &config,
+                    &url,
+                    crate::executors::common::HttpBody::Json(json),
+                    per_request_headers,
+                    false,
+                )
+                .await?
+            }
+            AudioHttpBody::Multipart(_) => {
+                crate::executors::common::execute_multipart_request(
+                    &config,
+                    &url,
+                    || match self.transformer.build_stt_body(&req)? {
+                        AudioHttpBody::Multipart(form) => Ok(form),
+                        _ => Err(LlmError::InvalidParameter(
+                            "Expected multipart form for STT".into(),
+                        )),
+                    },
+                    per_request_headers,
+                )
+                .await?
+            }
+        };
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError {
-                code: status.as_u16(),
-                message: text,
-                details: None,
-            });
-        }
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        // Use parse_json_with_repair for automatic JSON repair when enabled
-        let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
-            .map_err(|e| LlmError::ParseError(e.to_string()))?;
-        self.transformer.parse_stt_response(&json)
+        self.transformer.parse_stt_response(&result.json)
     }
 }

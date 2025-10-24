@@ -24,6 +24,8 @@ use std::sync::Arc;
 pub enum HttpBody {
     /// JSON body
     Json(serde_json::Value),
+    /// Multipart form body
+    Multipart(reqwest::multipart::Form),
 }
 
 /// Configuration for HTTP request execution
@@ -51,6 +53,289 @@ pub struct HttpExecutionResult {
     pub status: u16,
     /// Response headers
     pub headers: HeaderMap,
+}
+
+/// Result for byte-response requests (e.g., TTS audio bytes)
+pub struct HttpBytesResult {
+    /// Raw response bytes
+    pub bytes: Vec<u8>,
+    /// Response status
+    pub status: u16,
+    /// Response headers
+    pub headers: HeaderMap,
+}
+
+/// Execute a request that returns bytes using ProviderSpec (JSON only).
+/// For multipart bytes request, prefer a specialized path with a form builder.
+pub async fn execute_bytes_request(
+    config: &HttpExecutionConfig,
+    url: &str,
+    body: HttpBody,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<HttpBytesResult, LlmError> {
+    // 1. Build base headers
+    let mut base_headers = config
+        .provider_spec
+        .build_headers(&config.provider_context)?;
+    crate::utils::http_headers::inject_tracing_headers(&mut base_headers);
+
+    // 2. Merge per-request headers
+    let effective_headers = if let Some(req_headers) = per_request_headers {
+        crate::utils::http_headers::merge_headers(base_headers.clone(), req_headers)
+    } else {
+        base_headers.clone()
+    };
+
+    // 3. Build request (JSON only)
+    let mut rb = config
+        .http_client
+        .post(url)
+        .headers(effective_headers.clone());
+    let json_body = match &body {
+        HttpBody::Json(json) => {
+            rb = rb.json(json);
+            json.clone()
+        }
+        HttpBody::Multipart(_) => {
+            return Err(LlmError::InvalidParameter(
+                "execute_bytes_request does not support multipart bodies".into(),
+            ));
+        }
+    };
+
+    // 4. Interceptors
+    let ctx = HttpRequestContext {
+        provider_id: config.provider_id.clone(),
+        url: url.to_string(),
+        stream: false,
+    };
+    let cloned_headers = rb
+        .try_clone()
+        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+        .unwrap_or_default();
+    for interceptor in &config.interceptors {
+        rb = interceptor.on_before_send(&ctx, rb, &json_body, &cloned_headers)?;
+    }
+
+    // 5. Send
+    let mut resp = rb
+        .send()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
+    // 6. 401 retry once
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let should_retry_401 = config
+            .retry_options
+            .as_ref()
+            .map(|opts| opts.retry_401)
+            .unwrap_or(true);
+        if status.as_u16() == 401 && should_retry_401 {
+            for interceptor in &config.interceptors {
+                interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
+            }
+            let mut retry_headers = config
+                .provider_spec
+                .build_headers(&config.provider_context)?;
+            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
+            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+            } else {
+                retry_headers
+            };
+            let mut rb_retry = config
+                .http_client
+                .post(url)
+                .headers(retry_effective_headers)
+                .json(&json_body);
+            let cloned_headers_retry = rb_retry
+                .try_clone()
+                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+                .unwrap_or_default();
+            for interceptor in &config.interceptors {
+                rb_retry = interceptor.on_before_send(
+                    &ctx,
+                    rb_retry,
+                    &json_body,
+                    &cloned_headers_retry,
+                )?;
+            }
+            resp = rb_retry
+                .send()
+                .await
+                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+        }
+    }
+
+    // 7. Error classification
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let response_headers = resp.headers().clone();
+        let error_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error response".to_string());
+        let error = crate::retry_api::classify_http_error(
+            &config.provider_id,
+            status.as_u16(),
+            &error_text,
+            &response_headers,
+            None,
+        );
+        for interceptor in &config.interceptors {
+            interceptor.on_error(&ctx, &error);
+        }
+        return Err(error);
+    }
+
+    for interceptor in &config.interceptors {
+        interceptor.on_response(&ctx, &resp)?;
+    }
+    let status_code = resp.status().as_u16();
+    let response_headers = resp.headers().clone();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+    Ok(HttpBytesResult {
+        bytes: bytes.to_vec(),
+        status: status_code,
+        headers: response_headers,
+    })
+}
+
+/// Execute a JSON HTTP request using explicit base headers (no ProviderSpec).
+///
+/// This helper is useful for code paths that already have a fully constructed
+/// header map and do not rely on ProviderSpec routing or header building.
+pub async fn execute_json_request_with_headers(
+    http_client: &reqwest::Client,
+    provider_id: &str,
+    url: &str,
+    mut headers_base: HeaderMap,
+    body: serde_json::Value,
+    interceptors: &[Arc<dyn HttpInterceptor>],
+    retry_options: Option<RetryOptions>,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    stream: bool,
+) -> Result<HttpExecutionResult, LlmError> {
+    // Inject tracing headers
+    crate::utils::http_headers::inject_tracing_headers(&mut headers_base);
+
+    // Merge per-request headers
+    let effective_headers = if let Some(req_headers) = per_request_headers {
+        crate::utils::http_headers::merge_headers(headers_base.clone(), req_headers)
+    } else {
+        headers_base.clone()
+    };
+
+    // Build request
+    let mut rb = http_client
+        .post(url)
+        .headers(effective_headers.clone())
+        .json(&body);
+
+    let ctx = HttpRequestContext {
+        provider_id: provider_id.to_string(),
+        url: url.to_string(),
+        stream,
+    };
+
+    // Interceptors (before send)
+    let cloned_headers = rb
+        .try_clone()
+        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+        .unwrap_or_default();
+    for interceptor in interceptors {
+        rb = interceptor.on_before_send(&ctx, rb, &body, &cloned_headers)?;
+    }
+
+    // Send
+    let mut resp = rb
+        .send()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
+    // 401 retry (once)
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let should_retry_401 = retry_options
+            .as_ref()
+            .map(|opts| opts.retry_401)
+            .unwrap_or(true);
+        if status.as_u16() == 401 && should_retry_401 {
+            // Notify interceptors of retry
+            for interceptor in interceptors {
+                interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
+            }
+            // Rebuild headers
+            let mut retry_headers = headers_base.clone();
+            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
+            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+            } else {
+                retry_headers
+            };
+            let mut rb_retry = http_client
+                .post(url)
+                .headers(retry_effective_headers)
+                .json(&body);
+            let cloned_headers_retry = rb_retry
+                .try_clone()
+                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+                .unwrap_or_default();
+            for interceptor in interceptors {
+                rb_retry =
+                    interceptor.on_before_send(&ctx, rb_retry, &body, &cloned_headers_retry)?;
+            }
+            resp = rb_retry
+                .send()
+                .await
+                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+        }
+    }
+
+    // Error classification
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let response_headers = resp.headers().clone();
+        let error_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error response".to_string());
+        let error = crate::retry_api::classify_http_error(
+            provider_id,
+            status.as_u16(),
+            &error_text,
+            &response_headers,
+            None,
+        );
+        for interceptor in interceptors {
+            interceptor.on_error(&ctx, &error);
+        }
+        return Err(error);
+    }
+
+    // Success path
+    for interceptor in interceptors {
+        interceptor.on_response(&ctx, &resp)?;
+    }
+
+    let status_code = resp.status().as_u16();
+    let response_headers = resp.headers().clone();
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+    let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
+        .map_err(|e| LlmError::ParseError(e.to_string()))?;
+
+    Ok(HttpExecutionResult {
+        json,
+        status: status_code,
+        headers: response_headers,
+    })
 }
 
 /// Execute a JSON HTTP request with unified retry, interceptors, and error handling
@@ -83,6 +368,17 @@ pub async fn execute_json_request(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
+    execute_request(config, url, body, per_request_headers, stream).await
+}
+
+/// Execute an HTTP request (JSON or Multipart) with unified retry, interceptors, and error handling
+pub async fn execute_request(
+    config: &HttpExecutionConfig,
+    url: &str,
+    body: HttpBody,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    stream: bool,
+) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers from provider spec
     let mut base_headers = config
         .provider_spec
@@ -109,6 +405,11 @@ pub async fn execute_json_request(
         HttpBody::Json(json) => {
             rb = rb.json(json);
             json.clone()
+        }
+        HttpBody::Multipart(_) => {
+            return Err(LlmError::InvalidParameter(
+                "Use execute_multipart_request for multipart bodies".into(),
+            ));
         }
     };
 
@@ -171,6 +472,11 @@ pub async fn execute_json_request(
             // Apply body again
             rb_retry = match &body {
                 HttpBody::Json(json) => rb_retry.json(json),
+                HttpBody::Multipart(_) => {
+                    return Err(LlmError::InvalidParameter(
+                        "Use execute_multipart_request for multipart bodies".into(),
+                    ));
+                }
             };
 
             // Apply interceptors again

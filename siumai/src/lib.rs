@@ -146,8 +146,8 @@ pub use types::{
     ChatMessage, ChatResponse, CommonParams, CompletionRequest, CompletionResponse,
     EmbeddingRequest, EmbeddingResponse, FinishReason, HttpConfig, ImageGenerationRequest,
     ImageGenerationResponse, MessageContent, MessageRole, ModelInfo, ModerationRequest,
-    ModerationResponse, ProviderDefinedTool, ProviderType, ResponseMetadata, Tool, ToolCall,
-    ToolChoice, Usage,
+    ModerationResponse, ProviderDefinedTool, ProviderType, ResponseMetadata, Tool, ToolChoice,
+    Usage,
 };
 
 // Builders

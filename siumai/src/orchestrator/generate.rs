@@ -6,6 +6,7 @@ use serde_json::Value;
 use super::prepare_step::{PrepareStepContext, filter_active_tools};
 use super::stop_condition::StopCondition;
 use super::types::{OrchestratorOptions, StepResult, ToolApproval, ToolResolver};
+use super::validation::validate_args_with_schema;
 use crate::error::LlmError;
 use crate::telemetry::{
     TelemetryConfig,
@@ -13,16 +14,6 @@ use crate::telemetry::{
 };
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
-
-fn validate_args_with_schema(_schema: &Value, _instance: &Value) -> Result<(), String> {
-    // Schema validation has been moved to siumai-extras
-    // If you need schema validation, use siumai-extras::schema::validate_json
-    // For now, we skip validation
-    tracing::debug!(
-        "Schema validation is no longer built-in. Use siumai-extras::schema::validate_json for validation."
-    );
-    Ok(())
-}
 
 /// Convert orchestrator ToolChoice to types::ToolChoice
 fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> crate::types::ToolChoice {
@@ -158,7 +149,7 @@ pub async fn generate(
 
         let mut step_msgs: Vec<ChatMessage> = Vec::new();
         // Build assistant message; include tool_calls if present
-        let assistant_text = resp
+        let _assistant_text = resp
             .content_text()
             .map(|s| s.to_string())
             .unwrap_or_default();

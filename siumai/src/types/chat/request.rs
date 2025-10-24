@@ -162,7 +162,8 @@ impl ChatRequest {
     ///
     /// let req = ChatRequest::new(messages)
     ///     .with_openai_options(
-    ///         OpenAiOptions::new().with_web_search()
+    ///         OpenAiOptions::new()
+    ///             .with_service_tier(siumai::types::provider_options::openai::ServiceTier::Standard)
     ///     );
     /// ```
     pub fn with_openai_options(mut self, options: crate::types::OpenAiOptions) -> Self {

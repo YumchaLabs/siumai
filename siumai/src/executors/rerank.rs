@@ -34,76 +34,18 @@ impl RerankExecutor for HttpRerankExecutor {
         if let Some(cb) = &self.before_send {
             body = cb(&body)?;
         }
-
-        // Create request context for interceptors
-        let ctx = crate::utils::http_interceptor::HttpRequestContext {
-            provider_id: self.provider_id.clone(),
-            url: self.url.clone(),
-            stream: false,
-        };
-
-        // Build request with interceptors
-        let mut builder = self
-            .http_client
-            .post(&self.url)
-            .headers(self.headers.clone())
-            .json(&body);
-
-        // Apply interceptors (before send)
-        for interceptor in &self.interceptors {
-            builder = interceptor.on_before_send(&ctx, builder, &body, &self.headers)?;
-        }
-
-        // Send request
-        let resp = builder
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        // Handle non-success status
-        let resp = if !resp.status().is_success() {
-            let status = resp.status();
-            let should_retry_401 = self
-                .retry_options
-                .as_ref()
-                .map(|opts| opts.retry_401)
-                .unwrap_or(true);
-
-            if status.as_u16() == 401 && should_retry_401 {
-                // Retry once with same headers
-                self.http_client
-                    .post(&self.url)
-                    .headers(self.headers.clone())
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| LlmError::HttpError(e.to_string()))?
-            } else {
-                let headers = resp.headers().clone();
-                let text = resp.text().await.unwrap_or_default();
-                return Err(crate::retry_api::classify_http_error(
-                    &self.provider_id,
-                    status.as_u16(),
-                    &text,
-                    &headers,
-                    None,
-                ));
-            }
-        } else {
-            resp
-        };
-
-        // Parse response
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        // Use parse_json_with_repair for automatic JSON repair when enabled
-        let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
-            .map_err(|e| LlmError::ParseError(e.to_string()))?;
-
-        // Transform response
-        self.response_transformer.transform(json)
+        let result = crate::executors::common::execute_json_request_with_headers(
+            &self.http_client,
+            &self.provider_id,
+            &self.url,
+            self.headers.clone(),
+            body,
+            &self.interceptors,
+            self.retry_options.clone(),
+            None,
+            false,
+        )
+        .await?;
+        self.response_transformer.transform(result.json)
     }
 }

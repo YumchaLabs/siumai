@@ -32,6 +32,7 @@ pub mod types;
 // Private modules
 mod generate;
 mod stream;
+mod validation;
 
 // Test modules
 #[cfg(test)]

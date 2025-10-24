@@ -7,20 +7,11 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use super::types::{OrchestratorStreamOptions, StepResult, ToolApproval, ToolResolver};
+use super::validation::validate_args_with_schema;
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, ChatStreamEvent};
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
-
-fn validate_args_with_schema(_schema: &Value, _instance: &Value) -> Result<(), String> {
-    // Schema validation has been moved to siumai-extras
-    // If you need schema validation, use siumai-extras::schema::validate_json
-    // For now, we skip validation
-    tracing::debug!(
-        "Schema validation is no longer built-in. Use siumai-extras::schema::validate_json for validation."
-    );
-    Ok(())
-}
 
 /// Stream handle that carries the stream and a oneshot receiver for steps summary.
 pub struct StreamOrchestration {
@@ -209,7 +200,7 @@ where
                 }
             };
             let mut step_msgs: Vec<ChatMessage> = Vec::new();
-            let assistant_text = resp
+            let _assistant_text = resp
                 .content_text()
                 .map(|s| s.to_string())
                 .unwrap_or_else(String::new);

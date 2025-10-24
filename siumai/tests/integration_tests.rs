@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_provider_options_basic() {
         // Test ProviderOptions enum basics and helpers
-        let opts = siumai::types::OpenAiOptions::new().with_web_search();
+        let opts = siumai::types::OpenAiOptions::new();
         let po = ProviderOptions::OpenAi(opts);
         assert_eq!(po.provider_id(), Some("openai"));
         assert!(po.is_for_provider("openai"));

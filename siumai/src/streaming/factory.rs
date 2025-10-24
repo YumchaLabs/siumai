@@ -19,79 +19,16 @@ use std::sync::Arc;
 pub struct StreamFactory;
 
 impl StreamFactory {
-    /// Create a chat stream with optional 401 retry and error classification.
-    ///
-    /// The `build_request` closure must construct a fresh RequestBuilder each call
-    /// with up-to-date headers (e.g., refreshed Bearer token). On non-401 errors,
-    /// this method classifies the error using `retry_api::classify_http_error`.
-    ///
-    /// # Arguments
-    /// * `provider_id` - Provider identifier for error classification
-    /// * `url` - Request URL for interceptor context
-    /// * `retry_401` - Whether to retry 401 errors with rebuilt request
-    /// * `build_request` - Closure that builds a fresh request (called on retry)
-    /// * `converter` - SSE event converter for this provider
-    /// * `interceptors` - HTTP interceptors to call on retry/error
-    ///
-    /// # Returns
-    /// A ChatStream that yields ChatStreamEvents
-    pub async fn create_eventsource_stream_with_retry<B, C>(
-        provider_id: &str,
-        url: &str,
-        retry_401: bool,
-        build_request: B,
+    /// Convert an HTTP response into a ChatStream, using SSE when available,
+    /// and falling back to a single JSON body conversion when not SSE.
+    async fn stream_from_response_with_sse_fallback<C>(
+        _provider_id: &str,
+        response: reqwest::Response,
         converter: C,
-        interceptors: &[Arc<dyn HttpInterceptor>],
     ) -> Result<ChatStream, LlmError>
     where
-        B: Fn() -> Result<reqwest::RequestBuilder, LlmError>,
         C: SseEventConverter + Clone + Send + 'static,
     {
-        let ctx = HttpRequestContext {
-            provider_id: provider_id.to_string(),
-            url: url.to_string(),
-            stream: true,
-        };
-
-        // First attempt
-        let response = build_request()?
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
-
-        let response = if !response.status().is_success() {
-            let status = response.status();
-            if status.as_u16() == 401 && retry_401 {
-                // Notify interceptors of retry
-                let retry_error = LlmError::HttpError("401 Unauthorized".to_string());
-                for interceptor in interceptors {
-                    interceptor.on_retry(&ctx, &retry_error, 1);
-                }
-                // Retry once with rebuilt headers/request
-                build_request()?
-                    .send()
-                    .await
-                    .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?
-            } else {
-                let headers = response.headers().clone();
-                let text = response.text().await.unwrap_or_default();
-                let error = crate::retry_api::classify_http_error(
-                    provider_id,
-                    status.as_u16(),
-                    &text,
-                    &headers,
-                    None,
-                );
-                // Notify interceptors of error
-                for interceptor in interceptors {
-                    interceptor.on_error(&ctx, &error);
-                }
-                return Err(error);
-            }
-        } else {
-            response
-        };
-
         // If server didn't return SSE, fall back to single JSON body conversion
         let is_sse = response
             .headers()
@@ -196,6 +133,82 @@ impl StreamFactory {
         Ok(Box::pin(chat_stream))
     }
 
+    /// Create a chat stream with optional 401 retry and error classification.
+    ///
+    /// The `build_request` closure must construct a fresh RequestBuilder each call
+    /// with up-to-date headers (e.g., refreshed Bearer token). On non-401 errors,
+    /// this method classifies the error using `retry_api::classify_http_error`.
+    ///
+    /// # Arguments
+    /// * `provider_id` - Provider identifier for error classification
+    /// * `url` - Request URL for interceptor context
+    /// * `retry_401` - Whether to retry 401 errors with rebuilt request
+    /// * `build_request` - Closure that builds a fresh request (called on retry)
+    /// * `converter` - SSE event converter for this provider
+    /// * `interceptors` - HTTP interceptors to call on retry/error
+    ///
+    /// # Returns
+    /// A ChatStream that yields ChatStreamEvents
+    pub async fn create_eventsource_stream_with_retry<B, C>(
+        provider_id: &str,
+        url: &str,
+        retry_401: bool,
+        build_request: B,
+        converter: C,
+        interceptors: &[Arc<dyn HttpInterceptor>],
+    ) -> Result<ChatStream, LlmError>
+    where
+        B: Fn() -> Result<reqwest::RequestBuilder, LlmError>,
+        C: SseEventConverter + Clone + Send + 'static,
+    {
+        let ctx = HttpRequestContext {
+            provider_id: provider_id.to_string(),
+            url: url.to_string(),
+            stream: true,
+        };
+
+        // First attempt
+        let response = build_request()?
+            .send()
+            .await
+            .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
+
+        let response = if !response.status().is_success() {
+            let status = response.status();
+            if status.as_u16() == 401 && retry_401 {
+                // Notify interceptors of retry
+                let retry_error = LlmError::HttpError("401 Unauthorized".to_string());
+                for interceptor in interceptors {
+                    interceptor.on_retry(&ctx, &retry_error, 1);
+                }
+                // Retry once with rebuilt headers/request
+                build_request()?
+                    .send()
+                    .await
+                    .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?
+            } else {
+                let headers = response.headers().clone();
+                let text = response.text().await.unwrap_or_default();
+                let error = crate::retry_api::classify_http_error(
+                    provider_id,
+                    status.as_u16(),
+                    &text,
+                    &headers,
+                    None,
+                );
+                // Notify interceptors of error
+                for interceptor in interceptors {
+                    interceptor.on_error(&ctx, &error);
+                }
+                return Err(error);
+            }
+        } else {
+            response
+        };
+
+        Self::stream_from_response_with_sse_fallback(provider_id, response, converter).await
+    }
+
     /// Create a chat stream for JSON-based streaming (provider emits JSON fragments)
     ///
     /// We route the byte stream through line-delimited JSON parsing for consistent UTF-8 handling.
@@ -277,7 +290,7 @@ impl StreamFactory {
     where
         C: SseEventConverter + Clone + Send + 'static,
     {
-        use crate::streaming::SseStreamExt;
+        // Reuse fallback converter to handle SSE/JSON consistently
 
         // Send the request and get the response
         let response = request_builder
@@ -295,47 +308,7 @@ impl StreamFactory {
             return Err(LlmError::HttpError(format!("HTTP {status}: {text}")));
         }
 
-        // Convert to byte stream and then to SSE
-        let byte_stream = response
-            .bytes_stream()
-            .map(|chunk| chunk.map_err(|e| LlmError::HttpError(format!("Stream error: {e}"))));
-
-        let sse_stream = byte_stream.into_sse_stream();
-
-        // Convert SSE events to ChatStreamEvents - supports multiple events per conversion
-        let chat_stream = sse_stream
-            .then(move |event_result| {
-                let converter = converter.clone();
-                async move {
-                    match event_result {
-                        Ok(event) => {
-                            // Handle special [DONE] event
-                            if event.data.trim() == "[DONE]" {
-                                if let Some(end_event) = converter.handle_stream_end() {
-                                    return vec![end_event];
-                                } else {
-                                    return vec![];
-                                }
-                            }
-
-                            // Skip empty events
-                            if event.data.trim().is_empty() {
-                                return vec![];
-                            }
-
-                            // Convert using provider-specific logic
-                            converter.convert_event(event).await
-                        }
-                        Err(e) => {
-                            let error =
-                                Err(LlmError::StreamError(format!("SSE parsing error: {e}")));
-                            vec![error]
-                        }
-                    }
-                }
-            })
-            .flat_map(futures::stream::iter);
-
-        Ok(Box::pin(chat_stream))
+        // Reuse SSE/JSON fallback converter for consistency
+        Self::stream_from_response_with_sse_fallback("", response, converter).await
     }
 }

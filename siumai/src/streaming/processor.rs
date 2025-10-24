@@ -14,7 +14,7 @@ use std::collections::HashMap;
 ///
 /// Called when a buffer exceeds its configured limit.
 /// Parameters: (buffer_name, attempted_size)
-pub type OverflowHandler = Box<dyn Fn(&str, usize) + Send + Sync>;
+pub type OverflowHandler = Box<dyn FnMut(&str, usize) + Send + Sync>;
 
 /// Stream Processor Configuration
 ///
@@ -134,7 +134,7 @@ impl StreamProcessor {
             let new_size = self.buffer.len() + delta.len();
             if new_size > max_size {
                 // Call overflow handler if provided
-                if let Some(handler) = &self.config.overflow_handler {
+                if let Some(handler) = self.config.overflow_handler.as_mut() {
                     (handler)("content_buffer", new_size);
                 }
                 // Truncate buffer to keep within limits
@@ -191,7 +191,7 @@ impl StreamProcessor {
         if let Some(max_tool_calls) = self.config.max_tool_calls {
             if is_new_tool_call && self.tool_calls.len() >= max_tool_calls {
                 // Too many tool calls, skip this one
-                if let Some(handler) = &self.config.overflow_handler {
+                if let Some(handler) = self.config.overflow_handler.as_mut() {
                     (handler)("tool_calls", self.tool_calls.len() + 1);
                 }
                 return ProcessedEvent::ToolCallUpdate {
@@ -231,7 +231,7 @@ impl StreamProcessor {
             if let Some(max_args) = self.config.max_tool_arguments_size {
                 let new_size = builder.arguments.len() + args.len();
                 if new_size > max_args {
-                    if let Some(handler) = &self.config.overflow_handler {
+                    if let Some(handler) = self.config.overflow_handler.as_mut() {
                         (handler)("tool_arguments", new_size);
                     }
                     let available = max_args.saturating_sub(builder.arguments.len());
@@ -261,7 +261,7 @@ impl StreamProcessor {
             let new_size = self.thinking_buffer.len() + delta.len();
             if new_size > max_size {
                 // Call overflow handler if provided
-                if let Some(handler) = &self.config.overflow_handler {
+                if let Some(handler) = self.config.overflow_handler.as_mut() {
                     (handler)("thinking_buffer", new_size);
                 }
                 // Truncate buffer to keep within limits
@@ -461,11 +461,12 @@ mod tests {
     fn tool_arguments_respect_max_size() {
         let mut cfg = StreamProcessorConfig::default();
         cfg.max_tool_arguments_size = Some(8);
-        let mut called = false;
-        cfg.overflow_handler = Some(Box::new(|name, size| {
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_for_cb = called.clone();
+        cfg.overflow_handler = Some(Box::new(move |name, size| {
             assert_eq!(name, "tool_arguments");
             assert!(size > 8);
-            called = true;
+            called_for_cb.store(true, std::sync::atomic::Ordering::Relaxed);
         }));
         let mut sp = StreamProcessor::with_config(cfg);
         let ev = ChatStreamEvent::ToolCallDelta {
@@ -478,6 +479,6 @@ mod tests {
         // Ensure builder exists and arguments have been truncated
         let b = sp.tool_calls.get("id1").unwrap();
         assert!(b.arguments.len() <= 8);
-        assert!(called);
+        assert!(called.load(std::sync::atomic::Ordering::Relaxed));
     }
 }

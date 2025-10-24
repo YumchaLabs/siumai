@@ -287,7 +287,7 @@ pub fn has_no_tool_calls() -> Box<dyn StopCondition> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ChatMessage, FunctionCall, ToolCall};
+    use crate::types::ChatMessage;
 
     fn create_step_with_tools(tool_names: Vec<&str>) -> StepResult {
         use crate::types::ContentPart;

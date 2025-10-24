@@ -11,6 +11,57 @@ use crate::types::{
 };
 use std::collections::HashMap;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PathSeg {
+    Key(String),
+    Index(usize),
+}
+
+fn parse_path(path: &str) -> Vec<PathSeg> {
+    let mut segs = Vec::new();
+    for part in path.split('.') {
+        if part.is_empty() {
+            continue;
+        }
+        // Parse key plus optional [idx][idx]...
+        let mut key = String::new();
+        let mut chars = part.chars().peekable();
+        while let Some(&ch) = chars.peek() {
+            if ch == '[' {
+                break;
+            }
+            key.push(ch);
+            chars.next();
+        }
+        if !key.is_empty() {
+            segs.push(PathSeg::Key(key.clone()));
+        }
+        // parse zero or more [number]
+        while let Some(&ch) = chars.peek() {
+            if ch != '[' {
+                break;
+            }
+            // consume '['
+            chars.next();
+            // read digits
+            let mut num = String::new();
+            while let Some(&d) = chars.peek() {
+                if d == ']' {
+                    break;
+                }
+                num.push(d);
+                chars.next();
+            }
+            // consume ']'
+            let _ = chars.next();
+            if let Ok(idx) = num.parse::<usize>() {
+                segs.push(PathSeg::Index(idx));
+            }
+        }
+    }
+    segs
+}
+
 /// Body for image HTTP requests
 pub enum ImageHttpBody {
     Json(serde_json::Value),
@@ -282,10 +333,13 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
     }
     fn get_path<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
         let mut cur = v;
-        for seg in path.split('.') {
-            match cur {
-                serde_json::Value::Object(map) => {
-                    cur = map.get(seg)?;
+        for seg in parse_path(path) {
+            match (seg, cur) {
+                (PathSeg::Key(k), serde_json::Value::Object(map)) => {
+                    cur = map.get(&k)?;
+                }
+                (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
+                    cur = arr.get(i)?;
                 }
                 _ => return None,
             }
@@ -297,43 +351,119 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         v: &'a mut serde_json::Value,
         path: &str,
     ) -> Option<&'a mut serde_json::Value> {
-        let mut cur = v;
-        for seg in path.split('.') {
-            match cur {
-                serde_json::Value::Object(map) => {
-                    cur = map.get_mut(seg)?;
+        let mut cur = v as *mut serde_json::Value; // raw pointer to satisfy borrow checker during iteration
+        for seg in parse_path(path) {
+            unsafe {
+                match seg {
+                    PathSeg::Key(k) => match &mut *cur {
+                        serde_json::Value::Object(map) => {
+                            let next = map.get_mut(&k)? as *mut serde_json::Value;
+                            cur = next;
+                        }
+                        _ => return None,
+                    },
+                    PathSeg::Index(i) => match &mut *cur {
+                        serde_json::Value::Array(arr) => {
+                            let next = arr.get_mut(i)? as *mut serde_json::Value;
+                            cur = next;
+                        }
+                        _ => return None,
+                    },
                 }
-                _ => return None,
             }
         }
-        Some(cur)
+        unsafe { Some(&mut *cur) }
     }
 
     fn ensure_parent_object<'a>(
         v: &'a mut serde_json::Value,
         path: &str,
     ) -> Option<&'a mut serde_json::Map<String, serde_json::Value>> {
-        let mut cur = v;
-        let mut it = path.split('.').peekable();
-        while let Some(seg) = it.next() {
-            if it.peek().is_none() {
-                // parent level reached
-                if let serde_json::Value::Object(map) = cur {
-                    return Some(map);
-                } else {
-                    return None;
+        // Parent of the final key; path must end with a key
+        let segments = parse_path(path);
+        if segments.is_empty() {
+            return None;
+        }
+        let (parent_segs, leaf_is_key) = match &segments[segments.len() - 1] {
+            PathSeg::Key(_) => (&segments[..segments.len() - 1], true),
+            PathSeg::Index(_) => (&segments[..segments.len()], false),
+        };
+        if !leaf_is_key {
+            return None;
+        }
+
+        let mut cur: *mut serde_json::Value = v;
+        for (idx, seg) in parent_segs.iter().enumerate() {
+            let next = parent_segs.get(idx + 1);
+            unsafe {
+                match seg {
+                    PathSeg::Key(k) => {
+                        // Ensure current is an object
+                        match &mut *cur {
+                            serde_json::Value::Null => {
+                                *cur = serde_json::Value::Object(serde_json::Map::new());
+                            }
+                            serde_json::Value::Object(_) => {}
+                            _ => return None,
+                        }
+                        if let serde_json::Value::Object(map) = &mut *cur {
+                            // Insert or get child
+                            let entry = map.entry(k.clone()).or_insert(serde_json::Value::Null);
+                            // Shape child according to next segment
+                            match next {
+                                Some(PathSeg::Index(_)) => {
+                                    if !entry.is_array() {
+                                        *entry = serde_json::Value::Array(Vec::new());
+                                    }
+                                }
+                                Some(PathSeg::Key(_)) | None => {
+                                    if !entry.is_object() {
+                                        *entry = serde_json::Value::Object(serde_json::Map::new());
+                                    }
+                                }
+                            }
+                            cur = entry as *mut serde_json::Value;
+                        }
+                    }
+                    PathSeg::Index(i) => {
+                        // Ensure current is an array
+                        match &mut *cur {
+                            serde_json::Value::Null => {
+                                *cur = serde_json::Value::Array(Vec::new());
+                            }
+                            serde_json::Value::Array(_) => {}
+                            _ => return None,
+                        }
+                        if let serde_json::Value::Array(arr) = &mut *cur {
+                            if arr.len() <= *i {
+                                arr.resize(i + 1, serde_json::Value::Null);
+                            }
+                            // Shape the indexed child according to next segment
+                            match next {
+                                Some(PathSeg::Index(_)) => {
+                                    if !arr[*i].is_array() {
+                                        arr[*i] = serde_json::Value::Array(Vec::new());
+                                    }
+                                }
+                                Some(PathSeg::Key(_)) | None => {
+                                    if !arr[*i].is_object() {
+                                        arr[*i] = serde_json::Value::Object(serde_json::Map::new());
+                                    }
+                                }
+                            }
+                            cur = &mut arr[*i] as *mut serde_json::Value;
+                        }
+                    }
                 }
-            }
-            match cur {
-                serde_json::Value::Object(map) => {
-                    cur = map
-                        .entry(seg.to_string())
-                        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-                }
-                _ => return None,
             }
         }
-        None
+        unsafe {
+            if let serde_json::Value::Object(map) = &mut *cur {
+                Some(map)
+            } else {
+                None
+            }
+        }
     }
 
     fn move_field(body: &mut serde_json::Value, from: &str, to: &str) {
@@ -343,25 +473,7 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
             return;
         }
         // Remove source
-        // Simple removal supports only top-level; for nested, rebuild along the way
-        // We'll do a best-effort delete by walking parents
-        let segments: Vec<&str> = from.split('.').collect();
-        if segments.len() == 1 {
-            if let serde_json::Value::Object(map) = body {
-                map.remove(segments[0]);
-            }
-        } else {
-            // Navigate to parent
-            let (parent_path, leaf) = (
-                segments[..segments.len() - 1].join("."),
-                segments[segments.len() - 1],
-            );
-            if let Some(parent) = Self::get_path_mut(body, &parent_path)
-                && let serde_json::Value::Object(map) = parent
-            {
-                map.remove(leaf);
-            }
-        }
+        Self::drop_field(body, from);
         // Set destination
         if let Some(parent) = Self::ensure_parent_object(body, to) {
             let leaf = to.split('.').next_back().unwrap();
@@ -370,20 +482,58 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
     }
 
     fn drop_field(body: &mut serde_json::Value, field: &str) {
-        let segments: Vec<&str> = field.split('.').collect();
-        if segments.len() == 1 {
-            if let serde_json::Value::Object(map) = body {
-                map.remove(segments[0]);
+        let segs = parse_path(field);
+        if segs.is_empty() {
+            return;
+        }
+        if segs.len() == 1 {
+            match (&segs[0], body) {
+                (PathSeg::Key(k), serde_json::Value::Object(map)) => {
+                    map.remove(k);
+                }
+                (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
+                    if *i < arr.len() {
+                        arr.remove(*i);
+                    }
+                }
+                _ => {}
             }
-        } else {
-            let (parent_path, leaf) = (
-                segments[..segments.len() - 1].join("."),
-                segments[segments.len() - 1],
-            );
-            if let Some(parent) = Self::get_path_mut(body, &parent_path)
-                && let serde_json::Value::Object(map) = parent
-            {
-                map.remove(leaf);
+            return;
+        }
+        let parent_path = {
+            // reconstruct parent string path for get_path_mut, which now supports arrays
+            let mut s = String::new();
+            for (idx, seg) in segs.iter().enumerate() {
+                if idx == segs.len() - 1 {
+                    break;
+                }
+                match seg {
+                    PathSeg::Key(k) => {
+                        if !s.is_empty() {
+                            s.push('.');
+                        }
+                        s.push_str(k);
+                    }
+                    PathSeg::Index(i) => {
+                        s.push('[');
+                        s.push_str(&i.to_string());
+                        s.push(']');
+                    }
+                }
+            }
+            s
+        };
+        if let Some(parent) = Self::get_path_mut(body, &parent_path) {
+            match (segs.last().unwrap(), parent) {
+                (PathSeg::Key(k), serde_json::Value::Object(map)) => {
+                    map.remove(k);
+                }
+                (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
+                    if *i < arr.len() {
+                        arr.remove(*i);
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -777,5 +927,68 @@ mod tests {
         req2.common_params.model = "gpt-4o".to_string();
         let out2 = tx.transform_chat(&req2).unwrap();
         assert!(out2.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn move_from_array_path_into_object_key() {
+        // messages[0].content -> payload.first
+        let profile = MappingProfile {
+            provider_id: "test",
+            rules: vec![Rule::Move {
+                from: "messages[0].content",
+                to: "payload.first",
+            }],
+            merge_strategy: ProviderParamsMergeStrategy::Flatten,
+        };
+        struct ChatHooks;
+        impl ProviderRequestHooks for ChatHooks {
+            fn build_base_chat_body(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(serde_json::json!({
+                    "messages": [
+                        {"content": "hello"},
+                        {"content": "world"}
+                    ]
+                }))
+            }
+        }
+        let tx = GenericRequestTransformer {
+            profile,
+            hooks: ChatHooks,
+        };
+        let req = crate::types::ChatRequest::new(vec![]);
+        let out = tx.transform_chat(&req).unwrap();
+        assert_eq!(out["payload"]["first"], serde_json::json!("hello"));
+        assert!(out["messages"][0].get("content").is_none());
+    }
+
+    #[test]
+    fn default_into_nested_array_path_creates_structure() {
+        let profile = MappingProfile {
+            provider_id: "test",
+            rules: vec![Rule::Default {
+                field: "params.options[0].name",
+                value: serde_json::json!("x"),
+            }],
+            merge_strategy: ProviderParamsMergeStrategy::Flatten,
+        };
+        struct ChatHooks;
+        impl ProviderRequestHooks for ChatHooks {
+            fn build_base_chat_body(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(serde_json::json!({}))
+            }
+        }
+        let tx = GenericRequestTransformer {
+            profile,
+            hooks: ChatHooks,
+        };
+        let req = crate::types::ChatRequest::new(vec![]);
+        let out = tx.transform_chat(&req).unwrap();
+        assert_eq!(out["params"]["options"][0]["name"], serde_json::json!("x"));
     }
 }

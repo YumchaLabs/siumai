@@ -6,10 +6,10 @@
 use crate::error::LlmError;
 use crate::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn, apply_post_generate_chain,
-    apply_stream_event_chain, apply_transform_chain, try_pre_generate, try_pre_stream,
+    apply_transform_chain, try_pre_generate, try_pre_stream,
 };
 use crate::streaming::ChatStream;
-use crate::streaming::{SseEventConverter, StreamFactory};
+use crate::streaming::SseEventConverter;
 use crate::telemetry::{
     self,
     events::{GenerationEvent, SpanEvent, TelemetryEvent},
@@ -18,10 +18,7 @@ use crate::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse};
-use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
-use eventsource_stream::Event;
-use std::future::Future;
-use std::pin::Pin;
+use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 // -----------------------------------------------------------------------------
@@ -198,7 +195,7 @@ impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
 }
 
 // -----------------------------------------------------------------------------
-// Helper builders for SSE/JSON streaming sources (无行为变化)
+// Helper builders for SSE/JSON streaming sources (no behavior change)
 // -----------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
@@ -1145,7 +1142,6 @@ impl ChatExecutor for HttpChatExecutor {
             .provider_spec
             .chat_url(false, &req, &self.provider_context);
         let headers_initial = self.provider_spec.build_headers(&self.provider_context)?;
-        let headers_for_interceptors_initial = headers_initial.clone();
         let provider_spec = self.provider_spec.clone();
         let provider_context = self.provider_context.clone();
         let retry_options = self.retry_options.clone();
@@ -1154,7 +1150,6 @@ impl ChatExecutor for HttpChatExecutor {
         let base: Arc<GenerateAsyncFn> = Arc::new(move |req_in: ChatRequest| {
             let url = url.clone();
             let headers_initial = headers_initial.clone();
-            let _headers_for_interceptors_initial = headers_for_interceptors_initial.clone();
             let client = client.clone();
             let request_tx = request_tx.clone();
             let response_tx = response_tx.clone();
@@ -1182,118 +1177,24 @@ impl ChatExecutor for HttpChatExecutor {
                         body
                     };
 
-                    // Build request and run interceptors
-                    // Merge per-request http_config.headers on top of provider/base headers
-                    let merged_headers = if let Some(hc) = &req_in.http_config {
-                        crate::utils::http_headers::merge_headers(
-                            headers_initial.clone(),
-                            &hc.headers,
-                        )
-                    } else {
-                        headers_initial.clone()
-                    };
-                    let mut rb = client.post(url.clone()).headers(merged_headers);
-                    let ctx = HttpRequestContext {
+                    let config = crate::executors::common::HttpExecutionConfig {
                         provider_id: provider_id.clone(),
-                        url: url.clone(),
-                        stream: false,
+                        http_client: client.clone(),
+                        provider_spec: provider_spec.clone(),
+                        provider_context: provider_context.clone(),
+                        interceptors: interceptors.clone(),
+                        retry_options: retry_options.clone(),
                     };
-                    // Build effective headers for interceptor visibility
-                    let cloned_headers = rb
-                        .try_clone()
-                        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                        .unwrap_or_default();
-                    for it in &interceptors {
-                        rb = it.on_before_send(&ctx, rb, &json_body, &cloned_headers)?;
-                    }
-                    let resp = rb
-                        .json(&json_body)
-                        .send()
-                        .await
-                        .map_err(|e| LlmError::HttpError(e.to_string()))?;
-                    let resp = if !resp.status().is_success() {
-                        let status = resp.status();
-                        let should_retry_401 = retry_options
-                            .as_ref()
-                            .map(|opts| opts.retry_401)
-                            .unwrap_or(true);
-                        if status.as_u16() == 401 && should_retry_401 {
-                            // Rebuild headers and retry once
-                            let headers_retry = provider_spec.build_headers(&provider_context)?;
-                            let headers_retry = {
-                                let mut h = headers_retry;
-                                if let Some(hc) = &req_in.http_config {
-                                    for (k, v) in &hc.headers {
-                                        if let (Ok(name), Ok(val)) = (
-                                            reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                                            reqwest::header::HeaderValue::from_str(v),
-                                        ) {
-                                            h.insert(name, val);
-                                        }
-                                    }
-                                }
-                                h
-                            };
-                            let headers_for_interceptors_retry = headers_retry.clone();
-                            let mut rb2 = client.post(url.clone()).headers(headers_retry);
-                            let ctx = HttpRequestContext {
-                                provider_id: provider_id.clone(),
-                                url: url.clone(),
-                                stream: false,
-                            };
-                            for it in &interceptors {
-                                rb2 = it.on_before_send(
-                                    &ctx,
-                                    rb2,
-                                    &json_body,
-                                    &headers_for_interceptors_retry,
-                                )?;
-                            }
-                            rb2.json(&json_body)
-                                .send()
-                                .await
-                                .map_err(|e| LlmError::HttpError(e.to_string()))?
-                        } else {
-                            let headers = resp.headers().clone();
-                            let text = resp.text().await.unwrap_or_default();
-                            for it in &interceptors {
-                                it.on_error(
-                                    &ctx,
-                                    &crate::retry_api::classify_http_error(
-                                        &provider_id,
-                                        status.as_u16(),
-                                        &text,
-                                        &headers,
-                                        None,
-                                    ),
-                                );
-                            }
-                            return Err(crate::retry_api::classify_http_error(
-                                &provider_id,
-                                status.as_u16(),
-                                &text,
-                                &headers,
-                                None,
-                            ));
-                        }
-                    } else {
-                        resp
-                    };
-
-                    for it in &interceptors {
-                        it.on_response(&ctx, &resp)?;
-                    }
-                    let text = resp
-                        .text()
-                        .await
-                        .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-                    // Use parse_json_with_repair for automatic JSON repair when enabled
-                    let json: serde_json::Value = crate::streaming::parse_json_with_repair(&text)
-                        .map_err(|e| {
-                        LlmError::ParseError(format!("Failed to parse response JSON: {e}"))
-                    })?;
-                    let resp = response_tx.transform_chat_response(&json)?;
+                    let per_request_headers = req_in.http_config.as_ref().map(|hc| &hc.headers);
+                    let result = crate::executors::common::execute_json_request(
+                        &config,
+                        &url,
+                        crate::executors::common::HttpBody::Json(json_body),
+                        per_request_headers,
+                        false,
+                    )
+                    .await?;
+                    let resp = response_tx.transform_chat_response(&result.json)?;
                     Ok(resp)
                 }
             })
@@ -1482,69 +1383,9 @@ impl ChatExecutor for HttpChatExecutor {
                     body
                 };
 
-                // Build SSE request (used only when SSE transformer present)
-                let build_request = {
-                    let http = http.clone();
-                    let headers_base = headers_base.clone();
-                    let url_for_retry = url.clone();
-                    let transformed_for_retry = transformed.clone();
-                    let interceptors = interceptors.clone();
-                    let provider_id = provider_id.clone();
-                    // Extract per-request headers once to avoid moving req_in into the closure
-                    let req_headers_extra =
-                        req_in.http_config.as_ref().map(|hc| hc.headers.clone());
-                    move || -> Result<reqwest::RequestBuilder, LlmError> {
-                        // Merge per-request headers into base headers
-                        let headers_effective = if let Some(ref headers_map) = req_headers_extra {
-                            crate::utils::http_headers::merge_headers(
-                                headers_base.clone(),
-                                headers_map,
-                            )
-                        } else {
-                            headers_base.clone()
-                        };
-                        let mut rb = http
-                            .post(url_for_retry.clone())
-                            .headers(headers_effective)
-                            .header(reqwest::header::ACCEPT, "text/event-stream")
-                            .header(reqwest::header::CACHE_CONTROL, "no-cache")
-                            .header(reqwest::header::CONNECTION, "keep-alive");
-                        let mut body_for_send = transformed_for_retry.clone();
-                        if provider_id.starts_with("openai") {
-                            body_for_send["stream"] = serde_json::Value::Bool(true);
-                            if body_for_send.get("stream_options").is_none() {
-                                body_for_send["stream_options"] =
-                                    serde_json::json!({"include_usage": true});
-                            } else if let Some(obj) =
-                                body_for_send["stream_options"].as_object_mut()
-                            {
-                                obj.entry("include_usage")
-                                    .or_insert(serde_json::Value::Bool(true));
-                            }
-                        }
-                        rb = rb.json(&body_for_send);
-                        if disable_compression {
-                            rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
-                        }
-                        // Interceptors on streaming request
-                        let ctx = HttpRequestContext {
-                            provider_id: provider_id.clone(),
-                            url: url_for_retry.clone(),
-                            stream: true,
-                        };
-                        // Build headers again for interceptor visibility
-                        let cloned_headers = rb
-                            .try_clone()
-                            .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                            .unwrap_or_default();
-                        for it in &interceptors {
-                            rb = it.on_before_send(&ctx, rb, &body_for_send, &cloned_headers)?;
-                        }
-                        Ok(rb)
-                    }
-                };
+                // Build and send streaming via helpers below (SSE or JSON)
 
-                // Converters are defined在模块作用域；这里调用统一的 helper 构建流
+                // Converters are module-scoped; call unified helpers to build the stream
                 if let Some(stream_tx) = sse_tx {
                     create_sse_stream_with_middlewares(
                         provider_id.clone(),
