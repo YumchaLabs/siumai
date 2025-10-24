@@ -33,6 +33,13 @@ pub struct HttpFilesExecutor {
 #[async_trait::async_trait]
 impl FilesExecutor for HttpFilesExecutor {
     async fn upload(&self, req: FileUploadRequest) -> Result<FileObject, LlmError> {
+        // Capability guard
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("file_management") {
+            return Err(LlmError::UnsupportedOperation(
+                "File management is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Get URL
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.upload_endpoint(&req));
@@ -89,6 +96,12 @@ impl FilesExecutor for HttpFilesExecutor {
     }
 
     async fn list(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("file_management") {
+            return Err(LlmError::UnsupportedOperation(
+                "File listing is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Get URL from transformer
         let endpoint = self.transformer.list_endpoint(&query);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
@@ -120,6 +133,12 @@ impl FilesExecutor for HttpFilesExecutor {
     }
 
     async fn retrieve(&self, file_id: String) -> Result<FileObject, LlmError> {
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("file_management") {
+            return Err(LlmError::UnsupportedOperation(
+                "File retrieve is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Get URL from transformer
         let endpoint = self.transformer.retrieve_endpoint(&file_id);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
@@ -146,6 +165,12 @@ impl FilesExecutor for HttpFilesExecutor {
     }
 
     async fn delete(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("file_management") {
+            return Err(LlmError::UnsupportedOperation(
+                "File delete is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Get URL from transformer
         let endpoint = self.transformer.delete_endpoint(&file_id);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
@@ -174,6 +199,12 @@ impl FilesExecutor for HttpFilesExecutor {
     }
 
     async fn get_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("file_management") {
+            return Err(LlmError::UnsupportedOperation(
+                "File content download is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Determine URL (prefer API endpoint if provided; otherwise fall back to URL from file object)
         let mut maybe_endpoint = self.transformer.content_endpoint(&file_id);
         let url = if let Some(ep) = maybe_endpoint.take() {

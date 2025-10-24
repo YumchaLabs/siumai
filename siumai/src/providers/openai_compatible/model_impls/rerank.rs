@@ -27,7 +27,18 @@ impl OpenAiRerankAdapter for ProviderAdapterWrapper {
     }
 
     fn transform_response(&self, _resp: &mut serde_json::Value) -> Result<(), LlmError> {
-        // Default implementation - no transformation needed
+        // Map SiliconFlow-specific response shape to standard fields
+        // SiliconFlow uses { meta: { tokens: { input_tokens, output_tokens } } }
+        // Standard expects { usage: { input_tokens, output_tokens } }
+        if self.provider_id == "siliconflow" {
+            if let Some(meta) = _resp.get_mut("meta") {
+                if let Some(tokens) = meta.get("tokens").cloned() {
+                    _resp.as_object_mut().map(|obj| {
+                        obj.insert("usage".to_string(), tokens);
+                    });
+                }
+            }
+        }
         Ok(())
     }
 }

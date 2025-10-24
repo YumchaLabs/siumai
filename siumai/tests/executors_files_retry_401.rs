@@ -84,7 +84,7 @@ impl ProviderSpec for TestFilesSpec {
     }
 
     fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
-        siumai::traits::ProviderCapabilities::new()
+        siumai::traits::ProviderCapabilities::new().with_file_management()
     }
 
     fn build_headers(
@@ -231,6 +231,8 @@ async fn files_executor_retries_on_401_list_retrieve_delete_upload_content() {
         transformer: Arc::new(TestFilesTransformer),
         provider_spec: spec,
         provider_context: ctx,
+        interceptors: vec![],
+        retry_options: None,
     };
 
     // list
@@ -254,6 +256,7 @@ async fn files_executor_retries_on_401_list_retrieve_delete_upload_content() {
             mime_type: Some("text/plain".to_string()),
             purpose: "test".to_string(),
             metadata: Default::default(),
+            http_config: None,
         })
         .await
         .unwrap();

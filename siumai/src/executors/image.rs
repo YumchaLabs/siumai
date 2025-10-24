@@ -49,6 +49,13 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
+        // Capability guard: image generation is a custom feature
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("image_generation") {
+            return Err(LlmError::UnsupportedOperation(
+                "Image generation is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Transform request to JSON
         let mut body = self.request_transformer.transform_image(&req)?;
 
@@ -90,6 +97,12 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("image_generation") {
+            return Err(LlmError::UnsupportedOperation(
+                "Image editing is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Get URL from provider spec
         let url = self
             .provider_spec
@@ -151,6 +164,12 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("image_generation") {
+            return Err(LlmError::UnsupportedOperation(
+                "Image variation is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Get URL from provider spec
         let url = self
             .provider_spec

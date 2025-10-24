@@ -16,7 +16,7 @@ use crate::traits::{
     ChatCapability, EmbeddingCapability, ImageGenerationCapability, ModelListingCapability,
     RerankCapability,
 };
-use crate::transformers::request::RequestTransformer;
+// use crate::transformers::request::RequestTransformer; // unused
 use crate::types::*;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -319,50 +319,7 @@ impl OpenAiCompatibleClient {
 
     // Removed legacy parse_chat_response; response transformer handles mapping
 
-    /// Send HTTP request
-    async fn send_request(
-        &self,
-        params: serde_json::Value,
-        endpoint: &str,
-    ) -> Result<reqwest::Response, LlmError> {
-        // Unified header building
-        let adapter_headers = self.config.adapter.custom_headers();
-        let headers = Self::build_json_headers(
-            &self.config.api_key,
-            &self.config.http_config.headers,
-            &self.config.custom_headers,
-            &adapter_headers,
-        )?;
-
-        let url = format!(
-            "{}/{}",
-            self.config.base_url.trim_end_matches('/'),
-            endpoint
-        );
-
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(headers)
-            .json(&params)
-            .send()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(LlmError::api_error(
-                status.as_u16(),
-                format!("HTTP {}: {}", status, error_text),
-            ));
-        }
-
-        Ok(response)
-    }
+    // removed legacy send_request; executors handle requests
 }
 
 // Removed legacy chat_with_tools_inner; ChatCapability now uses HttpChatExecutor
@@ -410,103 +367,36 @@ impl ChatCapability for OpenAiCompatibleClient {
 #[async_trait]
 impl EmbeddingCapability for OpenAiCompatibleClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        let req = crate::types::EmbeddingRequest::new(texts).with_model(self.config.model.clone());
         use crate::provider_core::{ProviderContext, ProviderSpec};
+        let req = crate::types::EmbeddingRequest::new(texts).with_model(self.config.model.clone());
 
-        // Create a simple spec wrapper for OpenAI-compatible providers
-        struct CompatEmbeddingSpec;
-
-        impl ProviderSpec for CompatEmbeddingSpec {
-            fn id(&self) -> &'static str {
-                "openai-compatible"
-            }
-
-            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
-                crate::traits::ProviderCapabilities::new().with_embedding()
-            }
-
-            fn build_headers(
-                &self,
-                ctx: &ProviderContext,
-            ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
-                // Use the custom headers from context
-                let mut headers = reqwest::header::HeaderMap::new();
-                for (k, v) in &ctx.http_extra_headers {
-                    headers.insert(
-                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-                            crate::error::LlmError::ConfigurationError(e.to_string())
-                        })?,
-                        reqwest::header::HeaderValue::from_str(v).map_err(|e| {
-                            crate::error::LlmError::ConfigurationError(e.to_string())
-                        })?,
-                    );
+        // Build merged extra headers (HttpConfig + custom + adapter)
+        let mut extra_headers = self.config.http_config.headers.clone();
+        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
+                                hm: &reqwest::header::HeaderMap| {
+            for (name, value) in hm.iter() {
+                if let Ok(val) = value.to_str() {
+                    dst.insert(name.as_str().to_string(), val.to_string());
                 }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
             }
+        };
+        merge_header_map(&mut extra_headers, &self.config.custom_headers);
+        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
 
-            fn chat_url(
-                &self,
-                _stream: bool,
-                _req: &crate::types::ChatRequest,
-                _ctx: &ProviderContext,
-            ) -> String {
-                panic!("chat_url should not be called on embedding spec")
-            }
-
-            fn choose_chat_transformers(
-                &self,
-                _req: &crate::types::ChatRequest,
-                _ctx: &ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                panic!("choose_chat_transformers should not be called on embedding spec")
-            }
-        }
-
-        // Build headers with all custom headers
-        let mut all_headers = self.config.http_config.headers.clone();
-        // Add reqwest HeaderMap headers
-        for (k, v) in self.config.custom_headers.iter() {
-            if let Ok(v_str) = v.to_str() {
-                all_headers.insert(k.as_str().to_string(), v_str.to_string());
-            }
-        }
-        for (k, v) in self.config.adapter.custom_headers().iter() {
-            if let Ok(v_str) = v.to_str() {
-                all_headers.insert(k.as_str().to_string(), v_str.to_string());
-            }
-        }
-        // Add API key if present
-        all_headers.insert(
-            "Authorization".to_string(),
-            format!("Bearer {}", self.config.api_key),
-        );
-        all_headers.insert("Content-Type".to_string(), "application/json".to_string());
-
-        let spec = Arc::new(CompatEmbeddingSpec);
         let ctx = ProviderContext::new(
-            &self.config.provider_id,
+            self.config.provider_id.clone(),
             self.config.base_url.clone(),
             Some(self.config.api_key.clone()),
-            all_headers,
+            extra_headers,
         );
-
-        let req_tx = super::transformers::CompatRequestTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
-        };
-        let resp_tx = super::transformers::CompatResponseTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
-        };
+        let spec = Arc::new(crate::providers::openai_compatible::spec::OpenAiCompatibleSpec);
+        let bundle = spec.choose_embedding_transformers(&req, &ctx);
 
         if let Some(opts) = &self.retry_options {
             let http = self.http_client.clone();
             let spec_clone = spec.clone();
             let ctx_clone = ctx.clone();
             let provider_id = self.config.provider_id.clone();
-            let config = self.config.clone();
-            let adapter = self.config.adapter.clone();
             crate::retry_api::retry_with(
                 || {
                     let rqc = req.clone();
@@ -514,20 +404,14 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                     let spec = spec_clone.clone();
                     let ctx = ctx_clone.clone();
                     let provider_id = provider_id.clone();
-                    let req_tx = super::transformers::CompatRequestTransformer {
-                        config: config.clone(),
-                        adapter: adapter.clone(),
-                    };
-                    let resp_tx = super::transformers::CompatResponseTransformer {
-                        config: config.clone(),
-                        adapter: adapter.clone(),
-                    };
+                    let req_tx_arc = bundle.request.clone();
+                    let resp_tx_arc = bundle.response.clone();
                     async move {
                         let exec = HttpEmbeddingExecutor {
                             provider_id,
                             http_client: http,
-                            request_transformer: std::sync::Arc::new(req_tx),
-                            response_transformer: std::sync::Arc::new(resp_tx),
+                            request_transformer: req_tx_arc.clone(),
+                            response_transformer: resp_tx_arc.clone(),
                             provider_spec: spec,
                             provider_context: ctx,
                             interceptors: vec![],
@@ -544,8 +428,8 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
             let exec = HttpEmbeddingExecutor {
                 provider_id: self.config.provider_id.clone(),
                 http_client: self.http_client.clone(),
-                request_transformer: std::sync::Arc::new(req_tx),
-                response_transformer: std::sync::Arc::new(resp_tx),
+                request_transformer: bundle.request,
+                response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
                 interceptors: vec![],
@@ -565,23 +449,69 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
 #[async_trait]
 impl RerankCapability for OpenAiCompatibleClient {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
-        // Build via transformers (centralized)
-        let req_tx = super::transformers::CompatRequestTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
+        // Use OpenAI Rerank Standard with provider-aware adapter
+        struct LocalRerankAdapter { provider_id: String }
+        impl crate::standards::openai::rerank::OpenAiRerankAdapter for LocalRerankAdapter {
+            fn transform_request(
+                &self,
+                _req: &RerankRequest,
+                _body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn transform_response(&self, resp: &mut serde_json::Value) -> Result<(), LlmError> {
+                if self.provider_id == "siliconflow" {
+                    if let Some(meta) = resp.get_mut("meta") {
+                        if let Some(tokens) = meta.get("tokens").cloned() {
+                            if let Some(obj) = resp.as_object_mut() {
+                                obj.insert("usage".to_string(), tokens);
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        let adapter = std::sync::Arc::new(LocalRerankAdapter {
+            provider_id: self.config.provider_id.clone(),
+        });
+        let standard =
+            crate::standards::openai::rerank::OpenAiRerankStandard::with_adapter(adapter);
+        let transformers = standard.create_transformers(&self.config.provider_id);
+
+        // Build URL via adapter route mapping
+        let endpoint = self
+            .config
+            .adapter
+            .route_for(super::types::RequestType::Rerank);
+        let url = format!(
+            "{}/{}",
+            self.config.base_url.trim_end_matches('/'),
+            endpoint
+        );
+
+        // Build headers similar to JSON request path
+        let adapter_headers = self.config.adapter.custom_headers();
+        let headers = Self::build_json_headers(
+            &self.config.api_key,
+            &self.config.http_config.headers,
+            &self.config.custom_headers,
+            &adapter_headers,
+        )?;
+
+        let exec = crate::executors::rerank::HttpRerankExecutor {
+            provider_id: self.config.provider_id.clone(),
+            http_client: self.http_client.clone(),
+            request_transformer: transformers.request,
+            response_transformer: transformers.response,
+            interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            url,
+            headers,
+            before_send: None,
         };
-        let params = req_tx.transform_rerank(&request)?;
-
-        let response = self.send_request(params, "rerank").await?;
-
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| LlmError::HttpError(e.to_string()))?;
-
-        let rerank_response = parse_rerank_response(&response_text, &self.config.provider_id)?;
-
-        Ok(rerank_response)
+        crate::executors::rerank::RerankExecutor::execute(&exec, request).await
     }
 }
 
@@ -732,98 +662,33 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
         }
         use crate::provider_core::{ProviderContext, ProviderSpec};
 
-        // Create a simple spec wrapper for OpenAI-compatible providers
-        struct CompatImageSpec;
-
-        impl ProviderSpec for CompatImageSpec {
-            fn id(&self) -> &'static str {
-                "openai-compatible"
-            }
-
-            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
-                crate::traits::ProviderCapabilities::new().with_vision()
-            }
-
-            fn build_headers(
-                &self,
-                ctx: &ProviderContext,
-            ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
-                let mut headers = reqwest::header::HeaderMap::new();
-                for (k, v) in &ctx.http_extra_headers {
-                    headers.insert(
-                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-                            crate::error::LlmError::ConfigurationError(e.to_string())
-                        })?,
-                        reqwest::header::HeaderValue::from_str(v).map_err(|e| {
-                            crate::error::LlmError::ConfigurationError(e.to_string())
-                        })?,
-                    );
+        // Build merged extra headers (HttpConfig + custom + adapter)
+        let mut extra_headers = self.config.http_config.headers.clone();
+        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
+                                hm: &reqwest::header::HeaderMap| {
+            for (name, value) in hm.iter() {
+                if let Ok(val) = value.to_str() {
+                    dst.insert(name.as_str().to_string(), val.to_string());
                 }
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
             }
+        };
+        merge_header_map(&mut extra_headers, &self.config.custom_headers);
+        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
 
-            fn chat_url(
-                &self,
-                _stream: bool,
-                _req: &crate::types::ChatRequest,
-                _ctx: &ProviderContext,
-            ) -> String {
-                panic!("chat_url should not be called on image spec")
-            }
-
-            fn choose_chat_transformers(
-                &self,
-                _req: &crate::types::ChatRequest,
-                _ctx: &ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                panic!("choose_chat_transformers should not be called on image spec")
-            }
-        }
-
-        // Build headers with all custom headers
-        let mut all_headers = self.config.http_config.headers.clone();
-        // Add reqwest HeaderMap headers
-        for (k, v) in self.config.custom_headers.iter() {
-            if let Ok(v_str) = v.to_str() {
-                all_headers.insert(k.as_str().to_string(), v_str.to_string());
-            }
-        }
-        for (k, v) in self.config.adapter.custom_headers().iter() {
-            if let Ok(v_str) = v.to_str() {
-                all_headers.insert(k.as_str().to_string(), v_str.to_string());
-            }
-        }
-        all_headers.insert(
-            "Authorization".to_string(),
-            format!("Bearer {}", self.config.api_key),
-        );
-        all_headers.insert("Content-Type".to_string(), "application/json".to_string());
-
-        let spec = Arc::new(CompatImageSpec);
+        let spec = Arc::new(crate::providers::openai_compatible::spec::OpenAiCompatibleSpec);
         let ctx = ProviderContext::new(
-            &self.config.provider_id,
+            self.config.provider_id.clone(),
             self.config.base_url.clone(),
             Some(self.config.api_key.clone()),
-            all_headers,
+            extra_headers,
         );
-
-        let req_tx = super::transformers::CompatRequestTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
-        };
-        let resp_tx = super::transformers::CompatResponseTransformer {
-            config: self.config.clone(),
-            adapter: self.config.adapter.clone(),
-        };
+        let bundle = spec.choose_image_transformers(&request, &ctx);
 
         if let Some(opts) = &self.retry_options {
             let http = self.http_client.clone();
             let spec_clone = spec.clone();
             let ctx_clone = ctx.clone();
             let provider_id = self.config.provider_id.clone();
-            let config = self.config.clone();
-            let adapter = self.config.adapter.clone();
             crate::retry_api::retry_with(
                 || {
                     let rqc = request.clone();
@@ -831,20 +696,14 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                     let spec = spec_clone.clone();
                     let ctx = ctx_clone.clone();
                     let provider_id = provider_id.clone();
-                    let req_tx = super::transformers::CompatRequestTransformer {
-                        config: config.clone(),
-                        adapter: adapter.clone(),
-                    };
-                    let resp_tx = super::transformers::CompatResponseTransformer {
-                        config: config.clone(),
-                        adapter: adapter.clone(),
-                    };
+                    let req_tx_arc = bundle.request.clone();
+                    let resp_tx_arc = bundle.response.clone();
                     async move {
                         let exec = HttpImageExecutor {
                             provider_id,
                             http_client: http,
-                            request_transformer: std::sync::Arc::new(req_tx),
-                            response_transformer: std::sync::Arc::new(resp_tx),
+                            request_transformer: req_tx_arc.clone(),
+                            response_transformer: resp_tx_arc.clone(),
                             provider_spec: spec,
                             provider_context: ctx,
                             interceptors: vec![],
@@ -861,8 +720,8 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
             let exec = HttpImageExecutor {
                 provider_id: self.config.provider_id.clone(),
                 http_client: self.http_client.clone(),
-                request_transformer: std::sync::Arc::new(req_tx),
-                response_transformer: std::sync::Arc::new(resp_tx),
+                request_transformer: bundle.request,
+                response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
                 interceptors: vec![],
@@ -948,6 +807,18 @@ impl LlmClient for OpenAiCompatibleClient {
             None
         }
     }
+
+    fn as_rerank_capability(&self) -> Option<&dyn RerankCapability> {
+        if self.config.adapter.capabilities().supports("rerank") {
+            Some(self)
+        } else if self.config.model.contains("rerank")
+            || self.config.model.contains("bge-reranker")
+        {
+            Some(self)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1007,50 +878,4 @@ mod tests {
     }
 }
 
-/// SiliconFlow-specific rerank response structure
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct SiliconFlowRerankResponse {
-    pub id: String,
-    pub results: Vec<RerankResult>,
-    pub meta: SiliconFlowMeta,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct SiliconFlowMeta {
-    pub tokens: RerankTokenUsage,
-}
-
-/// Parse rerank response based on provider
-fn parse_rerank_response(
-    response_text: &str,
-    provider_id: &str,
-) -> Result<RerankResponse, LlmError> {
-    // First try to parse as standard format
-    if let Ok(standard_response) = serde_json::from_str::<RerankResponse>(response_text) {
-        return Ok(standard_response);
-    }
-
-    // If that fails and it's SiliconFlow, try SiliconFlow format
-    if provider_id == "siliconflow" {
-        let sf_response: SiliconFlowRerankResponse =
-            serde_json::from_str(response_text).map_err(|e| {
-                LlmError::ParseError(format!("Failed to parse SiliconFlow rerank response: {e}"))
-            })?;
-
-        // Convert to standard format
-        Ok(RerankResponse {
-            id: sf_response.id,
-            results: sf_response.results,
-            tokens: sf_response.meta.tokens,
-        })
-    } else {
-        // For other providers, return the original parsing error
-        Err(LlmError::ParseError(format!(
-            "Failed to parse rerank response for provider {}: {}",
-            provider_id,
-            serde_json::from_str::<RerankResponse>(response_text).unwrap_err()
-        )))
-    }
-}
-
-// Removed legacy parse_embedding_response and response structs; embeddings use transformers
+// Removed legacy rerank parsing; rerank now routed through OpenAI Rerank Standard

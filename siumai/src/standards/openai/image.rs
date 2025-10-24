@@ -23,7 +23,6 @@
 //! ```
 
 use crate::error::LlmError;
-use crate::provider_core::ProviderContext;
 use crate::transformers::request::{ImageHttpBody, RequestTransformer};
 use crate::transformers::response::ResponseTransformer;
 use crate::types::{

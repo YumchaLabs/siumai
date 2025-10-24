@@ -445,10 +445,14 @@ impl ResponseTransformer for GeminiResponseTransformer {
             _ => FinishReason::Other("unknown".to_string()),
         });
 
-        let content = if has_multimodal_content && !content_parts.is_empty() {
-            MessageContent::MultiModal(content_parts)
-        } else if text_content.is_empty() {
-            MessageContent::Text(String::new())
+        // If we collected any content parts (text, tool calls, media), prefer MultiModal
+        // unless all parts are plain text, in which case return a single Text.
+        let content = if !content_parts.is_empty() {
+            if content_parts.iter().all(|p| p.is_text()) {
+                MessageContent::Text(text_content)
+            } else {
+                MessageContent::MultiModal(content_parts)
+            }
         } else {
             MessageContent::Text(text_content)
         };

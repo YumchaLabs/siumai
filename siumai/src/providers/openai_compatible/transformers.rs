@@ -391,9 +391,8 @@ impl StreamChunkTransformer for CompatStreamChunkTransformer {
 mod tests {
     use super::*;
     use crate::providers::openai_compatible::adapter::ProviderAdapter;
-    use crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
     use crate::providers::openai_compatible::types::RequestType;
-    use crate::providers::openai_compatible::{self as compat_mod, types as compat_types};
+    use crate::providers::openai_compatible::types as compat_types;
 
     #[derive(Debug, Clone)]
     struct DummyAdapter;

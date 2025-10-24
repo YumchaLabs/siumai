@@ -22,6 +22,13 @@ pub struct HttpAudioExecutor {
 #[async_trait::async_trait]
 impl AudioExecutor for HttpAudioExecutor {
     async fn tts(&self, req: TtsRequest) -> Result<Vec<u8>, LlmError> {
+        // Capability guard
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("audio") {
+            return Err(LlmError::UnsupportedOperation(
+                "Text-to-speech is not supported by this provider".to_string(),
+            ));
+        }
         let body = self.transformer.build_tts_body(&req)?;
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.tts_endpoint());
@@ -54,6 +61,12 @@ impl AudioExecutor for HttpAudioExecutor {
     }
 
     async fn stt(&self, req: SttRequest) -> Result<String, LlmError> {
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("audio") {
+            return Err(LlmError::UnsupportedOperation(
+                "Speech-to-text is not supported by this provider".to_string(),
+            ));
+        }
         let body = self.transformer.build_stt_body(&req)?;
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.stt_endpoint());

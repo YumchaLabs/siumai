@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let model = reg.language_model("openai:gpt-4o-mini")?;
         let resp = model
-            .chat(vec![user!("Say hello in one sentence")], None)
+            .chat(vec![user!("Say hello in one sentence")])
             .await?;
         println!("Response: {}\n", resp.content_text().unwrap_or_default());
     }
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let model = reg.language_model("anthropic:claude-3-5-sonnet-20240620")?;
         let resp = model
-            .chat(vec![user!("What is Rust in one sentence?")], None)
+            .chat(vec![user!("What is Rust in one sentence?")])
             .await?;
         println!("Response: {}\n", resp.content_text().unwrap_or_default());
     }
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Note: You can use either "gemini:" or "google:" prefix
         let model = reg.language_model("gemini:gemini-2.0-flash-exp")?;
         let resp = model
-            .chat(vec![user!("Explain AI in one sentence")], None)
+            .chat(vec![user!("Explain AI in one sentence")])
             .await?;
         println!("Response: {}\n", resp.content_text().unwrap_or_default());
     }
@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Note: Requires DEEPSEEK_API_KEY environment variable
         if std::env::var("DEEPSEEK_API_KEY").is_ok() {
             let model = reg.language_model("deepseek:deepseek-chat")?;
-            let resp = model.chat(vec![user!("What is your name?")], None).await?;
+            let resp = model.chat(vec![user!("What is your name?")]).await?;
             println!("Response: {}\n", resp.content_text().unwrap_or_default());
         } else {
             println!("Skipped: DEEPSEEK_API_KEY not set\n");

@@ -14,6 +14,9 @@ categories = ["api-bindings"]
 
 exclude = ["../docs/*", "../siumai-extras"]
 
+[lib]
+doctest = false
+
 [dependencies]
 # Async traits
 async-trait.workspace = true

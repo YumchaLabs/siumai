@@ -296,13 +296,16 @@ pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
         return true;
     }
 
-    // Check if both IDs resolve to the same provider via registry
-    // We use a temporary registry instance to check aliases
-    let registry = crate::registry::ProviderRegistry::with_builtin_providers();
+    // Check if both IDs resolve to the same provider via the global registry
+    // Use the global instance so user-registered providers and aliases are honored
+    let guard = match crate::registry::global_registry().lock() {
+        Ok(g) => g,
+        Err(_) => return false,
+    };
 
-    // Try to resolve both IDs
-    let provider_record = registry.resolve(provider_id);
-    let custom_record = registry.resolve(custom_id);
+    // Try to resolve both IDs using the shared registry
+    let provider_record = guard.resolve(provider_id);
+    let custom_record = guard.resolve(custom_id);
 
     // If both resolve to records, check if they're the same provider
     match (provider_record, custom_record) {

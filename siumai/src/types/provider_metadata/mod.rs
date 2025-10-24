@@ -4,7 +4,6 @@
 //! returned in responses. While the response stores metadata as a nested HashMap
 //! for flexibility, these types provide type-safe access to common provider metadata.
 
-use serde::{Deserialize, Serialize};
 
 pub mod anthropic;
 pub mod gemini;

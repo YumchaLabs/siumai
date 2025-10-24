@@ -68,6 +68,14 @@ pub trait LlmClient: ChatCapability + Send + Sync {
     fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {
         None
     }
+
+    /// Get as rerank capability if supported
+    ///
+    /// Returns None by default. Providers that support rerank
+    /// should override this method to return Some(self).
+    fn as_rerank_capability(&self) -> Option<&dyn RerankCapability> {
+        None
+    }
 }
 
 /// Client Wrapper - provides dynamic dispatch for different provider clients

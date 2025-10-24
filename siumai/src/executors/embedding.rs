@@ -30,6 +30,13 @@ pub struct HttpEmbeddingExecutor {
 #[async_trait::async_trait]
 impl EmbeddingExecutor for HttpEmbeddingExecutor {
     async fn execute(&self, req: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
+        // Capability guard to avoid calling unimplemented ProviderSpec defaults
+        let caps = self.provider_spec.capabilities();
+        if !caps.supports("embedding") {
+            return Err(LlmError::UnsupportedOperation(
+                "Embedding is not supported by this provider".to_string(),
+            ));
+        }
         // 1. Transform request to JSON
         let mut body = self.request_transformer.transform_embedding(&req)?;
 

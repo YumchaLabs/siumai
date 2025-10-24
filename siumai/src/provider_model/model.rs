@@ -3,7 +3,6 @@
 //! Defines Model traits for different endpoints (chat, embedding, image, rerank).
 //! Models encapsulate endpoint-specific configuration and Executor creation logic.
 
-use crate::error::LlmError;
 use crate::executors::chat::HttpChatExecutor;
 use crate::executors::embedding::HttpEmbeddingExecutor;
 use crate::executors::image::HttpImageExecutor;

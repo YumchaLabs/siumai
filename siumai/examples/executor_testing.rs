@@ -157,7 +157,7 @@ impl ResponseTransformer for MockResponseTransformer {
                 completion_tokens_details: None,
                 prompt_tokens_details: None,
             }),
-            metadata: Default::default(),
+            provider_metadata: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -194,6 +194,7 @@ async fn test_executor_with_spec(
         provider_spec: spec.clone(),
         provider_context: ctx,
         before_send: None,
+        retry_options: None,
     };
 
     let request = ChatRequest::new(vec![ChatMessage::user("Test message").build()])

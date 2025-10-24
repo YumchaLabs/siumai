@@ -56,7 +56,6 @@ use crate::error::LlmError;
 use crate::provider_model::{ChatModel, EmbeddingModel, ImageModel, Provider, RerankModel};
 use crate::providers::openai_compatible::config::get_provider_config;
 use crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use std::sync::Arc;
 
 use super::model_impls::{
     OpenAiCompatibleChatModel, OpenAiCompatibleEmbeddingModel, OpenAiCompatibleImageModel,
@@ -174,6 +173,7 @@ impl Provider for OpenAiCompatibleProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_provider_creation() {

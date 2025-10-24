@@ -87,6 +87,7 @@ impl ProviderSpec for TestImageSpec {
 
     fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
         siumai::traits::ProviderCapabilities::new()
+            .with_custom_feature("image_generation", true)
     }
 
     fn build_headers(
@@ -126,6 +127,14 @@ impl ProviderSpec for TestImageSpec {
     }
 
     fn image_url(&self, _req: &ImageGenerationRequest, _ctx: &ProviderContext) -> String {
+        format!("{}/image", self.base_url)
+    }
+
+    fn image_edit_url(&self, _req: &ImageEditRequest, _ctx: &ProviderContext) -> String {
+        format!("{}/image", self.base_url)
+    }
+
+    fn image_variation_url(&self, _req: &ImageVariationRequest, _ctx: &ProviderContext) -> String {
         format!("{}/image", self.base_url)
     }
 
@@ -189,6 +198,18 @@ async fn image_executor_retries_on_401() {
         ) -> Result<serde_json::Value, LlmError> {
             Ok(serde_json::json!({}))
         }
+        fn transform_image_edit(
+            &self,
+            _req: &siumai::types::ImageEditRequest,
+        ) -> Result<ImageHttpBody, LlmError> {
+            Ok(ImageHttpBody::Json(serde_json::json!({})))
+        }
+        fn transform_image_variation(
+            &self,
+            _req: &siumai::types::ImageVariationRequest,
+        ) -> Result<ImageHttpBody, LlmError> {
+            Ok(ImageHttpBody::Json(serde_json::json!({})))
+        }
     }
 
     struct DummyResponseTransformer;
@@ -200,10 +221,20 @@ async fn image_executor_retries_on_401() {
             &self,
             _raw: &serde_json::Value,
         ) -> Result<siumai::types::ImageGenerationResponse, LlmError> {
-            Ok(siumai::types::ImageGenerationResponse {
-                images: vec![],
-                metadata: Default::default(),
-            })
+            let arr = _raw["images"].as_array().cloned().unwrap_or_default();
+            let images = arr
+                .into_iter()
+                .map(|v| siumai::types::GeneratedImage {
+                    url: v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()),
+                    b64_json: None,
+                    format: None,
+                    width: None,
+                    height: None,
+                    revised_prompt: None,
+                    metadata: Default::default(),
+                })
+                .collect();
+            Ok(siumai::types::ImageGenerationResponse { images, metadata: Default::default() })
         }
     }
 
@@ -214,6 +245,7 @@ async fn image_executor_retries_on_401() {
         response_transformer: Arc::new(DummyResponseTransformer),
         provider_spec: spec,
         provider_context: ctx,
+        interceptors: vec![],
         before_send: None,
         retry_options: None,
     };
@@ -239,6 +271,7 @@ async fn image_executor_retries_on_401() {
             size: None,
             response_format: None,
             extra_params: Default::default(),
+            http_config: None,
         })
         .await
         .unwrap();
@@ -252,6 +285,7 @@ async fn image_executor_retries_on_401() {
             size: None,
             response_format: None,
             extra_params: Default::default(),
+            http_config: None,
         })
         .await
         .unwrap();

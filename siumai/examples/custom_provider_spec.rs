@@ -175,6 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         provider_spec: spec,
         provider_context: ctx,
         before_send: None,
+        retry_options: None,
     };
 
     // Create a chat request

@@ -250,6 +250,19 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     fn supports_image_variations(&self) -> bool {
         false
     }
+
+    /// Get API route for a given request type
+    ///
+    /// Default mappings follow common OpenAI-compatible conventions and can be
+    /// overridden by providers with divergent paths (e.g., rerank endpoints).
+    fn route_for(&self, req: super::types::RequestType) -> &'static str {
+        match req {
+            super::types::RequestType::Chat => "chat/completions",
+            super::types::RequestType::Embedding => "embeddings",
+            super::types::RequestType::ImageGeneration => "images/generations",
+            super::types::RequestType::Rerank => "rerank",
+        }
+    }
 }
 
 /// Helper trait for cloning boxed adapters
