@@ -114,13 +114,29 @@ impl LanguageModelMiddleware for SimulateStreamingMiddleware {
                         if !saw_delta {
                             let text = resp.content_text().map(|s| s.to_string()).unwrap_or_default();
                             if !text.is_empty() {
-                                let mut i = 0;
-                                while i < text.len() {
-                                    let end = (i + chunk).min(text.len());
-                                    let piece = text[i..end].to_string();
+                                let mut start = 0;
+                                while start < text.len() {
+                                    let mut end = start;
+                                    // Advance by up to `chunk` bytes, but never split a UTF-8 char
+                                    for (rel_i, ch) in text[start..].char_indices() {
+                                        let next_end = start + rel_i + ch.len_utf8();
+                                        if next_end - start > chunk {
+                                            break;
+                                        }
+                                        end = next_end;
+                                    }
+                                    if end == start {
+                                        // Fallback: ensure progress by taking the next full char
+                                        if let Some(ch) = text[start..].chars().next() {
+                                            end = start + ch.len_utf8();
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    let piece = text[start..end].to_string();
                                     yield ChatStreamEvent::ContentDelta { delta: piece, index: None };
                                     if let Some(ms) = delay { tokio::time::sleep(std::time::Duration::from_millis(ms)).await; }
-                                    i = end;
+                                    start = end;
                                 }
                             }
                         }

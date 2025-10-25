@@ -343,7 +343,12 @@ fn get_potential_start_index(text: &str, searched_text: &str) -> Option<usize> {
 
     // Check for suffix-prefix match (streaming case)
     // Look for the largest suffix of text that matches a prefix of searched_text
-    for i in (0..text.len()).rev() {
+    // IMPORTANT: Only slice at valid UTF-8 char boundaries.
+    // Using raw byte indices (0..text.len()) may land inside a multi-byte char
+    // and cause slicing panics (e.g., before/inside '×').
+    let boundary_indices: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+
+    for i in boundary_indices.into_iter().rev() {
         let suffix = &text[i..];
         if searched_text.starts_with(suffix) {
             return Some(i);
@@ -385,5 +390,21 @@ mod tests {
     #[test]
     fn test_get_potential_start_index_empty_search() {
         assert_eq!(get_potential_start_index("Hello", ""), None);
+    }
+
+    #[test]
+    fn test_get_potential_start_index_unicode_char_boundary() {
+        // Contains a multibyte character '×' to ensure we never slice inside a codepoint
+        let text = "I'll solve 4 × 3 step";
+        let searched = "<thinking>";
+        assert_eq!(get_potential_start_index(text, searched), None);
+
+        // When a partial tag appears after a unicode char, we should still find the start index safely
+        let text2 = "Some prefix × <thin";
+        let expected = "Some prefix × ".len(); // byte length equals valid char boundary
+        assert_eq!(
+            get_potential_start_index(text2, "<thinking>"),
+            Some(expected)
+        );
     }
 }

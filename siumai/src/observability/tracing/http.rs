@@ -274,11 +274,13 @@ impl HttpTracer {
         if body.len() <= self.max_body_size {
             body.to_string()
         } else {
-            format!(
-                "{}... [TRUNCATED: {} bytes total]",
-                &body[..self.max_body_size],
-                body.len()
-            )
+            let mut end = self.max_body_size.min(body.len());
+            // Clamp to previous char boundary to avoid splitting a code point
+            while end > 0 && !body.is_char_boundary(end) {
+                end -= 1;
+            }
+            let shown = &body[..end];
+            format!("{}... [TRUNCATED: {} bytes total]", shown, body.len())
         }
     }
 

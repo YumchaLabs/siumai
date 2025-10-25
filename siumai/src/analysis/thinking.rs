@@ -241,10 +241,59 @@ fn calculate_pattern_confidence(count: usize, content_length: usize) -> f64 {
 
 /// Find an example of where a pattern occurs in the text
 fn find_pattern_example(content: &str, indicators: &[&str]) -> Option<String> {
+    // Case-insensitive ASCII search that returns a byte index on a char boundary
+    fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+        if needle.is_empty() {
+            return Some(0);
+        }
+        let nbytes = needle.as_bytes();
+        let nlen = nbytes.len();
+        for (i, _) in haystack.char_indices() {
+            if i + nlen > haystack.len() {
+                break;
+            }
+            let slice = &haystack.as_bytes()[i..i + nlen];
+            let mut matched = true;
+            for j in 0..nlen {
+                let hb = slice[j] as char;
+                let nb = nbytes[j] as char;
+                if hb.to_ascii_lowercase() != nb.to_ascii_lowercase() {
+                    matched = false;
+                    break;
+                }
+            }
+            if matched {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    // Clamp index down to previous char boundary (<= idx)
+    fn clamp_prev_boundary(s: &str, idx: usize) -> usize {
+        if idx >= s.len() {
+            return s.len();
+        }
+        // Fast path: already a boundary
+        if s.is_char_boundary(idx) {
+            return idx;
+        }
+        let mut last = 0;
+        for (bi, _) in s.char_indices() {
+            if bi > idx {
+                break;
+            }
+            last = bi;
+        }
+        last
+    }
+
     for &indicator in indicators {
-        if let Some(pos) = content.to_lowercase().find(indicator) {
-            let start = pos.saturating_sub(20);
-            let end = (pos + indicator.len() + 30).min(content.len());
+        if let Some(pos) = find_ascii_case_insensitive(content, indicator) {
+            let start_target = pos.saturating_sub(20);
+            let end_target = (pos + indicator.len() + 30).min(content.len());
+            let start = clamp_prev_boundary(content, start_target);
+            let end = clamp_prev_boundary(content, end_target);
             return Some(content[start..end].to_string());
         }
     }
@@ -303,14 +352,43 @@ fn extract_insights(content: &str) -> Vec<String> {
         "the result is",
     ];
 
+    // Reuse the ASCII-insensitive search from above
+    fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+        if needle.is_empty() {
+            return Some(0);
+        }
+        let nbytes = needle.as_bytes();
+        let nlen = nbytes.len();
+        for (i, _) in haystack.char_indices() {
+            if i + nlen > haystack.len() {
+                break;
+            }
+            let slice = &haystack.as_bytes()[i..i + nlen];
+            let mut matched = true;
+            for j in 0..nlen {
+                let hb = slice[j] as char;
+                let nb = nbytes[j] as char;
+                if hb.to_ascii_lowercase() != nb.to_ascii_lowercase() {
+                    matched = false;
+                    break;
+                }
+            }
+            if matched {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     for pattern in conclusion_patterns.iter() {
-        if let Some(pos) = content.to_lowercase().find(pattern) {
+        if let Some(pos) = find_ascii_case_insensitive(content, pattern) {
             let start = pos;
             let end = content[pos..]
                 .find('.')
                 .map(|i| pos + i + 1)
                 .unwrap_or(content.len());
             if end > start {
+                // pos and end are computed from original string boundaries, safe to slice
                 insights.push(content[start..end].trim().to_string());
             }
         }

@@ -185,18 +185,52 @@ pub fn mask_sensitive_value(value: &str) -> String {
     if !get_mask_sensitive_values() {
         return value.to_string();
     }
-    if let Some(token) = value.strip_prefix("Bearer ")
-        && token.len() > 8
-    {
-        return format!("Bearer {}...{}", &token[..4], &token[token.len() - 4..]);
+    // Helpers to safely take byte-length prefixes/suffixes at char boundaries
+    fn prefix_at_boundary(s: &str, n: usize) -> &str {
+        if s.len() <= n {
+            return s;
+        }
+        let mut end = n;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        &s[..end]
+    }
+    fn suffix_at_boundary(s: &str, n: usize) -> &str {
+        if s.len() <= n {
+            return s;
+        }
+        let mut start = s.len().saturating_sub(n);
+        while start < s.len() && !s.is_char_boundary(start) {
+            start += 1;
+        }
+        &s[start..]
+    }
+
+    if let Some(token) = value.strip_prefix("Bearer ") {
+        if token.len() > 8 {
+            return format!(
+                "Bearer {}...{}",
+                prefix_at_boundary(token, 4),
+                suffix_at_boundary(token, 4)
+            );
+        }
     }
     if (value.starts_with("sk-") || value.starts_with("sk-ant-") || value.starts_with("gsk-"))
         && value.len() > 12
     {
-        return format!("{}...{}", &value[..8], &value[value.len() - 4..]);
+        return format!(
+            "{}...{}",
+            prefix_at_boundary(value, 8),
+            suffix_at_boundary(value, 4)
+        );
     }
     if value.len() > 16 {
-        format!("{}...{}", &value[..6], &value[value.len() - 4..])
+        format!(
+            "{}...{}",
+            prefix_at_boundary(value, 6),
+            suffix_at_boundary(value, 4)
+        )
     } else {
         value.to_string()
     }
