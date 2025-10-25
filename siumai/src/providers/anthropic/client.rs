@@ -12,11 +12,11 @@ use crate::execution::executors::chat::HttpChatExecutor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::params::AnthropicParams;
 
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 use super::models::AnthropicModels;

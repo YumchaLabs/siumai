@@ -4,6 +4,7 @@
 //! and HTTP. For now this is an interface stub for the refactor.
 
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn, apply_post_generate_chain,
     apply_transform_chain, try_pre_generate, try_pre_stream,
@@ -18,7 +19,6 @@ use crate::telemetry::{
     events::{GenerationEvent, SpanEvent, TelemetryEvent},
 };
 use crate::types::{ChatRequest, ChatResponse};
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 // -----------------------------------------------------------------------------
@@ -120,8 +120,8 @@ where
 
 #[derive(Clone)]
 struct InterceptingConverter<C> {
-    interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
-    ctx: crate::utils::http_interceptor::HttpRequestContext,
+    interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
+    ctx: crate::execution::http::interceptor::HttpRequestContext,
     convert: C,
 }
 
@@ -216,7 +216,7 @@ async fn create_sse_stream_with_middlewares(
     headers_base: reqwest::header::HeaderMap,
     transformed: serde_json::Value,
     sse_tx: Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>,
-    interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     middlewares: Vec<
         Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>,
     >,
@@ -224,9 +224,9 @@ async fn create_sse_stream_with_middlewares(
     disable_compression: bool,
     retry_options: Option<crate::retry_api::RetryOptions>,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
+    use crate::execution::http::headers::merge_headers;
+    use crate::execution::http::interceptor::HttpRequestContext;
     use crate::streaming::StreamFactory;
-    use crate::utils::http_headers::merge_headers;
-    use crate::utils::http_interceptor::HttpRequestContext;
 
     let build_request = {
         let http = http.clone();
@@ -317,15 +317,15 @@ async fn create_json_stream_with_middlewares(
     headers_base: reqwest::header::HeaderMap,
     transformed: serde_json::Value,
     json_conv: Arc<dyn crate::streaming::JsonEventConverter>,
-    interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     middlewares: Vec<
         Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>,
     >,
     req_in: crate::types::ChatRequest,
     disable_compression: bool,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
-    use crate::utils::http_headers::merge_headers;
-    use crate::utils::http_interceptor::HttpRequestContext;
+    use crate::execution::http::headers::merge_headers;
+    use crate::execution::http::interceptor::HttpRequestContext;
 
     let mut rb = http.post(url.clone());
     let headers_effective = if let Some(ref hc) = req_in.http_config {
@@ -870,10 +870,10 @@ mod tests {
     struct CaptureHeadersInterceptor {
         seen: std::sync::Arc<std::sync::Mutex<Option<reqwest::header::HeaderMap>>>,
     }
-    impl crate::utils::http_interceptor::HttpInterceptor for CaptureHeadersInterceptor {
+    impl crate::execution::http::interceptor::HttpInterceptor for CaptureHeadersInterceptor {
         fn on_before_send(
             &self,
-            _ctx: &crate::utils::http_interceptor::HttpRequestContext,
+            _ctx: &crate::execution::http::interceptor::HttpRequestContext,
             rb: reqwest::RequestBuilder,
             _body: &serde_json::Value,
             headers: &reqwest::header::HeaderMap,

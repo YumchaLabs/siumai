@@ -10,10 +10,10 @@ use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::ChatRequest;
 
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, Tool};
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 use super::types::{GeminiConfig, GenerateContentRequest};

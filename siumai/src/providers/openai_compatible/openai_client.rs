@@ -22,9 +22,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 // removed: HashMap import not needed after legacy removal
+use crate::execution::http::headers::ProviderHeaders;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
-use crate::utils::http_headers::ProviderHeaders;
-use crate::utils::http_interceptor::HttpInterceptor;
 
 /// OpenAI Compatible Chat Response with provider-specific fields
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -301,7 +301,7 @@ impl OpenAiCompatibleClient {
     /// Build HTTP client with configuration
     fn build_http_client(config: &OpenAiCompatibleConfig) -> Result<reqwest::Client, LlmError> {
         // Use unified HTTP client builder
-        crate::utils::http_client::build_http_client_from_config(&config.http_config)
+        crate::execution::http::client::build_http_client_from_config(&config.http_config)
     }
 
     /// Get the provider ID

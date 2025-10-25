@@ -20,10 +20,10 @@
 
 use crate::builder::LlmBuilder;
 use crate::error::LlmError;
+use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::retry_api::RetryOptions;
 use crate::tracing::TracingConfig;
 use crate::types::HttpConfig;
-use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -225,7 +225,7 @@ impl ProviderCore {
     ///
     /// ```rust,ignore
     /// use std::sync::Arc;
-    /// use siumai::utils::http_interceptor::LoggingInterceptor;
+    /// use siumai::execution::http::interceptor::LoggingInterceptor;
     ///
     /// let builder = builder.with_http_interceptor(Arc::new(LoggingInterceptor));
     /// ```

@@ -9,7 +9,7 @@ use reqwest::header::{ACCEPT, ACCEPT_ENCODING, HeaderMap};
 use siumai::provider::SiumaiBuilder;
 use siumai::traits::ChatCapability;
 use siumai::types::ChatMessage;
-use siumai::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
+use siumai::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 
 #[derive(Clone, Debug)]
 struct Captured {

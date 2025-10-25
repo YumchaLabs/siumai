@@ -17,9 +17,9 @@ use super::chat::GeminiChatCapability;
 use super::files::GeminiFiles;
 use super::models::GeminiModels;
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
-use crate::utils::http_interceptor::HttpInterceptor;
 
 /// Gemini client that implements the `LlmClient` trait
 pub struct GeminiClient {
@@ -620,7 +620,7 @@ impl EmbeddingCapability for GeminiClient {
                 ctx: &ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
                 let api_key = ctx.api_key.as_deref().unwrap_or("");
-                crate::utils::http_headers::ProviderHeaders::gemini(
+                crate::execution::http::headers::ProviderHeaders::gemini(
                     api_key,
                     &ctx.http_extra_headers,
                 )
@@ -791,7 +791,7 @@ impl EmbeddingExtensions for GeminiClient {
                 ctx: &ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
                 let api_key = ctx.api_key.as_deref().unwrap_or("");
-                crate::utils::http_headers::ProviderHeaders::gemini(
+                crate::execution::http::headers::ProviderHeaders::gemini(
                     api_key,
                     &ctx.http_extra_headers,
                 )
@@ -960,7 +960,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 ctx: &ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
                 let api_key = ctx.api_key.as_deref().unwrap_or("");
-                crate::utils::http_headers::ProviderHeaders::gemini(
+                crate::execution::http::headers::ProviderHeaders::gemini(
                     api_key,
                     &ctx.http_extra_headers,
                 )

@@ -13,7 +13,7 @@ Builder Flow (since 0.11)
 - For OpenAI-compatible providers, prefer using Registry+Factory helpers to avoid duplication.
 
 Headers & Tracing (all providers)
-- Build headers via `utils::http_headers::ProviderHeaders::*` (OpenAI/Anthropic/Groq/xAI/Gemini/Ollama).
+- Build headers via `execution::http::headers::ProviderHeaders::*` (OpenAI/Anthropic/Groq/xAI/Gemini/Ollama).
 - Inject tracing headers (`inject_tracing_headers`) for `X-Trace-Id`, `X-Span-Id`, optional `traceparent`.
 - Merge `http_config.headers` for custom entries (auth overrides, org/project, feature flags like `anthropic-beta`).
 - For multipart (files/audio/image uploads), do not set `application/json`; the executor sets `multipart/form-data`.

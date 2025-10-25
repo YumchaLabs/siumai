@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::error::LlmError;
+use crate::execution::http::headers::ProviderHeaders;
 use crate::execution::transformers::request::RequestTransformer;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::traits::RerankCapability;
 use crate::types::{HttpConfig, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage};
-use crate::utils::http_headers::ProviderHeaders;
 
 /// OpenAI-compatible rerank capability implementation
 #[derive(Debug, Clone)]

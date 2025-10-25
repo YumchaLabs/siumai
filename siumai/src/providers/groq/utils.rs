@@ -7,8 +7,8 @@ use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 
 use crate::error::LlmError;
+use crate::execution::http::headers::ProviderHeaders;
 use crate::types::{ChatMessage, FinishReason, MessageContent, MessageRole};
-use crate::utils::http_headers::ProviderHeaders;
 
 /// Build HTTP headers for Groq API requests
 pub fn build_headers(

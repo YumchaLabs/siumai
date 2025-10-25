@@ -1,14 +1,14 @@
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::traits::ProviderCapabilities;
 use crate::types::ProviderType;
-use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use std::sync::Arc;
 
 /// Build the unified Siumai provider from SiumaiBuilder
 pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     // Use unified HTTP client builder from utils
-    use crate::utils::http_client::build_http_client_from_config;
+    use crate::execution::http::client::build_http_client_from_config;
 
     // Best-effort provider suggestion by model prefix (when provider is not set)
     if builder.provider_type.is_none() && !builder.common_params.model.is_empty() {

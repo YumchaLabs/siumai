@@ -4,10 +4,10 @@
 //! Handles SSE and JSON-based streaming with proper UTF-8 handling and error classification.
 
 use crate::error::LlmError;
+use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 use crate::streaming::{
     ChatStream, ChatStreamEvent, JsonEventConverter, SseEventConverter, SseStreamExt,
 };
-use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
 use futures_util::StreamExt;
 use futures_util::TryStreamExt;
 use std::sync::Arc;

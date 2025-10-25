@@ -1,6 +1,11 @@
 //! Retry Mechanisms
 //!
-//! Re-exports retry utilities from retry module.
+//! Curated re-exports for retry helpers to avoid ambiguous glob exports.
 
-pub use crate::retry::*;
-pub use crate::retry_api::*;
+// Public facade (recommended)
+pub use crate::retry_api::{
+    RetryBackend, RetryOptions, classify_http_error, retry, retry_for_provider, retry_with,
+};
+
+// Selected core types for advanced usage
+pub use crate::retry::{BackoffRetryExecutor, RetryPolicy, retry_with_backoff};

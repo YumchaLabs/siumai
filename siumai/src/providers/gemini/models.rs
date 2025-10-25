@@ -162,7 +162,7 @@ impl GeminiModels {
                 }
             }
             use secrecy::ExposeSecret;
-            let headers = crate::utils::http_headers::ProviderHeaders::gemini(
+            let headers = crate::execution::http::headers::ProviderHeaders::gemini(
                 self.config.api_key.expose_secret(),
                 &extra,
             )?;
@@ -240,7 +240,7 @@ impl ModelListingCapability for GeminiModels {
             }
         }
         use secrecy::ExposeSecret;
-        let headers = crate::utils::http_headers::ProviderHeaders::gemini(
+        let headers = crate::execution::http::headers::ProviderHeaders::gemini(
             self.config.api_key.expose_secret(),
             &extra,
         )?;

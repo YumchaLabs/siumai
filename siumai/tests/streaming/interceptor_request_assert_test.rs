@@ -12,7 +12,7 @@ use siumai::builder::LlmBuilder;
 use siumai::error::LlmError;
 use siumai::types::ChatMessage;
 use siumai::traits::ChatCapability;
-use siumai::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
+use siumai::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 
 #[derive(Clone, Debug)]
 struct Captured {

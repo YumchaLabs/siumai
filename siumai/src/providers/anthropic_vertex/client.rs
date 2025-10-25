@@ -11,10 +11,10 @@ use crate::error::LlmError;
 use crate::execution::executors::chat::HttpChatExecutor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
-use crate::utils::http_interceptor::HttpInterceptor;
 
 /// Minimal config for Vertex Anthropic client (delegate to SiumaiBuilder for common params)
 #[derive(Debug, Clone)]
@@ -54,9 +54,9 @@ impl VertexAnthropicClient {
         let extra = self.config.http_config.headers.clone();
         move || {
             let extra = extra.clone();
-            Box::pin(
-                async move { crate::utils::http_headers::ProviderHeaders::vertex_bearer(&extra) },
-            )
+            Box::pin(async move {
+                crate::execution::http::headers::ProviderHeaders::vertex_bearer(&extra)
+            })
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<

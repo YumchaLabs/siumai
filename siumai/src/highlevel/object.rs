@@ -1059,10 +1059,10 @@ mod openai_integration_tests {
     use super::*;
 
     struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
-    impl crate::utils::http_interceptor::HttpInterceptor for Capture {
+    impl crate::execution::http::interceptor::HttpInterceptor for Capture {
         fn on_before_send(
             &self,
-            _ctx: &crate::utils::http_interceptor::HttpRequestContext,
+            _ctx: &crate::execution::http::interceptor::HttpRequestContext,
             _rb: reqwest::RequestBuilder,
             body: &serde_json::Value,
             _headers: &reqwest::header::HeaderMap,

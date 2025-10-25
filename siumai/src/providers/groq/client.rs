@@ -16,9 +16,9 @@ use crate::types::*;
 use super::api::GroqModels;
 use super::chat::GroqChatCapability;
 use super::config::GroqConfig;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 /// `Groq` client that implements all capabilities

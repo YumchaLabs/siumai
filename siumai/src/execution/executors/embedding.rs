@@ -19,7 +19,7 @@ pub struct HttpEmbeddingExecutor {
     pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
     pub provider_context: crate::core::ProviderContext,
     /// HTTP interceptors for request/response observation and modification
-    pub interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    pub interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::execution::executors::BeforeSendHook>,
     /// Optional retry options for controlling retry behavior (including 401 retry)

@@ -1,10 +1,10 @@
 //! Rerank executor traits
 
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{RerankRequest, RerankResponse};
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 #[async_trait::async_trait]

@@ -12,8 +12,8 @@ use crate::types::*;
 
 // use super::types::*;
 use super::utils::*;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
-use crate::utils::http_interceptor::HttpInterceptor;
 use secrecy::SecretString;
 use std::sync::Arc;
 

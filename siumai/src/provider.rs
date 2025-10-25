@@ -6,11 +6,11 @@
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

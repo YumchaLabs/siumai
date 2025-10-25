@@ -8,11 +8,11 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
 use crate::types::*;
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 use super::api::XaiModels;
@@ -68,7 +68,7 @@ impl XaiClient {
 
         // Use unified HTTP client builder (now includes proxy, user_agent, headers, etc.)
         let http_client =
-            crate::utils::http_client::build_http_client_from_config(&config.http_config)?;
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
 
         Self::with_http_client(config, http_client).await
     }

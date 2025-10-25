@@ -311,7 +311,7 @@ pub fn apply_extra_headers(base: &mut HeaderMap, extra: &HashMap<String, String>
 /// # Example
 /// ```rust,ignore
 /// use reqwest::header::HeaderMap;
-/// use siumai::utils::http_headers::headermap_to_hashmap;
+/// use siumai::execution::http::headers::headermap_to_hashmap;
 ///
 /// let headers = HeaderMap::new();
 /// let map = headermap_to_hashmap(&headers);

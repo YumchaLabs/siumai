@@ -602,7 +602,7 @@ Install custom interceptors globally via `LlmBuilder`, or per‑provider where s
 ```rust
 use std::sync::Arc;
 use siumai::prelude::*;
-use siumai::utils::http_interceptor::LoggingInterceptor;
+use siumai::execution::http::interceptor::LoggingInterceptor;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -47,7 +47,7 @@ This document explains the core architecture after the 0.11 refactor.
 
 ## Headers & Tracing
 
-- Use `utils::http_headers::ProviderHeaders::*` to build provider headers consistently:
+- Use `execution::http::headers::ProviderHeaders::*` to build provider headers consistently:
   - `openai(api_key, org, project, custom_headers)`
   - `anthropic(api_key, custom_headers)` (supports `anthropic-beta` via custom headers)
   - `groq`, `xai`, `gemini`, `ollama`

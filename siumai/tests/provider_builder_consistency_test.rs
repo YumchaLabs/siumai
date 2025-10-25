@@ -11,7 +11,7 @@
 //! - All providers support tracing configuration
 
 use siumai::Provider;
-use siumai::utils::http_interceptor::HttpInterceptor;
+use siumai::execution::http::interceptor::HttpInterceptor;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ struct MockInterceptor;
 impl HttpInterceptor for MockInterceptor {
     fn on_before_send(
         &self,
-        _ctx: &siumai::utils::http_interceptor::HttpRequestContext,
+        _ctx: &siumai::execution::http::interceptor::HttpRequestContext,
         builder: reqwest::RequestBuilder,
         _body: &serde_json::Value,
         _headers: &reqwest::header::HeaderMap,

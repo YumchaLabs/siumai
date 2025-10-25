@@ -42,7 +42,7 @@
 //! - **Ollama**: https://github.com/ollama/ollama/blob/main/docs/api.md
 
 use reqwest::header::{CONTENT_TYPE, HeaderMap};
-use siumai::utils::http_headers::ProviderHeaders;
+use siumai::execution::http::headers::ProviderHeaders;
 use std::collections::HashMap;
 
 /// Test configuration for a provider

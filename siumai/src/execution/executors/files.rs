@@ -24,7 +24,7 @@ pub struct HttpFilesExecutor {
     pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
     pub provider_context: crate::core::ProviderContext,
     /// HTTP interceptors for request/response observation and modification
-    pub interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    pub interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     /// Optional retry options for controlling retry behavior (including 401 retry)
     /// If None, uses default behavior (401 retry enabled)
     pub retry_options: Option<crate::retry_api::RetryOptions>,

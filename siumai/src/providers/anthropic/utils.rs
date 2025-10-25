@@ -4,8 +4,8 @@
 
 use super::types::*;
 use crate::error::LlmError;
+use crate::execution::http::headers::ProviderHeaders;
 use crate::types::*;
-use crate::utils::http_headers::ProviderHeaders;
 use base64::Engine;
 use reqwest::header::HeaderMap;
 

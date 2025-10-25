@@ -1,11 +1,11 @@
 use crate::core::{ChatTransformers, EmbeddingTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
+use crate::execution::http::headers::ProviderHeaders;
 use crate::standards::openai::chat::OpenAiChatStandard;
 use crate::standards::openai::embedding::OpenAiEmbeddingStandard;
 use crate::standards::openai::image::OpenAiImageStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, EmbeddingRequest, ProviderOptions};
-use crate::utils::http_headers::ProviderHeaders;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 

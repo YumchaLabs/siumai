@@ -241,7 +241,7 @@ impl OpenAiBuilder {
     /// Add a custom HTTP interceptor
     pub fn with_http_interceptor(
         mut self,
-        interceptor: std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>,
+        interceptor: std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>,
     ) -> Self {
         self.core = self.core.with_http_interceptor(interceptor);
         self

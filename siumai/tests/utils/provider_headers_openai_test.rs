@@ -1,6 +1,6 @@
 //! Ensure ProviderHeaders::openai builds required headers
 
-use siumai::utils::http_headers::ProviderHeaders;
+use siumai::execution::http::headers::ProviderHeaders;
 use std::collections::HashMap;
 
 #[test]
@@ -20,4 +20,3 @@ fn openai_headers_include_bearer_and_json() {
     assert_eq!(headers.get("OpenAI-Project").unwrap().to_str().unwrap(), "proj");
     assert_eq!(headers.get("X-Custom").unwrap().to_str().unwrap(), "yes");
 }
-

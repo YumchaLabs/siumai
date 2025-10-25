@@ -14,8 +14,8 @@
 
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
+use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 use crate::retry_api::RetryOptions;
-use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -80,7 +80,7 @@ pub async fn execute_bytes_request(
 
     // 2. Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::utils::http_headers::merge_headers(base_headers.clone(), req_headers)
+        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -138,7 +138,7 @@ pub async fn execute_bytes_request(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -220,7 +220,7 @@ pub async fn execute_json_request_with_headers(
 ) -> Result<HttpExecutionResult, LlmError> {
     // Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::utils::http_headers::merge_headers(headers_base.clone(), req_headers)
+        crate::execution::http::headers::merge_headers(headers_base.clone(), req_headers)
     } else {
         headers_base.clone()
     };
@@ -267,7 +267,7 @@ pub async fn execute_json_request_with_headers(
             // Rebuild headers
             let retry_headers = headers_base.clone();
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -380,7 +380,7 @@ pub async fn execute_request(
 
     // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::utils::http_headers::merge_headers(base_headers.clone(), req_headers)
+        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -449,7 +449,7 @@ pub async fn execute_request(
 
             // Merge per-request headers again
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -571,7 +571,7 @@ where
 
     // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::utils::http_headers::merge_headers(base_headers.clone(), req_headers)
+        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -628,7 +628,7 @@ where
                 .build_headers(&config.provider_context)?;
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -733,7 +733,7 @@ pub async fn execute_get_request(
 
     // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::utils::http_headers::merge_headers(headers, req_headers)
+        crate::execution::http::headers::merge_headers(headers, req_headers)
     } else {
         headers
     };
@@ -788,7 +788,7 @@ pub async fn execute_get_request(
                 .build_headers(&config.provider_context)?;
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -881,7 +881,7 @@ pub async fn execute_delete_request(
 
     // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::utils::http_headers::merge_headers(headers, req_headers)
+        crate::execution::http::headers::merge_headers(headers, req_headers)
     } else {
         headers
     };
@@ -936,7 +936,7 @@ pub async fn execute_delete_request(
                 .build_headers(&config.provider_context)?;
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -1047,7 +1047,7 @@ pub async fn execute_get_binary(
 
     // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::utils::http_headers::merge_headers(headers, req_headers)
+        crate::execution::http::headers::merge_headers(headers, req_headers)
     } else {
         headers
     };
@@ -1102,7 +1102,7 @@ pub async fn execute_get_binary(
                 .build_headers(&config.provider_context)?;
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::utils::http_headers::merge_headers(retry_headers, req_headers)
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };

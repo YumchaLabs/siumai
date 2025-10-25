@@ -18,15 +18,14 @@
 
 #### Backward Compatibility
 
-All old module paths are maintained as **deprecated re-exports**:
+Older versions (<= v0.11.2) temporarily maintained deprecated re-exports under `utils::http_*`.
+These bridges have now been fully removed. Please update imports to the new paths:
 
 ```rust
-// Old paths (deprecated but still work)
-use siumai::utils::http_headers::*;
-use siumai::utils::vertex::*;
-
-// New paths (recommended)
+// New paths (required)
 use siumai::execution::http::headers::*;
+use siumai::execution::http::client::*;
+use siumai::execution::http::interceptor::*;
 use siumai::auth::vertex::*;
 ```
 

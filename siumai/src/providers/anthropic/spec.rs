@@ -1,9 +1,9 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
+use crate::execution::http::headers::ProviderHeaders;
 use crate::standards::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
-use crate::utils::http_headers::ProviderHeaders;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 

@@ -44,7 +44,7 @@ impl ProviderSpec for VertexAnthropicSpec {
         &self,
         _ctx: &ProviderContext,
     ) -> Result<reqwest::header::HeaderMap, LlmError> {
-        crate::utils::http_headers::ProviderHeaders::vertex_bearer(&self.extra_headers)
+        crate::execution::http::headers::ProviderHeaders::vertex_bearer(&self.extra_headers)
     }
 
     fn chat_url(&self, stream: bool, _req: &ChatRequest, _ctx: &ProviderContext) -> String {

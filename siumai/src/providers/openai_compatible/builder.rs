@@ -1,6 +1,6 @@
+use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::registry::get_provider_adapter;
 use crate::retry_api::RetryOptions;
-use crate::utils::http_interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::{LlmBuilder, LlmError};
 use std::sync::Arc;
 

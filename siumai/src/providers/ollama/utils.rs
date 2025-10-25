@@ -4,10 +4,10 @@
 
 use super::types::*;
 use crate::error::LlmError;
+use crate::execution::http::headers::ProviderHeaders;
 #[allow(deprecated)]
 use crate::types::ToolCall;
 use crate::types::{ChatMessage, Tool};
-use crate::utils::http_headers::ProviderHeaders;
 use base64::Engine;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;

@@ -52,7 +52,8 @@ pub struct OpenAiClient {
     /// Unified retry options for chat
     retry_options: Option<RetryOptions>,
     /// Optional HTTP interceptors applied to all chat requests
-    http_interceptors: Vec<std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    http_interceptors:
+        Vec<std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     /// Optional model-level middlewares applied before provider mapping
     model_middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
 }
@@ -364,7 +365,7 @@ impl OpenAiClient {
     /// Install HTTP interceptors for all chat requests.
     pub fn with_http_interceptors(
         mut self,
-        interceptors: Vec<std::sync::Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+        interceptors: Vec<std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     ) -> Self {
         self.http_interceptors = interceptors;
         self
@@ -941,10 +942,10 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
     use crate::execution::transformers::request::RequestTransformer;
     use crate::providers::openai::OpenAiConfig;
     use crate::providers::openai::transformers;
-    use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
     use std::sync::{Arc, Mutex};
 
     #[test]

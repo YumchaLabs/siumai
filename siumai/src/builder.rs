@@ -227,7 +227,8 @@ pub struct LlmBuilder {
     /// Default headers
     pub(crate) default_headers: HashMap<String, String>,
     /// Optional HTTP interceptors applied to chat requests (inherited by provider builders)
-    pub(crate) http_interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
+    pub(crate) http_interceptors:
+        Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     /// Enable a built-in LoggingInterceptor for lightweight HTTP debug
     pub(crate) http_debug: bool,
     /// Enable HTTP/2
@@ -371,7 +372,7 @@ impl LlmBuilder {
     /// interceptors and install them on their clients when built.
     pub fn with_http_interceptor(
         mut self,
-        interceptor: Arc<dyn crate::utils::http_interceptor::HttpInterceptor>,
+        interceptor: Arc<dyn crate::execution::http::interceptor::HttpInterceptor>,
     ) -> Self {
         self.http_interceptors.push(interceptor);
         self
@@ -455,7 +456,7 @@ impl LlmBuilder {
         };
 
         // Use unified HTTP client builder
-        let mut client = crate::utils::http_client::build_http_client_from_config(&config)?;
+        let mut client = crate::execution::http::client::build_http_client_from_config(&config)?;
 
         // Apply http2_prior_knowledge if set (not part of HttpConfig)
         if self.http2_prior_knowledge.is_some() {

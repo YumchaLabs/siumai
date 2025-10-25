@@ -7,8 +7,8 @@ use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 
 use crate::error::LlmError;
+use crate::execution::http::headers::ProviderHeaders;
 use crate::types::{ChatMessage, ContentPart, FinishReason, MessageContent};
-use crate::utils::http_headers::ProviderHeaders;
 
 /// Build HTTP headers for `xAI` API requests
 pub fn build_headers(

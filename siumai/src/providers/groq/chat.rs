@@ -7,11 +7,11 @@ use secrecy::SecretString;
 
 use crate::core::ProviderSpec;
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::*;
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 /// `Groq` Chat Capability Implementation

@@ -7,8 +7,8 @@
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::types::{CommonParams, HttpConfig};
-use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
 
 #[cfg(feature = "openai")]

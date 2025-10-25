@@ -21,7 +21,7 @@ use crate::types::HttpConfig;
 /// # Example
 /// ```rust,no_run
 /// use siumai::types::HttpConfig;
-/// use siumai::utils::http_client::build_http_client_from_config;
+/// use siumai::execution::http::client::build_http_client_from_config;
 ///
 /// let config = HttpConfig::default();
 /// let client = build_http_client_from_config(&config)?;

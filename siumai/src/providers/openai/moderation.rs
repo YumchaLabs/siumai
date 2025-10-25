@@ -218,7 +218,7 @@ impl OpenAiModeration {
     async fn make_request(&self) -> Result<reqwest::RequestBuilder, LlmError> {
         let url = format!("{}/moderations", self.config.base_url);
         // Build headers via ProviderHeaders to ensure consistency and support custom headers
-        let headers = crate::utils::http_headers::ProviderHeaders::openai(
+        let headers = crate::execution::http::headers::ProviderHeaders::openai(
             self.config.api_key.expose_secret(),
             self.config.organization.as_deref(),
             self.config.project.as_deref(),
