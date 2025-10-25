@@ -332,7 +332,10 @@ impl GroqClient {
     }
 
     /// Set the tracing configuration
-    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::observability::tracing::TracingConfig>) {
+    pub(crate) fn set_tracing_config(
+        &mut self,
+        config: Option<crate::observability::tracing::TracingConfig>,
+    ) {
         self.tracing_config = config;
     }
 

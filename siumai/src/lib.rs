@@ -93,6 +93,7 @@ pub mod custom_provider;
 pub mod defaults;
 pub mod error;
 pub mod execution;
+pub mod observability;
 pub mod params;
 pub mod performance;
 pub mod provider;
@@ -112,7 +113,6 @@ pub mod retry;
 pub mod retry_api;
 pub mod streaming;
 pub mod telemetry;
-pub mod observability;
 pub mod traits;
 pub mod types;
 pub mod utils;
@@ -123,7 +123,6 @@ pub mod web_search;
 pub mod highlevel;
 pub mod orchestrator;
 pub mod provider_tools;
-pub mod public;
 pub mod standards;
 
 // Re-export main types and traits

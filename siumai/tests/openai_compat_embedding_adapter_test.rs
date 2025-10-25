@@ -85,7 +85,7 @@ async fn embedding_request_includes_adapter_mapping() {
     // Register custom adapter into the global registry so Spec can resolve it
     {
         use siumai::registry::{ProviderRecord, global_registry};
-        let mut guard = global_registry().lock().unwrap();
+        let mut guard = global_registry().write().unwrap();
         let record = ProviderRecord {
             id: "mapping-test".to_string(),
             name: "Mapping Test".to_string(),

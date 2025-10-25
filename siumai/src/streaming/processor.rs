@@ -456,6 +456,7 @@ impl ToolCallBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::PromptTokensDetails;
 
     #[test]
     fn tool_arguments_respect_max_size() {
@@ -480,5 +481,24 @@ mod tests {
         let b = sp.tool_calls.get("id1").unwrap();
         assert!(b.arguments.len() <= 8);
         assert!(called.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
+    fn aggregates_usage_updates() {
+        let mut sp = StreamProcessor::new();
+        let u1 = Usage::new(3, 5);
+        let mut u2 = Usage::new(2, 4);
+        u2.prompt_tokens_details = Some(PromptTokensDetails::with_cached(7));
+        let _ = sp.process_event(ChatStreamEvent::UsageUpdate { usage: u1 });
+        let _ = sp.process_event(ChatStreamEvent::UsageUpdate { usage: u2 });
+        let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::Stop));
+        let usage = final_resp.usage.expect("usage present");
+        assert_eq!(usage.prompt_tokens, 5);
+        assert_eq!(usage.completion_tokens, 9);
+        assert_eq!(usage.total_tokens, 14);
+        assert_eq!(
+            usage.prompt_tokens_details.unwrap().cached_tokens.unwrap(),
+            7
+        );
     }
 }

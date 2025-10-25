@@ -136,3 +136,76 @@ pub fn wrap_stream_with_telemetry(
 
     Box::pin(wrapper)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::StreamExt;
+    use std::sync::{Arc, Mutex};
+
+    struct CaptureExporter(Arc<Mutex<Vec<crate::telemetry::TelemetryEvent>>>);
+    #[async_trait::async_trait]
+    impl crate::telemetry::TelemetryExporter for CaptureExporter {
+        async fn export(
+            &self,
+            event: &crate::telemetry::TelemetryEvent,
+        ) -> Result<(), crate::error::LlmError> {
+            self.0.lock().unwrap().push(event.clone());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn emits_generation_event_on_stream_end() {
+        // Prepare a short stream with a final StreamEnd event
+        let events = vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hi".into(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: crate::types::ChatResponse::empty_with_finish_reason(
+                    crate::types::FinishReason::Stop,
+                ),
+            }),
+        ];
+        let stream: ChatStream = Box::pin(futures::stream::iter(events));
+
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        // Ensure clean state
+        crate::telemetry::clear_exporters().await;
+        crate::telemetry::add_exporter(Box::new(CaptureExporter(sink.clone()))).await;
+
+        let cfg = Arc::new(
+            crate::telemetry::TelemetryConfig::builder()
+                .enabled(true)
+                .record_inputs(true)
+                .record_outputs(true)
+                .record_usage(true)
+                .build(),
+        );
+
+        let wrapped = wrap_stream_with_telemetry(
+            stream,
+            cfg,
+            uuid::Uuid::new_v4().to_string(),
+            "test-provider".into(),
+            "test-model".into(),
+            vec![crate::types::ChatMessage::user("hello").build()],
+        );
+
+        // Drain the stream to completion
+        futures::pin_mut!(wrapped);
+        while let Some(_ev) = wrapped.next().await {}
+
+        // Allow spawned task to run
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let captured = sink.lock().unwrap();
+        assert!(
+            captured
+                .iter()
+                .any(|e| matches!(e, crate::telemetry::TelemetryEvent::Generation(_)))
+        );
+    }
+}

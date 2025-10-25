@@ -900,7 +900,7 @@ impl CustomProvider for MyProvider {
 - **Telemetry**: Export events to Langfuse, Helicone, and other platforms
 - **Performance Metrics**: Track latency, throughput, and error rates
 - **W3C Trace Context**: Propagate trace IDs across services (`SIUMAI_W3C_TRACE=1`)
-- See: `siumai/src/tracing/README.md`, `siumai/src/telemetry/README.md`, `docs/developer/performance_module.md`
+- See: `siumai/src/observability/tracing/README.md`, `siumai/src/telemetry/README.md`, `docs/developer/performance_module.md`
 
 ### 🔌 **HTTP Interceptors**
 - **Request/Response Hooks**: Intercept and modify HTTP traffic

@@ -2,6 +2,7 @@
 
 use crate::error::LlmError;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
+use crate::observability::tracing::ProviderTracer;
 use crate::types::{SttRequest, TtsRequest};
 use std::sync::Arc;
 
@@ -43,6 +44,9 @@ impl AudioExecutor for HttpAudioExecutor {
             retry_options: None,
         };
 
+        let tracer = ProviderTracer::new(&self.provider_id);
+        tracer.trace_request_start("POST", &url);
+        let start = std::time::Instant::now();
         match body {
             AudioHttpBody::Json(json) => {
                 let result = crate::execution::executors::common::execute_bytes_request(
@@ -52,6 +56,7 @@ impl AudioExecutor for HttpAudioExecutor {
                     None,
                 )
                 .await?;
+                tracer.trace_request_complete(start, result.bytes.len());
                 Ok(result.bytes)
             }
             AudioHttpBody::Multipart(form) => {
@@ -65,6 +70,7 @@ impl AudioExecutor for HttpAudioExecutor {
                     .send()
                     .await
                     .map_err(|e| LlmError::HttpError(e.to_string()))?;
+                tracer.trace_response_success(resp.status().as_u16(), start, resp.headers());
                 if !resp.status().is_success() {
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
@@ -78,6 +84,7 @@ impl AudioExecutor for HttpAudioExecutor {
                     .bytes()
                     .await
                     .map_err(|e| LlmError::HttpError(e.to_string()))?;
+                tracer.trace_request_complete(start, bytes.len());
                 Ok(bytes.to_vec())
             }
         }
@@ -104,6 +111,9 @@ impl AudioExecutor for HttpAudioExecutor {
         };
 
         let per_request_headers = None;
+        let tracer = ProviderTracer::new(&self.provider_id);
+        tracer.trace_request_start("POST", &url);
+        let start = std::time::Instant::now();
         let result = match body {
             AudioHttpBody::Json(json) => {
                 crate::execution::executors::common::execute_json_request(
@@ -130,7 +140,11 @@ impl AudioExecutor for HttpAudioExecutor {
                 .await?
             }
         };
-
+        // We don't have raw status/headers here (common path). Mark completion with approximate size.
+        let resp_len = serde_json::to_string(&result.json)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        tracer.trace_request_complete(start, resp_len);
         self.transformer.parse_stt_response(&result.json)
     }
 }

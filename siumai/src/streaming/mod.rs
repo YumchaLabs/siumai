@@ -9,6 +9,7 @@
 //! - Stream processors for accumulating content
 
 // Core streaming types
+pub mod adapters;
 mod builder;
 mod converters;
 mod events;
@@ -19,9 +20,9 @@ mod sse;
 mod state_tracker;
 mod telemetry_wrapper;
 mod types;
-pub mod adapters;
 
 // Re-exports
+pub use adapters::*;
 pub use builder::*;
 pub use converters::*;
 pub use events::*;
@@ -32,4 +33,3 @@ pub use sse::*;
 pub use state_tracker::*;
 pub use telemetry_wrapper::*;
 pub use types::*;
-pub use adapters::*;

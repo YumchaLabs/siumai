@@ -3,6 +3,7 @@
 //! Implements model listing and information capabilities for Groq.
 
 use crate::error::LlmError;
+use crate::observability::tracing::ProviderTracer;
 use crate::traits::ModelListingCapability;
 use crate::types::{HttpConfig, ModelInfo};
 use async_trait::async_trait;
@@ -98,8 +99,16 @@ impl GroqModels {
         use secrecy::ExposeSecret;
         let url = format!("{}/models", self.base_url);
         let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
-
-        let response = self.http_client.get(&url).headers(headers).send().await?;
+        let tracer = ProviderTracer::new("groq");
+        tracer.trace_request_start("GET", &url);
+        let start = std::time::Instant::now();
+        let response = self
+            .http_client
+            .get(&url)
+            .headers(headers.clone())
+            .send()
+            .await?;
+        tracer.trace_response_success(response.status().as_u16(), start, response.headers());
 
         if !response.status().is_success() {
             let status = response.status();
@@ -114,6 +123,7 @@ impl GroqModels {
         }
 
         let groq_response: GroqModelsResponse = response.json().await?;
+        tracer.trace_request_complete(start, 0);
         let models = groq_response
             .data
             .into_iter()
@@ -127,8 +137,16 @@ impl GroqModels {
         use secrecy::ExposeSecret;
         let url = format!("{}/models/{}", self.base_url, model_id);
         let headers = build_headers(self.api_key.expose_secret(), &self.http_config.headers)?;
-
-        let response = self.http_client.get(&url).headers(headers).send().await?;
+        let tracer = ProviderTracer::new("groq");
+        tracer.trace_request_start("GET", &url);
+        let start = std::time::Instant::now();
+        let response = self
+            .http_client
+            .get(&url)
+            .headers(headers.clone())
+            .send()
+            .await?;
+        tracer.trace_response_success(response.status().as_u16(), start, response.headers());
 
         if !response.status().is_success() {
             let status = response.status();
@@ -143,6 +161,7 @@ impl GroqModels {
         }
 
         let groq_model: GroqModel = response.json().await?;
+        tracer.trace_request_complete(start, 0);
         Ok(self.convert_groq_model(groq_model))
     }
 

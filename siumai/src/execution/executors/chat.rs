@@ -15,8 +15,6 @@ use crate::execution::transformers::{
 use crate::streaming::ChatStream;
 // use crate::streaming::SseEventConverter; // not needed explicitly here
 // Telemetry event emission is handled via execution::telemetry helpers
-use crate::telemetry::{events::SpanEvent, TelemetryEvent};
-use crate::telemetry;
 use crate::types::{ChatRequest, ChatResponse};
 use std::sync::Arc;
 
@@ -1049,21 +1047,14 @@ impl ChatExecutor for HttpChatExecutor {
         let _start_time = std::time::SystemTime::now();
         let telemetry_config = req.telemetry.clone();
 
-        if let Some(ref telemetry) = telemetry_config {
-            if telemetry.enabled {
-                let span = SpanEvent::start(
-                    span_id.clone(),
-                    None,
-                    trace_id.clone(),
-                    "ai.executor.chat.execute_stream".to_string(),
-                )
-                .with_attribute("provider_id", self.provider_id.clone())
-                .with_attribute("model", req.common_params.model.clone())
-                .with_attribute("stream", "true");
-
-                telemetry::emit(TelemetryEvent::SpanStart(span)).await;
-            }
-        }
+        crate::execution::telemetry::chat::span_start_stream(
+            telemetry_config.as_ref(),
+            &trace_id,
+            &span_id,
+            &self.provider_id,
+            &req.common_params.model,
+        )
+        .await;
 
         let sse_tx_opt = self.stream_transformer.clone();
         let json_tx_opt = self.json_stream_converter.clone();
@@ -1077,20 +1068,14 @@ impl ChatExecutor for HttpChatExecutor {
         // Try pre-stream short-circuit
         if let Some(decision) = try_pre_stream(&self.middlewares, &req) {
             // Emit telemetry span end for short-circuit
-            if let Some(ref telemetry) = telemetry_config {
-                if telemetry.enabled {
-                    let span = SpanEvent::start(
-                        span_id.clone(),
-                        None,
-                        trace_id.clone(),
-                        "ai.executor.chat.execute_stream".to_string(),
-                    )
-                    .end_ok()
-                    .with_attribute("short_circuit", "true");
-
-                    telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
-                }
-            }
+            crate::execution::telemetry::chat::span_end_ok_stream(
+                telemetry_config.as_ref(),
+                &trace_id,
+                &span_id,
+                true,
+                false,
+            )
+            .await;
             return decision;
         }
 
@@ -1198,16 +1183,14 @@ impl ChatExecutor for HttpChatExecutor {
             if telemetry.enabled {
                 match result {
                     Ok(stream) => {
-                        let span = SpanEvent::start(
-                            span_id.clone(),
-                            None,
-                            trace_id.clone(),
-                            "ai.executor.chat.execute_stream".to_string(),
+                        crate::execution::telemetry::chat::span_end_ok_stream(
+                            telemetry_config.as_ref(),
+                            &trace_id,
+                            &span_id,
+                            false,
+                            true,
                         )
-                        .end_ok()
-                        .with_attribute("stream_created", "true");
-
-                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+                        .await;
 
                         // Wrap the stream with telemetry tracking
                         let wrapped_stream = crate::streaming::wrap_stream_with_telemetry(
@@ -1222,15 +1205,13 @@ impl ChatExecutor for HttpChatExecutor {
                         Ok(wrapped_stream)
                     }
                     Err(error) => {
-                        let span = SpanEvent::start(
-                            span_id.clone(),
-                            None,
-                            trace_id.clone(),
-                            "ai.executor.chat.execute_stream".to_string(),
+                        crate::execution::telemetry::chat::span_end_err_stream(
+                            telemetry_config.as_ref(),
+                            &trace_id,
+                            &span_id,
+                            &error,
                         )
-                        .end_error(error.to_string());
-
-                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+                        .await;
 
                         Err(error)
                     }

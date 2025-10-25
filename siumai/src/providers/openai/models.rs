@@ -15,6 +15,7 @@ use crate::types::{HttpConfig, ModelInfo};
 
 use super::types::*;
 use super::utils::build_headers;
+use crate::observability::tracing::ProviderTracer;
 
 /// `OpenAI` Models API client
 #[derive(Clone)]
@@ -173,7 +174,11 @@ impl ModelListingCapability for OpenAiModels {
         let headers = self.build_request_headers()?;
         let url = self.models_endpoint();
 
+        let tracer = ProviderTracer::new("openai");
+        tracer.trace_request_start("GET", &url);
+        let start = std::time::Instant::now();
         let response = self.http_client.get(&url).headers(headers).send().await?;
+        tracer.trace_response_success(response.status().as_u16(), start, response.headers());
 
         if !response.status().is_success() {
             let status = response.status();
@@ -187,6 +192,7 @@ impl ModelListingCapability for OpenAiModels {
         }
 
         let models_response: OpenAiModelsResponse = response.json().await?;
+        tracer.trace_request_complete(start, 0);
 
         let models = models_response
             .data
@@ -202,7 +208,11 @@ impl ModelListingCapability for OpenAiModels {
         let headers = self.build_request_headers()?;
         let url = self.model_endpoint(&model_id);
 
+        let tracer = ProviderTracer::new("openai");
+        tracer.trace_request_start("GET", &url);
+        let start = std::time::Instant::now();
         let response = self.http_client.get(&url).headers(headers).send().await?;
+        tracer.trace_response_success(response.status().as_u16(), start, response.headers());
 
         if !response.status().is_success() {
             let status = response.status();
@@ -216,6 +226,7 @@ impl ModelListingCapability for OpenAiModels {
         }
 
         let openai_model: OpenAiModel = response.json().await?;
+        tracer.trace_request_complete(start, 0);
         Ok(self.convert_openai_model_to_model_info(openai_model))
     }
 }

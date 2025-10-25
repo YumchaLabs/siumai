@@ -80,6 +80,81 @@ pub mod chat {
         }
     }
 
+    // === Streaming variants ===
+
+    /// Emit a span start for chat streaming execution.
+    pub async fn span_start_stream(
+        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        trace_id: &str,
+        span_id: &str,
+        provider_id: &str,
+        model: &str,
+    ) {
+        if let Some(cfg) = telemetry_config {
+            if cfg.enabled {
+                let span = crate::telemetry::events::SpanEvent::start(
+                    span_id.to_string(),
+                    None,
+                    trace_id.to_string(),
+                    "ai.executor.chat.execute_stream".to_string(),
+                )
+                .with_attribute("provider_id", provider_id.to_string())
+                .with_attribute("model", model.to_string())
+                .with_attribute("stream", "true");
+                telemetry::emit(TelemetryEvent::SpanStart(span)).await;
+            }
+        }
+    }
+
+    /// Emit an OK span end for streaming execution.
+    pub async fn span_end_ok_stream(
+        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        trace_id: &str,
+        span_id: &str,
+        short_circuit: bool,
+        stream_created: bool,
+    ) {
+        if let Some(cfg) = telemetry_config {
+            if cfg.enabled {
+                let mut span = crate::telemetry::events::SpanEvent::start(
+                    span_id.to_string(),
+                    None,
+                    trace_id.to_string(),
+                    "ai.executor.chat.execute_stream".to_string(),
+                )
+                .end_ok();
+                if short_circuit {
+                    span = span.with_attribute("short_circuit", "true");
+                }
+                if stream_created {
+                    span = span.with_attribute("stream_created", "true");
+                }
+                telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            }
+        }
+    }
+
+    /// Emit an error span end for streaming execution.
+    pub async fn span_end_err_stream(
+        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        trace_id: &str,
+        span_id: &str,
+        error: &crate::error::LlmError,
+    ) {
+        if let Some(cfg) = telemetry_config {
+            if cfg.enabled {
+                let span = crate::telemetry::events::SpanEvent::start(
+                    span_id.to_string(),
+                    None,
+                    trace_id.to_string(),
+                    "ai.executor.chat.execute_stream".to_string(),
+                )
+                .end_error(error.to_string());
+                telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            }
+        }
+    }
+
     /// Emit a generation event for a finished chat response.
     pub async fn generation(
         telemetry_config: Option<&crate::telemetry::TelemetryConfig>,

@@ -7,14 +7,27 @@
 
 pub mod auto;
 pub mod builder;
-pub mod language_model;
-pub mod named;
 pub mod presets;
 pub mod samples;
-pub mod tag_extractor;
+
+// Group language-model middlewares under `lm` namespace for clarity
+pub mod lm {
+    pub mod language_model;
+    pub mod named;
+    pub mod tag_extractor;
+
+    pub use language_model::*;
+    pub use named::*;
+    pub use tag_extractor::*;
+}
 
 pub use auto::{MiddlewareConfig, build_auto_middlewares, build_auto_middlewares_vec};
 pub use builder::*;
-pub use language_model::*;
-pub use named::*;
-pub use tag_extractor::*;
+// Backward-compatible module re-exports
+pub use lm::language_model;
+pub use lm::named;
+pub use lm::tag_extractor;
+// Backward-compatible item re-exports
+pub use lm::language_model::*;
+pub use lm::named::*;
+pub use lm::tag_extractor::*;

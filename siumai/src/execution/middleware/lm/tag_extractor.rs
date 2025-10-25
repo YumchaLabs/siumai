@@ -1,4 +1,5 @@
 //! Generic tag extraction for streaming text.
+//! (moved under execution/middleware/lm)
 //!
 //! This module provides a state machine-based tag extractor that can handle
 //! streaming text input and extract content between opening and closing tags.
