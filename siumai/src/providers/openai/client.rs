@@ -205,16 +205,118 @@ impl OpenAiClient {
         Self::new(config, http_client)
     }
 
-    /// Set whether to use the Responses API (builder-style)
-    /// Decide whether to use Responses API for current client config (auto routes gpt-5*)
+    /// Helper: Build ProviderContext with OpenAI-specific extras
+    fn build_context(&self) -> crate::provider_core::ProviderContext {
+        let mut extras = std::collections::HashMap::new();
+        if let Some(fmt) = &self.specific_params.response_format {
+            extras.insert("openai.response_format".to_string(), fmt.clone());
+        }
+
+        crate::provider_core::ProviderContext::new(
+            "openai",
+            self.base_url.clone(),
+            Some(self.api_key.expose_secret().to_string()),
+            self.http_config.headers.clone(),
+        )
+        .with_org_project(self.organization.clone(), self.project.clone())
+        .with_extras(extras)
+    }
+
+    /// Helper: Build ChatExecutor with common configuration
+    fn build_chat_executor(
+        &self,
+        request: &ChatRequest,
+    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::executors::chat::ChatExecutorBuilder;
+        use crate::provider_core::ProviderSpec;
+
+        let ctx = self.build_context();
+        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
+        let bundle = spec.choose_chat_transformers(request, &ctx);
+        let before_send_hook = spec.chat_before_send(request, &ctx);
+
+        let mut builder = ChatExecutorBuilder::new("openai", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
+
+        if let Some(hook) = before_send_hook {
+            builder = builder.with_before_send(hook);
+        }
+
+        builder.build()
+    }
+
+    /// Helper: Build EmbeddingExecutor with common configuration
+    fn build_embedding_executor(&self) -> Arc<crate::executors::embedding::HttpEmbeddingExecutor> {
+        use crate::provider_core::ProviderSpec;
+
+        let ctx = self.build_context();
+        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
+        let req = EmbeddingRequest::new(vec![]).with_model(self.common_params.model.clone());
+        let bundle = spec.choose_embedding_transformers(&req, &ctx);
+
+        Arc::new(crate::executors::embedding::HttpEmbeddingExecutor {
+            provider_id: "openai".to_string(),
+            http_client: self.http_client.clone(),
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            provider_spec: spec,
+            provider_context: ctx,
+            interceptors: vec![],
+            before_send: None,
+            retry_options: self.retry_options.clone(),
+        })
+    }
+
+    /// Helper: Build ImageExecutor with common configuration
+    fn build_image_executor(
+        &self,
+        request: &ImageGenerationRequest,
+    ) -> crate::executors::image::HttpImageExecutor {
+        use crate::provider_core::ProviderSpec;
+
+        let ctx = self.build_context();
+        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
+        let bundle = spec.choose_image_transformers(request, &ctx);
+
+        crate::executors::image::HttpImageExecutor {
+            provider_id: "openai".to_string(),
+            http_client: self.http_client.clone(),
+            request_transformer: bundle.request,
+            response_transformer: bundle.response,
+            provider_spec: spec,
+            provider_context: ctx,
+            interceptors: vec![],
+            before_send: None,
+            retry_options: self.retry_options.clone(),
+        }
+    }
+
+    /// Helper: Build AudioExecutor with common configuration
+    fn build_audio_executor(&self) -> crate::executors::audio::HttpAudioExecutor {
+        let ctx = self.build_context();
+        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
+
+        crate::executors::audio::HttpAudioExecutor {
+            provider_id: "openai".to_string(),
+            http_client: self.http_client.clone(),
+            transformer: Arc::new(super::transformers::OpenAiAudioTransformer),
+            provider_spec: spec,
+            provider_context: ctx,
+        }
+    }
+
     /// Stream chat via ProviderSpec (unified path)
     async fn chat_stream_via_spec(
         &self,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::{ChatExecutor, ChatExecutorBuilder};
-        use crate::provider_core::{ProviderContext, ProviderSpec};
+        use crate::executors::chat::ChatExecutor;
 
         let request = ChatRequest {
             messages,
@@ -224,78 +326,15 @@ impl OpenAiClient {
             ..Default::default()
         };
 
-        let mut extras = std::collections::HashMap::new();
-        if let Some(fmt) = &self.specific_params.response_format {
-            extras.insert("openai.response_format".to_string(), fmt.clone());
-        }
-        let ctx = ProviderContext::new(
-            "openai",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        )
-        .with_org_project(self.organization.clone(), self.project.clone())
-        .with_extras(extras);
-
-        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let before_send = spec.chat_before_send(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let builder = ChatExecutorBuilder::new("openai", http)
-            .with_spec(spec)
-            .with_context(ctx)
-            .with_transformer_bundle(bundle)
-            .with_stream_disable_compression(self.http_config.stream_disable_compression)
-            .with_interceptors(self.http_interceptors.clone())
-            .with_middlewares(self.model_middlewares.clone());
-        let builder = if let Some(h) = before_send {
-            builder.with_before_send(h)
-        } else {
-            builder
-        };
-        let exec = builder.build();
-        exec.execute_stream(request).await
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute_stream(&*exec, request).await
     }
 
     /// Execute chat (non-stream) via ProviderSpec with a fully-formed ChatRequest
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::{ChatExecutor, ChatExecutorBuilder};
-        use crate::provider_core::{ProviderContext, ProviderSpec};
-
-        let mut extras = std::collections::HashMap::new();
-        if let Some(fmt) = &self.specific_params.response_format {
-            extras.insert("openai.response_format".to_string(), fmt.clone());
-        }
-
-        let ctx = ProviderContext::new(
-            "openai",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        )
-        .with_org_project(self.organization.clone(), self.project.clone())
-        .with_extras(extras);
-
-        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let before_send = spec.chat_before_send(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let builder = ChatExecutorBuilder::new("openai", http)
-            .with_spec(spec)
-            .with_context(ctx)
-            .with_transformer_bundle(bundle)
-            .with_stream_disable_compression(self.http_config.stream_disable_compression)
-            .with_interceptors(self.http_interceptors.clone())
-            .with_middlewares(self.model_middlewares.clone());
-        let builder = if let Some(h) = before_send {
-            builder.with_before_send(h)
-        } else {
-            builder
-        };
-        let exec = builder.build();
-        exec.execute(request).await
+        use crate::executors::chat::ChatExecutor;
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute(&*exec, request).await
     }
 
     /// Execute chat (stream) via ProviderSpec with a fully-formed ChatRequest
@@ -303,42 +342,9 @@ impl OpenAiClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::{ChatExecutor, ChatExecutorBuilder};
-        use crate::provider_core::{ProviderContext, ProviderSpec};
-
-        let mut extras = std::collections::HashMap::new();
-        if let Some(fmt) = &self.specific_params.response_format {
-            extras.insert("openai.response_format".to_string(), fmt.clone());
-        }
-
-        let ctx = ProviderContext::new(
-            "openai",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        )
-        .with_org_project(self.organization.clone(), self.project.clone())
-        .with_extras(extras);
-
-        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let before_send = spec.chat_before_send(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let builder = ChatExecutorBuilder::new("openai", http)
-            .with_spec(spec)
-            .with_context(ctx)
-            .with_transformer_bundle(bundle)
-            .with_stream_disable_compression(self.http_config.stream_disable_compression)
-            .with_interceptors(self.http_interceptors.clone())
-            .with_middlewares(self.model_middlewares.clone());
-        let builder = if let Some(h) = before_send {
-            builder.with_before_send(h)
-        } else {
-            builder
-        };
-        let exec = builder.build();
-        exec.execute_stream(request).await
+        use crate::executors::chat::ChatExecutor;
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute_stream(&*exec, request).await
     }
 
     /// Get OpenAI-specific parameters
@@ -433,8 +439,7 @@ impl OpenAiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::{ProviderContext, ProviderSpec};
+        use crate::executors::chat::ChatExecutor;
 
         let request = ChatRequest {
             messages,
@@ -443,38 +448,8 @@ impl OpenAiClient {
             ..Default::default()
         };
 
-        let mut extras = std::collections::HashMap::new();
-        if let Some(fmt) = &self.specific_params.response_format {
-            extras.insert("openai.response_format".to_string(), fmt.clone());
-        }
-        let ctx = ProviderContext::new(
-            "openai",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        )
-        .with_org_project(self.organization.clone(), self.project.clone())
-        .with_extras(extras);
-
-        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
-        let bundle = spec.choose_chat_transformers(&request, &ctx);
-        let before_send = spec.chat_before_send(&request, &ctx);
-        let http = self.http_client.clone();
-
-        let builder = ChatExecutorBuilder::new("openai", http)
-            .with_spec(spec)
-            .with_context(ctx)
-            .with_transformer_bundle(bundle)
-            .with_stream_disable_compression(self.http_config.stream_disable_compression)
-            .with_interceptors(self.http_interceptors.clone())
-            .with_middlewares(self.model_middlewares.clone());
-        let builder = if let Some(h) = before_send {
-            builder.with_before_send(h)
-        } else {
-            builder
-        };
-        let exec = builder.build();
-        exec.execute(request).await
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute(&*exec, request).await
     }
 }
 
@@ -535,44 +510,12 @@ impl ModelListingCapability for OpenAiClient {
 #[async_trait]
 impl EmbeddingCapability for OpenAiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
-        use crate::provider_core::{ProviderContext, ProviderSpec};
-        let req0 = EmbeddingRequest::new(texts).with_model(self.common_params.model.clone());
-        let spec = crate::providers::openai::spec::OpenAiSpec::new();
-        let ctx = ProviderContext::new(
-            "openai",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        )
-        .with_org_project(self.organization.clone(), self.project.clone());
-        let bundle = spec.choose_embedding_transformers(&req0, &ctx);
-        let http = self.http_client.clone();
-        let spec_arc = Arc::new(spec);
-        let exec = std::sync::Arc::new(HttpEmbeddingExecutor {
-            provider_id: "openai".to_string(),
-            http_client: http,
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            provider_spec: spec_arc,
-            provider_context: ctx,
-            interceptors: vec![],
-            before_send: None,
-            retry_options: None,
-        });
-        if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let rq = req0.clone();
-                    let exec = exec.clone();
-                    async move { EmbeddingExecutor::execute(&*exec, rq).await }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            EmbeddingExecutor::execute(&*exec, req0).await
-        }
+        use crate::executors::embedding::EmbeddingExecutor;
+
+        let request = EmbeddingRequest::new(texts).with_model(self.common_params.model.clone());
+        let exec = self.build_embedding_executor();
+
+        EmbeddingExecutor::execute(&*exec, request).await
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -702,66 +645,11 @@ impl AudioCapability for OpenAiClient {
         &self,
         request: crate::types::TtsRequest,
     ) -> Result<crate::types::TtsResponse, LlmError> {
-        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
-        let http = self.http_client.clone();
-        let base = self.base_url.clone();
-        let api_key = self.api_key.clone();
-        let org = self.organization.clone();
-        let proj = self.project.clone();
-        let base_clone = base.clone();
-        let result_bytes = if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let http = http.clone();
-                    let base = base_clone.clone();
-                    let api_key = api_key.clone();
-                    let org = org.clone();
-                    let proj = proj.clone();
-                    async move {
-                        let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-                        let ctx = crate::provider_core::ProviderContext::new(
-                            "openai",
-                            base.clone(),
-                            Some(api_key.expose_secret().to_string()),
-                            self.http_config.headers.clone(),
-                        )
-                        .with_org_project(org.clone(), proj.clone());
+        use crate::executors::audio::AudioExecutor;
 
-                        let exec = HttpAudioExecutor {
-                            provider_id: "openai".to_string(),
-                            http_client: http,
-                            transformer: std::sync::Arc::new(
-                                super::transformers::OpenAiAudioTransformer,
-                            ),
-                            provider_spec: spec,
-                            provider_context: ctx,
-                        };
-                        AudioExecutor::tts(&exec, rq).await
-                    }
-                },
-                opts.clone(),
-            )
-            .await?
-        } else {
-            let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-            let ctx = crate::provider_core::ProviderContext::new(
-                "openai",
-                base.clone(),
-                Some(api_key.expose_secret().to_string()),
-                self.http_config.headers.clone(),
-            )
-            .with_org_project(org.clone(), proj.clone());
+        let exec = self.build_audio_executor();
+        let result_bytes = AudioExecutor::tts(&exec, request.clone()).await?;
 
-            let exec = HttpAudioExecutor {
-                provider_id: "openai".to_string(),
-                http_client: http,
-                transformer: std::sync::Arc::new(super::transformers::OpenAiAudioTransformer),
-                provider_spec: spec,
-                provider_context: ctx,
-            };
-            AudioExecutor::tts(&exec, request.clone()).await?
-        };
         Ok(crate::types::TtsResponse {
             audio_data: result_bytes,
             format: request.format.unwrap_or_else(|| "mp3".to_string()),
@@ -775,66 +663,11 @@ impl AudioCapability for OpenAiClient {
         &self,
         request: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
-        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
-        let http = self.http_client.clone();
-        let base = self.base_url.clone();
-        let api_key = self.api_key.clone();
-        let org = self.organization.clone();
-        let proj = self.project.clone();
-        let base_clone = base.clone();
-        let text = if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let http = http.clone();
-                    let base = base_clone.clone();
-                    let api_key = api_key.clone();
-                    let org = org.clone();
-                    let proj = proj.clone();
-                    async move {
-                        let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-                        let ctx = crate::provider_core::ProviderContext::new(
-                            "openai",
-                            base.clone(),
-                            Some(api_key.expose_secret().to_string()),
-                            self.http_config.headers.clone(),
-                        )
-                        .with_org_project(org.clone(), proj.clone());
+        use crate::executors::audio::AudioExecutor;
 
-                        let exec = HttpAudioExecutor {
-                            provider_id: "openai".to_string(),
-                            http_client: http,
-                            transformer: std::sync::Arc::new(
-                                super::transformers::OpenAiAudioTransformer,
-                            ),
-                            provider_spec: spec,
-                            provider_context: ctx,
-                        };
-                        AudioExecutor::stt(&exec, rq).await
-                    }
-                },
-                opts.clone(),
-            )
-            .await?
-        } else {
-            let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-            let ctx = crate::provider_core::ProviderContext::new(
-                "openai",
-                base.clone(),
-                Some(api_key.expose_secret().to_string()),
-                self.http_config.headers.clone(),
-            )
-            .with_org_project(org.clone(), proj.clone());
+        let exec = self.build_audio_executor();
+        let text = AudioExecutor::stt(&exec, request).await?;
 
-            let exec = HttpAudioExecutor {
-                provider_id: "openai".to_string(),
-                http_client: http,
-                transformer: std::sync::Arc::new(super::transformers::OpenAiAudioTransformer),
-                provider_spec: spec,
-                provider_context: ctx,
-            };
-            AudioExecutor::stt(&exec, request).await?
-        };
         Ok(crate::types::SttResponse {
             text,
             language: None,
@@ -940,81 +773,10 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
-        if let Some(opts) = &self.retry_options {
-            let http0 = self.http_client.clone();
-            let base0 = self.base_url.clone();
-            let api_key0 = self.api_key.clone();
-            let org0 = self.organization.clone();
-            let proj0 = self.project.clone();
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let http = http0.clone();
-                    let base = base0.clone();
-                    let api_key = api_key0.clone();
-                    let org = org0.clone();
-                    let proj = proj0.clone();
-                    async move {
-                        use crate::provider_core::{ProviderContext, ProviderSpec};
-                        use secrecy::ExposeSecret;
+        use crate::executors::image::ImageExecutor;
 
-                        let spec = crate::providers::openai::spec::OpenAiSpec::new();
-                        let ctx = ProviderContext::new(
-                            "openai",
-                            base,
-                            Some(api_key.expose_secret().to_string()),
-                            self.http_config.headers.clone(),
-                        )
-                        .with_org_project(org, proj);
-                        let bundle = spec.choose_image_transformers(&rq, &ctx);
-                        let spec_arc = Arc::new(spec);
-
-                        let exec = HttpImageExecutor {
-                            provider_id: "openai".to_string(),
-                            http_client: http,
-                            request_transformer: bundle.request,
-                            response_transformer: bundle.response,
-                            provider_spec: spec_arc,
-                            provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
-                        };
-                        ImageExecutor::execute(&exec, rq).await
-                    }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            use crate::provider_core::{ProviderContext, ProviderSpec};
-            use secrecy::ExposeSecret;
-
-            let spec = crate::providers::openai::spec::OpenAiSpec::new();
-            let ctx = ProviderContext::new(
-                "openai",
-                self.base_url.clone(),
-                Some(self.api_key.expose_secret().to_string()),
-                self.http_config.headers.clone(),
-            )
-            .with_org_project(self.organization.clone(), self.project.clone());
-            let bundle = spec.choose_image_transformers(&request, &ctx);
-            let spec_arc = Arc::new(spec);
-
-            let exec = HttpImageExecutor {
-                provider_id: "openai".to_string(),
-                http_client: self.http_client.clone(),
-                request_transformer: bundle.request,
-                response_transformer: bundle.response,
-                provider_spec: spec_arc,
-                provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
-            };
-            exec.execute(request).await
-        }
+        let exec = self.build_image_executor(&request);
+        exec.execute(request).await
     }
 
     /// Edit an existing image with a text prompt.
@@ -1022,83 +784,10 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
-        let http = self.http_client.clone();
-        let base = format!("{}/images/edits", self.base_url);
-        let api_key = self.api_key.clone();
-        let org = self.organization.clone();
-        let proj = self.project.clone();
-        let base_clone = base.clone();
-        if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let http = http.clone();
-                    let base = base_clone.clone();
-                    let api_key = api_key.clone();
-                    let org = org.clone();
-                    let proj = proj.clone();
-                    async move {
-                        use crate::provider_core::{ProviderContext, ProviderSpec};
-                        use secrecy::ExposeSecret;
+        use crate::executors::image::ImageExecutor;
 
-                        let spec = crate::providers::openai::spec::OpenAiSpec::new();
-                        let ctx = ProviderContext::new(
-                            "openai",
-                            base,
-                            Some(api_key.expose_secret().to_string()),
-                            self.http_config.headers.clone(),
-                        )
-                        .with_org_project(org, proj);
-                        let bundle = spec
-                            .choose_image_transformers(&ImageGenerationRequest::default(), &ctx);
-                        let spec_arc = Arc::new(spec);
-
-                        let exec = HttpImageExecutor {
-                            provider_id: "openai".to_string(),
-                            http_client: http,
-                            request_transformer: bundle.request,
-                            response_transformer: bundle.response,
-                            provider_spec: spec_arc,
-                            provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
-                        };
-                        ImageExecutor::execute_edit(&exec, rq).await
-                    }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            use crate::provider_core::{ProviderContext, ProviderSpec};
-            use secrecy::ExposeSecret;
-
-            let spec = crate::providers::openai::spec::OpenAiSpec::new();
-            let ctx = ProviderContext::new(
-                "openai",
-                self.base_url.clone(),
-                Some(self.api_key.expose_secret().to_string()),
-                self.http_config.headers.clone(),
-            )
-            .with_org_project(self.organization.clone(), self.project.clone());
-            let bundle = spec.choose_image_transformers(&ImageGenerationRequest::default(), &ctx);
-            let spec_arc = Arc::new(spec);
-
-            let exec = HttpImageExecutor {
-                provider_id: "openai".to_string(),
-                http_client: self.http_client.clone(),
-                request_transformer: bundle.request,
-                response_transformer: bundle.response,
-                provider_spec: spec_arc,
-                provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
-            };
-            exec.execute_edit(request).await
-        }
+        let exec = self.build_image_executor(&ImageGenerationRequest::default());
+        ImageExecutor::execute_edit(&exec, request).await
     }
 
     /// Create variations of an existing image.
@@ -1106,83 +795,10 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
-        let http = self.http_client.clone();
-        let base = format!("{}/images/variations", self.base_url);
-        let api_key = self.api_key.clone();
-        let org = self.organization.clone();
-        let proj = self.project.clone();
-        let base_clone = base.clone();
-        if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let http = http.clone();
-                    let base = base_clone.clone();
-                    let api_key = api_key.clone();
-                    let org = org.clone();
-                    let proj = proj.clone();
-                    async move {
-                        use crate::provider_core::{ProviderContext, ProviderSpec};
-                        use secrecy::ExposeSecret;
+        use crate::executors::image::ImageExecutor;
 
-                        let spec = crate::providers::openai::spec::OpenAiSpec::new();
-                        let ctx = ProviderContext::new(
-                            "openai",
-                            base,
-                            Some(api_key.expose_secret().to_string()),
-                            self.http_config.headers.clone(),
-                        )
-                        .with_org_project(org, proj);
-                        let bundle = spec
-                            .choose_image_transformers(&ImageGenerationRequest::default(), &ctx);
-                        let spec_arc = Arc::new(spec);
-
-                        let exec = HttpImageExecutor {
-                            provider_id: "openai".to_string(),
-                            http_client: http,
-                            request_transformer: bundle.request,
-                            response_transformer: bundle.response,
-                            provider_spec: spec_arc,
-                            provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
-                        };
-                        ImageExecutor::execute_variation(&exec, rq).await
-                    }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            use crate::provider_core::{ProviderContext, ProviderSpec};
-            use secrecy::ExposeSecret;
-
-            let spec = crate::providers::openai::spec::OpenAiSpec::new();
-            let ctx = ProviderContext::new(
-                "openai",
-                self.base_url.clone(),
-                Some(self.api_key.expose_secret().to_string()),
-                self.http_config.headers.clone(),
-            )
-            .with_org_project(self.organization.clone(), self.project.clone());
-            let bundle = spec.choose_image_transformers(&ImageGenerationRequest::default(), &ctx);
-            let spec_arc = Arc::new(spec);
-
-            let exec = HttpImageExecutor {
-                provider_id: "openai".to_string(),
-                http_client: self.http_client.clone(),
-                request_transformer: bundle.request,
-                response_transformer: bundle.response,
-                provider_spec: spec_arc,
-                provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
-            };
-            exec.execute_variation(request).await
-        }
+        let exec = self.build_image_executor(&ImageGenerationRequest::default());
+        ImageExecutor::execute_variation(&exec, request).await
     }
 
     /// Get supported image sizes for this provider.

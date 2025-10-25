@@ -83,7 +83,7 @@ impl VertexAnthropicClient {
     }
 
     /// Create provider context for this client
-    fn create_context(&self) -> crate::provider_core::ProviderContext {
+    fn build_context(&self) -> crate::provider_core::ProviderContext {
         crate::provider_core::ProviderContext::new(
             "anthropic-vertex",
             self.config.base_url.clone(),
@@ -93,38 +93,40 @@ impl VertexAnthropicClient {
     }
 
     /// Create chat executor using the builder pattern
-    fn create_chat_executor(
-        &self,
-        spec: Arc<dyn crate::provider_core::ProviderSpec>,
-        ctx: crate::provider_core::ProviderContext,
-        request: &ChatRequest,
-    ) -> Arc<HttpChatExecutor> {
+    fn build_chat_executor(&self, request: &ChatRequest) -> Arc<HttpChatExecutor> {
         use crate::executors::chat::ChatExecutorBuilder;
+        use crate::provider_core::ProviderSpec;
 
+        let ctx = self.build_context();
+        let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
+            self.config.base_url.clone(),
+            self.config.model.clone(),
+            self.config.http_config.headers.clone(),
+        ));
         let bundle = spec.choose_chat_transformers(request, &ctx);
+        let before_send_hook = spec.chat_before_send(request, &ctx);
 
-        ChatExecutorBuilder::new("anthropic-vertex", self.http_client.clone())
+        let mut builder = ChatExecutorBuilder::new("anthropic-vertex", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
             .with_transformer_bundle(bundle)
             .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
             .with_interceptors(self.http_interceptors.clone())
-            .with_middlewares(self.model_middlewares.clone())
-            .build()
+            .with_middlewares(self.model_middlewares.clone());
+
+        if let Some(hook) = before_send_hook {
+            builder = builder.with_before_send(hook);
+        }
+
+        builder.build()
     }
 
     /// Execute chat request via spec (unified implementation)
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::executors::chat::ChatExecutor;
 
-        let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
-            self.config.base_url.clone(),
-            self.config.model.clone(),
-            self.config.http_config.headers.clone(),
-        ));
-        let ctx = self.create_context();
-        let exec = self.create_chat_executor(spec, ctx, &request);
-        exec.execute(request).await
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute(&*exec, request).await
     }
 
     /// Execute streaming chat request via spec (unified implementation)
@@ -134,14 +136,8 @@ impl VertexAnthropicClient {
     ) -> Result<ChatStream, LlmError> {
         use crate::executors::chat::ChatExecutor;
 
-        let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
-            self.config.base_url.clone(),
-            self.config.model.clone(),
-            self.config.http_config.headers.clone(),
-        ));
-        let ctx = self.create_context();
-        let exec = self.create_chat_executor(spec, ctx, &request);
-        exec.execute_stream(request).await
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute_stream(&*exec, request).await
     }
 }
 

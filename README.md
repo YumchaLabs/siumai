@@ -101,6 +101,56 @@ Siumai is built on a clean, modular architecture that separates concerns and mak
 ✅ **Maintainable**: Changes to one provider don't affect others
 ✅ **Type-Safe**: Rust's type system ensures correctness at compile time
 
+### Module Organization (v0.11+)
+
+Siumai's codebase is organized into clear, focused modules:
+
+```
+siumai/src/
+├── core/                    # Core abstractions
+│   ├── provider_spec.rs     # ProviderSpec trait (HTTP routing, headers, transformers)
+│   ├── capabilities.rs      # Capability traits (Chat, Streaming, Vision, etc.)
+│   ├── client.rs            # LlmClient trait
+│   └── builder_core.rs      # Shared builder configuration
+│
+├── execution/               # Execution layer (organized re-exports)
+│   ├── executor/            # HTTP executors (chat, embedding, image, etc.)
+│   ├── transformer/         # Request/response/stream transformers
+│   ├── middleware/          # Middleware chain
+│   └── http/                # HTTP utilities
+│       ├── client.rs        # HTTP client configuration
+│       ├── headers.rs       # Header building utilities
+│       ├── interceptor.rs   # Request/response interceptors
+│       └── retry.rs         # Retry mechanisms
+│
+├── providers/               # Provider implementations
+│   ├── openai/              # OpenAI (GPT-4, GPT-4o, o1, etc.)
+│   ├── anthropic/           # Anthropic (Claude)
+│   ├── gemini/              # Google Gemini
+│   ├── ollama/              # Ollama (local models)
+│   ├── xai/                 # xAI (Grok)
+│   ├── groq/                # Groq
+│   └── anthropic_vertex/    # Anthropic on Google Cloud
+│
+├── retry/                   # Retry logic
+│   ├── policy.rs            # Simple policy-based retry
+│   ├── backoff.rs           # Exponential backoff retry
+│   └── mod.rs
+│
+├── retry_api.rs             # Unified retry API facade
+├── standards/               # Reusable API format implementations
+├── streaming/               # Streaming utilities
+├── types/                   # Type definitions
+└── ... (other modules)
+```
+
+**Key Design Principles**:
+- **`core/`**: Foundation abstractions used across the library
+- **`execution/`**: Organized re-exports for execution-related code
+- **`providers/`**: Each provider is self-contained with its own spec, transformers, and client
+- **`retry/`**: Dual-backend retry system (policy-based and backoff-based)
+- **`standards/`**: Reusable implementations for common API formats (OpenAI, Anthropic, Gemini)
+
 ## 🚀 Quick Start
 
 Add to `Cargo.toml`:
@@ -596,6 +646,123 @@ Notes
 - 行为以各模型与供应商实际支持为准；以上为 Siumai 侧映射与执行路径能力概览。
 
 Interceptors receive hooks: `on_before_send`, `on_response`, `on_error`, and `on_sse_event` for streaming. See `src/utils/http_interceptor.rs`.
+
+## 🔄 Retry & Error Handling
+
+Siumai provides a unified retry system with dual backends for handling transient failures:
+
+### Quick Start
+
+```rust
+use siumai::retry_api::{retry, retry_for_provider};
+use siumai::types::ProviderType;
+
+// Recommended: Default backoff retry
+let result = retry(|| async {
+    client.chat_request(request.clone()).await
+}).await?;
+
+// Provider-specific retry (optimized for each provider)
+let result = retry_for_provider(&ProviderType::OpenAi, || async {
+    client.chat_request(request.clone()).await
+}).await?;
+```
+
+### Retry Backends
+
+Siumai offers two retry backends:
+
+1. **Backoff Backend** (Recommended)
+   - Uses the `backoff` crate for exponential backoff
+   - Provider-specific configurations
+   - Automatic jitter to prevent thundering herd
+
+2. **Policy Backend** (Simple)
+   - Simple policy-based retry with fixed delays
+   - Customizable retry conditions
+   - Lightweight implementation
+
+### Provider-Specific Configurations
+
+Each provider has optimized retry settings:
+
+| Provider | Initial Delay | Multiplier | Max Delay | Max Time |
+|----------|---------------|------------|-----------|----------|
+| OpenAI | 1s | 2.0x | 60s | 5 min |
+| Anthropic | 1s | 1.5x | 60s | 5 min |
+| Google | 1s | 1.5x | 60s | 5 min |
+| Ollama | 500ms | 1.5x | 30s | 3 min |
+
+### Advanced Usage
+
+```rust
+use siumai::retry_api::{retry_with, RetryOptions, RetryBackend};
+
+// Custom retry options
+let options = RetryOptions::backoff_default()
+    .with_max_attempts(5)
+    .with_retry_401(false)  // Disable 401 retry
+    .with_idempotent(true); // Mark as idempotent
+
+let result = retry_with(|| async {
+    client.chat_request(request.clone()).await
+}, options).await?;
+
+// Use policy backend instead
+let options = RetryOptions::policy_default()
+    .with_max_attempts(3);
+
+let result = retry_with(|| async {
+    client.chat_request(request.clone()).await
+}, options).await?;
+```
+
+### Automatic Retry Conditions
+
+The retry system automatically retries on:
+- **429** (Rate Limit)
+- **500-599** (Server Errors)
+- **401** (Unauthorized, configurable - auto-rebuilds headers)
+- **Connection Errors** (network issues)
+- **Timeout Errors**
+
+### Built-in 401 Retry
+
+Siumai automatically retries 401 errors with rebuilt headers (useful for token refresh):
+
+```rust
+// 401 retry is enabled by default
+let client = Siumai::builder()
+    .openai()
+    .api_key_fn(|| get_fresh_token())  // Token refresh function
+    .build()
+    .await?;
+
+// On 401, Siumai will:
+// 1. Call your api_key_fn() again to get a fresh token
+// 2. Rebuild headers with the new token
+// 3. Retry the request once
+```
+
+### Error Classification
+
+All errors implement `is_retryable()` for easy error handling:
+
+```rust
+match client.chat_request(request).await {
+    Ok(response) => { /* ... */ },
+    Err(e) if e.is_retryable() => {
+        // Transient error, safe to retry
+        eprintln!("Retryable error: {}", e);
+    },
+    Err(e) => {
+        // Permanent error, don't retry
+        eprintln!("Permanent error: {}", e);
+    }
+}
+```
+
+See: `src/retry/`, `src/retry_api.rs`, `src/execution/http/retry.rs`
 
 ## 📦 Providers & Features
 

@@ -86,15 +86,16 @@ pub mod auth;
 pub mod benchmarks;
 pub mod builder;
 pub mod client;
+pub mod core;
 pub mod custom_provider;
 pub mod defaults;
 pub mod error;
+pub mod execution;
 pub mod params;
 pub mod performance;
 pub mod provider;
 pub mod provider_builders;
 pub mod provider_features;
-pub mod provider_model;
 #[cfg(any(
     feature = "openai",
     feature = "anthropic",

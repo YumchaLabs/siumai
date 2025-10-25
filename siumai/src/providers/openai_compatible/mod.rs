@@ -46,10 +46,8 @@ pub mod adapter;
 pub mod builder;
 pub mod config;
 pub mod default_models;
-pub mod model_impls;
 pub mod openai_client;
 pub mod openai_config;
-pub mod provider_impl;
 pub mod registry;
 pub mod spec;
 pub mod streaming;
@@ -65,13 +63,8 @@ pub use builder::OpenAiCompatibleBuilder;
 pub use config::{
     get_builtin_providers, get_provider_config, list_provider_ids, provider_supports_capability,
 };
-pub use model_impls::{
-    OpenAiCompatibleChatModel, OpenAiCompatibleEmbeddingModel, OpenAiCompatibleImageModel,
-    OpenAiCompatibleRerankModel,
-};
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
-pub use provider_impl::OpenAiCompatibleProvider;
 pub use registry::{ConfigurableAdapter, ProviderConfig};
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
