@@ -1,7 +1,7 @@
-use crate::error::LlmError;
-use crate::provider_core::{
+use crate::core::{
     ChatTransformers, EmbeddingTransformers, ImageTransformers, ProviderContext, ProviderSpec,
 };
+use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
@@ -78,7 +78,7 @@ impl ProviderSpec for GeminiSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = crate::provider_core::default_custom_options_hook(self.id(), req) {
+        if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 
@@ -210,11 +210,8 @@ impl ProviderSpec for GeminiSpec {
         ctx.base_url.trim_end_matches('/').to_string()
     }
 
-    fn choose_files_transformer(
-        &self,
-        _ctx: &ProviderContext,
-    ) -> crate::provider_core::FilesTransformer {
-        crate::provider_core::FilesTransformer {
+    fn choose_files_transformer(&self, _ctx: &ProviderContext) -> crate::core::FilesTransformer {
+        crate::core::FilesTransformer {
             transformer: Arc::new(
                 crate::providers::gemini::transformers::GeminiFilesTransformer {
                     config: crate::providers::gemini::types::GeminiConfig::default(),

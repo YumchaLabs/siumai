@@ -22,8 +22,8 @@
 //! );
 //! ```
 
+use crate::core::RerankTransformers;
 use crate::error::LlmError;
-use crate::provider_core::RerankTransformers;
 use crate::transformers::rerank_request::RerankRequestTransformer;
 use crate::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{RerankRequest, RerankResponse};

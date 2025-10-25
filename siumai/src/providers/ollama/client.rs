@@ -286,8 +286,8 @@ impl OllamaClient {
     }
 
     /// Create provider context for this client
-    fn build_context(&self) -> crate::provider_core::ProviderContext {
-        crate::provider_core::ProviderContext::new(
+    fn build_context(&self) -> crate::core::ProviderContext {
+        crate::core::ProviderContext::new(
             "ollama",
             self.base_url.clone(),
             None,
@@ -300,8 +300,8 @@ impl OllamaClient {
         &self,
         request: &ChatRequest,
     ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::core::ProviderSpec;
         use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
@@ -406,7 +406,7 @@ impl ChatCapability for OllamaClient {
             std::sync::Arc::new(super::streaming::OllamaEventConverter::new());
         // Use ProviderSpec for URL and headers
         let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "ollama",
             self.base_url.clone(),
             None,

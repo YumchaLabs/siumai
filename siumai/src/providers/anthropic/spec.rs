@@ -1,5 +1,5 @@
+use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::standards::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
@@ -69,7 +69,7 @@ impl ProviderSpec for AnthropicSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = crate::provider_core::default_custom_options_hook(self.id(), req) {
+        if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 

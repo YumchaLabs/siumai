@@ -73,6 +73,19 @@ use siumai::core::ProviderSpec;
 
 ### Breaking Changes
 
+- **BREAKING**: Removed `provider_core` module
+  - All types have been moved to the `core` module
+  - Migration: Replace `use siumai::provider_core::*` with `use siumai::core::*`
+  - Rationale: Cleaner module organization, `provider_core` was deprecated in favor of `core`
+
+- **BREAKING**: Removed `server_adapters` module from core library
+  - Framework-agnostic utilities (`text_stream`, `sse_lines`, `SseOptions`) have been removed
+  - Framework-specific integrations (Axum, etc.) were already moved to `siumai-extras` in v0.10
+  - Migration: Use `siumai-extras` crate with `server` feature for server integrations
+  - Rationale: Keep core library lightweight, server adapters belong in extras package
+
+### Breaking Changes (from previous releases)
+
 - **BREAKING**: Removed deprecated tracing subscriber initialization functions
   - Removed `init_tracing`, `init_default_tracing`, `init_debug_tracing`, `init_production_tracing`, `init_performance_tracing`, `init_tracing_from_env` from `siumai::tracing`
   - Removed `OutputFormat` and `TracingConfig` from `siumai` root exports

@@ -15,8 +15,8 @@ pub struct HttpAudioExecutor {
     pub provider_id: String,
     pub http_client: reqwest::Client,
     pub transformer: Arc<dyn AudioTransformer>,
-    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
-    pub provider_context: crate::provider_core::ProviderContext,
+    pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
+    pub provider_context: crate::core::ProviderContext,
 }
 
 #[async_trait::async_trait]

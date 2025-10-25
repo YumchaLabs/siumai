@@ -1,4 +1,4 @@
-use crate::provider_core::builder_core::ProviderCore;
+use crate::core::builder_core::ProviderCore;
 use crate::retry_api::RetryOptions;
 use crate::{LlmBuilder, LlmError};
 

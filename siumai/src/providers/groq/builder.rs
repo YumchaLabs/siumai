@@ -5,8 +5,8 @@
 use std::time::Duration;
 
 use crate::LlmBuilder;
+use crate::core::builder_core::ProviderCore;
 use crate::error::LlmError;
-use crate::provider_core::builder_core::ProviderCore;
 use crate::retry_api::RetryOptions;
 
 use super::client::GroqClient;

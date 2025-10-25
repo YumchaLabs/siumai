@@ -85,7 +85,7 @@ impl FileManagementCapability for GeminiFiles {
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GeminiSpec);
-        let mut ctx = crate::provider_core::ProviderContext::new(
+        let mut ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -120,7 +120,7 @@ impl FileManagementCapability for GeminiFiles {
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GeminiSpec);
-        let mut ctx = crate::provider_core::ProviderContext::new(
+        let mut ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -155,7 +155,7 @@ impl FileManagementCapability for GeminiFiles {
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GeminiSpec);
-        let mut ctx = crate::provider_core::ProviderContext::new(
+        let mut ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -190,7 +190,7 @@ impl FileManagementCapability for GeminiFiles {
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GeminiSpec);
-        let mut ctx = crate::provider_core::ProviderContext::new(
+        let mut ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -225,7 +225,7 @@ impl FileManagementCapability for GeminiFiles {
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GeminiSpec);
-        let mut ctx = crate::provider_core::ProviderContext::new(
+        let mut ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),

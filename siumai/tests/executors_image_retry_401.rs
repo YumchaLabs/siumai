@@ -4,9 +4,9 @@ use std::sync::{
 };
 
 use serde_json::json;
+use siumai::core::{ImageTransformers, ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
 use siumai::executors::image::{HttpImageExecutor, ImageExecutor};
-use siumai::provider_core::{ImageTransformers, ProviderContext, ProviderSpec};
 use siumai::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
@@ -121,7 +121,7 @@ impl ProviderSpec for TestImageSpec {
         &self,
         _req: &siumai::types::ChatRequest,
         _ctx: &ProviderContext,
-    ) -> siumai::provider_core::ChatTransformers {
+    ) -> siumai::core::ChatTransformers {
         unreachable!("chat not used in this test")
     }
 

@@ -387,9 +387,9 @@ pub struct HttpChatExecutor {
     /// Optional model-level middlewares (transform ChatRequest before mapping)
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Provider spec for building headers and URLs
-    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
+    pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
     /// Provider context for header/URL construction
-    pub provider_context: crate::provider_core::ProviderContext,
+    pub provider_context: crate::core::ProviderContext,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
     pub before_send: Option<crate::executors::BeforeSendHook>,
     /// Optional retry options for controlling retry behavior (including 401 retry)
@@ -429,7 +429,7 @@ mod tests {
     // Test ProviderSpec
     #[derive(Clone, Copy)]
     struct TestProviderSpec;
-    impl crate::provider_core::ProviderSpec for TestProviderSpec {
+    impl crate::core::ProviderSpec for TestProviderSpec {
         fn id(&self) -> &'static str {
             "test"
         }
@@ -438,7 +438,7 @@ mod tests {
         }
         fn build_headers(
             &self,
-            _ctx: &crate::provider_core::ProviderContext,
+            _ctx: &crate::core::ProviderContext,
         ) -> Result<HeaderMap, LlmError> {
             Ok(HeaderMap::new())
         }
@@ -446,16 +446,16 @@ mod tests {
             &self,
             _stream: bool,
             _req: &crate::types::ChatRequest,
-            _ctx: &crate::provider_core::ProviderContext,
+            _ctx: &crate::core::ProviderContext,
         ) -> String {
             "http://127.0.0.1/never".to_string()
         }
         fn choose_chat_transformers(
             &self,
             _req: &crate::types::ChatRequest,
-            _ctx: &crate::provider_core::ProviderContext,
-        ) -> crate::provider_core::ChatTransformers {
-            crate::provider_core::ChatTransformers {
+            _ctx: &crate::core::ProviderContext,
+        ) -> crate::core::ChatTransformers {
+            crate::core::ChatTransformers {
                 request: Arc::new(EchoRequestTransformer),
                 response: Arc::new(NoopResponseTransformer),
                 stream: None,
@@ -465,7 +465,7 @@ mod tests {
         fn chat_before_send(
             &self,
             _req: &crate::types::ChatRequest,
-            _ctx: &crate::provider_core::ProviderContext,
+            _ctx: &crate::core::ProviderContext,
         ) -> Option<crate::executors::BeforeSendHook> {
             None
         }
@@ -496,7 +496,7 @@ mod tests {
             Err(crate::error::LlmError::InvalidParameter("abort".into()))
         });
 
-        let provider_context = crate::provider_core::ProviderContext::new(
+        let provider_context = crate::core::ProviderContext::new(
             "test",
             "http://127.0.0.1",
             None,
@@ -603,7 +603,7 @@ mod tests {
         let request_transformer = std::sync::Arc::new(EchoRequestTransformer);
         let response_transformer = std::sync::Arc::new(NoopResponseTransformer);
 
-        let provider_context = crate::provider_core::ProviderContext::new(
+        let provider_context = crate::core::ProviderContext::new(
             "test",
             "http://127.0.0.1",
             None,
@@ -689,7 +689,7 @@ mod tests {
         let request_transformer = Arc::new(EchoRequestTransformer);
         let response_transformer = Arc::new(NoopResponseTransformer);
 
-        let provider_context = crate::provider_core::ProviderContext::new(
+        let provider_context = crate::core::ProviderContext::new(
             "test",
             "http://127.0.0.1",
             None,
@@ -745,7 +745,7 @@ mod tests {
             ))
         });
 
-        let provider_context = crate::provider_core::ProviderContext::new(
+        let provider_context = crate::core::ProviderContext::new(
             "test",
             "http://127.0.0.1",
             None,
@@ -812,7 +812,7 @@ mod tests {
         let request_transformer = Arc::new(EchoRequestTransformer);
         let response_transformer = Arc::new(NoopResponseTransformer);
 
-        let provider_context = crate::provider_core::ProviderContext::new(
+        let provider_context = crate::core::ProviderContext::new(
             "test",
             "http://127.0.0.1",
             None,
@@ -870,7 +870,7 @@ mod tests {
         // Custom spec with base headers
         #[derive(Clone, Copy)]
         struct TestSpecWithHeaders;
-        impl crate::provider_core::ProviderSpec for TestSpecWithHeaders {
+        impl crate::core::ProviderSpec for TestSpecWithHeaders {
             fn id(&self) -> &'static str {
                 "test"
             }
@@ -879,7 +879,7 @@ mod tests {
             }
             fn build_headers(
                 &self,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> Result<HeaderMap, LlmError> {
                 let mut h = reqwest::header::HeaderMap::new();
                 h.insert(
@@ -892,16 +892,16 @@ mod tests {
                 &self,
                 _stream: bool,
                 _req: &crate::types::ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> String {
                 "http://127.0.0.1/never".to_string()
             }
             fn choose_chat_transformers(
                 &self,
                 _req: &crate::types::ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                crate::provider_core::ChatTransformers {
+                _ctx: &crate::core::ProviderContext,
+            ) -> crate::core::ChatTransformers {
+                crate::core::ChatTransformers {
                     request: Arc::new(EchoRequestTransformer),
                     response: Arc::new(NoopResponseTransformer),
                     stream: None,
@@ -911,7 +911,7 @@ mod tests {
             fn chat_before_send(
                 &self,
                 _req: &crate::types::ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> Option<crate::executors::BeforeSendHook> {
                 None
             }
@@ -922,7 +922,7 @@ mod tests {
         let response_transformer = Arc::new(NoopResponseTransformer);
         let seen = Arc::new(std::sync::Mutex::new(None));
         let interceptor = CaptureHeadersInterceptor { seen: seen.clone() };
-        let provider_context = crate::provider_core::ProviderContext::new(
+        let provider_context = crate::core::ProviderContext::new(
             "test",
             "http://127.0.0.1",
             None,
@@ -985,7 +985,7 @@ mod tests {
         // Custom spec with base headers
         #[derive(Clone, Copy)]
         struct TestSpecWithHeaders;
-        impl crate::provider_core::ProviderSpec for TestSpecWithHeaders {
+        impl crate::core::ProviderSpec for TestSpecWithHeaders {
             fn id(&self) -> &'static str {
                 "test"
             }
@@ -994,7 +994,7 @@ mod tests {
             }
             fn build_headers(
                 &self,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> Result<HeaderMap, LlmError> {
                 let mut h = reqwest::header::HeaderMap::new();
                 h.insert(
@@ -1007,16 +1007,16 @@ mod tests {
                 &self,
                 _stream: bool,
                 _req: &crate::types::ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> String {
                 "http://127.0.0.1/never".to_string()
             }
             fn choose_chat_transformers(
                 &self,
                 _req: &crate::types::ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                crate::provider_core::ChatTransformers {
+                _ctx: &crate::core::ProviderContext,
+            ) -> crate::core::ChatTransformers {
+                crate::core::ChatTransformers {
                     request: Arc::new(EchoRequestTransformer),
                     response: Arc::new(NoopResponseTransformer),
                     stream: None,
@@ -1026,7 +1026,7 @@ mod tests {
             fn chat_before_send(
                 &self,
                 _req: &crate::types::ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> Option<crate::executors::BeforeSendHook> {
                 None
             }
@@ -1037,7 +1037,7 @@ mod tests {
         let response_transformer = Arc::new(NoopResponseTransformer);
         let seen = Arc::new(std::sync::Mutex::new(None));
         let interceptor = CaptureHeadersInterceptor { seen: seen.clone() };
-        let provider_context = crate::provider_core::ProviderContext::new(
+        let provider_context = crate::core::ProviderContext::new(
             "test",
             "http://127.0.0.1",
             None,
@@ -1501,8 +1501,8 @@ impl ChatExecutor for HttpChatExecutor {
 pub struct ChatExecutorBuilder {
     provider_id: String,
     http_client: reqwest::Client,
-    spec: Option<Arc<dyn crate::provider_core::ProviderSpec>>,
-    context: Option<crate::provider_core::ProviderContext>,
+    spec: Option<Arc<dyn crate::core::ProviderSpec>>,
+    context: Option<crate::core::ProviderContext>,
     request_transformer: Option<Arc<dyn RequestTransformer>>,
     response_transformer: Option<Arc<dyn ResponseTransformer>>,
     stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
@@ -1535,13 +1535,13 @@ impl ChatExecutorBuilder {
     }
 
     /// Set the provider spec
-    pub fn with_spec(mut self, spec: Arc<dyn crate::provider_core::ProviderSpec>) -> Self {
+    pub fn with_spec(mut self, spec: Arc<dyn crate::core::ProviderSpec>) -> Self {
         self.spec = Some(spec);
         self
     }
 
     /// Set the provider context
-    pub fn with_context(mut self, context: crate::provider_core::ProviderContext) -> Self {
+    pub fn with_context(mut self, context: crate::core::ProviderContext) -> Self {
         self.context = Some(context);
         self
     }
@@ -1560,10 +1560,7 @@ impl ChatExecutorBuilder {
     }
 
     /// Set transformers from a ChatTransformers bundle
-    pub fn with_transformer_bundle(
-        mut self,
-        bundle: crate::provider_core::ChatTransformers,
-    ) -> Self {
+    pub fn with_transformer_bundle(mut self, bundle: crate::core::ChatTransformers) -> Self {
         self.request_transformer = Some(bundle.request);
         self.response_transformer = Some(bundle.response);
         self.stream_transformer = bundle.stream;

@@ -3,7 +3,7 @@
 //! This module implements the Google Gemini API format.
 //! Note: This is provider-specific and not widely adopted by other providers.
 
-use crate::provider_core::ChatTransformers;
+use crate::core::ChatTransformers;
 
 /// Gemini Chat API Standard
 ///

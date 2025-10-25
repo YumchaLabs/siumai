@@ -122,10 +122,8 @@ pub mod executors;
 pub mod highlevel;
 pub mod middleware;
 pub mod orchestrator;
-pub mod provider_core;
 pub mod provider_tools;
 pub mod public;
-pub mod server_adapters;
 pub mod standards;
 pub mod transformers;
 
@@ -174,8 +172,6 @@ pub use highlevel::object::{
 pub use highlevel::object::{generate_object_openai, stream_object_openai};
 // Provider-agnostic auto (provider params hints)
 pub use highlevel::object::{generate_object_auto, stream_object_auto};
-// Server adapters
-pub use server_adapters::{sse_lines as chat_sse_lines, text_stream as chat_text_stream};
 
 // Web search (use types re-export)
 pub use types::{WebSearchConfig, WebSearchResult};

@@ -199,9 +199,9 @@ impl XaiClient {
     }
 
     /// Create provider context for this client
-    fn build_context(&self) -> crate::provider_core::ProviderContext {
+    fn build_context(&self) -> crate::core::ProviderContext {
         use secrecy::ExposeSecret;
-        crate::provider_core::ProviderContext::new(
+        crate::core::ProviderContext::new(
             "xai",
             self.chat_capability.base_url.clone(),
             Some(self.chat_capability.api_key.expose_secret().to_string()),
@@ -214,8 +214,8 @@ impl XaiClient {
         &self,
         request: &ChatRequest,
     ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::core::ProviderSpec;
         use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::xai::spec::XaiSpec);

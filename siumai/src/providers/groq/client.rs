@@ -214,7 +214,7 @@ impl AudioCapability for GroqClient {
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GroqSpec);
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "groq",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -246,7 +246,7 @@ impl AudioCapability for GroqClient {
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GroqSpec);
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "groq",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -274,9 +274,9 @@ impl AudioCapability for GroqClient {
 
 impl GroqClient {
     /// Create provider context for this client
-    fn build_context(&self) -> crate::provider_core::ProviderContext {
+    fn build_context(&self) -> crate::core::ProviderContext {
         use secrecy::ExposeSecret;
-        crate::provider_core::ProviderContext::new(
+        crate::core::ProviderContext::new(
             "groq",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -289,8 +289,8 @@ impl GroqClient {
         &self,
         request: &ChatRequest,
     ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::core::ProviderSpec;
         use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::groq::spec::GroqSpec);

@@ -21,8 +21,8 @@ pub struct HttpFilesExecutor {
     pub provider_id: String,
     pub http_client: reqwest::Client,
     pub transformer: Arc<dyn FilesTransformer>,
-    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
-    pub provider_context: crate::provider_core::ProviderContext,
+    pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
+    pub provider_context: crate::core::ProviderContext,
     /// HTTP interceptors for request/response observation and modification
     pub interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
     /// Optional retry options for controlling retry behavior (including 401 retry)

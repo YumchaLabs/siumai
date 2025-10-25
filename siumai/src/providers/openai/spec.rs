@@ -1,7 +1,5 @@
+use crate::core::{ChatTransformers, EmbeddingTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_core::{
-    ChatTransformers, EmbeddingTransformers, ProviderContext, ProviderSpec,
-};
 use crate::standards::openai::chat::OpenAiChatStandard;
 use crate::standards::openai::embedding::OpenAiEmbeddingStandard;
 use crate::standards::openai::image::OpenAiImageStandard;
@@ -118,7 +116,7 @@ impl ProviderSpec for OpenAiSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = crate::provider_core::default_custom_options_hook(self.id(), req) {
+        if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 
@@ -389,29 +387,23 @@ impl ProviderSpec for OpenAiSpec {
         &self,
         _req: &crate::types::ImageGenerationRequest,
         _ctx: &ProviderContext,
-    ) -> crate::provider_core::ImageTransformers {
+    ) -> crate::core::ImageTransformers {
         // Use standard OpenAI Image API from standards layer
         let transformers = self.image_standard.create_transformers("openai");
-        crate::provider_core::ImageTransformers {
+        crate::core::ImageTransformers {
             request: transformers.request,
             response: transformers.response,
         }
     }
 
-    fn choose_audio_transformer(
-        &self,
-        _ctx: &ProviderContext,
-    ) -> crate::provider_core::AudioTransformer {
-        crate::provider_core::AudioTransformer {
+    fn choose_audio_transformer(&self, _ctx: &ProviderContext) -> crate::core::AudioTransformer {
+        crate::core::AudioTransformer {
             transformer: Arc::new(crate::providers::openai::transformers::OpenAiAudioTransformer),
         }
     }
 
-    fn choose_files_transformer(
-        &self,
-        _ctx: &ProviderContext,
-    ) -> crate::provider_core::FilesTransformer {
-        crate::provider_core::FilesTransformer {
+    fn choose_files_transformer(&self, _ctx: &ProviderContext) -> crate::core::FilesTransformer {
+        crate::core::FilesTransformer {
             transformer: Arc::new(crate::providers::openai::transformers::OpenAiFilesTransformer),
         }
     }

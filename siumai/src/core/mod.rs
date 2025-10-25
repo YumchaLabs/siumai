@@ -34,6 +34,7 @@ pub mod provider_spec;
 pub use provider_spec::{
     AudioTransformer, CapabilityKind, ChatTransformers, EmbeddingTransformers, FilesTransformer,
     ImageTransformers, ProviderContext, ProviderSpec, RerankTransformers,
+    default_custom_options_hook, matches_provider_id,
 };
 
 pub use capabilities::{

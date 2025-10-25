@@ -4,11 +4,11 @@
 
 use super::openai_config::OpenAiCompatibleConfig;
 use crate::client::LlmClient;
+use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
 use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::executors::image::{HttpImageExecutor, ImageExecutor};
-use crate::provider_core::{ProviderContext, ProviderSpec};
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
@@ -367,7 +367,7 @@ impl ChatCapability for OpenAiCompatibleClient {
 #[async_trait]
 impl EmbeddingCapability for OpenAiCompatibleClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        use crate::provider_core::{ProviderContext, ProviderSpec};
+        use crate::core::{ProviderContext, ProviderSpec};
         let req = crate::types::EmbeddingRequest::new(texts).with_model(self.config.model.clone());
 
         // Build merged extra headers (HttpConfig + custom + adapter)
@@ -662,7 +662,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                 self.config.provider_id
             )));
         }
-        use crate::provider_core::{ProviderContext, ProviderSpec};
+        use crate::core::{ProviderContext, ProviderSpec};
 
         // Build merged extra headers (HttpConfig + custom + adapter)
         let mut extra_headers = self.config.http_config.headers.clone();

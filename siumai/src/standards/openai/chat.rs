@@ -28,8 +28,8 @@
 //! );
 //! ```
 
+use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::transformers::request::RequestTransformer;
 use crate::transformers::response::ResponseTransformer;
 use crate::transformers::stream::StreamChunkTransformer;
@@ -246,7 +246,7 @@ impl ProviderSpec for OpenAiChatSpec {
         _ctx: &ProviderContext,
     ) -> Option<crate::executors::BeforeSendHook> {
         // Use default custom options hook
-        crate::provider_core::default_custom_options_hook(self.provider_id, req)
+        crate::core::default_custom_options_hook(self.provider_id, req)
     }
 }
 

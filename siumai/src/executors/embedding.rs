@@ -16,8 +16,8 @@ pub struct HttpEmbeddingExecutor {
     pub http_client: reqwest::Client,
     pub request_transformer: Arc<dyn RequestTransformer>,
     pub response_transformer: Arc<dyn ResponseTransformer>,
-    pub provider_spec: Arc<dyn crate::provider_core::ProviderSpec>,
-    pub provider_context: crate::provider_core::ProviderContext,
+    pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
+    pub provider_context: crate::core::ProviderContext,
     /// HTTP interceptors for request/response observation and modification
     pub interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
     /// Optional external parameter transformer (plugin-like), applied to JSON body

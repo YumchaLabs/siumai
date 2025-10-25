@@ -468,9 +468,9 @@ impl GeminiClient {
     }
 
     /// Create provider context for this client
-    async fn build_context(&self) -> crate::provider_core::ProviderContext {
+    async fn build_context(&self) -> crate::core::ProviderContext {
         use secrecy::ExposeSecret;
-        let mut ctx = crate::provider_core::ProviderContext::new(
+        let mut ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -493,8 +493,8 @@ impl GeminiClient {
         &self,
         request: &ChatRequest,
     ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::core::ProviderSpec;
         use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::ProviderSpec;
 
         let ctx = self.build_context().await;
         let spec = Arc::new(crate::providers::gemini::spec::GeminiSpec);
@@ -589,7 +589,7 @@ impl EmbeddingCapability for GeminiClient {
         //     )));
         // }
         let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
-        use crate::provider_core::{ProviderContext, ProviderSpec};
+        use crate::core::{ProviderContext, ProviderSpec};
         use secrecy::ExposeSecret;
 
         // Get token from token_provider if available
@@ -641,7 +641,7 @@ impl EmbeddingCapability for GeminiClient {
                 &self,
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
+            ) -> crate::core::ChatTransformers {
                 panic!("choose_chat_transformers should not be called on embedding wrapper spec")
             }
 
@@ -667,7 +667,7 @@ impl EmbeddingCapability for GeminiClient {
                 &self,
                 _req: &crate::types::EmbeddingRequest,
                 _ctx: &ProviderContext,
-            ) -> crate::provider_core::EmbeddingTransformers {
+            ) -> crate::core::EmbeddingTransformers {
                 panic!("choose_embedding_transformers should not be called on wrapper spec")
             }
         }
@@ -770,7 +770,7 @@ impl EmbeddingExtensions for GeminiClient {
                 request.input.len()
             )));
         }
-        use crate::provider_core::{ProviderContext, ProviderSpec};
+        use crate::core::{ProviderContext, ProviderSpec};
         use secrecy::ExposeSecret;
 
         // Create wrapper spec that handles Gemini-specific URL logic
@@ -814,7 +814,7 @@ impl EmbeddingExtensions for GeminiClient {
                 &self,
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
+            ) -> crate::core::ChatTransformers {
                 panic!("choose_chat_transformers should not be called on embedding wrapper spec")
             }
 
@@ -840,7 +840,7 @@ impl EmbeddingExtensions for GeminiClient {
                 &self,
                 _req: &crate::types::EmbeddingRequest,
                 _ctx: &ProviderContext,
-            ) -> crate::provider_core::EmbeddingTransformers {
+            ) -> crate::core::EmbeddingTransformers {
                 panic!("choose_embedding_transformers should not be called on wrapper spec")
             }
         }
@@ -932,8 +932,8 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
         &self,
         request: crate::types::ImageGenerationRequest,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
+        use crate::core::{ProviderContext, ProviderSpec};
         use crate::executors::image::{HttpImageExecutor, ImageExecutor};
-        use crate::provider_core::{ProviderContext, ProviderSpec};
         use secrecy::ExposeSecret;
 
         // Get token from token_provider if available
@@ -985,7 +985,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 &self,
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
+            ) -> crate::core::ChatTransformers {
                 panic!("choose_chat_transformers should not be called on image wrapper spec")
             }
 
@@ -1004,7 +1004,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 &self,
                 _req: &crate::types::ImageGenerationRequest,
                 _ctx: &ProviderContext,
-            ) -> crate::provider_core::ImageTransformers {
+            ) -> crate::core::ImageTransformers {
                 panic!("choose_image_transformers should not be called on wrapper spec")
             }
         }

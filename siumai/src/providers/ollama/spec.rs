@@ -1,5 +1,5 @@
+use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::traits::ProviderCapabilities;
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
 use reqwest::header::HeaderMap;

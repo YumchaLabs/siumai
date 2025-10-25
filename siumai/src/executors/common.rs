@@ -12,8 +12,8 @@
 //! - Tracing headers injection
 //! - Telemetry integration
 
+use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_core::{ProviderContext, ProviderSpec};
 use crate::retry_api::RetryOptions;
 use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
 use reqwest::header::HeaderMap;

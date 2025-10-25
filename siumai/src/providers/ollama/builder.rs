@@ -1,4 +1,4 @@
-use crate::provider_core::builder_core::ProviderCore;
+use crate::core::builder_core::ProviderCore;
 use crate::providers::ollama::config::OllamaParams;
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmBuilder, LlmError};

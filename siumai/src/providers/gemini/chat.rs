@@ -81,7 +81,7 @@ impl ChatCapability for GeminiChatCapability {
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;
         use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -101,7 +101,7 @@ impl ChatCapability for GeminiChatCapability {
             token_provider: Option<Arc<dyn crate::auth::TokenProvider>>,
         }
 
-        impl crate::provider_core::ProviderSpec for GeminiSpecWrapper {
+        impl crate::core::ProviderSpec for GeminiSpecWrapper {
             fn id(&self) -> &'static str {
                 self.spec.id()
             }
@@ -110,7 +110,7 @@ impl ChatCapability for GeminiChatCapability {
             }
             fn build_headers(
                 &self,
-                ctx: &crate::provider_core::ProviderContext,
+                ctx: &crate::core::ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, LlmError> {
                 // Note: This is now sync, so we can't await token_provider here
                 // The token should be injected into ctx before calling this
@@ -120,15 +120,15 @@ impl ChatCapability for GeminiChatCapability {
                 &self,
                 stream: bool,
                 req: &ChatRequest,
-                ctx: &crate::provider_core::ProviderContext,
+                ctx: &crate::core::ProviderContext,
             ) -> String {
                 self.spec.chat_url(stream, req, ctx)
             }
             fn choose_chat_transformers(
                 &self,
                 req: &ChatRequest,
-                ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
+                ctx: &crate::core::ProviderContext,
+            ) -> crate::core::ChatTransformers {
                 self.spec.choose_chat_transformers(req, ctx)
             }
         }
@@ -186,7 +186,7 @@ impl ChatCapability for GeminiChatCapability {
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;
         use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -212,7 +212,7 @@ impl ChatCapability for GeminiChatCapability {
             config: crate::providers::gemini::types::GeminiConfig,
         }
 
-        impl crate::provider_core::ProviderSpec for GeminiStreamSpecWrapper {
+        impl crate::core::ProviderSpec for GeminiStreamSpecWrapper {
             fn id(&self) -> &'static str {
                 self.spec.id()
             }
@@ -221,7 +221,7 @@ impl ChatCapability for GeminiChatCapability {
             }
             fn build_headers(
                 &self,
-                ctx: &crate::provider_core::ProviderContext,
+                ctx: &crate::core::ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, LlmError> {
                 self.spec.build_headers(ctx)
             }
@@ -229,21 +229,21 @@ impl ChatCapability for GeminiChatCapability {
                 &self,
                 stream: bool,
                 req: &ChatRequest,
-                ctx: &crate::provider_core::ProviderContext,
+                ctx: &crate::core::ProviderContext,
             ) -> String {
                 self.spec.chat_url(stream, req, ctx)
             }
             fn choose_chat_transformers(
                 &self,
                 _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
+                _ctx: &crate::core::ProviderContext,
+            ) -> crate::core::ChatTransformers {
                 let converter = super::streaming::GeminiEventConverter::new(self.config.clone());
                 let stream_tx = super::transformers::GeminiStreamChunkTransformer {
                     provider_id: "gemini".to_string(),
                     inner: converter,
                 };
-                crate::provider_core::ChatTransformers {
+                crate::core::ChatTransformers {
                     request: Arc::new(super::transformers::GeminiRequestTransformer {
                         config: self.config.clone(),
                     }),

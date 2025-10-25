@@ -230,9 +230,9 @@ impl AnthropicClient {
 
 impl AnthropicClient {
     /// Create provider context for this client
-    fn build_context(&self) -> crate::provider_core::ProviderContext {
+    fn build_context(&self) -> crate::core::ProviderContext {
         use secrecy::ExposeSecret;
-        crate::provider_core::ProviderContext::new(
+        crate::core::ProviderContext::new(
             "anthropic",
             self.base_url.clone(),
             Some(self.api_key.expose_secret().to_string()),
@@ -242,8 +242,8 @@ impl AnthropicClient {
 
     /// Create chat executor using the builder pattern
     fn build_chat_executor(&self, request: &ChatRequest) -> Arc<HttpChatExecutor> {
+        use crate::core::ProviderSpec;
         use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::anthropic::spec::AnthropicSpec::new());

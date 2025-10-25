@@ -3,8 +3,8 @@
 //! Provides a builder pattern for creating `xAI` clients.
 
 use crate::LlmBuilder;
+use crate::core::builder_core::ProviderCore;
 use crate::error::LlmError;
-use crate::provider_core::builder_core::ProviderCore;
 use crate::retry_api::RetryOptions;
 use crate::types::WebSearchConfig;
 

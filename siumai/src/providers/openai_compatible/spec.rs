@@ -1,7 +1,7 @@
-use crate::error::LlmError;
-use crate::provider_core::{
+use crate::core::{
     ChatTransformers, EmbeddingTransformers, ImageTransformers, ProviderContext, ProviderSpec,
 };
+use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};

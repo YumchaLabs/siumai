@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
+use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
 

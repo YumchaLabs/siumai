@@ -4,8 +4,8 @@
 
 use async_trait::async_trait;
 
+use crate::core::ProviderSpec;
 use crate::error::LlmError;
-use crate::provider_core::ProviderSpec;
 use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::*;
@@ -74,7 +74,7 @@ impl ChatCapability for XaiChatCapability {
         };
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "xai",
             self.base_url.clone(),
             Some(self.api_key.expose_secret().to_string()),
@@ -118,7 +118,7 @@ impl ChatCapability for XaiChatCapability {
 
         use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "xai",
             self.base_url.clone(),
             Some(self.api_key.expose_secret().to_string()),
@@ -160,7 +160,7 @@ impl XaiChatCapability {
             custom_headers: std::collections::HashMap<String, String>,
         }
 
-        impl crate::provider_core::ProviderSpec for SimpleXaiSpec {
+        impl crate::core::ProviderSpec for SimpleXaiSpec {
             fn id(&self) -> &'static str {
                 "xai"
             }
@@ -169,7 +169,7 @@ impl XaiChatCapability {
             }
             fn build_headers(
                 &self,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, LlmError> {
                 build_headers(&self.api_key, &self.custom_headers)
             }
@@ -177,16 +177,16 @@ impl XaiChatCapability {
                 &self,
                 _stream: bool,
                 _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
+                _ctx: &crate::core::ProviderContext,
             ) -> String {
                 format!("{}/chat/completions", self.base_url)
             }
             fn choose_chat_transformers(
                 &self,
                 _req: &ChatRequest,
-                _ctx: &crate::provider_core::ProviderContext,
-            ) -> crate::provider_core::ChatTransformers {
-                crate::provider_core::ChatTransformers {
+                _ctx: &crate::core::ProviderContext,
+            ) -> crate::core::ChatTransformers {
+                crate::core::ChatTransformers {
                     request: std::sync::Arc::new(super::transformers::XaiRequestTransformer),
                     response: std::sync::Arc::new(super::transformers::XaiResponseTransformer),
                     stream: None,
@@ -201,7 +201,7 @@ impl XaiChatCapability {
             custom_headers: self.http_config.headers.clone(),
         });
 
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "xai",
             self.base_url.clone(),
             Some(self.api_key.expose_secret().to_string()),

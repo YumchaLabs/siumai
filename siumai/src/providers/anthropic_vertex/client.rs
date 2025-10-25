@@ -83,8 +83,8 @@ impl VertexAnthropicClient {
     }
 
     /// Create provider context for this client
-    fn build_context(&self) -> crate::provider_core::ProviderContext {
-        crate::provider_core::ProviderContext::new(
+    fn build_context(&self) -> crate::core::ProviderContext {
+        crate::core::ProviderContext::new(
             "anthropic-vertex",
             self.config.base_url.clone(),
             None,
@@ -94,8 +94,8 @@ impl VertexAnthropicClient {
 
     /// Create chat executor using the builder pattern
     fn build_chat_executor(&self, request: &ChatRequest) -> Arc<HttpChatExecutor> {
+        use crate::core::ProviderSpec;
         use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(super::spec::VertexAnthropicSpec::new(

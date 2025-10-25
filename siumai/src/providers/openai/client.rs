@@ -206,13 +206,13 @@ impl OpenAiClient {
     }
 
     /// Helper: Build ProviderContext with OpenAI-specific extras
-    fn build_context(&self) -> crate::provider_core::ProviderContext {
+    fn build_context(&self) -> crate::core::ProviderContext {
         let mut extras = std::collections::HashMap::new();
         if let Some(fmt) = &self.specific_params.response_format {
             extras.insert("openai.response_format".to_string(), fmt.clone());
         }
 
-        crate::provider_core::ProviderContext::new(
+        crate::core::ProviderContext::new(
             "openai",
             self.base_url.clone(),
             Some(self.api_key.expose_secret().to_string()),
@@ -227,8 +227,8 @@ impl OpenAiClient {
         &self,
         request: &ChatRequest,
     ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+        use crate::core::ProviderSpec;
         use crate::executors::chat::ChatExecutorBuilder;
-        use crate::provider_core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
@@ -252,7 +252,7 @@ impl OpenAiClient {
 
     /// Helper: Build EmbeddingExecutor with common configuration
     fn build_embedding_executor(&self) -> Arc<crate::executors::embedding::HttpEmbeddingExecutor> {
-        use crate::provider_core::ProviderSpec;
+        use crate::core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
@@ -277,7 +277,7 @@ impl OpenAiClient {
         &self,
         request: &ImageGenerationRequest,
     ) -> crate::executors::image::HttpImageExecutor {
-        use crate::provider_core::ProviderSpec;
+        use crate::core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
@@ -571,7 +571,7 @@ impl EmbeddingExtensions for OpenAiClient {
                     let org = org0.clone();
                     let proj = proj0.clone();
                     async move {
-                        use crate::provider_core::{ProviderContext, ProviderSpec};
+                        use crate::core::{ProviderContext, ProviderSpec};
                         use secrecy::ExposeSecret;
 
                         let spec = crate::providers::openai::spec::OpenAiSpec::new();
@@ -603,7 +603,7 @@ impl EmbeddingExtensions for OpenAiClient {
             )
             .await
         } else {
-            use crate::provider_core::{ProviderContext, ProviderSpec};
+            use crate::core::{ProviderContext, ProviderSpec};
             use secrecy::ExposeSecret;
 
             let spec = crate::providers::openai::spec::OpenAiSpec::new();

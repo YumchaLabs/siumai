@@ -149,7 +149,7 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "openai",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -177,7 +177,7 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "openai",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -205,7 +205,7 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "openai",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -233,7 +233,7 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "openai",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
@@ -261,7 +261,7 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
-        let ctx = crate::provider_core::ProviderContext::new(
+        let ctx = crate::core::ProviderContext::new(
             "openai",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),

@@ -4,9 +4,9 @@ use std::sync::{
 };
 
 use serde_json::json;
+use siumai::core::{ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
 use siumai::executors::files::{FilesExecutor, HttpFilesExecutor};
-use siumai::provider_core::{ProviderContext, ProviderSpec};
 use siumai::transformers::files::{FilesHttpBody, FilesTransformer};
 use siumai::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
@@ -119,7 +119,7 @@ impl ProviderSpec for TestFilesSpec {
         &self,
         _req: &siumai::types::ChatRequest,
         _ctx: &ProviderContext,
-    ) -> siumai::provider_core::ChatTransformers {
+    ) -> siumai::core::ChatTransformers {
         unreachable!("chat not used in this test")
     }
 
@@ -127,11 +127,8 @@ impl ProviderSpec for TestFilesSpec {
         ctx.base_url.trim_end_matches('/').to_string()
     }
 
-    fn choose_files_transformer(
-        &self,
-        _ctx: &ProviderContext,
-    ) -> siumai::provider_core::FilesTransformer {
-        siumai::provider_core::FilesTransformer {
+    fn choose_files_transformer(&self, _ctx: &ProviderContext) -> siumai::core::FilesTransformer {
+        siumai::core::FilesTransformer {
             transformer: Arc::new(TestFilesTransformer),
         }
     }

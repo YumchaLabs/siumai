@@ -1,5 +1,5 @@
+use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::traits::ProviderCapabilities;
 use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
 use reqwest::header::HeaderMap;
@@ -68,11 +68,8 @@ impl ProviderSpec for GroqSpec {
         ctx.base_url.trim_end_matches('/').to_string()
     }
 
-    fn choose_audio_transformer(
-        &self,
-        _ctx: &ProviderContext,
-    ) -> crate::provider_core::AudioTransformer {
-        crate::provider_core::AudioTransformer {
+    fn choose_audio_transformer(&self, _ctx: &ProviderContext) -> crate::core::AudioTransformer {
+        crate::core::AudioTransformer {
             transformer: Arc::new(crate::providers::groq::transformers::GroqAudioTransformer),
         }
     }

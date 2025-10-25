@@ -8,9 +8,9 @@
 //!
 //! Run with: cargo run --example custom_provider_spec --features openai
 
+use siumai::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
 use siumai::executors::chat::{ChatExecutor, HttpChatExecutor};
-use siumai::provider_core::{ChatTransformers, ProviderContext, ProviderSpec};
 use siumai::traits::ProviderCapabilities;
 use siumai::transformers::request::RequestTransformer;
 use siumai::transformers::response::ResponseTransformer;
