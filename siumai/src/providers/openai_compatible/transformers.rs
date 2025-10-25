@@ -7,12 +7,12 @@ use super::adapter::ProviderAdapter;
 use super::openai_config::OpenAiCompatibleConfig;
 use super::types::RequestType;
 use crate::error::LlmError;
-use crate::providers::openai::utils::convert_messages;
-use crate::streaming::ChatStreamEvent;
-use crate::streaming::SseEventConverter;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
+use crate::providers::openai::utils::convert_messages;
+use crate::streaming::ChatStreamEvent;
+use crate::streaming::SseEventConverter;
 use crate::types::{
     ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, FinishReason,
     ImageGenerationRequest, ImageGenerationResponse, MessageContent, Usage,

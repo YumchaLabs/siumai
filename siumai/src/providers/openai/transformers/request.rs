@@ -753,9 +753,11 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                 mode: crate::execution::transformers::request::RangeMode::Error,
                 message: None,
             }],
-            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy:
+                crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        let generic = crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
+        let generic =
+            crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
         generic.transform_chat(req)
     }
 

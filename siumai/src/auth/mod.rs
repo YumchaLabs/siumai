@@ -42,3 +42,6 @@ impl TokenProvider for StaticTokenProvider {
 pub mod adc;
 #[cfg(feature = "gcp")]
 pub mod service_account;
+
+// Vertex AI utilities
+pub mod vertex;

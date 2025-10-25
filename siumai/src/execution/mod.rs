@@ -58,13 +58,13 @@ pub mod transformers;
 
 // Re-export commonly used types for convenience
 pub use executors::{
+    BeforeSendHook,
     audio::{AudioExecutor, HttpAudioExecutor},
     chat::{ChatExecutor, ChatExecutorBuilder, HttpChatExecutor},
     embedding::{EmbeddingExecutor, HttpEmbeddingExecutor},
     files::{FilesExecutor, HttpFilesExecutor},
     image::{HttpImageExecutor, ImageExecutor},
     rerank::{HttpRerankExecutor, RerankExecutor},
-    BeforeSendHook,
 };
 
 pub use transformers::{

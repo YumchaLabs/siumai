@@ -290,9 +290,9 @@ macro_rules! impl_provider_builder {
 
 #[cfg(test)]
 mod tests {
+    use crate::LlmBuilder;
     use crate::core::builder_core::ProviderCore;
     use crate::types::CommonParams;
-    use crate::LlmBuilder;
 
     struct TestBuilder {
         core: ProviderCore,
@@ -353,4 +353,3 @@ mod tests {
         );
     }
 }
-

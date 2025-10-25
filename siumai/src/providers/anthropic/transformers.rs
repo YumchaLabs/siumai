@@ -4,11 +4,11 @@
 //! across chat capability and streaming implementations.
 
 use crate::error::LlmError;
-use crate::streaming::ChatStreamEvent;
-use crate::streaming::SseEventConverter;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
+use crate::streaming::ChatStreamEvent;
+use crate::streaming::SseEventConverter;
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
 
@@ -139,7 +139,8 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 },
             ],
             // Not used directly; provider params merged via hooks with filtered keys
-            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy:
+                crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
         let generic = GenericRequestTransformer { profile, hooks };
         generic.transform_chat(req)

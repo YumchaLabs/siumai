@@ -1,8 +1,8 @@
 //! Stream chunk transformer wrappers for OpenAI and OpenAI Responses APIs
 
 use crate::error::LlmError;
-use crate::streaming::SseEventConverter;
 use crate::execution::transformers::stream::StreamChunkTransformer;
+use crate::streaming::SseEventConverter;
 use std::future::Future;
 use std::pin::Pin;
 

@@ -124,9 +124,12 @@ impl FilesExecutor for HttpFilesExecutor {
             .map(|hc| &hc.headers);
 
         // 4. Execute GET request using common HTTP layer
-        let result =
-            crate::execution::executors::common::execute_get_request(&config, &url, per_request_headers)
-                .await?;
+        let result = crate::execution::executors::common::execute_get_request(
+            &config,
+            &url,
+            per_request_headers,
+        )
+        .await?;
 
         // 5. Transform response
         self.transformer.transform_list_response(&result.json)

@@ -8,8 +8,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::error::LlmError;
-use crate::traits::ModerationCapability;
 use crate::execution::transformers::request::RequestTransformer;
+use crate::traits::ModerationCapability;
 use crate::types::{ModerationRequest, ModerationResponse, ModerationResult};
 
 use super::config::OpenAiConfig;

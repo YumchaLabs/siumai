@@ -4,7 +4,6 @@
 //! between non-streaming and streaming paths.
 
 use crate::error::LlmError;
-use crate::streaming::SseEventConverter;
 use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 use crate::execution::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
@@ -12,6 +11,7 @@ use crate::execution::transformers::request::{
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
+use crate::streaming::SseEventConverter;
 use crate::types::EmbeddingRequest;
 use crate::types::ImageGenerationRequest;
 use crate::types::{ChatRequest, ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
@@ -131,7 +131,8 @@ impl RequestTransformer for GeminiRequestTransformer {
                 },
             ],
             // provider_params merged via hooks when needed (function_calling)
-            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy:
+                crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
         let generic = GenericRequestTransformer { profile, hooks };
         generic.transform_chat(req)
@@ -232,9 +233,11 @@ impl RequestTransformer for GeminiRequestTransformer {
         let profile = crate::execution::transformers::request::MappingProfile {
             provider_id: "gemini",
             rules: vec![], // no generic rules; hook builds typed JSON
-            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy:
+                crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        let generic = crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
+        let generic =
+            crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
         generic.transform_embedding(req)
     }
 
@@ -289,9 +292,11 @@ impl RequestTransformer for GeminiRequestTransformer {
         let profile = crate::execution::transformers::request::MappingProfile {
             provider_id: "gemini",
             rules: vec![],
-            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy:
+                crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        let generic = crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
+        let generic =
+            crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
         generic.transform_image(req)
     }
 }

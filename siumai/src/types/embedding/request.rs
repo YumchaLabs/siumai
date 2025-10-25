@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::types::HttpConfig;
 use super::common::{EmbeddingFormat, EmbeddingTaskType};
+use crate::types::HttpConfig;
 
 /// Embedding request configuration
 #[derive(Debug, Clone, Default)]
@@ -185,4 +185,3 @@ pub struct BatchOptions {
     /// Whether to fail fast on first error
     pub fail_fast: bool,
 }
-

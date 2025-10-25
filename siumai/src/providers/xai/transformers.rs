@@ -3,10 +3,10 @@
 //! Centralizes request/response transformation for xAI to reduce duplication.
 
 use crate::error::LlmError;
-use crate::streaming::SseEventConverter;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
+use crate::streaming::SseEventConverter;
 use crate::types::{ChatRequest, ChatResponse, ContentPart, MessageContent, Usage};
 use eventsource_stream::Event;
 use std::future::Future;
@@ -86,9 +86,11 @@ impl RequestTransformer for XaiRequestTransformer {
                     message: None,
                 },
             ],
-            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy:
+                crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        let generic = crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
+        let generic =
+            crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
         generic.transform_chat(req)
     }
 }

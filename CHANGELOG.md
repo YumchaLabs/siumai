@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Module Reorganization (v0.11.2)
+
+**BREAKING CHANGE**: Reorganized utility modules for better code organization.
+
+#### Module Moves
+
+- **HTTP Utilities**: Moved from `utils/` to `execution/http/`
+  - `utils::http_client` → `execution::http::client`
+  - `utils::http_headers` → `execution::http::headers`
+  - `utils::http_interceptor` → `execution::http::interceptor`
+
+- **Vertex AI Utilities**: Moved from `utils/` to `auth/`
+  - `utils::vertex` → `auth::vertex`
+
+#### Backward Compatibility
+
+All old module paths are maintained as **deprecated re-exports**:
+
+```rust
+// Old paths (deprecated but still work)
+use siumai::utils::http_headers::*;
+use siumai::utils::vertex::*;
+
+// New paths (recommended)
+use siumai::execution::http::headers::*;
+use siumai::auth::vertex::*;
+```
+
+#### Benefits
+
+- **Better Organization**: HTTP utilities are now grouped with execution logic
+- **Clearer Responsibilities**: Vertex utilities are now with authentication code
+- **Reduced Confusion**: `utils/` module is now focused on true utility functions
+- **No Breaking Changes**: Old imports continue to work with deprecation warnings
+
+#### Migration Guide
+
+Update your imports to use the new module paths:
+
+```rust
+// Before
+use siumai::utils::http_headers::{HttpHeaderBuilder, ProviderHeaders};
+use siumai::utils::vertex::vertex_base_url;
+
+// After
+use siumai::execution::http::headers::{HttpHeaderBuilder, ProviderHeaders};
+use siumai::auth::vertex::vertex_base_url;
+```
+
+---
+
 ### Tracing Architecture Simplification (v0.11.1)
 
 **BREAKING CHANGE**: Removed custom tracing headers in favor of standard OpenTelemetry integration.

@@ -71,4 +71,3 @@ pub struct BatchEmbeddingResponse {
     /// Overall batch metadata
     pub metadata: HashMap<String, serde_json::Value>,
 }
-

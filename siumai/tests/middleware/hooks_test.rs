@@ -198,8 +198,11 @@ fn test_apply_stream_event_chain_with_stream_end() {
     let event = ChatStreamEvent::StreamEnd { response };
 
     // Apply chain
-    let result =
-        siumai::execution::middleware::language_model::apply_stream_event_chain(&middlewares, &req, event);
+    let result = siumai::execution::middleware::language_model::apply_stream_event_chain(
+        &middlewares,
+        &req,
+        event,
+    );
 
     // Verify on_stream_end was called
     assert!(result.is_ok());
@@ -217,8 +220,11 @@ fn test_apply_stream_event_chain_with_error() {
     };
 
     // Apply chain
-    let result =
-        siumai::execution::middleware::language_model::apply_stream_event_chain(&middlewares, &req, event);
+    let result = siumai::execution::middleware::language_model::apply_stream_event_chain(
+        &middlewares,
+        &req,
+        event,
+    );
 
     // Verify on_stream_error was called
     assert!(result.is_ok());

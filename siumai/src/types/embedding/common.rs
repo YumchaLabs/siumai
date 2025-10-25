@@ -95,4 +95,3 @@ impl EmbeddingModelInfo {
         self
     }
 }
-

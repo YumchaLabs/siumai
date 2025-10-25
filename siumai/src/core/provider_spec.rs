@@ -41,10 +41,10 @@
 //! ```
 
 use crate::error::LlmError;
-use crate::traits::ProviderCapabilities;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
+use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest, ProviderOptions};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
@@ -145,7 +145,8 @@ pub struct FilesTransformer {
 #[derive(Clone)]
 pub struct RerankTransformers {
     pub request: Arc<dyn crate::execution::transformers::rerank_request::RerankRequestTransformer>,
-    pub response: Arc<dyn crate::execution::transformers::rerank_response::RerankResponseTransformer>,
+    pub response:
+        Arc<dyn crate::execution::transformers::rerank_response::RerankResponseTransformer>,
 }
 
 /// Provider Specification: unified header building, routing, and transformer selection

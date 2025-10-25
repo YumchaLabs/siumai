@@ -185,12 +185,7 @@ impl LanguageModelMiddleware for OpenTelemetryMiddleware {
             let span_id = span_cx.span_id();
             let trace_flags = span_cx.trace_flags();
 
-            let traceparent = format!(
-                "00-{:032x}-{:016x}-{:02x}",
-                trace_id,
-                span_id,
-                trace_flags
-            );
+            let traceparent = format!("00-{:032x}-{:016x}-{:02x}", trace_id, span_id, trace_flags);
 
             // Inject into request headers
             // Create http_config if it doesn't exist

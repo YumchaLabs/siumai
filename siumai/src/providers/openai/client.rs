@@ -251,7 +251,9 @@ impl OpenAiClient {
     }
 
     /// Helper: Build EmbeddingExecutor with common configuration
-    fn build_embedding_executor(&self) -> Arc<crate::execution::executors::embedding::HttpEmbeddingExecutor> {
+    fn build_embedding_executor(
+        &self,
+    ) -> Arc<crate::execution::executors::embedding::HttpEmbeddingExecutor> {
         use crate::core::ProviderSpec;
 
         let ctx = self.build_context();
@@ -259,17 +261,19 @@ impl OpenAiClient {
         let req = EmbeddingRequest::new(vec![]).with_model(self.common_params.model.clone());
         let bundle = spec.choose_embedding_transformers(&req, &ctx);
 
-        Arc::new(crate::execution::executors::embedding::HttpEmbeddingExecutor {
-            provider_id: "openai".to_string(),
-            http_client: self.http_client.clone(),
-            request_transformer: bundle.request,
-            response_transformer: bundle.response,
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: vec![],
-            before_send: None,
-            retry_options: self.retry_options.clone(),
-        })
+        Arc::new(
+            crate::execution::executors::embedding::HttpEmbeddingExecutor {
+                provider_id: "openai".to_string(),
+                http_client: self.http_client.clone(),
+                request_transformer: bundle.request,
+                response_transformer: bundle.response,
+                provider_spec: spec,
+                provider_context: ctx,
+                interceptors: vec![],
+                before_send: None,
+                retry_options: self.retry_options.clone(),
+            },
+        )
     }
 
     /// Helper: Build ImageExecutor with common configuration
@@ -937,9 +941,9 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::transformers::request::RequestTransformer;
     use crate::providers::openai::OpenAiConfig;
     use crate::providers::openai::transformers;
-    use crate::execution::transformers::request::RequestTransformer;
     use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
     use std::sync::{Arc, Mutex};
 

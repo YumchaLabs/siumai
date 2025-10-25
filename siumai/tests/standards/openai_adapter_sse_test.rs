@@ -5,9 +5,9 @@
 
 use eventsource_stream::Event;
 use siumai::error::LlmError;
+use siumai::execution::transformers::stream::StreamChunkTransformer;
 use siumai::standards::openai::chat::{OpenAiChatAdapter, OpenAiChatStandard};
 use siumai::streaming::ChatStreamEvent;
-use siumai::execution::transformers::stream::StreamChunkTransformer;
 use std::sync::Arc;
 
 /// Mock adapter that transforms SSE events by adding a prefix to content

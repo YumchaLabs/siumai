@@ -25,4 +25,3 @@ pub mod response;
 pub use common::{EmbeddingFormat, EmbeddingModelInfo, EmbeddingTaskType, EmbeddingUsage};
 pub use request::{BatchEmbeddingRequest, BatchOptions, EmbeddingRequest};
 pub use response::{BatchEmbeddingResponse, EmbeddingResponse};
-

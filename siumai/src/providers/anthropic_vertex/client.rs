@@ -54,9 +54,9 @@ impl VertexAnthropicClient {
         let extra = self.config.http_config.headers.clone();
         move || {
             let extra = extra.clone();
-            Box::pin(async move {
-                crate::utils::http_headers::ProviderHeaders::vertex_bearer(&extra)
-            })
+            Box::pin(
+                async move { crate::utils::http_headers::ProviderHeaders::vertex_bearer(&extra) },
+            )
                 as std::pin::Pin<
                     Box<
                         dyn std::future::Future<

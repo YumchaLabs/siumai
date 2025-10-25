@@ -14,7 +14,9 @@
 //! ```
 
 use futures::StreamExt;
-use siumai::execution::middleware::language_model::{GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn};
+use siumai::execution::middleware::language_model::{
+    GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn,
+};
 use siumai::prelude::*;
 use siumai::streaming::ChatStreamEvent;
 use std::sync::Arc;

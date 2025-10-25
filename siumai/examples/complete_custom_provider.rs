@@ -15,9 +15,9 @@
 use siumai::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
 use siumai::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
-use siumai::traits::ProviderCapabilities;
 use siumai::execution::transformers::request::RequestTransformer;
 use siumai::execution::transformers::response::ResponseTransformer;
+use siumai::traits::ProviderCapabilities;
 use siumai::types::{ChatMessage, ChatRequest, ChatResponse};
 use std::sync::Arc;
 

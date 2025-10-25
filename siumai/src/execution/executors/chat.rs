@@ -8,14 +8,14 @@ use crate::execution::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn, apply_post_generate_chain,
     apply_transform_chain, try_pre_generate, try_pre_stream,
 };
+use crate::execution::transformers::{
+    request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
+};
 use crate::streaming::ChatStream;
 use crate::streaming::SseEventConverter;
 use crate::telemetry::{
     self,
     events::{GenerationEvent, SpanEvent, TelemetryEvent},
-};
-use crate::execution::transformers::{
-    request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse};
 use crate::utils::http_interceptor::HttpInterceptor;
@@ -26,7 +26,9 @@ use std::sync::Arc;
 // -----------------------------------------------------------------------------
 
 #[derive(Clone)]
-struct TransformerConverter(Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>);
+struct TransformerConverter(
+    Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>,
+);
 
 impl SseEventConverter for TransformerConverter {
     fn convert_event(
@@ -51,7 +53,8 @@ impl SseEventConverter for TransformerConverter {
 
 #[derive(Clone)]
 struct MiddlewareConverter<C> {
-    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares:
+        Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
     req: crate::types::ChatRequest,
     convert: C,
 }
@@ -80,12 +83,14 @@ where
             let mut out = Vec::new();
             for item in raw.into_iter() {
                 match item {
-                    Ok(ev) => match crate::execution::middleware::language_model::apply_stream_event_chain(
-                        &mws, &req, ev,
-                    ) {
-                        Ok(list) => out.extend(list.into_iter().map(Ok)),
-                        Err(e) => out.push(Err(e)),
-                    },
+                    Ok(ev) => {
+                        match crate::execution::middleware::language_model::apply_stream_event_chain(
+                            &mws, &req, ev,
+                        ) {
+                            Ok(list) => out.extend(list.into_iter().map(Ok)),
+                            Err(e) => out.push(Err(e)),
+                        }
+                    }
                     Err(e) => out.push(Err(e)),
                 }
             }
@@ -95,17 +100,19 @@ where
 
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         match self.convert.handle_stream_end() {
-            Some(Ok(ev)) => match crate::execution::middleware::language_model::apply_stream_event_chain(
-                &self.middlewares,
-                &self.req,
-                ev,
-            )
-            .map(|mut v| v.pop())
-            {
-                Ok(Some(last)) => Some(Ok(last)),
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
-            },
+            Some(Ok(ev)) => {
+                match crate::execution::middleware::language_model::apply_stream_event_chain(
+                    &self.middlewares,
+                    &self.req,
+                    ev,
+                )
+                .map(|mut v| v.pop())
+                {
+                    Ok(Some(last)) => Some(Ok(last)),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            }
             other => other,
         }
     }
@@ -154,7 +161,8 @@ where
 
 #[derive(Clone)]
 struct MiddlewareJsonConverter {
-    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares:
+        Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
     req: crate::types::ChatRequest,
     convert: Arc<dyn crate::streaming::JsonEventConverter>,
 }
@@ -180,12 +188,14 @@ impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
             let mut out = Vec::new();
             for item in raw.into_iter() {
                 match item {
-                    Ok(ev) => match crate::execution::middleware::language_model::apply_stream_event_chain(
-                        &mws, &req, ev,
-                    ) {
-                        Ok(list) => out.extend(list.into_iter().map(Ok)),
-                        Err(e) => out.push(Err(e)),
-                    },
+                    Ok(ev) => {
+                        match crate::execution::middleware::language_model::apply_stream_event_chain(
+                            &mws, &req, ev,
+                        ) {
+                            Ok(list) => out.extend(list.into_iter().map(Ok)),
+                            Err(e) => out.push(Err(e)),
+                        }
+                    }
                     Err(e) => out.push(Err(e)),
                 }
             }
@@ -207,7 +217,9 @@ async fn create_sse_stream_with_middlewares(
     transformed: serde_json::Value,
     sse_tx: Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>,
     interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
-    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares: Vec<
+        Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>,
+    >,
     req_in: crate::types::ChatRequest,
     disable_compression: bool,
     retry_options: Option<crate::retry_api::RetryOptions>,
@@ -306,7 +318,9 @@ async fn create_json_stream_with_middlewares(
     transformed: serde_json::Value,
     json_conv: Arc<dyn crate::streaming::JsonEventConverter>,
     interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
-    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares: Vec<
+        Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>,
+    >,
     req_in: crate::types::ChatRequest,
     disable_compression: bool,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
@@ -490,11 +504,12 @@ mod tests {
 
         let seen = Arc::new(std::sync::Mutex::new(None::<String>));
         let seen_clone = seen.clone();
-        let hook: crate::execution::executors::BeforeSendHook = Arc::new(move |body: &serde_json::Value| {
-            let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("");
-            *seen_clone.lock().unwrap() = Some(model.to_string());
-            Err(crate::error::LlmError::InvalidParameter("abort".into()))
-        });
+        let hook: crate::execution::executors::BeforeSendHook =
+            Arc::new(move |body: &serde_json::Value| {
+                let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                *seen_clone.lock().unwrap() = Some(model.to_string());
+                Err(crate::error::LlmError::InvalidParameter("abort".into()))
+            });
 
         let provider_context = crate::core::ProviderContext::new(
             "test",
@@ -553,7 +568,8 @@ mod tests {
             fn wrap_stream_async(
                 &self,
                 next: std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn>,
-            ) -> std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn> {
+            ) -> std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn>
+            {
                 std::sync::Arc::new(move |req: crate::types::ChatRequest| {
                     let next = next.clone();
                     Box::pin(async move {
@@ -583,7 +599,8 @@ mod tests {
             fn wrap_stream_async(
                 &self,
                 _next: std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn>,
-            ) -> std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn> {
+            ) -> std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn>
+            {
                 std::sync::Arc::new(|_req: crate::types::ChatRequest| {
                     Box::pin(async move {
                         let one = futures::stream::once(async move {
@@ -739,11 +756,12 @@ mod tests {
         let response_transformer = Arc::new(NoopResponseTransformer);
 
         // Hook that would abort if HTTP is attempted
-        let hook: crate::execution::executors::BeforeSendHook = Arc::new(move |_body: &serde_json::Value| {
-            Err(crate::error::LlmError::InvalidParameter(
-                "should not be called".into(),
-            ))
-        });
+        let hook: crate::execution::executors::BeforeSendHook =
+            Arc::new(move |_body: &serde_json::Value| {
+                Err(crate::error::LlmError::InvalidParameter(
+                    "should not be called".into(),
+                ))
+            });
 
         let provider_context = crate::core::ProviderContext::new(
             "test",

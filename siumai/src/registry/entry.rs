@@ -394,7 +394,10 @@ impl ChatCapability for LanguageModelHandle {
             if let Some(t) = tools {
                 req = req.with_tools(t);
             }
-            req = crate::execution::middleware::language_model::apply_transform_chain(&self.middlewares, req);
+            req = crate::execution::middleware::language_model::apply_transform_chain(
+                &self.middlewares,
+                req,
+            );
             client.chat_with_tools(req.messages, req.tools).await
         } else {
             client.chat_with_tools(messages, tools).await
@@ -425,7 +428,10 @@ impl ChatCapability for LanguageModelHandle {
             if let Some(t) = tools {
                 req = req.with_tools(t);
             }
-            req = crate::execution::middleware::language_model::apply_transform_chain(&self.middlewares, req);
+            req = crate::execution::middleware::language_model::apply_transform_chain(
+                &self.middlewares,
+                req,
+            );
             client.chat_stream(req.messages, req.tools).await
         } else {
             client.chat_stream(messages, tools).await

@@ -178,7 +178,9 @@ async fn image_executor_retries_on_401() {
 
     // Create dummy transformers
     use siumai::error::LlmError;
-    use siumai::execution::transformers::{request::RequestTransformer, response::ResponseTransformer};
+    use siumai::execution::transformers::{
+        request::RequestTransformer, response::ResponseTransformer,
+    };
 
     struct DummyRequestTransformer;
     impl RequestTransformer for DummyRequestTransformer {
