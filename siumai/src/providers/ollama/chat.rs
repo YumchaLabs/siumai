@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::error::LlmError;
 use crate::streaming::ChatStream;
-use crate::tracing::ProviderTracer;
+use crate::observability::tracing::ProviderTracer;
 use crate::traits::ChatCapability;
 use crate::types::*;
 

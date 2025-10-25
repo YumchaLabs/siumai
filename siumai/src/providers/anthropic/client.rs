@@ -39,7 +39,7 @@ pub struct AnthropicClient {
     /// Anthropic-specific configuration
     specific_params: AnthropicSpecificParams,
     /// Tracing configuration
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active (retained but not read)
     /// NOTE: Tracing subscriber functionality has been moved to siumai-extras
     #[allow(dead_code)]
@@ -154,7 +154,7 @@ impl AnthropicClient {
     // Chat capability getter removed after executors migration
 
     /// Set the tracing configuration
-    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
+    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::observability::tracing::TracingConfig>) {
         self.tracing_config = config;
     }
 

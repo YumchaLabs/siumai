@@ -130,7 +130,7 @@ impl XaiBuilder {
     // === Tracing Configuration ===
 
     /// Set custom tracing configuration
-    pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
+    pub fn tracing(mut self, config: crate::observability::tracing::TracingConfig) -> Self {
         self.core = self.core.tracing(config);
         self
     }

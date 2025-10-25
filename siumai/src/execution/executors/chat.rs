@@ -14,10 +14,9 @@ use crate::execution::transformers::{
 };
 use crate::streaming::ChatStream;
 // use crate::streaming::SseEventConverter; // not needed explicitly here
-use crate::telemetry::{
-    self,
-    events::{GenerationEvent, SpanEvent, TelemetryEvent},
-};
+// Telemetry event emission is handled via execution::telemetry helpers
+use crate::telemetry::{events::SpanEvent, TelemetryEvent};
+use crate::telemetry;
 use crate::types::{ChatRequest, ChatResponse};
 use std::sync::Arc;
 
@@ -25,7 +24,7 @@ use std::sync::Arc;
 // Module-scoped stream converter wrappers (SSE/JSON) to avoid inline duplicates
 // -----------------------------------------------------------------------------
 
-use crate::execution::streaming::adapters::{
+use crate::streaming::adapters::{
     InterceptingConverter, MiddlewareConverter, MiddlewareJsonConverter, TransformerConverter,
 };
 
@@ -899,41 +898,29 @@ impl ChatExecutor for HttpChatExecutor {
         let start_time = std::time::SystemTime::now();
         let telemetry_config = req.telemetry.clone();
 
-        if let Some(ref telemetry) = telemetry_config {
-            if telemetry.enabled {
-                let span = SpanEvent::start(
-                    span_id.clone(),
-                    None,
-                    trace_id.clone(),
-                    "ai.executor.chat.execute".to_string(),
-                )
-                .with_attribute("provider_id", self.provider_id.clone())
-                .with_attribute("model", req.common_params.model.clone())
-                .with_attribute("stream", "false");
-
-                telemetry::emit(TelemetryEvent::SpanStart(span)).await;
-            }
-        }
+        crate::execution::telemetry::chat::span_start(
+            telemetry_config.as_ref(),
+            &trace_id,
+            &span_id,
+            &self.provider_id,
+            &req.common_params.model,
+            false,
+        )
+        .await;
 
         // Apply model-level parameter transforms
         let req = apply_transform_chain(&self.middlewares, req);
         // Try pre-generate short-circuit
         if let Some(decision) = try_pre_generate(&self.middlewares, &req) {
             // Emit telemetry span end for short-circuit
-            if let Some(ref telemetry) = telemetry_config {
-                if telemetry.enabled {
-                    let span = SpanEvent::start(
-                        span_id.clone(),
-                        None,
-                        trace_id.clone(),
-                        "ai.executor.chat.execute".to_string(),
-                    )
-                    .end_ok()
-                    .with_attribute("short_circuit", "true");
-
-                    telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
-                }
-            }
+            crate::execution::telemetry::chat::span_end_ok(
+                telemetry_config.as_ref(),
+                &trace_id,
+                &span_id,
+                true,
+                None,
+            )
+            .await;
             return decision;
         }
 
@@ -1018,68 +1005,35 @@ impl ChatExecutor for HttpChatExecutor {
         let result = wrapped(req.clone()).await;
 
         // Emit telemetry events
-        if let Some(ref telemetry) = telemetry_config {
-            if telemetry.enabled {
-                match &result {
-                    Ok(response) => {
-                        // Emit span end event
-                        let duration = std::time::SystemTime::now().duration_since(start_time).ok();
-                        let span = SpanEvent::start(
-                            span_id.clone(),
-                            None,
-                            trace_id.clone(),
-                            "ai.executor.chat.execute".to_string(),
-                        )
-                        .end_ok()
-                        .with_attribute("finish_reason", format!("{:?}", response.finish_reason));
-
-                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
-
-                        // Emit generation event
-                        let mut gen_event = GenerationEvent::new(
-                            uuid::Uuid::new_v4().to_string(),
-                            trace_id.clone(),
-                            provider_id_for_telemetry.clone(),
-                            req.common_params.model.clone(),
-                        );
-
-                        if telemetry.record_inputs {
-                            gen_event = gen_event.with_input(req.messages.clone());
-                        }
-
-                        if telemetry.record_outputs {
-                            gen_event = gen_event.with_output(response.clone());
-                        }
-
-                        if telemetry.record_usage {
-                            if let Some(usage) = &response.usage {
-                                gen_event = gen_event.with_usage(usage.clone());
-                            }
-                        }
-
-                        if let Some(reason) = &response.finish_reason {
-                            gen_event = gen_event.with_finish_reason(reason.clone());
-                        }
-
-                        if let Some(dur) = duration {
-                            gen_event = gen_event.with_duration(dur);
-                        }
-
-                        telemetry::emit(TelemetryEvent::Generation(gen_event)).await;
-                    }
-                    Err(error) => {
-                        // Emit error span
-                        let span = SpanEvent::start(
-                            span_id.clone(),
-                            None,
-                            trace_id.clone(),
-                            "ai.executor.chat.execute".to_string(),
-                        )
-                        .end_error(error.to_string());
-
-                        telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
-                    }
-                }
+        match &result {
+            Ok(response) => {
+                crate::execution::telemetry::chat::span_end_ok(
+                    telemetry_config.as_ref(),
+                    &trace_id,
+                    &span_id,
+                    false,
+                    response.finish_reason.as_ref(),
+                )
+                .await;
+                crate::execution::telemetry::chat::generation(
+                    telemetry_config.as_ref(),
+                    &trace_id,
+                    &provider_id_for_telemetry,
+                    &req.common_params.model,
+                    &req,
+                    response,
+                    start_time,
+                )
+                .await;
+            }
+            Err(error) => {
+                crate::execution::telemetry::chat::span_end_err(
+                    telemetry_config.as_ref(),
+                    &trace_id,
+                    &span_id,
+                    error,
+                )
+                .await;
             }
         }
 

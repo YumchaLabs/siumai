@@ -54,7 +54,7 @@
 pub mod executors;
 pub mod http;
 pub mod middleware;
-pub mod streaming;
+pub mod telemetry;
 pub mod transformers;
 
 // Re-export commonly used types for convenience

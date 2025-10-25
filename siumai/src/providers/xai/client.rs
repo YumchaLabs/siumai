@@ -34,7 +34,7 @@ pub struct XaiClient {
     /// HTTP client
     pub http_client: reqwest::Client,
     /// Tracing configuration
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active
     /// NOTE: Tracing subscriber functionality has been moved to siumai-extras
     #[allow(dead_code)]
@@ -391,7 +391,7 @@ impl XaiClient {
     }
 
     /// Set the tracing configuration
-    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::tracing::TracingConfig>) {
+    pub(crate) fn set_tracing_config(&mut self, config: Option<crate::observability::tracing::TracingConfig>) {
         self.tracing_config = config;
     }
 

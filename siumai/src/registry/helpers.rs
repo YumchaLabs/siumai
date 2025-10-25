@@ -56,3 +56,19 @@ pub fn create_bare_registry() -> ProviderRegistryHandle {
         }),
     )
 }
+
+/// Compare two provider identifiers considering registry aliases.
+///
+/// Examples:
+/// - "gemini" and "google" are treated as the same provider when the alias is registered.
+/// - Case-sensitive comparison.
+pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
+    if provider_id == custom_id {
+        return true;
+    }
+    let guard = match crate::registry::global_registry().read() {
+        Ok(g) => g,
+        Err(_) => return false,
+    };
+    guard.is_same_provider(provider_id, custom_id)
+}

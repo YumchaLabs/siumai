@@ -195,3 +195,4 @@ impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
         })
     }
 }
+

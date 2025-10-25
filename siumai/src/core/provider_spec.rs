@@ -292,7 +292,7 @@ pub fn default_custom_options_hook(
     } = &req.provider_options
     {
         // Support provider_id matching with aliases (e.g., "gemini" or "google")
-        if matches_provider_id(provider_id, custom_provider_id) {
+        if crate::registry::helpers::matches_provider_id(provider_id, custom_provider_id) {
             let custom_options = options.clone();
             let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
                 let mut out = body.clone();
@@ -308,57 +308,4 @@ pub fn default_custom_options_hook(
         }
     }
     None
-}
-
-/// Check if provider_id matches (with alias support)
-///
-/// This function checks if two provider identifiers refer to the same provider,
-/// taking into account registered aliases in the provider registry.
-/// For example, "gemini" and "google" both refer to the Google Gemini provider.
-///
-/// # Implementation Note
-/// This function uses the provider registry to resolve aliases, ensuring
-/// consistency with the centralized alias configuration.
-pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
-    if provider_id == custom_id {
-        return true;
-    }
-    let guard = match crate::registry::global_registry().read() {
-        Ok(g) => g,
-        Err(_) => return false,
-    };
-    guard.is_same_provider(provider_id, custom_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_matches_provider_id_direct_match() {
-        assert!(matches_provider_id("openai", "openai"));
-        assert!(matches_provider_id("anthropic", "anthropic"));
-        assert!(matches_provider_id("gemini", "gemini"));
-    }
-
-    #[test]
-    fn test_matches_provider_id_no_match() {
-        assert!(!matches_provider_id("openai", "anthropic"));
-        assert!(!matches_provider_id("gemini", "openai"));
-    }
-
-    #[test]
-    #[cfg(feature = "google")]
-    fn test_matches_provider_id_gemini_google_alias() {
-        // "gemini" and "google" should match (bidirectional)
-        assert!(matches_provider_id("gemini", "google"));
-        assert!(matches_provider_id("google", "gemini"));
-    }
-
-    #[test]
-    fn test_matches_provider_id_case_sensitive() {
-        // Provider IDs are case-sensitive
-        assert!(!matches_provider_id("OpenAI", "openai"));
-        assert!(!matches_provider_id("GEMINI", "gemini"));
-    }
 }

@@ -22,7 +22,7 @@ pub async fn build_openai_client(
     _provider_params: Option<()>, // Removed ProviderParams
     organization: Option<String>,
     project: Option<String>,
-    _tracing_config: Option<crate::tracing::TracingConfig>,
+    _tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
@@ -64,7 +64,7 @@ pub async fn build_openai_compatible_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Resolve provider adapter and base URL via registry v2
@@ -140,7 +140,7 @@ pub async fn build_anthropic_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Provider-specific parameters are now handled via provider_options in ChatRequest
@@ -178,7 +178,7 @@ pub async fn build_gemini_client(
     #[allow(unused_variables)] gemini_token_provider: Option<
         std::sync::Arc<dyn crate::auth::TokenProvider>,
     >,
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use crate::providers::gemini::client::GeminiClient;
@@ -237,7 +237,7 @@ pub async fn build_anthropic_vertex_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
-    _tracing_config: Option<crate::tracing::TracingConfig>,
+    _tracing_config: Option<crate::observability::tracing::TracingConfig>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let cfg = crate::providers::anthropic_vertex::client::VertexAnthropicConfig {
         base_url,
@@ -257,7 +257,7 @@ pub async fn build_ollama_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use crate::providers::ollama::OllamaClient;
     use crate::providers::ollama::config::{OllamaConfig, OllamaParams};

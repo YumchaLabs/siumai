@@ -22,7 +22,7 @@ use crate::builder::LlmBuilder;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::retry_api::RetryOptions;
-use crate::tracing::TracingConfig;
+use crate::observability::tracing::TracingConfig;
 use crate::types::HttpConfig;
 use std::sync::Arc;
 use std::time::Duration;

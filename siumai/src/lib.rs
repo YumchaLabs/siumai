@@ -112,7 +112,7 @@ pub mod retry;
 pub mod retry_api;
 pub mod streaming;
 pub mod telemetry;
-pub mod tracing;
+pub mod observability;
 pub mod traits;
 pub mod types;
 pub mod utils;

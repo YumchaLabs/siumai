@@ -592,7 +592,7 @@ pub struct SiumaiBuilder {
     http_config: HttpConfig,
     organization: Option<String>,
     project: Option<String>,
-    tracing_config: Option<crate::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
     // Unified reasoning configuration
     reasoning_enabled: Option<bool>,
     reasoning_budget: Option<i32>,
@@ -898,7 +898,7 @@ impl SiumaiBuilder {
     /// # Example
     /// ```rust,no_run
     /// use siumai::prelude::*;
-    /// use siumai::tracing::TracingConfig;
+    /// use siumai::observability::tracing::TracingConfig;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -912,24 +912,24 @@ impl SiumaiBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn tracing(mut self, config: crate::tracing::TracingConfig) -> Self {
+    pub fn tracing(mut self, config: crate::observability::tracing::TracingConfig) -> Self {
         self.tracing_config = Some(config);
         self
     }
 
     /// Enable debug tracing (development-friendly configuration)
     pub fn debug_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::development())
+        self.tracing(crate::observability::tracing::TracingConfig::development())
     }
 
     /// Enable minimal tracing (info level, LLM only)
     pub fn minimal_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::minimal())
+        self.tracing(crate::observability::tracing::TracingConfig::minimal())
     }
 
     /// Enable production-ready JSON tracing
     pub fn json_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::json_production())
+        self.tracing(crate::observability::tracing::TracingConfig::json_production())
     }
 
     /// Enable simple tracing (uses debug configuration)
@@ -939,7 +939,7 @@ impl SiumaiBuilder {
 
     /// Disable tracing explicitly
     pub fn disable_tracing(self) -> Self {
-        self.tracing(crate::tracing::TracingConfig::disabled())
+        self.tracing(crate::observability::tracing::TracingConfig::disabled())
     }
 
     /// Set unified retry options for chat operations
