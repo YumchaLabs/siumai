@@ -7,7 +7,7 @@ use secrecy::SecretString;
 
 use crate::core::ProviderSpec;
 use crate::error::LlmError;
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::streaming::ChatStream;
 use crate::traits::ChatCapability;
 use crate::types::*;
@@ -69,7 +69,7 @@ impl ChatCapability for GroqChatCapability {
             common_params: self.common_params.clone(),
             ..Default::default()
         };
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
         let ctx = crate::core::ProviderContext::new(
             "groq",
@@ -113,7 +113,7 @@ impl ChatCapability for GroqChatCapability {
             ..Default::default()
         };
 
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
         let ctx = crate::core::ProviderContext::new(
             "groq",

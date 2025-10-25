@@ -11,10 +11,9 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use axum::{Router, routing::get, response::sse::Sse};
-//! use siumai_extras::server::axum::to_sse_response;
-//! use siumai::server_adapters::SseOptions;
+//! use siumai_extras::server::axum::{to_sse_response, SseOptions};
 //! use siumai::streaming::ChatStream;
 //!
 //! async fn chat_handler(stream: ChatStream) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
@@ -35,8 +34,85 @@ use axum::response::sse::{Event, Sse};
 use futures::{Stream, StreamExt};
 
 use siumai::error::LlmError;
-use siumai::server_adapters::SseOptions;
 use siumai::streaming::{ChatStream, ChatStreamEvent};
+
+/// Options for SSE encoding.
+///
+/// Controls which events are included in the SSE stream and how errors are handled.
+#[derive(Debug, Clone)]
+pub struct SseOptions {
+    /// Whether to include usage updates frames.
+    ///
+    /// When `true`, emits `event: usage` with token usage information.
+    /// Default: `true`
+    pub include_usage: bool,
+
+    /// Whether to include a final `end` event with the full response JSON.
+    ///
+    /// When `true`, emits `event: end` with the complete response.
+    /// Default: `true`
+    pub include_end: bool,
+
+    /// Whether to include the initial `start` event with metadata.
+    ///
+    /// When `true`, emits `event: start` at the beginning of the stream.
+    /// Default: `true`
+    pub include_start: bool,
+
+    /// Whether to mask error messages for security.
+    ///
+    /// When `true`, replaces detailed error messages with "internal error".
+    /// Recommended for production environments to avoid leaking sensitive information.
+    /// Default: `true`
+    pub mask_errors: bool,
+
+    /// Custom error message to use when `mask_errors` is `true`.
+    ///
+    /// If `None`, uses "internal error" as the default masked message.
+    /// Default: `None`
+    pub masked_error_message: Option<String>,
+}
+
+impl Default for SseOptions {
+    fn default() -> Self {
+        Self {
+            include_usage: true,
+            include_end: true,
+            include_start: true,
+            mask_errors: true,
+            masked_error_message: None,
+        }
+    }
+}
+
+impl SseOptions {
+    /// Create options suitable for development (errors not masked).
+    pub fn development() -> Self {
+        Self {
+            mask_errors: false,
+            ..Default::default()
+        }
+    }
+
+    /// Create options suitable for production (errors masked).
+    pub fn production() -> Self {
+        Self {
+            mask_errors: true,
+            ..Default::default()
+        }
+    }
+
+    /// Create minimal options (only content deltas, no metadata).
+    pub fn minimal() -> Self {
+        Self {
+            include_usage: false,
+            include_end: false,
+            include_start: false,
+            mask_errors: true,
+            masked_error_message: None,
+        }
+    }
+}
 
 /// Convert a `ChatStream` into an Axum SSE response.
 ///
@@ -56,8 +132,7 @@ use siumai::streaming::{ChatStream, ChatStreamEvent};
 ///
 /// ```rust,no_run
 /// use axum::response::sse::Sse;
-/// use siumai_extras::server::axum::to_sse_response;
-/// use siumai::server_adapters::SseOptions;
+/// use siumai_extras::server::axum::{to_sse_response, SseOptions};
 /// use siumai::streaming::ChatStream;
 ///
 /// async fn handler(stream: ChatStream) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {

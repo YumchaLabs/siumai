@@ -1,7 +1,7 @@
 //! Files transformer for OpenAI provider
 
 use crate::error::LlmError;
-use crate::transformers::files::{FilesHttpBody, FilesTransformer};
+use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 
 #[derive(Clone)]
 pub struct OpenAiFilesTransformer;
@@ -153,7 +153,7 @@ impl FilesTransformer for OpenAiFilesTransformer {
 #[cfg(test)]
 mod files_tests {
     use super::*;
-    use crate::transformers::files::{FilesHttpBody, FilesTransformer};
+    use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 
     #[test]
     fn test_openai_files_endpoints() {

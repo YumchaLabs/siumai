@@ -5,7 +5,7 @@ use crate::standards::openai::embedding::OpenAiEmbeddingStandard;
 use crate::standards::openai::image::OpenAiImageStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, EmbeddingRequest, ProviderOptions};
-use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::utils::http_headers::ProviderHeaders;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -60,14 +60,12 @@ impl ProviderSpec for OpenAiSpec {
             .api_key
             .as_ref()
             .ok_or_else(|| LlmError::MissingApiKey("OpenAI API key not provided".into()))?;
-        let mut headers = ProviderHeaders::openai(
+        ProviderHeaders::openai(
             api_key,
             ctx.organization.as_deref(),
             ctx.project.as_deref(),
             &ctx.http_extra_headers,
-        )?;
-        inject_tracing_headers(&mut headers);
-        Ok(headers)
+        )
     }
 
     fn chat_url(&self, _stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
@@ -114,7 +112,7 @@ impl ProviderSpec for OpenAiSpec {
         &self,
         req: &ChatRequest,
         _ctx: &ProviderContext,
-    ) -> Option<crate::executors::BeforeSendHook> {
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
         if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
             return Some(hook);

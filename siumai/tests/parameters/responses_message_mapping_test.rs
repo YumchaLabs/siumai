@@ -7,7 +7,7 @@
 //! References:
 //! - OpenAI Responses API: https://platform.openai.com/docs/api-reference/responses
 
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 
 #[test]
 fn tool_role_message_maps_to_function_call_output_item() {

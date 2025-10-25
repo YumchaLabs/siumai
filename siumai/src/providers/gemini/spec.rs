@@ -4,7 +4,7 @@ use crate::core::{
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
-use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::utils::http_headers::ProviderHeaders;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -31,9 +31,7 @@ impl ProviderSpec for GeminiSpec {
         // - If Authorization exists (e.g., Vertex token), do not inject x-goog-api-key.
         // - Otherwise use x-goog-api-key when api_key is provided.
         let api_key = ctx.api_key.as_deref().unwrap_or("");
-        let mut headers = ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)?;
-        inject_tracing_headers(&mut headers);
-        Ok(headers)
+        ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
@@ -76,7 +74,7 @@ impl ProviderSpec for GeminiSpec {
         &self,
         req: &ChatRequest,
         _ctx: &ProviderContext,
-    ) -> Option<crate::executors::BeforeSendHook> {
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
         if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
             return Some(hook);

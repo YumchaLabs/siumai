@@ -4,7 +4,7 @@
 //! different LLM providers (e.g., `<think>`, `<thought>`, `<reasoning>`).
 
 use crate::LlmError;
-use crate::middleware::{LanguageModelMiddleware, TagConfig, TagExtractor};
+use crate::execution::middleware::{LanguageModelMiddleware, TagConfig, TagExtractor};
 use crate::types::{ChatRequest, ChatResponse, MessageContent};
 
 /// Preset reasoning tag configurations for different models.
@@ -120,7 +120,7 @@ impl ExtractReasoningConfig {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::middleware::presets::ExtractReasoningMiddleware;
+/// use siumai::execution::middleware::presets::ExtractReasoningMiddleware;
 /// use std::sync::Arc;
 ///
 /// // Use default configuration (<think> tags)

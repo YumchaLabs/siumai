@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, EmbeddingCapability, ImageGenerationCapability,
@@ -177,13 +177,13 @@ impl ProviderRegistryHandle {
         let mut middlewares = self.middlewares.clone();
         if self.auto_middleware {
             let auto_middlewares =
-                crate::middleware::build_auto_middlewares_vec(&provider_id, &model_id);
+                crate::execution::middleware::build_auto_middlewares_vec(&provider_id, &model_id);
             middlewares.extend(auto_middlewares);
         }
 
         // Apply middleware provider_id override (aligned with Vercel AI SDK)
         if !middlewares.is_empty() {
-            provider_id = crate::middleware::language_model::apply_provider_id_override(
+            provider_id = crate::execution::middleware::language_model::apply_provider_id_override(
                 &middlewares,
                 &provider_id,
             );
@@ -377,7 +377,7 @@ impl ChatCapability for LanguageModelHandle {
     ) -> Result<ChatResponse, LlmError> {
         // Apply middleware overrides (aligned with Vercel AI SDK)
         let model_id = if !self.middlewares.is_empty() {
-            crate::middleware::language_model::apply_model_id_override(
+            crate::execution::middleware::language_model::apply_model_id_override(
                 &self.middlewares,
                 &self.model_id,
             )
@@ -394,7 +394,7 @@ impl ChatCapability for LanguageModelHandle {
             if let Some(t) = tools {
                 req = req.with_tools(t);
             }
-            req = crate::middleware::language_model::apply_transform_chain(&self.middlewares, req);
+            req = crate::execution::middleware::language_model::apply_transform_chain(&self.middlewares, req);
             client.chat_with_tools(req.messages, req.tools).await
         } else {
             client.chat_with_tools(messages, tools).await
@@ -408,7 +408,7 @@ impl ChatCapability for LanguageModelHandle {
     ) -> Result<ChatStream, LlmError> {
         // Apply middleware overrides (aligned with Vercel AI SDK)
         let model_id = if !self.middlewares.is_empty() {
-            crate::middleware::language_model::apply_model_id_override(
+            crate::execution::middleware::language_model::apply_model_id_override(
                 &self.middlewares,
                 &self.model_id,
             )
@@ -425,7 +425,7 @@ impl ChatCapability for LanguageModelHandle {
             if let Some(t) = tools {
                 req = req.with_tools(t);
             }
-            req = crate::middleware::language_model::apply_transform_chain(&self.middlewares, req);
+            req = crate::execution::middleware::language_model::apply_transform_chain(&self.middlewares, req);
             client.chat_stream(req.messages, req.tools).await
         } else {
             client.chat_stream(messages, tools).await

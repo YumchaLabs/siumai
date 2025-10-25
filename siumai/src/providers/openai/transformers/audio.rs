@@ -1,7 +1,7 @@
 //! OpenAI Audio Transformer
 
 use crate::error::LlmError;
-use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
+use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
 use crate::types::{SttRequest, TtsRequest};
 
 /// OpenAI Audio Transformer for TTS and STT

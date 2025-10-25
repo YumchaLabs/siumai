@@ -146,7 +146,7 @@ impl FileManagementCapability for OpenAiFiles {
         // Validate request
         self.validate_upload_request(&request)?;
 
-        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use crate::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
         let ctx = crate::core::ProviderContext::new(
@@ -174,7 +174,7 @@ impl FileManagementCapability for OpenAiFiles {
 
     /// List files with optional filtering.
     async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
-        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use crate::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
         let ctx = crate::core::ProviderContext::new(
@@ -202,7 +202,7 @@ impl FileManagementCapability for OpenAiFiles {
 
     /// Retrieve file metadata.
     async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
-        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use crate::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
         let ctx = crate::core::ProviderContext::new(
@@ -230,7 +230,7 @@ impl FileManagementCapability for OpenAiFiles {
 
     /// Delete a file permanently.
     async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
-        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use crate::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
         let ctx = crate::core::ProviderContext::new(
@@ -258,7 +258,7 @@ impl FileManagementCapability for OpenAiFiles {
 
     /// Get file content as bytes.
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
-        use crate::executors::files::{FilesExecutor, HttpFilesExecutor};
+        use crate::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
         let ctx = crate::core::ProviderContext::new(

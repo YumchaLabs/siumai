@@ -4,7 +4,7 @@
 
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::transformers::{
+use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse, ContentPart, MessageContent, Usage};
@@ -29,7 +29,7 @@ impl RequestTransformer for XaiRequestTransformer {
         }
 
         struct XaiChatHooks;
-        impl crate::transformers::request::ProviderRequestHooks for XaiChatHooks {
+        impl crate::execution::transformers::request::ProviderRequestHooks for XaiChatHooks {
             fn build_base_chat_body(
                 &self,
                 req: &ChatRequest,
@@ -68,27 +68,27 @@ impl RequestTransformer for XaiRequestTransformer {
             }
         }
         let hooks = XaiChatHooks;
-        let profile = crate::transformers::request::MappingProfile {
+        let profile = crate::execution::transformers::request::MappingProfile {
             provider_id: "xai",
             rules: vec![
-                crate::transformers::request::Rule::Range {
+                crate::execution::transformers::request::Rule::Range {
                     field: "temperature",
                     min: 0.0,
                     max: 2.0,
-                    mode: crate::transformers::request::RangeMode::Error,
+                    mode: crate::execution::transformers::request::RangeMode::Error,
                     message: None,
                 },
-                crate::transformers::request::Rule::Range {
+                crate::execution::transformers::request::Rule::Range {
                     field: "top_p",
                     min: 0.0,
                     max: 1.0,
-                    mode: crate::transformers::request::RangeMode::Error,
+                    mode: crate::execution::transformers::request::RangeMode::Error,
                     message: None,
                 },
             ],
-            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        let generic = crate::transformers::request::GenericRequestTransformer { profile, hooks };
+        let generic = crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
         generic.transform_chat(req)
     }
 }

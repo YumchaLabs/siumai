@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::middleware::LanguageModelMiddleware;
+use crate::execution::middleware::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
@@ -299,9 +299,9 @@ impl OllamaClient {
     fn build_chat_executor(
         &self,
         request: &ChatRequest,
-    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
         use crate::core::ProviderSpec;
-        use crate::executors::chat::ChatExecutorBuilder;
+        use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec);
@@ -327,7 +327,7 @@ impl OllamaClient {
 
     /// Execute chat request via spec (unified implementation)
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -397,7 +397,7 @@ impl ChatCapability for OllamaClient {
             ..Default::default()
         };
 
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         let http = self.http_client.clone();
         let params = self.ollama_params.clone();
         let req_tx = super::transformers::OllamaRequestTransformer { params };

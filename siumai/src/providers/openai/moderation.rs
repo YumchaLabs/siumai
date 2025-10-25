@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::error::LlmError;
 use crate::traits::ModerationCapability;
-use crate::transformers::request::RequestTransformer;
+use crate::execution::transformers::request::RequestTransformer;
 use crate::types::{ModerationRequest, ModerationResponse, ModerationResult};
 
 use super::config::OpenAiConfig;
@@ -218,13 +218,12 @@ impl OpenAiModeration {
     async fn make_request(&self) -> Result<reqwest::RequestBuilder, LlmError> {
         let url = format!("{}/moderations", self.config.base_url);
         // Build headers via ProviderHeaders to ensure consistency and support custom headers
-        let mut headers = crate::utils::http_headers::ProviderHeaders::openai(
+        let headers = crate::utils::http_headers::ProviderHeaders::openai(
             self.config.api_key.expose_secret(),
             self.config.organization.as_deref(),
             self.config.project.as_deref(),
             &self.config.http_config.headers,
         )?;
-        crate::utils::http_headers::inject_tracing_headers(&mut headers);
         Ok(self.http_client.post(&url).headers(headers))
     }
 

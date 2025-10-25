@@ -213,7 +213,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 };
 
                 let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
-                match crate::transformers::response::ResponseTransformer::transform_chat_response(
+                match crate::execution::transformers::response::ResponseTransformer::transform_chat_response(
                     &resp_tx, &json,
                 ) {
                     Ok(response) => {

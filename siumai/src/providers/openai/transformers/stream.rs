@@ -2,7 +2,7 @@
 
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::transformers::stream::StreamChunkTransformer;
+use crate::execution::transformers::stream::StreamChunkTransformer;
 use std::future::Future;
 use std::pin::Pin;
 

@@ -42,7 +42,7 @@
 
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
-use crate::transformers::{
+use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest, ProviderOptions};
@@ -132,20 +132,20 @@ pub struct ImageTransformers {
 /// Audio transformer (for TTS/STT)
 #[derive(Clone)]
 pub struct AudioTransformer {
-    pub transformer: Arc<dyn crate::transformers::audio::AudioTransformer>,
+    pub transformer: Arc<dyn crate::execution::transformers::audio::AudioTransformer>,
 }
 
 /// Files transformer (for file operations)
 #[derive(Clone)]
 pub struct FilesTransformer {
-    pub transformer: Arc<dyn crate::transformers::files::FilesTransformer>,
+    pub transformer: Arc<dyn crate::execution::transformers::files::FilesTransformer>,
 }
 
 /// Transformers bundle required by rerank executors
 #[derive(Clone)]
 pub struct RerankTransformers {
-    pub request: Arc<dyn crate::transformers::rerank_request::RerankRequestTransformer>,
-    pub response: Arc<dyn crate::transformers::rerank_response::RerankResponseTransformer>,
+    pub request: Arc<dyn crate::execution::transformers::rerank_request::RerankRequestTransformer>,
+    pub response: Arc<dyn crate::execution::transformers::rerank_response::RerankResponseTransformer>,
 }
 
 /// Provider Specification: unified header building, routing, and transformer selection
@@ -176,7 +176,7 @@ pub trait ProviderSpec: Send + Sync {
         &self,
         req: &ChatRequest,
         _ctx: &ProviderContext,
-    ) -> Option<crate::executors::BeforeSendHook> {
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
         // Default: handle CustomProviderOptions
         default_custom_options_hook(self.id(), req)
     }
@@ -284,7 +284,7 @@ pub trait ProviderSpec: Send + Sync {
 pub fn default_custom_options_hook(
     provider_id: &str,
     req: &ChatRequest,
-) -> Option<crate::executors::BeforeSendHook> {
+) -> Option<crate::execution::executors::BeforeSendHook> {
     if let ProviderOptions::Custom {
         provider_id: custom_provider_id,
         options,

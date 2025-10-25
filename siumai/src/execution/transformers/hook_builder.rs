@@ -4,7 +4,7 @@
 //! with reusable components, making it easier to create custom transformers.
 
 use crate::error::LlmError;
-use crate::transformers::request::ProviderRequestHooks;
+use crate::execution::transformers::request::ProviderRequestHooks;
 use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest};
 use serde_json::Value;
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub type ImagePostProcessor =
 ///
 /// # Example
 /// ```rust,no_run
-/// use siumai::transformers::hook_builder::HookBuilder;
+/// use siumai::execution::transformers::hook_builder::HookBuilder;
 /// use serde_json::json;
 ///
 /// let hooks = HookBuilder::new()

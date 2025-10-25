@@ -1,7 +1,7 @@
 //! Audio executor traits
 
 use crate::error::LlmError;
-use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
+use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
 use crate::types::{SttRequest, TtsRequest};
 use std::sync::Arc;
 
@@ -34,7 +34,7 @@ impl AudioExecutor for HttpAudioExecutor {
         let url = format!("{}{}", base_url, self.transformer.tts_endpoint());
 
         // Use common bytes execution (JSON only)
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -45,10 +45,10 @@ impl AudioExecutor for HttpAudioExecutor {
 
         match body {
             AudioHttpBody::Json(json) => {
-                let result = crate::executors::common::execute_bytes_request(
+                let result = crate::execution::executors::common::execute_bytes_request(
                     &config,
                     &url,
-                    crate::executors::common::HttpBody::Json(json),
+                    crate::execution::executors::common::HttpBody::Json(json),
                     None,
                 )
                 .await?;
@@ -56,8 +56,7 @@ impl AudioExecutor for HttpAudioExecutor {
             }
             AudioHttpBody::Multipart(form) => {
                 // Fallback to direct send for multipart
-                let mut headers = self.provider_spec.build_headers(&self.provider_context)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
+                let headers = self.provider_spec.build_headers(&self.provider_context)?;
                 let resp = self
                     .http_client
                     .post(url)
@@ -95,7 +94,7 @@ impl AudioExecutor for HttpAudioExecutor {
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.stt_endpoint());
 
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -107,17 +106,17 @@ impl AudioExecutor for HttpAudioExecutor {
         let per_request_headers = None;
         let result = match body {
             AudioHttpBody::Json(json) => {
-                crate::executors::common::execute_json_request(
+                crate::execution::executors::common::execute_json_request(
                     &config,
                     &url,
-                    crate::executors::common::HttpBody::Json(json),
+                    crate::execution::executors::common::HttpBody::Json(json),
                     per_request_headers,
                     false,
                 )
                 .await?
             }
             AudioHttpBody::Multipart(_) => {
-                crate::executors::common::execute_multipart_request(
+                crate::execution::executors::common::execute_multipart_request(
                     &config,
                     &url,
                     || match self.transformer.build_stt_body(&req)? {

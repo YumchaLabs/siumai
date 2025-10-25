@@ -118,14 +118,11 @@ pub mod utils;
 pub mod web_search;
 
 // Refactor modules now part of the core (no feature gates)
-pub mod executors;
 pub mod highlevel;
-pub mod middleware;
 pub mod orchestrator;
 pub mod provider_tools;
 pub mod public;
 pub mod standards;
-pub mod transformers;
 
 // Re-export main types and traits
 pub use error::LlmError;
@@ -236,7 +233,7 @@ pub mod prelude {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let reg = registry::global();
     /// let model = reg.language_model("openai:gpt-4")?;
-    /// let resp = model.chat(vec![user!("Hello!")], None).await?;
+    /// let resp = model.chat(vec![user!("Hello!")]).await?;
     /// # Ok(())
     /// # }
     /// ```

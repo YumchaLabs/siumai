@@ -17,7 +17,7 @@ use super::chat::GeminiChatCapability;
 use super::files::GeminiFiles;
 use super::models::GeminiModels;
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::utils::http_interceptor::HttpInterceptor;
 
@@ -492,9 +492,9 @@ impl GeminiClient {
     async fn build_chat_executor(
         &self,
         request: &ChatRequest,
-    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
         use crate::core::ProviderSpec;
-        use crate::executors::chat::ChatExecutorBuilder;
+        use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context().await;
         let spec = Arc::new(crate::providers::gemini::spec::GeminiSpec);
@@ -518,7 +518,7 @@ impl GeminiClient {
 
     /// Execute chat request via spec (unified implementation)
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request).await;
         ChatExecutor::execute(&*exec, request).await
@@ -529,7 +529,7 @@ impl GeminiClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request).await;
         ChatExecutor::execute_stream(&*exec, request).await
@@ -578,7 +578,7 @@ impl ChatCapability for GeminiClient {
 #[async_trait]
 impl EmbeddingCapability for GeminiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
         // Enforce provider limit on number of inputs per call (parity with official SDKs)
         // Google Generative AI supports up to 2048 inputs per batchEmbedContents call.
         // if texts.len() > 2048 {
@@ -620,12 +620,10 @@ impl EmbeddingCapability for GeminiClient {
                 ctx: &ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
                 let api_key = ctx.api_key.as_deref().unwrap_or("");
-                let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+                crate::utils::http_headers::ProviderHeaders::gemini(
                     api_key,
                     &ctx.http_extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
+                )
             }
 
             fn chat_url(
@@ -761,7 +759,7 @@ impl EmbeddingExtensions for GeminiClient {
         &self,
         request: EmbeddingRequest,
     ) -> Result<EmbeddingResponse, LlmError> {
-        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
         // Enforce provider limit on number of inputs per call
         if request.input.len() > 2048 {
             return Err(LlmError::InvalidParameter(format!(
@@ -793,12 +791,10 @@ impl EmbeddingExtensions for GeminiClient {
                 ctx: &ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
                 let api_key = ctx.api_key.as_deref().unwrap_or("");
-                let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+                crate::utils::http_headers::ProviderHeaders::gemini(
                     api_key,
                     &ctx.http_extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
+                )
             }
 
             fn chat_url(
@@ -933,7 +929,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
         request: crate::types::ImageGenerationRequest,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
         use crate::core::{ProviderContext, ProviderSpec};
-        use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+        use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
         use secrecy::ExposeSecret;
 
         // Get token from token_provider if available
@@ -964,12 +960,10 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 ctx: &ProviderContext,
             ) -> Result<reqwest::header::HeaderMap, crate::error::LlmError> {
                 let api_key = ctx.api_key.as_deref().unwrap_or("");
-                let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+                crate::utils::http_headers::ProviderHeaders::gemini(
                     api_key,
                     &ctx.http_extra_headers,
-                )?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
+                )
             }
 
             fn chat_url(

@@ -3,7 +3,7 @@
 //! References:
 //! - OpenAI Moderations API: https://platform.openai.com/docs/api-reference/moderations
 
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 
 #[test]
 fn moderation_accepts_array_input_and_maps_to_input_array() {

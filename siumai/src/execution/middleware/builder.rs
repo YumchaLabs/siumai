@@ -11,7 +11,7 @@ use std::sync::Arc;
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::middleware::MiddlewareBuilder;
+/// use siumai::execution::middleware::MiddlewareBuilder;
 /// use std::sync::Arc;
 ///
 /// let mut builder = MiddlewareBuilder::new();

@@ -14,10 +14,7 @@ use std::collections::HashMap;
 
 /// Build HTTP headers for Ollama requests
 pub fn build_headers(additional_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
-    let mut headers = ProviderHeaders::ollama(additional_headers)?;
-    // Unified tracing headers injection
-    crate::utils::http_headers::inject_tracing_headers(&mut headers);
-    Ok(headers)
+    ProviderHeaders::ollama(additional_headers)
 }
 
 /// Convert common `ChatMessage` to Ollama format

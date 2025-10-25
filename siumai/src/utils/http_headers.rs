@@ -241,25 +241,7 @@ impl ProviderHeaders {
     }
 }
 
-/// Inject tracing headers into a HeaderMap.
-/// Always injects `X-Trace-Id` and `X-Span-Id`.
-/// If W3C trace is enabled (via env or config), also injects `traceparent`.
-pub fn inject_tracing_headers(headers: &mut HeaderMap) {
-    let tid = crate::tracing::TraceId::new().to_string();
-    let sid = crate::tracing::SpanId::new().to_string();
-    if let Ok(v) = HeaderValue::from_str(&tid) {
-        let _ = headers.insert("X-Trace-Id", v);
-    }
-    if let Ok(v) = HeaderValue::from_str(&sid) {
-        let _ = headers.insert("X-Span-Id", v);
-    }
-    if crate::tracing::w3c_trace_enabled() {
-        let tp = crate::tracing::create_w3c_traceparent();
-        if let Ok(v) = HeaderValue::from_str(&tp) {
-            let _ = headers.insert("traceparent", v);
-        }
-    }
-}
+
 
 /// Merge extra headers into base headers (immutable version).
 ///
@@ -402,35 +384,5 @@ mod tests {
         assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
     }
 
-    #[test]
-    fn test_inject_tracing_headers_basic() {
-        let _g = TRACING_TOGGLE_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap();
-        // Ensure W3C trace is disabled for this test
-        crate::tracing::set_w3c_trace_enabled(false);
-        let mut headers = HeaderMap::new();
-        super::inject_tracing_headers(&mut headers);
-        assert!(headers.get("X-Trace-Id").is_some());
-        assert!(headers.get("X-Span-Id").is_some());
-        // Note: Other tests may toggle W3C concurrently; only assert absence if flag is false now
-        // Note: Other tests may toggle W3C concurrently; asserting absence here is flaky.
-        // We only assert required headers; traceparent presence depends on global state.
-    }
 
-    #[test]
-    fn test_inject_tracing_headers_w3c() {
-        let _g = TRACING_TOGGLE_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap();
-        // Enable W3C trace headers for this test
-        crate::tracing::set_w3c_trace_enabled(true);
-        let mut headers = HeaderMap::new();
-        super::inject_tracing_headers(&mut headers);
-        assert!(headers.get("traceparent").is_some());
-        // Reset after test
-        crate::tracing::set_w3c_trace_enabled(false);
-    }
 }

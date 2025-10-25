@@ -326,12 +326,13 @@ pub fn global_registry() -> &'static Mutex<ProviderRegistry> {
 ///
 /// # Example
 /// ```rust,no_run
+/// use siumai::prelude::*;
 /// use siumai::registry;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let reg = registry::global();
 /// let model = reg.language_model("openai:gpt-4")?;
-/// let resp = model.chat(vec![siumai::user!("Hello!")], None).await?;
+/// let resp = model.chat(vec![user!("Hello!")]).await?;
 /// # Ok(())
 /// # }
 /// ```

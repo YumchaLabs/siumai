@@ -12,9 +12,9 @@ use serde_json::json;
 use crate::error::LlmError;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::traits::RerankCapability;
-use crate::transformers::request::RequestTransformer;
+use crate::execution::transformers::request::RequestTransformer;
 use crate::types::{HttpConfig, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage};
-use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::utils::http_headers::ProviderHeaders;
 
 /// OpenAI-compatible rerank capability implementation
 #[derive(Debug, Clone)]
@@ -72,14 +72,12 @@ impl OpenAiRerank {
 
     /// Build request headers
     fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let mut headers = ProviderHeaders::openai(
+        ProviderHeaders::openai(
             self.api_key.expose_secret(),
             self.organization.as_deref(),
             self.project.as_deref(),
             &self.http_config.headers,
-        )?;
-        inject_tracing_headers(&mut headers);
-        Ok(headers)
+        )
     }
 
     /// Convert rerank request to JSON payload (via centralized transformer)

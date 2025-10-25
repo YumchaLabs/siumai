@@ -284,8 +284,8 @@ impl ProviderCore {
         &self,
         provider_id: &str,
         model_id: &str,
-    ) -> Vec<Arc<dyn crate::middleware::LanguageModelMiddleware>> {
-        crate::middleware::build_auto_middlewares_vec(provider_id, model_id)
+    ) -> Vec<Arc<dyn crate::execution::middleware::LanguageModelMiddleware>> {
+        crate::execution::middleware::build_auto_middlewares_vec(provider_id, model_id)
     }
 }
 

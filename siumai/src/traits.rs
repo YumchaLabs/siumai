@@ -1,6 +1,84 @@
-//! Core Trait Definitions (modular)
+//! Core Trait Definitions
 //!
-//! Traits are organized under `traits/*` and re-exported here for a stable API.
+//! This module defines all capability traits for LLM providers, organized by functionality.
+//!
+//! ## Module Organization
+//!
+//! Traits are organized in separate files under `traits/` and re-exported here for a stable API:
+//!
+//! - **`chat`** - Chat completion capabilities (`ChatCapability`, `ChatExtensions`)
+//! - **`embedding`** - Embedding generation capabilities (`EmbeddingCapability`, `EmbeddingExtensions`)
+//! - **`vision`** - Vision/image analysis capabilities (`VisionCapability`)
+//! - **`image`** - Image generation capabilities (`ImageGenerationCapability`)
+//! - **`audio`** - Audio transcription/generation capabilities (`AudioCapability`)
+//! - **`files`** - File management capabilities (`FileManagementCapability`)
+//! - **`moderation`** - Content moderation capabilities (`ModerationCapability`)
+//! - **`rerank`** - Document reranking capabilities (`RerankCapability`)
+//! - **`provider_specific`** - Provider-specific capabilities (OpenAI, Anthropic, Gemini, etc.)
+//!
+//! ## Usage Guidelines
+//!
+//! ### For Application Developers
+//!
+//! Import traits from the prelude (recommended) or directly from this module:
+//!
+//! ```rust
+//! use siumai::prelude::*;  // Recommended - imports all common traits
+//! ```
+//!
+//! Or import specific traits:
+//!
+//! ```rust
+//! use siumai::traits::{ChatCapability, EmbeddingCapability};
+//! ```
+//!
+//! Traits are also re-exported from `core` for convenience:
+//!
+//! ```rust
+//! use siumai::core::{ChatCapability, EmbeddingCapability};
+//! ```
+//!
+//! ### Trait Hierarchy
+//!
+//! #### Core Capability Traits
+//! - `ChatCapability` - Basic chat completion
+//! - `EmbeddingCapability` - Vector embeddings
+//! - `VisionCapability` - Image analysis and generation
+//! - `AudioCapability` - Audio processing
+//! - `ImageGenerationCapability` - Image generation
+//!
+//! #### Extension Traits
+//! - `ChatExtensions` - Convenience methods for chat (auto-implemented)
+//! - `EmbeddingExtensions` - Convenience methods for embeddings (auto-implemented)
+//!
+//! #### Provider-Specific Traits
+//! - `OpenAiCapability` - OpenAI-specific features (structured output, batch API, etc.)
+//! - `AnthropicCapability` - Anthropic-specific features (caching, thinking mode, etc.)
+//! - `GeminiCapability` - Gemini-specific features (search, code execution, etc.)
+//!
+//! ## Design Principles
+//!
+//! 1. **Capability-based**: Each trait represents a specific capability
+//! 2. **Composable**: Providers can implement multiple traits
+//! 3. **Async-first**: All methods are async for non-blocking I/O
+//! 4. **Send + Sync**: All traits are thread-safe for concurrent usage
+//! 5. **Extension traits**: Provide convenience methods without breaking changes
+//!
+//! ## Example: Using Capabilities
+//!
+//! ```rust,ignore
+//! use siumai::prelude::*;
+//!
+//! async fn example(client: impl ChatCapability + EmbeddingCapability) -> Result<(), LlmError> {
+//!     // Use chat capability
+//!     let response = client.chat(vec![user!("Hello!")]).await?;
+//!
+//!     // Use embedding capability
+//!     let embeddings = client.embed(vec!["Hello world".to_string()]).await?;
+//!
+//!     Ok(())
+//! }
+//! ```
 
 // Re-export modular traits
 mod chat;

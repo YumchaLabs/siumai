@@ -6,7 +6,7 @@
 //! - on_stream_error
 
 use siumai::error::LlmError;
-use siumai::middleware::language_model::LanguageModelMiddleware;
+use siumai::execution::middleware::language_model::LanguageModelMiddleware;
 use siumai::streaming::ChatStreamEvent;
 use siumai::types::{ChatRequest, ChatResponse, FinishReason, MessageContent};
 use std::sync::Arc;
@@ -121,7 +121,7 @@ fn test_transform_json_body_chain() {
     });
 
     // Apply chain
-    let result = siumai::middleware::language_model::apply_json_body_transform_chain(
+    let result = siumai::execution::middleware::language_model::apply_json_body_transform_chain(
         &middlewares,
         &req,
         &mut body,
@@ -199,7 +199,7 @@ fn test_apply_stream_event_chain_with_stream_end() {
 
     // Apply chain
     let result =
-        siumai::middleware::language_model::apply_stream_event_chain(&middlewares, &req, event);
+        siumai::execution::middleware::language_model::apply_stream_event_chain(&middlewares, &req, event);
 
     // Verify on_stream_end was called
     assert!(result.is_ok());
@@ -218,7 +218,7 @@ fn test_apply_stream_event_chain_with_error() {
 
     // Apply chain
     let result =
-        siumai::middleware::language_model::apply_stream_event_chain(&middlewares, &req, event);
+        siumai::execution::middleware::language_model::apply_stream_event_chain(&middlewares, &req, event);
 
     // Verify on_stream_error was called
     assert!(result.is_ok());
@@ -294,7 +294,7 @@ fn test_multiple_middlewares_execution_order() {
     let req = ChatRequest::new(vec![]);
     let mut body = serde_json::json!({});
 
-    let result = siumai::middleware::language_model::apply_json_body_transform_chain(
+    let result = siumai::execution::middleware::language_model::apply_json_body_transform_chain(
         &middlewares,
         &req,
         &mut body,

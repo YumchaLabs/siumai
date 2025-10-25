@@ -10,7 +10,7 @@ use crate::error::LlmError;
 use crate::providers::openai::utils::convert_messages;
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
-use crate::transformers::{
+use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{

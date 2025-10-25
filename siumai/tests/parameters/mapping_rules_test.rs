@@ -1,6 +1,6 @@
 //! Mapping rules tests focusing on stable, spec-aligned validations and field placement.
 
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 
 #[test]
 fn openai_o1_models_forbid_temperature_and_top_p() {
@@ -49,7 +49,7 @@ fn openai_tools_upper_bound() {
 fn gemini_generation_config_mapping() {
     use siumai::providers::gemini::transformers::GeminiRequestTransformer;
     use siumai::providers::gemini::types::GeminiConfig;
-    use siumai::transformers::request::RequestTransformer;
+    use siumai::execution::transformers::request::RequestTransformer;
     use siumai::types::{ChatMessage, ChatRequest, CommonParams, MessageContent, MessageRole};
 
     let cfg = GeminiConfig { api_key: String::new(), base_url: String::new(), model: "gemini-1.5-pro".into(), generation_config: None, safety_settings: None, timeout: None };

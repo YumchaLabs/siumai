@@ -1,7 +1,7 @@
 //! Verify OpenAI request transformer adds `stream` and `stream_options` when streaming
 
 use siumai::providers::openai::transformers::request::OpenAiRequestTransformer;
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 use siumai::types::{ChatRequest, ProviderParams, CommonParams};
 
 #[test]

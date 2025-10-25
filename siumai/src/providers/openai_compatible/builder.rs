@@ -498,7 +498,7 @@ impl OpenAiCompatibleBuilder {
 
         // Install automatic middlewares based on provider and model
         let middlewares =
-            crate::middleware::build_auto_middlewares_vec(&self.provider_id, &model_id);
+            crate::execution::middleware::build_auto_middlewares_vec(&self.provider_id, &model_id);
         client = client.with_model_middlewares(middlewares);
 
         Ok(client)

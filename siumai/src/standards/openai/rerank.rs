@@ -24,8 +24,8 @@
 
 use crate::core::RerankTransformers;
 use crate::error::LlmError;
-use crate::transformers::rerank_request::RerankRequestTransformer;
-use crate::transformers::rerank_response::RerankResponseTransformer;
+use crate::execution::transformers::rerank_request::RerankRequestTransformer;
+use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{RerankRequest, RerankResponse};
 use std::sync::Arc;
 

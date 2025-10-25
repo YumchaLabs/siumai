@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use reqwest::Client as HttpClient;
 
 use crate::error::LlmError;
-use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::ChatRequest;
 
 use crate::streaming::ChatStream;

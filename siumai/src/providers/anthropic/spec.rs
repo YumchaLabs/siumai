@@ -3,7 +3,7 @@ use crate::error::LlmError;
 use crate::standards::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
-use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::utils::http_headers::ProviderHeaders;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -44,9 +44,7 @@ impl ProviderSpec for AnthropicSpec {
             .api_key
             .as_ref()
             .ok_or_else(|| LlmError::MissingApiKey("Anthropic API key not provided".into()))?;
-        let mut headers = ProviderHeaders::anthropic(api_key, &ctx.http_extra_headers)?;
-        inject_tracing_headers(&mut headers);
-        Ok(headers)
+        ProviderHeaders::anthropic(api_key, &ctx.http_extra_headers)
     }
 
     fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
@@ -67,7 +65,7 @@ impl ProviderSpec for AnthropicSpec {
         &self,
         req: &ChatRequest,
         _ctx: &ProviderContext,
-    ) -> Option<crate::executors::BeforeSendHook> {
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
         if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
             return Some(hook);

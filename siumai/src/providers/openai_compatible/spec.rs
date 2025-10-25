@@ -4,7 +4,7 @@ use crate::core::{
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
-use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::utils::http_headers::ProviderHeaders;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -38,14 +38,12 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         })?;
         // Use OpenAI-style Bearer with pass-through custom headers; adapter-level custom
         // headers should have been injected into `ctx.http_extra_headers` by the builder.
-        let mut headers = ProviderHeaders::openai(
+        ProviderHeaders::openai(
             api_key,
             ctx.organization.as_deref(),
             ctx.project.as_deref(),
             &ctx.http_extra_headers,
-        )?;
-        inject_tracing_headers(&mut headers);
-        Ok(headers)
+        )
     }
 
     fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {

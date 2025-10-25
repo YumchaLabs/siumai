@@ -1,7 +1,7 @@
 //! Files executor traits
 
 use crate::error::LlmError;
-use crate::transformers::files::{FilesHttpBody, FilesTransformer};
+use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 use crate::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
 };
@@ -45,7 +45,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let url = format!("{}{}", base_url, self.transformer.upload_endpoint(&req));
 
         // 2. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -60,10 +60,10 @@ impl FilesExecutor for HttpFilesExecutor {
         let result = match body {
             FilesHttpBody::Json(json) => {
                 // Use JSON request path
-                crate::executors::common::execute_json_request(
+                crate::execution::executors::common::execute_json_request(
                     &config,
                     &url,
-                    crate::executors::common::HttpBody::Json(json),
+                    crate::execution::executors::common::HttpBody::Json(json),
                     per_request_headers,
                     false, // stream = false
                 )
@@ -72,7 +72,7 @@ impl FilesExecutor for HttpFilesExecutor {
             FilesHttpBody::Multipart(_) => {
                 // Use multipart request path
                 let req_clone = req.clone();
-                crate::executors::common::execute_multipart_request(
+                crate::execution::executors::common::execute_multipart_request(
                     &config,
                     &url,
                     || {
@@ -108,7 +108,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let url = format!("{}{}", base_url, endpoint);
 
         // 2. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -125,7 +125,7 @@ impl FilesExecutor for HttpFilesExecutor {
 
         // 4. Execute GET request using common HTTP layer
         let result =
-            crate::executors::common::execute_get_request(&config, &url, per_request_headers)
+            crate::execution::executors::common::execute_get_request(&config, &url, per_request_headers)
                 .await?;
 
         // 5. Transform response
@@ -145,7 +145,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let url = format!("{}{}", base_url, endpoint);
 
         // 2. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -155,7 +155,7 @@ impl FilesExecutor for HttpFilesExecutor {
         };
 
         // 3. Execute GET request using common HTTP layer
-        let result = crate::executors::common::execute_get_request(
+        let result = crate::execution::executors::common::execute_get_request(
             &config, &url, None, // No per-request headers for retrieve
         )
         .await?;
@@ -177,7 +177,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let url = format!("{}{}", base_url, endpoint);
 
         // 2. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -187,7 +187,7 @@ impl FilesExecutor for HttpFilesExecutor {
         };
 
         // 3. Execute DELETE request using common HTTP layer
-        let _result = crate::executors::common::execute_delete_request(
+        let _result = crate::execution::executors::common::execute_delete_request(
             &config, &url, None, // No per-request headers for delete
         )
         .await?;
@@ -220,7 +220,7 @@ impl FilesExecutor for HttpFilesExecutor {
         };
 
         // 2. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -230,7 +230,7 @@ impl FilesExecutor for HttpFilesExecutor {
         };
 
         // 3. Execute GET request for binary content using common HTTP layer
-        let result = crate::executors::common::execute_get_binary(
+        let result = crate::execution::executors::common::execute_get_binary(
             &config, &url, None, // No per-request headers for get_content
         )
         .await?;

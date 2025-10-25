@@ -1,7 +1,7 @@
 //! Response transformers for OpenAI (Chat/Embedding/Image) and OpenAI Responses API
 
 use crate::error::LlmError;
-use crate::transformers::response::ResponseTransformer;
+use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
     ChatResponse, EmbeddingResponse, EmbeddingUsage, GeneratedImage, ImageGenerationResponse,
 };

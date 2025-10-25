@@ -12,7 +12,7 @@ use crate::types::*;
 
 // use super::types::*;
 use super::utils::*;
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::utils::http_interceptor::HttpInterceptor;
 use secrecy::SecretString;
 use std::sync::Arc;
@@ -72,7 +72,7 @@ impl ChatCapability for XaiChatCapability {
             common_params: self.common_params.clone(),
             ..Default::default()
         };
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
         let ctx = crate::core::ProviderContext::new(
             "xai",
@@ -116,7 +116,7 @@ impl ChatCapability for XaiChatCapability {
             ..Default::default()
         };
 
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
         let ctx = crate::core::ProviderContext::new(
             "xai",
@@ -150,7 +150,7 @@ impl ChatCapability for XaiChatCapability {
 impl XaiChatCapability {
     /// Execute chat with a fully-formed ChatRequest (used for advanced provider params flows)
     pub async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
+        use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
 
         // Create a simple spec for this legacy method

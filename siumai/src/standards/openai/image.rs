@@ -23,8 +23,8 @@
 //! ```
 
 use crate::error::LlmError;
-use crate::transformers::request::{ImageHttpBody, RequestTransformer};
-use crate::transformers::response::ResponseTransformer;
+use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer};
+use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
     ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
 };

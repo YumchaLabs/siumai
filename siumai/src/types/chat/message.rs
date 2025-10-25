@@ -24,6 +24,7 @@ pub enum MessageRole {
 ///
 /// ```rust
 /// use siumai::types::{ChatMessage, ContentPart};
+/// use serde_json::json;
 ///
 /// // Simple text message
 /// let msg = ChatMessage::user("Hello!").build();
@@ -31,15 +32,14 @@ pub enum MessageRole {
 /// // Message with tool call
 /// let msg = ChatMessage::assistant_with_content(vec![
 ///     ContentPart::text("Let me search for that..."),
-///     ContentPart::tool_call("call_123", "search", r#"{"query":"rust"}"#, None),
+///     ContentPart::tool_call("call_123", "search", json!({"query":"rust"}), None),
 /// ]).build();
 ///
 /// // Tool result message
-/// let msg = ChatMessage::tool_result(
+/// let msg = ChatMessage::tool_result_json(
 ///     "call_123",
 ///     "search",
-///     r#"{"results":["..."]}"#,
-///     false,
+///     json!({"results":["..."]}),
 /// ).build();
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,10 +86,11 @@ impl ChatMessage {
     ///
     /// ```rust
     /// use siumai::types::{ChatMessage, ContentPart};
+    /// use serde_json::json;
     ///
     /// let msg = ChatMessage::assistant_with_content(vec![
     ///     ContentPart::text("Let me search for that..."),
-    ///     ContentPart::tool_call("call_123", "search", r#"{"query":"rust"}"#, None),
+    ///     ContentPart::tool_call("call_123", "search", json!({"query":"rust"}), None),
     /// ]).build();
     /// ```
     pub fn assistant_with_content(content: Vec<ContentPart>) -> ChatMessageBuilder {
@@ -293,10 +294,11 @@ impl ChatMessage {
     ///
     /// ```rust
     /// use siumai::types::{ChatMessage, ContentPart};
+    /// use serde_json::json;
     ///
     /// let msg = ChatMessage::assistant_with_content(vec![
     ///     ContentPart::text("Let me search..."),
-    ///     ContentPart::tool_call("call_123", "search", r#"{}"#, None),
+    ///     ContentPart::tool_call("call_123", "search", json!({}), None),
     /// ]).build();
     ///
     /// let tool_calls = msg.tool_calls();
@@ -317,12 +319,12 @@ impl ChatMessage {
     ///
     /// ```rust
     /// use siumai::types::ChatMessage;
+    /// use serde_json::json;
     ///
-    /// let msg = ChatMessage::tool_result(
+    /// let msg = ChatMessage::tool_result_json(
     ///     "call_123",
     ///     "search",
-    ///     r#"{"results":[]}"#,
-    ///     false,
+    ///     json!({"results":[]}),
     /// ).build();
     ///
     /// let results = msg.tool_results();

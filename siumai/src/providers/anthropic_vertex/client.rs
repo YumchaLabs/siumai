@@ -8,8 +8,8 @@ use reqwest::Client as HttpClient;
 use std::sync::Arc;
 
 use crate::error::LlmError;
-use crate::executors::chat::HttpChatExecutor;
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::executors::chat::HttpChatExecutor;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 
 use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability};
@@ -55,10 +55,7 @@ impl VertexAnthropicClient {
         move || {
             let extra = extra.clone();
             Box::pin(async move {
-                let mut headers =
-                    crate::utils::http_headers::ProviderHeaders::vertex_bearer(&extra)?;
-                crate::utils::http_headers::inject_tracing_headers(&mut headers);
-                Ok(headers)
+                crate::utils::http_headers::ProviderHeaders::vertex_bearer(&extra)
             })
                 as std::pin::Pin<
                     Box<
@@ -95,7 +92,7 @@ impl VertexAnthropicClient {
     /// Create chat executor using the builder pattern
     fn build_chat_executor(&self, request: &ChatRequest) -> Arc<HttpChatExecutor> {
         use crate::core::ProviderSpec;
-        use crate::executors::chat::ChatExecutorBuilder;
+        use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context();
         let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
@@ -123,7 +120,7 @@ impl VertexAnthropicClient {
 
     /// Execute chat request via spec (unified implementation)
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
@@ -134,7 +131,7 @@ impl VertexAnthropicClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await

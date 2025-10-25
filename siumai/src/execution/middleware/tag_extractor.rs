@@ -14,7 +14,7 @@
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::middleware::TagConfig;
+/// use siumai::execution::middleware::TagConfig;
 ///
 /// let config = TagConfig::new("<think>", "</think>")
 ///     .with_separator("\n");
@@ -113,7 +113,7 @@ pub struct TagExtractionResult {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::middleware::{TagConfig, TagExtractor};
+/// use siumai::execution::middleware::{TagConfig, TagExtractor};
 ///
 /// let config = TagConfig::new("<think>", "</think>");
 /// let mut extractor = TagExtractor::new(config);

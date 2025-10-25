@@ -77,7 +77,7 @@ impl ProviderSpec for VertexAnthropicSpec {
                 };
             Some(Arc::new(stream_tx)
                 as Arc<
-                    dyn crate::transformers::stream::StreamChunkTransformer,
+                    dyn crate::execution::transformers::stream::StreamChunkTransformer,
                 >)
         } else {
             None

@@ -1,12 +1,10 @@
-//! Embedding Types and Structures
-//!
-//! This module defines all types related to text embedding functionality,
-//! including requests, responses, and configuration options.
+//! Embedding Request Types
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::HttpConfig;
+use crate::types::HttpConfig;
+use super::common::{EmbeddingFormat, EmbeddingTaskType};
 
 /// Embedding request configuration
 #[derive(Debug, Clone, Default)]
@@ -146,159 +144,7 @@ impl EmbeddingRequest {
     }
 }
 
-/// Supported embedding formats
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EmbeddingFormat {
-    /// Standard float32 vectors
-    Float,
-    /// Base64 encoded vectors (if supported)
-    Base64,
-}
-
-/// Embedding response containing vectors and metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddingResponse {
-    /// Embedding vectors (one per input text)
-    pub embeddings: Vec<Vec<f32>>,
-    /// Model that generated the embeddings
-    pub model: String,
-    /// Token usage information
-    pub usage: Option<EmbeddingUsage>,
-    /// Provider-specific metadata
-    #[serde(default)]
-    pub metadata: HashMap<String, serde_json::Value>,
-}
-
-impl EmbeddingResponse {
-    /// Create a new embedding response
-    pub fn new(embeddings: Vec<Vec<f32>>, model: String) -> Self {
-        Self {
-            embeddings,
-            model,
-            usage: None,
-            metadata: HashMap::new(),
-        }
-    }
-
-    /// Get the number of embeddings
-    pub fn count(&self) -> usize {
-        self.embeddings.len()
-    }
-
-    /// Get the dimension of embeddings (assumes all have same dimension)
-    pub fn dimension(&self) -> Option<usize> {
-        self.embeddings.first().map(|e| e.len())
-    }
-
-    /// Check if response is empty
-    pub fn is_empty(&self) -> bool {
-        self.embeddings.is_empty()
-    }
-
-    /// Get embedding at index
-    pub fn get(&self, index: usize) -> Option<&Vec<f32>> {
-        self.embeddings.get(index)
-    }
-
-    /// Add metadata
-    pub fn with_metadata(mut self, key: String, value: serde_json::Value) -> Self {
-        self.metadata.insert(key, value);
-        self
-    }
-
-    /// Set usage information
-    pub fn with_usage(mut self, usage: EmbeddingUsage) -> Self {
-        self.usage = Some(usage);
-        self
-    }
-}
-
-/// Token usage information for embeddings
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddingUsage {
-    /// Number of input tokens processed
-    pub prompt_tokens: u32,
-    /// Total tokens (usually same as prompt_tokens for embeddings)
-    pub total_tokens: u32,
-}
-
-impl EmbeddingUsage {
-    /// Create new usage information
-    pub fn new(prompt_tokens: u32, total_tokens: u32) -> Self {
-        Self {
-            prompt_tokens,
-            total_tokens,
-        }
-    }
-}
-
-/// Embedding task type for optimization (provider-specific)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum EmbeddingTaskType {
-    /// Retrieval query
-    RetrievalQuery,
-    /// Retrieval document
-    RetrievalDocument,
-    /// Semantic similarity
-    SemanticSimilarity,
-    /// Classification
-    Classification,
-    /// Clustering
-    Clustering,
-    /// Question answering
-    QuestionAnswering,
-    /// Fact verification
-    FactVerification,
-    /// Unspecified task
-    Unspecified,
-}
-
-/// Embedding model information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddingModelInfo {
-    /// Model identifier
-    pub id: String,
-    /// Model name
-    pub name: String,
-    /// Embedding dimension
-    pub dimension: usize,
-    /// Maximum input tokens
-    pub max_input_tokens: usize,
-    /// Supported task types
-    pub supported_tasks: Vec<EmbeddingTaskType>,
-    /// Whether the model supports custom dimensions
-    pub supports_custom_dimensions: bool,
-}
-
-impl EmbeddingModelInfo {
-    /// Create new model info
-    pub fn new(id: String, name: String, dimension: usize, max_input_tokens: usize) -> Self {
-        Self {
-            id,
-            name,
-            dimension,
-            max_input_tokens,
-            supported_tasks: vec![EmbeddingTaskType::Unspecified],
-            supports_custom_dimensions: false,
-        }
-    }
-
-    /// Add supported task type
-    pub fn with_task(mut self, task: EmbeddingTaskType) -> Self {
-        self.supported_tasks.push(task);
-        self
-    }
-
-    /// Enable custom dimensions support
-    pub fn with_custom_dimensions(mut self) -> Self {
-        self.supports_custom_dimensions = true;
-        self
-    }
-}
-
-/// Batch embedding request for processing multiple sets of texts
+/// Batch embedding request for processing multiple requests
 #[derive(Debug, Clone)]
 pub struct BatchEmbeddingRequest {
     /// Multiple embedding requests
@@ -307,7 +153,29 @@ pub struct BatchEmbeddingRequest {
     pub batch_options: BatchOptions,
 }
 
-/// Options for batch processing
+impl BatchEmbeddingRequest {
+    /// Create a new batch request
+    pub fn new(requests: Vec<EmbeddingRequest>) -> Self {
+        Self {
+            requests,
+            batch_options: BatchOptions::default(),
+        }
+    }
+
+    /// Set batch options
+    pub fn with_options(mut self, options: BatchOptions) -> Self {
+        self.batch_options = options;
+        self
+    }
+
+    /// Set maximum concurrency
+    pub fn with_max_concurrency(mut self, max_concurrency: usize) -> Self {
+        self.batch_options.max_concurrency = Some(max_concurrency);
+        self
+    }
+}
+
+/// Batch processing options
 #[derive(Debug, Clone, Default)]
 pub struct BatchOptions {
     /// Maximum concurrent requests
@@ -318,11 +186,3 @@ pub struct BatchOptions {
     pub fail_fast: bool,
 }
 
-/// Batch embedding response
-#[derive(Debug, Clone)]
-pub struct BatchEmbeddingResponse {
-    /// Individual responses (same order as requests)
-    pub responses: Vec<Result<EmbeddingResponse, String>>,
-    /// Overall batch metadata
-    pub metadata: HashMap<String, serde_json::Value>,
-}

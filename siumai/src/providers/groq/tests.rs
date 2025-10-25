@@ -204,7 +204,7 @@ mod groq_tests {
 
     #[test]
     fn test_groq_audio_transformer_defaults() {
-        use crate::transformers::audio::{AudioHttpBody, AudioTransformer};
+        use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
         let tx = super::super::transformers::GroqAudioTransformer;
 
         // TTS defaults
@@ -294,7 +294,7 @@ mod groq_tests {
 
     #[test]
     fn test_request_transformer_exists() {
-        use crate::transformers::request::RequestTransformer;
+        use crate::execution::transformers::request::RequestTransformer;
         let tx = super::super::transformers::GroqRequestTransformer;
         assert_eq!(tx.provider_id(), "groq");
 

@@ -6,9 +6,9 @@ use super::openai_config::OpenAiCompatibleConfig;
 use crate::client::LlmClient;
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::executors::chat::{ChatExecutor, HttpChatExecutor};
-use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
-use crate::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
+use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
@@ -16,14 +16,14 @@ use crate::traits::{
     ChatCapability, EmbeddingCapability, ImageGenerationCapability, ModelListingCapability,
     RerankCapability,
 };
-// use crate::transformers::request::RequestTransformer; // unused
+// use crate::execution::transformers::request::RequestTransformer; // unused
 use crate::types::*;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 // removed: HashMap import not needed after legacy removal
-use crate::middleware::language_model::LanguageModelMiddleware;
-use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::utils::http_headers::ProviderHeaders;
 use crate::utils::http_interceptor::HttpInterceptor;
 
 /// OpenAI Compatible Chat Response with provider-specific fields
@@ -295,7 +295,6 @@ impl OpenAiCompatibleClient {
         for (k, v) in adapter_headers.iter() {
             headers.insert(k, v.clone());
         }
-        inject_tracing_headers(&mut headers);
         Ok(headers)
     }
 
@@ -502,7 +501,7 @@ impl RerankCapability for OpenAiCompatibleClient {
             &adapter_headers,
         )?;
 
-        let exec = crate::executors::rerank::HttpRerankExecutor {
+        let exec = crate::execution::executors::rerank::HttpRerankExecutor {
             provider_id: self.config.provider_id.clone(),
             http_client: self.http_client.clone(),
             request_transformer: transformers.request,
@@ -513,7 +512,7 @@ impl RerankCapability for OpenAiCompatibleClient {
             headers,
             before_send: None,
         };
-        crate::executors::rerank::RerankExecutor::execute(&exec, request).await
+        crate::execution::executors::rerank::RerankExecutor::execute(&exec, request).await
     }
 }
 

@@ -5,11 +5,11 @@
 
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::transformers::files::{FilesHttpBody, FilesTransformer};
-use crate::transformers::request::{
+use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
+use crate::execution::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
 };
-use crate::transformers::{
+use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::EmbeddingRequest;
@@ -131,7 +131,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                 },
             ],
             // provider_params merged via hooks when needed (function_calling)
-            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
         let generic = GenericRequestTransformer { profile, hooks };
         generic.transform_chat(req)
@@ -140,7 +140,7 @@ impl RequestTransformer for GeminiRequestTransformer {
     fn transform_embedding(&self, req: &EmbeddingRequest) -> Result<serde_json::Value, LlmError> {
         // Use Generic transformer hooks to build typed JSON; no extra rules for now
         struct GeminiEmbeddingHooks(super::types::GeminiConfig);
-        impl crate::transformers::request::ProviderRequestHooks for GeminiEmbeddingHooks {
+        impl crate::execution::transformers::request::ProviderRequestHooks for GeminiEmbeddingHooks {
             fn build_base_embedding_body(
                 &self,
                 req: &EmbeddingRequest,
@@ -229,19 +229,19 @@ impl RequestTransformer for GeminiRequestTransformer {
             }
         }
         let hooks = GeminiEmbeddingHooks(self.config.clone());
-        let profile = crate::transformers::request::MappingProfile {
+        let profile = crate::execution::transformers::request::MappingProfile {
             provider_id: "gemini",
             rules: vec![], // no generic rules; hook builds typed JSON
-            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        let generic = crate::transformers::request::GenericRequestTransformer { profile, hooks };
+        let generic = crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
         generic.transform_embedding(req)
     }
 
     fn transform_image(&self, req: &ImageGenerationRequest) -> Result<serde_json::Value, LlmError> {
         // Use Generic hooks to build typed JSON for generateContent (IMAGE)
         struct GeminiImageHooks(super::types::GeminiConfig);
-        impl crate::transformers::request::ProviderRequestHooks for GeminiImageHooks {
+        impl crate::execution::transformers::request::ProviderRequestHooks for GeminiImageHooks {
             fn build_base_image_body(
                 &self,
                 req: &ImageGenerationRequest,
@@ -286,12 +286,12 @@ impl RequestTransformer for GeminiRequestTransformer {
             }
         }
         let hooks = GeminiImageHooks(self.config.clone());
-        let profile = crate::transformers::request::MappingProfile {
+        let profile = crate::execution::transformers::request::MappingProfile {
             provider_id: "gemini",
             rules: vec![],
-            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
-        let generic = crate::transformers::request::GenericRequestTransformer { profile, hooks };
+        let generic = crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
         generic.transform_image(req)
     }
 }
@@ -760,7 +760,7 @@ impl FilesTransformer for GeminiFilesTransformer {
 #[cfg(test)]
 mod files_tests {
     use super::*;
-    use crate::transformers::files::{FilesHttpBody, FilesTransformer};
+    use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 
     fn sample_config() -> GeminiConfig {
         use secrecy::SecretString;
@@ -848,8 +848,8 @@ mod files_tests {
 #[cfg(test)]
 mod images_tests {
     use super::*;
-    use crate::transformers::request::RequestTransformer;
-    use crate::transformers::response::ResponseTransformer;
+    use crate::execution::transformers::request::RequestTransformer;
+    use crate::execution::transformers::response::ResponseTransformer;
 
     fn cfg() -> GeminiConfig {
         use secrecy::SecretString;
@@ -907,8 +907,8 @@ mod images_tests {
 #[cfg(test)]
 mod embeddings_tests {
     use super::*;
-    use crate::transformers::request::RequestTransformer;
-    use crate::transformers::response::ResponseTransformer;
+    use crate::execution::transformers::request::RequestTransformer;
+    use crate::execution::transformers::response::ResponseTransformer;
 
     fn cfg() -> GeminiConfig {
         use secrecy::SecretString;

@@ -552,11 +552,12 @@ impl Usage {
 /// use siumai::types::FinishReason;
 ///
 /// // Check if the response completed normally
+/// let finish_reason = Some(FinishReason::Stop);
 /// match finish_reason {
 ///     Some(FinishReason::Stop) => println!("✅ Completed successfully"),
 ///     Some(FinishReason::Length) => println!("⚠️ Reached max tokens"),
 ///     Some(FinishReason::ContentFilter) => println!("❌ Content filtered"),
-///     Some(FinishReason::Incomplete) => println!("❌ Stream interrupted"),
+///     Some(FinishReason::Unknown) => println!("❌ Stream interrupted or unknown"),
 ///     _ => println!("ℹ️ Other reason"),
 /// }
 /// ```

@@ -16,7 +16,7 @@ use crate::types::*;
 use super::api::GroqModels;
 use super::chat::GroqChatCapability;
 use super::config::GroqConfig;
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
@@ -210,7 +210,7 @@ impl AudioCapability for GroqClient {
         &self,
         request: crate::types::TtsRequest,
     ) -> Result<crate::types::TtsResponse, LlmError> {
-        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
+        use crate::execution::executors::audio::{AudioExecutor, HttpAudioExecutor};
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GroqSpec);
@@ -242,7 +242,7 @@ impl AudioCapability for GroqClient {
         &self,
         request: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
-        use crate::executors::audio::{AudioExecutor, HttpAudioExecutor};
+        use crate::execution::executors::audio::{AudioExecutor, HttpAudioExecutor};
         use secrecy::ExposeSecret;
 
         let spec = std::sync::Arc::new(super::spec::GroqSpec);
@@ -288,9 +288,9 @@ impl GroqClient {
     fn build_chat_executor(
         &self,
         request: &ChatRequest,
-    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
         use crate::core::ProviderSpec;
-        use crate::executors::chat::ChatExecutorBuilder;
+        use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::groq::spec::GroqSpec);
@@ -314,7 +314,7 @@ impl GroqClient {
 
     /// Execute chat request via spec (unified implementation)
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
@@ -325,7 +325,7 @@ impl GroqClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await

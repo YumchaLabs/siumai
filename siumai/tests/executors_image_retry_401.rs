@@ -6,8 +6,8 @@ use std::sync::{
 use serde_json::json;
 use siumai::core::{ImageTransformers, ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
-use siumai::executors::image::{HttpImageExecutor, ImageExecutor};
-use siumai::transformers::{
+use siumai::execution::executors::image::{HttpImageExecutor, ImageExecutor};
+use siumai::execution::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
 };
@@ -178,7 +178,7 @@ async fn image_executor_retries_on_401() {
 
     // Create dummy transformers
     use siumai::error::LlmError;
-    use siumai::transformers::{request::RequestTransformer, response::ResponseTransformer};
+    use siumai::execution::transformers::{request::RequestTransformer, response::ResponseTransformer};
 
     struct DummyRequestTransformer;
     impl RequestTransformer for DummyRequestTransformer {

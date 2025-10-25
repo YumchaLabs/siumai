@@ -6,7 +6,7 @@ use async_trait::async_trait;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
@@ -213,9 +213,9 @@ impl XaiClient {
     fn build_chat_executor(
         &self,
         request: &ChatRequest,
-    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
         use crate::core::ProviderSpec;
-        use crate::executors::chat::ChatExecutorBuilder;
+        use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::xai::spec::XaiSpec);
@@ -241,7 +241,7 @@ impl XaiClient {
 
     /// Execute chat request via spec (unified implementation)
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
@@ -252,7 +252,7 @@ impl XaiClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await

@@ -1,8 +1,8 @@
 //! Rerank executor traits
 
 use crate::error::LlmError;
-use crate::transformers::rerank_request::RerankRequestTransformer;
-use crate::transformers::rerank_response::RerankResponseTransformer;
+use crate::execution::transformers::rerank_request::RerankRequestTransformer;
+use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{RerankRequest, RerankResponse};
 use crate::utils::http_interceptor::HttpInterceptor;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ pub struct HttpRerankExecutor {
     pub retry_options: Option<crate::retry_api::RetryOptions>,
     pub url: String,
     pub headers: reqwest::header::HeaderMap,
-    pub before_send: Option<crate::executors::BeforeSendHook>,
+    pub before_send: Option<crate::execution::executors::BeforeSendHook>,
 }
 
 #[async_trait::async_trait]
@@ -34,7 +34,7 @@ impl RerankExecutor for HttpRerankExecutor {
         if let Some(cb) = &self.before_send {
             body = cb(&body)?;
         }
-        let result = crate::executors::common::execute_json_request_with_headers(
+        let result = crate::execution::executors::common::execute_json_request_with_headers(
             &self.http_client,
             &self.provider_id,
             &self.url,

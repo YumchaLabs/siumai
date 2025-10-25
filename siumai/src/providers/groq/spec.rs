@@ -1,7 +1,7 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
-use crate::utils::http_headers::{ProviderHeaders, inject_tracing_headers};
+use crate::utils::http_headers::ProviderHeaders;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -26,9 +26,7 @@ impl ProviderSpec for GroqSpec {
             .api_key
             .as_ref()
             .ok_or_else(|| LlmError::MissingApiKey("Groq API key not provided".into()))?;
-        let mut headers = ProviderHeaders::groq(api_key, &ctx.http_extra_headers)?;
-        inject_tracing_headers(&mut headers);
-        Ok(headers)
+        ProviderHeaders::groq(api_key, &ctx.http_extra_headers)
     }
 
     fn chat_url(

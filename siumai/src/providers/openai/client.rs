@@ -17,8 +17,8 @@ use super::models::OpenAiModels;
 use super::rerank::OpenAiRerank;
 use super::types::OpenAiSpecificParams;
 use super::utils::get_default_models;
-use crate::executors::chat::ChatExecutor;
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::executors::chat::ChatExecutor;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 
 /// `OpenAI` Client
@@ -226,9 +226,9 @@ impl OpenAiClient {
     fn build_chat_executor(
         &self,
         request: &ChatRequest,
-    ) -> Arc<crate::executors::chat::HttpChatExecutor> {
+    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
         use crate::core::ProviderSpec;
-        use crate::executors::chat::ChatExecutorBuilder;
+        use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
@@ -251,7 +251,7 @@ impl OpenAiClient {
     }
 
     /// Helper: Build EmbeddingExecutor with common configuration
-    fn build_embedding_executor(&self) -> Arc<crate::executors::embedding::HttpEmbeddingExecutor> {
+    fn build_embedding_executor(&self) -> Arc<crate::execution::executors::embedding::HttpEmbeddingExecutor> {
         use crate::core::ProviderSpec;
 
         let ctx = self.build_context();
@@ -259,7 +259,7 @@ impl OpenAiClient {
         let req = EmbeddingRequest::new(vec![]).with_model(self.common_params.model.clone());
         let bundle = spec.choose_embedding_transformers(&req, &ctx);
 
-        Arc::new(crate::executors::embedding::HttpEmbeddingExecutor {
+        Arc::new(crate::execution::executors::embedding::HttpEmbeddingExecutor {
             provider_id: "openai".to_string(),
             http_client: self.http_client.clone(),
             request_transformer: bundle.request,
@@ -276,14 +276,14 @@ impl OpenAiClient {
     fn build_image_executor(
         &self,
         request: &ImageGenerationRequest,
-    ) -> crate::executors::image::HttpImageExecutor {
+    ) -> crate::execution::executors::image::HttpImageExecutor {
         use crate::core::ProviderSpec;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
         let bundle = spec.choose_image_transformers(request, &ctx);
 
-        crate::executors::image::HttpImageExecutor {
+        crate::execution::executors::image::HttpImageExecutor {
             provider_id: "openai".to_string(),
             http_client: self.http_client.clone(),
             request_transformer: bundle.request,
@@ -297,11 +297,11 @@ impl OpenAiClient {
     }
 
     /// Helper: Build AudioExecutor with common configuration
-    fn build_audio_executor(&self) -> crate::executors::audio::HttpAudioExecutor {
+    fn build_audio_executor(&self) -> crate::execution::executors::audio::HttpAudioExecutor {
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
 
-        crate::executors::audio::HttpAudioExecutor {
+        crate::execution::executors::audio::HttpAudioExecutor {
             provider_id: "openai".to_string(),
             http_client: self.http_client.clone(),
             transformer: Arc::new(super::transformers::OpenAiAudioTransformer),
@@ -316,7 +316,7 @@ impl OpenAiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let request = ChatRequest {
             messages,
@@ -332,7 +332,7 @@ impl OpenAiClient {
 
     /// Execute chat (non-stream) via ProviderSpec with a fully-formed ChatRequest
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
     }
@@ -342,7 +342,7 @@ impl OpenAiClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
     }
@@ -439,7 +439,7 @@ impl OpenAiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        use crate::executors::chat::ChatExecutor;
+        use crate::execution::executors::chat::ChatExecutor;
 
         let request = ChatRequest {
             messages,
@@ -510,7 +510,7 @@ impl ModelListingCapability for OpenAiClient {
 #[async_trait]
 impl EmbeddingCapability for OpenAiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        use crate::executors::embedding::EmbeddingExecutor;
+        use crate::execution::executors::embedding::EmbeddingExecutor;
 
         let request = EmbeddingRequest::new(texts).with_model(self.common_params.model.clone());
         let exec = self.build_embedding_executor();
@@ -554,7 +554,7 @@ impl EmbeddingExtensions for OpenAiClient {
         &self,
         request: EmbeddingRequest,
     ) -> Result<EmbeddingResponse, LlmError> {
-        use crate::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
+        use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 
         if let Some(opts) = &self.retry_options {
             let http0 = self.http_client.clone();
@@ -645,7 +645,7 @@ impl AudioCapability for OpenAiClient {
         &self,
         request: crate::types::TtsRequest,
     ) -> Result<crate::types::TtsResponse, LlmError> {
-        use crate::executors::audio::AudioExecutor;
+        use crate::execution::executors::audio::AudioExecutor;
 
         let exec = self.build_audio_executor();
         let result_bytes = AudioExecutor::tts(&exec, request.clone()).await?;
@@ -663,7 +663,7 @@ impl AudioCapability for OpenAiClient {
         &self,
         request: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
-        use crate::executors::audio::AudioExecutor;
+        use crate::execution::executors::audio::AudioExecutor;
 
         let exec = self.build_audio_executor();
         let text = AudioExecutor::stt(&exec, request).await?;
@@ -773,7 +773,7 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        use crate::executors::image::ImageExecutor;
+        use crate::execution::executors::image::ImageExecutor;
 
         let exec = self.build_image_executor(&request);
         exec.execute(request).await
@@ -784,7 +784,7 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        use crate::executors::image::ImageExecutor;
+        use crate::execution::executors::image::ImageExecutor;
 
         let exec = self.build_image_executor(&ImageGenerationRequest::default());
         ImageExecutor::execute_edit(&exec, request).await
@@ -795,7 +795,7 @@ impl ImageGenerationCapability for OpenAiClient {
         &self,
         request: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        use crate::executors::image::ImageExecutor;
+        use crate::execution::executors::image::ImageExecutor;
 
         let exec = self.build_image_executor(&ImageGenerationRequest::default());
         ImageExecutor::execute_variation(&exec, request).await
@@ -939,7 +939,7 @@ mod tests {
     use super::*;
     use crate::providers::openai::OpenAiConfig;
     use crate::providers::openai::transformers;
-    use crate::transformers::request::RequestTransformer;
+    use crate::execution::transformers::request::RequestTransformer;
     use crate::utils::http_interceptor::{HttpInterceptor, HttpRequestContext};
     use std::sync::{Arc, Mutex};
 

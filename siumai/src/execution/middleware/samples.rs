@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::middleware::language_model::LanguageModelMiddleware;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::streaming::ChatStreamEvent;
 use crate::types::ChatRequest;
 use futures::StreamExt;
@@ -75,8 +75,8 @@ impl SimulateStreamingMiddleware {
 impl LanguageModelMiddleware for SimulateStreamingMiddleware {
     fn wrap_stream_async(
         &self,
-        next: Arc<crate::middleware::language_model::StreamAsyncFn>,
-    ) -> Arc<crate::middleware::language_model::StreamAsyncFn> {
+        next: Arc<crate::execution::middleware::language_model::StreamAsyncFn>,
+    ) -> Arc<crate::execution::middleware::language_model::StreamAsyncFn> {
         let chunk = self.chunk_size;
         let delay = self.delay_ms;
         Arc::new(move |req: ChatRequest| {
@@ -145,7 +145,7 @@ pub fn simulate_streaming_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::middleware::language_model::StreamAsyncFn;
+    use crate::execution::middleware::language_model::StreamAsyncFn;
     use futures::StreamExt;
 
     #[tokio::test]

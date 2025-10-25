@@ -1,5 +1,5 @@
 //! Extra mapping rules tests for Groq/xAI/OpenAI Responses
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 
 #[test]
 fn groq_chat_stable_ranges_and_stop_mapping() {
@@ -97,7 +97,7 @@ fn openai_responses_request_basic_shape() {
 #[test]
 fn openai_rerank_transformer_payload() {
     use siumai::providers::openai::transformers::OpenAiRequestTransformer;
-    use siumai::transformers::request::RequestTransformer;
+    use siumai::execution::transformers::request::RequestTransformer;
     use siumai::types::RerankRequest;
 
     let req = RerankRequest::new(
@@ -117,7 +117,7 @@ fn openai_rerank_transformer_payload() {
 #[test]
 fn openai_moderation_transformer_payload() {
     use siumai::providers::openai::transformers::OpenAiRequestTransformer;
-    use siumai::transformers::request::RequestTransformer;
+    use siumai::execution::transformers::request::RequestTransformer;
     use siumai::types::ModerationRequest;
 
     let req = ModerationRequest { input: "some text".into(), model: None };

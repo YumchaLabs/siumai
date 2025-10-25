@@ -30,9 +30,9 @@
 
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::transformers::request::RequestTransformer;
-use crate::transformers::response::ResponseTransformer;
-use crate::transformers::stream::StreamChunkTransformer;
+use crate::execution::transformers::request::RequestTransformer;
+use crate::execution::transformers::response::ResponseTransformer;
+use crate::execution::transformers::stream::StreamChunkTransformer;
 use crate::types::ChatRequest;
 use std::sync::Arc;
 
@@ -244,7 +244,7 @@ impl ProviderSpec for OpenAiChatSpec {
         &self,
         req: &ChatRequest,
         _ctx: &ProviderContext,
-    ) -> Option<crate::executors::BeforeSendHook> {
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
         // Use default custom options hook
         crate::core::default_custom_options_hook(self.provider_id, req)
     }

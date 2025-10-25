@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+### Tracing Architecture Simplification (v0.11.1)
+
+**BREAKING CHANGE**: Removed custom tracing headers in favor of standard OpenTelemetry integration.
+
+#### Removed Features
+
+- **Custom Tracing Headers**: Removed automatic injection of `X-Trace-Id` and `X-Span-Id` headers
+  - Deleted `inject_tracing_headers()` function from `utils/http_headers.rs`
+  - Removed 47 call sites across all providers and executors
+  - Removed W3C traceparent generation functions from `tracing/mod.rs`
+  - Removed `W3C_TRACE_ENABLED` global flag
+
+#### New Features (siumai-extras)
+
+- **OpenTelemetry W3C Trace Context**: `OpenTelemetryMiddleware` now automatically injects standard `traceparent` headers
+  - Format: `traceparent: 00-{trace_id}-{span_id}-{trace_flags}`
+  - Uses active OpenTelemetry span context from `opentelemetry::Context::current()`
+  - Compatible with Jaeger, Zipkin, Datadog, and all OTLP-compatible backends
+  - Enables true distributed tracing across services
+
+#### Migration Guide
+
+**Before (v0.11.0 and earlier)**:
+```rust
+// Custom headers were automatically injected
+// X-Trace-Id and X-Span-Id were added to all requests
+```
+
+**After (v0.11.1+)**:
+```rust
+use siumai_extras::otel;
+use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
+
+// Initialize OpenTelemetry
+otel::init_opentelemetry("my-service", "http://localhost:4317")?;
+
+// Add middleware to client
+let client = Client::builder()
+    .add_middleware(Arc::new(OpenTelemetryMiddleware::new()))
+    .build()?;
+```
+
+#### Benefits
+
+- **Industry Standard**: Uses W3C Trace Context standard
+- **Better Integration**: Works with all OpenTelemetry-compatible tools
+- **Simpler Core**: Removed ~100 lines of custom tracing code
+- **More Flexible**: Users can choose their own tracing backend
+
+#### Documentation Updates
+
+- Updated `siumai/src/tracing/README.md` with OpenTelemetry integration guide
+- Added comprehensive documentation to `siumai-extras/src/otel_middleware.rs`
+- Created `examples/opentelemetry_tracing.rs` with complete examples
+
 ### Architecture Refactoring (v0.11)
 
 **Major code organization improvements** - Reduced code duplication by 425 lines (-8.5%) and established cleaner module structure.

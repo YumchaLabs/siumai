@@ -6,7 +6,7 @@
 use crate::error::LlmError;
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
-use crate::transformers::{
+use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
@@ -18,7 +18,7 @@ use super::utils::{
     create_usage_from_response, extract_thinking_content, parse_finish_reason,
     parse_response_content_and_tools,
 };
-use crate::transformers::request::{
+use crate::execution::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
 };
 
@@ -139,7 +139,7 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 },
             ],
             // Not used directly; provider params merged via hooks with filtered keys
-            merge_strategy: crate::transformers::request::ProviderParamsMergeStrategy::Flatten,
+            merge_strategy: crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
         let generic = GenericRequestTransformer { profile, hooks };
         generic.transform_chat(req)

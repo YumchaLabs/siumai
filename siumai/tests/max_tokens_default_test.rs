@@ -2,7 +2,7 @@
 //!
 //! Tests to ensure all providers handle max_tokens defaults correctly.
 
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 use siumai::types::{ChatRequest, CommonParams, ProviderOptions};
 
 #[test]

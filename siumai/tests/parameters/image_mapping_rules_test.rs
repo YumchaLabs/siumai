@@ -1,6 +1,6 @@
 //! Image mapping rules tests focusing on JSON body placement and param merging.
 
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 
 #[test]
 fn openai_image_json_mapping_and_merge() {

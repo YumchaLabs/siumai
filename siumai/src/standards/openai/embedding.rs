@@ -3,8 +3,8 @@
 //! This module implements the OpenAI Embeddings API format.
 
 use crate::error::LlmError;
-use crate::transformers::request::RequestTransformer;
-use crate::transformers::response::ResponseTransformer;
+use crate::execution::transformers::request::RequestTransformer;
+use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{EmbeddingRequest, EmbeddingResponse};
 use std::sync::Arc;
 

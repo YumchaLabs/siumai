@@ -159,7 +159,6 @@ tracer.trace_request_complete(start_time, response_length);
 - **HTTP Tracing**: Log all HTTP requests/responses
 - **Performance Monitoring**: Log timing information
 - **Sensitive Value Masking**: Automatically mask API keys and tokens
-- **W3C Trace Headers**: Add traceparent headers for distributed tracing
 
 ## 🔒 Security
 
@@ -333,6 +332,107 @@ Then pipe to `jq` for analysis:
 
 ```bash
 cargo run 2>&1 | jq 'select(.target | startswith("siumai"))'
+```
+
+## 🌐 Distributed Tracing with OpenTelemetry
+
+For distributed tracing across services, use the `siumai-extras` OpenTelemetry integration:
+
+### Setup
+
+```rust
+use siumai_extras::otel;
+use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
+
+// Initialize OpenTelemetry with Jaeger exporter
+otel::init_opentelemetry(
+    "my-service",
+    "http://localhost:4317",  // OTLP endpoint
+)?;
+
+// Create client with OpenTelemetry middleware
+let client = Client::builder()
+    .add_middleware(Arc::new(OpenTelemetryMiddleware::new()))
+    .build()?;
+```
+
+### How It Works
+
+The OpenTelemetry middleware automatically:
+1. **Captures current span context** from `opentelemetry::Context::current()`
+2. **Injects W3C traceparent header** into HTTP requests
+3. **Creates spans** for each LLM request with detailed attributes
+
+### W3C Trace Context Format
+
+```
+traceparent: 00-{trace_id}-{span_id}-{trace_flags}
+Example:     00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+```
+
+### Integration with Observability Platforms
+
+The OpenTelemetry integration works with:
+- **Jaeger**: Distributed tracing visualization
+- **Zipkin**: Trace collection and analysis
+- **Datadog**: APM and distributed tracing
+- **Honeycomb**: Observability platform
+- **Any OTLP-compatible backend**
+
+### Example: Full Distributed Tracing
+
+```rust
+use opentelemetry::trace::{Tracer, TracerProvider};
+use opentelemetry::global;
+use siumai_extras::otel;
+use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
+
+// Initialize OpenTelemetry
+otel::init_opentelemetry("my-app", "http://localhost:4317")?;
+
+// Create client with middleware
+let client = Client::builder()
+    .add_middleware(Arc::new(OpenTelemetryMiddleware::new()))
+    .build()?;
+
+// Create a parent span for your operation
+let tracer = global::tracer("my-app");
+let span = tracer.start("user_request");
+let cx = opentelemetry::Context::current_with_span(span);
+
+// Make LLM request within the span context
+let _guard = cx.attach();
+let response = client.chat()
+    .create(request)
+    .await?;
+
+// The LLM request will automatically be traced as a child span
+// with the traceparent header propagated to the LLM provider
+```
+
+### Benefits
+
+1. **End-to-End Visibility**: Track requests across your application and LLM providers
+2. **Performance Analysis**: Identify bottlenecks in LLM calls
+3. **Error Correlation**: Link errors across distributed systems
+4. **Standard Protocol**: Uses W3C Trace Context standard
+
+### Migration from Custom Headers
+
+**Before (v0.11.0 and earlier)**:
+```rust
+// Custom X-Trace-Id and X-Span-Id headers were automatically injected
+// These were not compatible with standard distributed tracing tools
+```
+
+**After (v0.11.1+)**:
+```rust
+// Use OpenTelemetry for standard W3C traceparent headers
+use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
+
+let client = Client::builder()
+    .add_middleware(Arc::new(OpenTelemetryMiddleware::new()))
+    .build()?;
 ```
 
 ## 📖 Examples

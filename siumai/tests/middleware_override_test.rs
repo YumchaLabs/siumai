@@ -1,6 +1,6 @@
 use siumai::LlmClient;
 use siumai::error::LlmError;
-use siumai::middleware::language_model::LanguageModelMiddleware;
+use siumai::execution::middleware::language_model::LanguageModelMiddleware;
 use siumai::registry::{ProviderFactory, RegistryOptions, create_provider_registry};
 use siumai::traits::ChatCapability;
 use siumai::types::{ChatMessage, ChatResponse, MessageContent};

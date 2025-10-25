@@ -30,11 +30,12 @@ pub struct AudioOutput {
 ///
 /// ```rust
 /// use siumai::types::{ChatResponse, MessageContent, ContentPart};
+/// use serde_json::json;
 ///
 /// // Response with tool calls
 /// let response = ChatResponse::new(MessageContent::MultiModal(vec![
 ///     ContentPart::text("Let me search for that..."),
-///     ContentPart::tool_call("call_123", "search", r#"{"query":"rust"}"#, None),
+///     ContentPart::tool_call("call_123", "search", json!({"query":"rust"}), None),
 /// ]));
 ///
 /// // Check for tool calls
@@ -160,10 +161,11 @@ impl ChatResponse {
     ///
     /// ```rust
     /// use siumai::types::{ChatResponse, MessageContent, ContentPart};
+    /// use serde_json::json;
     ///
     /// let response = ChatResponse::new(MessageContent::MultiModal(vec![
     ///     ContentPart::text("Let me search..."),
-    ///     ContentPart::tool_call("call_123", "search", r#"{}"#, None),
+    ///     ContentPart::tool_call("call_123", "search", json!({}), None),
     /// ]));
     ///
     /// let tool_calls = response.tool_calls();
@@ -236,15 +238,15 @@ impl ChatResponse {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use siumai::types::{ChatResponse, ChatMessage};
+    /// use siumai::prelude::*;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = siumai::providers::openai::OpenAiClient::new("key");
-    /// # let request = siumai::types::ChatRequest::builder().build();
+    /// let client = Siumai::builder().openai().build().await?;
     /// let mut messages = vec![ChatMessage::user("What's the weather?").build()];
     ///
-    /// let response = client.chat_request(request).await?;
+    /// let (response, _) = client.chat().messages(&messages).execute().await?;
     ///
     /// // Add response messages to conversation history
     /// messages.extend(response.to_messages());

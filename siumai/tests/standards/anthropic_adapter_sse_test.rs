@@ -7,7 +7,7 @@ use eventsource_stream::Event;
 use siumai::error::LlmError;
 use siumai::standards::anthropic::chat::{AnthropicChatAdapter, AnthropicChatStandard};
 use siumai::streaming::ChatStreamEvent;
-use siumai::transformers::stream::StreamChunkTransformer;
+use siumai::execution::transformers::stream::StreamChunkTransformer;
 use std::sync::Arc;
 
 /// Mock adapter that transforms SSE events by adding metadata

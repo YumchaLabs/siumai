@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::middleware::samples::chain_default_and_clamp;
+use crate::execution::middleware::samples::chain_default_and_clamp;
 use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_provider_registry};
 
 /// Create a registry with common defaults:

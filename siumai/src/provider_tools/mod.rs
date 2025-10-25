@@ -19,12 +19,12 @@
 //!
 //! ## OpenAI Web Search
 //!
-//! ```rust
+//! ```rust,ignore
 //! use siumai::prelude::*;
 //! use siumai::provider_tools::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmBuilder::new()
+//! let client = Siumai::builder()
 //!     .openai()
 //!     .api_key("your-api-key")
 //!     .model("gpt-4")
@@ -38,22 +38,23 @@
 //!     .with_search_context_size("high")
 //!     .build();
 //!
-//! let request = ChatRequest::new(messages)
-//!     .with_tools(vec![web_search]);
-//!
-//! let response = client.chat(request).await?;
+//! let (response, _) = client.chat()
+//!     .messages(&messages)
+//!     .tools(&[web_search])
+//!     .execute()
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! ## Anthropic Web Search
 //!
-//! ```rust
+//! ```rust,ignore
 //! use siumai::prelude::*;
 //! use siumai::provider_tools::anthropic;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmBuilder::new()
+//! let client = Siumai::builder()
 //!     .anthropic()
 //!     .api_key("your-api-key")
 //!     .model("claude-3-5-sonnet-20241022")
@@ -68,22 +69,23 @@
 //!     .with_allowed_domains(vec!["github.com".to_string(), "docs.rs".to_string()])
 //!     .build();
 //!
-//! let request = ChatRequest::new(messages)
-//!     .with_tools(vec![web_search]);
-//!
-//! let response = client.chat(request).await?;
+//! let (response, _) = client.chat()
+//!     .messages(&messages)
+//!     .tools(&[web_search])
+//!     .execute()
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! ## Google Code Execution
 //!
-//! ```rust
+//! ```rust,ignore
 //! use siumai::prelude::*;
 //! use siumai::provider_tools::google;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmBuilder::new()
+//! let client = Siumai::builder()
 //!     .gemini()
 //!     .api_key("your-api-key")
 //!     .model("gemini-2.0-flash-exp")
@@ -95,10 +97,11 @@
 //! // Create a code execution tool
 //! let code_exec = google::code_execution();
 //!
-//! let request = ChatRequest::new(messages)
-//!     .with_tools(vec![code_exec]);
-//!
-//! let response = client.chat(request).await?;
+//! let (response, _) = client.chat()
+//!     .messages(&messages)
+//!     .tools(&[code_exec])
+//!     .execute()
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -107,12 +110,12 @@
 //!
 //! You can mix provider-defined tools with user-defined function tools:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use siumai::prelude::*;
 //! use siumai::provider_tools::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmBuilder::new()
+//! let client = Siumai::builder()
 //!     .openai()
 //!     .api_key("your-api-key")
 //!     .model("gpt-4")
@@ -125,21 +128,15 @@
 //! let web_search = openai::web_search().build();
 //!
 //! // User-defined function (executed by your code)
-//! let get_weather = Tool::function(
-//!     "get_weather".to_string(),
-//!     "Get current weather".to_string(),
-//!     serde_json::json!({
-//!         "type": "object",
-//!         "properties": {
-//!             "location": {"type": "string"}
-//!         }
-//!     }),
-//! );
+//! let get_weather = tool!("get_weather", "Get current weather", {
+//!     "location": String
+//! });
 //!
-//! let request = ChatRequest::new(messages)
-//!     .with_tools(vec![web_search, get_weather]);
-//!
-//! let response = client.chat(request).await?;
+//! let (response, _) = client.chat()
+//!     .messages(&messages)
+//!     .tools(&[web_search, get_weather])
+//!     .execute()
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```

@@ -14,7 +14,7 @@
 //! cargo run --example custom-middleware --features openai
 //! ```
 
-use siumai::middleware::language_model::LanguageModelMiddleware;
+use siumai::execution::middleware::language_model::LanguageModelMiddleware;
 use siumai::prelude::*;
 use siumai::registry::{RegistryOptions, create_provider_registry};
 use std::collections::HashMap;

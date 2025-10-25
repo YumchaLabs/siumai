@@ -1,7 +1,7 @@
 //! Image generation executor traits
 
 use crate::error::LlmError;
-use crate::transformers::{
+use crate::execution::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
 };
@@ -37,7 +37,7 @@ pub struct HttpImageExecutor {
     /// HTTP interceptors for request/response observation and modification
     pub interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
     /// Optional external parameter transformer (plugin-like), applied to JSON bodies only
-    pub before_send: Option<crate::executors::BeforeSendHook>,
+    pub before_send: Option<crate::execution::executors::BeforeSendHook>,
     /// Optional retry options for controlling retry behavior (including 401 retry)
     /// If None, uses default behavior (401 retry enabled)
     pub retry_options: Option<crate::retry_api::RetryOptions>,
@@ -68,7 +68,7 @@ impl ImageExecutor for HttpImageExecutor {
         let url = self.provider_spec.image_url(&req, &self.provider_context);
 
         // 4. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -79,10 +79,10 @@ impl ImageExecutor for HttpImageExecutor {
 
         // 5. Execute request using common HTTP layer
         let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
-        let result = crate::executors::common::execute_json_request(
+        let result = crate::execution::executors::common::execute_json_request(
             &config,
             &url,
-            crate::executors::common::HttpBody::Json(body),
+            crate::execution::executors::common::HttpBody::Json(body),
             per_request_headers,
             false, // stream = false
         )
@@ -109,7 +109,7 @@ impl ImageExecutor for HttpImageExecutor {
             .image_edit_url(&req, &self.provider_context);
 
         // 2. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -124,10 +124,10 @@ impl ImageExecutor for HttpImageExecutor {
         let result = match body {
             ImageHttpBody::Json(json) => {
                 // Use JSON request path
-                crate::executors::common::execute_json_request(
+                crate::execution::executors::common::execute_json_request(
                     &config,
                     &url,
-                    crate::executors::common::HttpBody::Json(json),
+                    crate::execution::executors::common::HttpBody::Json(json),
                     per_request_headers,
                     false, // stream = false
                 )
@@ -136,7 +136,7 @@ impl ImageExecutor for HttpImageExecutor {
             ImageHttpBody::Multipart(_) => {
                 // Use multipart request path
                 let req_clone = req.clone();
-                crate::executors::common::execute_multipart_request(
+                crate::execution::executors::common::execute_multipart_request(
                     &config,
                     &url,
                     || {
@@ -176,7 +176,7 @@ impl ImageExecutor for HttpImageExecutor {
             .image_variation_url(&req, &self.provider_context);
 
         // 2. Build execution config for common HTTP layer
-        let config = crate::executors::common::HttpExecutionConfig {
+        let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
@@ -191,10 +191,10 @@ impl ImageExecutor for HttpImageExecutor {
         let result = match body {
             ImageHttpBody::Json(json) => {
                 // Use JSON request path
-                crate::executors::common::execute_json_request(
+                crate::execution::executors::common::execute_json_request(
                     &config,
                     &url,
-                    crate::executors::common::HttpBody::Json(json),
+                    crate::execution::executors::common::HttpBody::Json(json),
                     per_request_headers,
                     false, // stream = false
                 )
@@ -203,7 +203,7 @@ impl ImageExecutor for HttpImageExecutor {
             ImageHttpBody::Multipart(_) => {
                 // Use multipart request path
                 let req_clone = req.clone();
-                crate::executors::common::execute_multipart_request(
+                crate::execution::executors::common::execute_multipart_request(
                     &config,
                     &url,
                     || {

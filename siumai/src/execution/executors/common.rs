@@ -74,10 +74,9 @@ pub async fn execute_bytes_request(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<HttpBytesResult, LlmError> {
     // 1. Build base headers
-    let mut base_headers = config
+    let base_headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
-    crate::utils::http_headers::inject_tracing_headers(&mut base_headers);
 
     // 2. Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
@@ -135,10 +134,9 @@ pub async fn execute_bytes_request(
             for interceptor in &config.interceptors {
                 interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
             }
-            let mut retry_headers = config
+            let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
                 crate::utils::http_headers::merge_headers(retry_headers, req_headers)
             } else {
@@ -220,9 +218,6 @@ pub async fn execute_json_request_with_headers(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
-    // Inject tracing headers
-    crate::utils::http_headers::inject_tracing_headers(&mut headers_base);
-
     // Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::utils::http_headers::merge_headers(headers_base.clone(), req_headers)
@@ -270,8 +265,7 @@ pub async fn execute_json_request_with_headers(
                 interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
             }
             // Rebuild headers
-            let mut retry_headers = headers_base.clone();
-            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
+            let retry_headers = headers_base.clone();
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
                 crate::utils::http_headers::merge_headers(retry_headers, req_headers)
             } else {
@@ -384,10 +378,7 @@ pub async fn execute_request(
         .provider_spec
         .build_headers(&config.provider_context)?;
 
-    // 2. Inject tracing headers (unified position: executors layer)
-    crate::utils::http_headers::inject_tracing_headers(&mut base_headers);
-
-    // 3. Merge per-request headers if provided
+    // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::utils::http_headers::merge_headers(base_headers.clone(), req_headers)
     } else {
@@ -452,10 +443,9 @@ pub async fn execute_request(
             }
 
             // Rebuild headers and retry once
-            let mut retry_headers = config
+            let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
 
             // Merge per-request headers again
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
@@ -579,10 +569,7 @@ where
         .provider_spec
         .build_headers(&config.provider_context)?;
 
-    // 2. Inject tracing headers
-    crate::utils::http_headers::inject_tracing_headers(&mut base_headers);
-
-    // 3. Merge per-request headers if provided
+    // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::utils::http_headers::merge_headers(base_headers.clone(), req_headers)
     } else {
@@ -636,10 +623,9 @@ where
             }
 
             // Rebuild everything for retry
-            let mut retry_headers = config
+            let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
                 crate::utils::http_headers::merge_headers(retry_headers, req_headers)
@@ -745,10 +731,7 @@ pub async fn execute_get_request(
         .provider_spec
         .build_headers(&config.provider_context)?;
 
-    // 2. Inject tracing headers (unified position)
-    crate::utils::http_headers::inject_tracing_headers(&mut headers);
-
-    // 3. Merge per-request headers if provided
+    // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::utils::http_headers::merge_headers(headers, req_headers)
     } else {
@@ -800,10 +783,9 @@ pub async fn execute_get_request(
             }
 
             // Rebuild headers for retry
-            let mut retry_headers = config
+            let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
                 crate::utils::http_headers::merge_headers(retry_headers, req_headers)
@@ -897,10 +879,7 @@ pub async fn execute_delete_request(
         .provider_spec
         .build_headers(&config.provider_context)?;
 
-    // 2. Inject tracing headers (unified position)
-    crate::utils::http_headers::inject_tracing_headers(&mut headers);
-
-    // 3. Merge per-request headers if provided
+    // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::utils::http_headers::merge_headers(headers, req_headers)
     } else {
@@ -952,10 +931,9 @@ pub async fn execute_delete_request(
             }
 
             // Rebuild headers for retry
-            let mut retry_headers = config
+            let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
                 crate::utils::http_headers::merge_headers(retry_headers, req_headers)
@@ -1067,10 +1045,7 @@ pub async fn execute_get_binary(
         .provider_spec
         .build_headers(&config.provider_context)?;
 
-    // 2. Inject tracing headers (unified position)
-    crate::utils::http_headers::inject_tracing_headers(&mut headers);
-
-    // 3. Merge per-request headers if provided
+    // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::utils::http_headers::merge_headers(headers, req_headers)
     } else {
@@ -1122,10 +1097,9 @@ pub async fn execute_get_binary(
             }
 
             // Rebuild headers for retry
-            let mut retry_headers = config
+            let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            crate::utils::http_headers::inject_tracing_headers(&mut retry_headers);
 
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
                 crate::utils::http_headers::merge_headers(retry_headers, req_headers)

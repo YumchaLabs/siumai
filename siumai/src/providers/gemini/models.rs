@@ -162,11 +162,10 @@ impl GeminiModels {
                 }
             }
             use secrecy::ExposeSecret;
-            let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+            let headers = crate::utils::http_headers::ProviderHeaders::gemini(
                 self.config.api_key.expose_secret(),
                 &extra,
             )?;
-            crate::utils::http_headers::inject_tracing_headers(&mut headers);
 
             let response = self
                 .http_client
@@ -241,11 +240,10 @@ impl ModelListingCapability for GeminiModels {
             }
         }
         use secrecy::ExposeSecret;
-        let mut headers = crate::utils::http_headers::ProviderHeaders::gemini(
+        let headers = crate::utils::http_headers::ProviderHeaders::gemini(
             self.config.api_key.expose_secret(),
             &extra,
         )?;
-        crate::utils::http_headers::inject_tracing_headers(&mut headers);
 
         let response = self
             .http_client

@@ -6,8 +6,8 @@ use std::sync::{
 use serde_json::json;
 use siumai::core::{ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
-use siumai::executors::files::{FilesExecutor, HttpFilesExecutor};
-use siumai::transformers::files::{FilesHttpBody, FilesTransformer};
+use siumai::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
+use siumai::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 use siumai::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
 };

@@ -3,7 +3,7 @@
 //! Request/Response transformers wiring to enable HttpChatExecutor path.
 
 use crate::error::LlmError;
-use crate::transformers::{request::RequestTransformer, response::ResponseTransformer};
+use crate::execution::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::types::{ChatRequest, ChatResponse, FinishReason, Usage};
 
 #[derive(Clone)]

@@ -169,7 +169,7 @@ impl From<&str> for ImageDetail {
 /// let result = ToolResultOutput::error_text("API timeout");
 ///
 /// // Execution denied
-/// let result = ToolResultOutput::execution_denied(Some("User rejected"));
+/// let result = ToolResultOutput::execution_denied(Some("User rejected".to_string()));
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -802,7 +802,7 @@ impl ContentPart {
     /// let denied = ContentPart::tool_execution_denied(
     ///     "call_123",
     ///     "delete_file",
-    ///     Some("User rejected the operation"),
+    ///     Some("User rejected the operation".to_string()),
     /// );
     /// ```
     pub fn tool_execution_denied(

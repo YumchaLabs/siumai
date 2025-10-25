@@ -7,7 +7,7 @@
 //! References:
 //! - SiliconFlow Rerank API: https://siliconflow.cn/zh-cn/docs/api-reference/rerank
 
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 
 #[test]
 fn openai_compatible_rerank_payload_fields() {

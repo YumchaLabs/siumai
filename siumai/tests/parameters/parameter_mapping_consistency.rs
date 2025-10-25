@@ -4,7 +4,7 @@
 //! and that the new provider-local parameter mapping works correctly.
 
 use siumai::params::{AnthropicParams, GeminiParams, OpenAiParams};
-use siumai::transformers::request::RequestTransformer;
+use siumai::execution::transformers::request::RequestTransformer;
 use siumai::providers::openai::transformers::OpenAiRequestTransformer;
 use siumai::providers::anthropic::transformers::AnthropicRequestTransformer;
 use siumai::providers::gemini::{transformers::GeminiRequestTransformer, types::GeminiConfig};

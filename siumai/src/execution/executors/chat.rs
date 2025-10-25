@@ -4,7 +4,7 @@
 //! and HTTP. For now this is an interface stub for the refactor.
 
 use crate::error::LlmError;
-use crate::middleware::language_model::{
+use crate::execution::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn, apply_post_generate_chain,
     apply_transform_chain, try_pre_generate, try_pre_stream,
 };
@@ -14,7 +14,7 @@ use crate::telemetry::{
     self,
     events::{GenerationEvent, SpanEvent, TelemetryEvent},
 };
-use crate::transformers::{
+use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, ChatResponse};
@@ -26,7 +26,7 @@ use std::sync::Arc;
 // -----------------------------------------------------------------------------
 
 #[derive(Clone)]
-struct TransformerConverter(Arc<dyn crate::transformers::stream::StreamChunkTransformer>);
+struct TransformerConverter(Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>);
 
 impl SseEventConverter for TransformerConverter {
     fn convert_event(
@@ -51,7 +51,7 @@ impl SseEventConverter for TransformerConverter {
 
 #[derive(Clone)]
 struct MiddlewareConverter<C> {
-    middlewares: Vec<Arc<dyn crate::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
     req: crate::types::ChatRequest,
     convert: C,
 }
@@ -80,7 +80,7 @@ where
             let mut out = Vec::new();
             for item in raw.into_iter() {
                 match item {
-                    Ok(ev) => match crate::middleware::language_model::apply_stream_event_chain(
+                    Ok(ev) => match crate::execution::middleware::language_model::apply_stream_event_chain(
                         &mws, &req, ev,
                     ) {
                         Ok(list) => out.extend(list.into_iter().map(Ok)),
@@ -95,7 +95,7 @@ where
 
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         match self.convert.handle_stream_end() {
-            Some(Ok(ev)) => match crate::middleware::language_model::apply_stream_event_chain(
+            Some(Ok(ev)) => match crate::execution::middleware::language_model::apply_stream_event_chain(
                 &self.middlewares,
                 &self.req,
                 ev,
@@ -154,7 +154,7 @@ where
 
 #[derive(Clone)]
 struct MiddlewareJsonConverter {
-    middlewares: Vec<Arc<dyn crate::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
     req: crate::types::ChatRequest,
     convert: Arc<dyn crate::streaming::JsonEventConverter>,
 }
@@ -180,7 +180,7 @@ impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
             let mut out = Vec::new();
             for item in raw.into_iter() {
                 match item {
-                    Ok(ev) => match crate::middleware::language_model::apply_stream_event_chain(
+                    Ok(ev) => match crate::execution::middleware::language_model::apply_stream_event_chain(
                         &mws, &req, ev,
                     ) {
                         Ok(list) => out.extend(list.into_iter().map(Ok)),
@@ -205,9 +205,9 @@ async fn create_sse_stream_with_middlewares(
     http: reqwest::Client,
     headers_base: reqwest::header::HeaderMap,
     transformed: serde_json::Value,
-    sse_tx: Arc<dyn crate::transformers::stream::StreamChunkTransformer>,
+    sse_tx: Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>,
     interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
-    middlewares: Vec<Arc<dyn crate::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
     req_in: crate::types::ChatRequest,
     disable_compression: bool,
     retry_options: Option<crate::retry_api::RetryOptions>,
@@ -306,7 +306,7 @@ async fn create_json_stream_with_middlewares(
     transformed: serde_json::Value,
     json_conv: Arc<dyn crate::streaming::JsonEventConverter>,
     interceptors: Vec<Arc<dyn crate::utils::http_interceptor::HttpInterceptor>>,
-    middlewares: Vec<Arc<dyn crate::middleware::language_model::LanguageModelMiddleware>>,
+    middlewares: Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
     req_in: crate::types::ChatRequest,
     disable_compression: bool,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
@@ -391,7 +391,7 @@ pub struct HttpChatExecutor {
     /// Provider context for header/URL construction
     pub provider_context: crate::core::ProviderContext,
     /// Optional external parameter transformer (plugin-like), applied to JSON body
-    pub before_send: Option<crate::executors::BeforeSendHook>,
+    pub before_send: Option<crate::execution::executors::BeforeSendHook>,
     /// Optional retry options for controlling retry behavior (including 401 retry)
     /// If None, uses default behavior (401 retry enabled)
     pub retry_options: Option<crate::retry_api::RetryOptions>,
@@ -404,7 +404,7 @@ mod tests {
     use reqwest::header::HeaderMap;
 
     struct EchoRequestTransformer;
-    impl crate::transformers::request::RequestTransformer for EchoRequestTransformer {
+    impl crate::execution::transformers::request::RequestTransformer for EchoRequestTransformer {
         fn provider_id(&self) -> &str {
             "test"
         }
@@ -420,7 +420,7 @@ mod tests {
     }
 
     struct NoopResponseTransformer;
-    impl crate::transformers::response::ResponseTransformer for NoopResponseTransformer {
+    impl crate::execution::transformers::response::ResponseTransformer for NoopResponseTransformer {
         fn provider_id(&self) -> &str {
             "test"
         }
@@ -466,7 +466,7 @@ mod tests {
             &self,
             _req: &crate::types::ChatRequest,
             _ctx: &crate::core::ProviderContext,
-        ) -> Option<crate::executors::BeforeSendHook> {
+        ) -> Option<crate::execution::executors::BeforeSendHook> {
             None
         }
     }
@@ -474,7 +474,7 @@ mod tests {
     #[tokio::test]
     async fn applies_model_middlewares_before_mapping() {
         struct AppendSuffix;
-        impl crate::middleware::language_model::LanguageModelMiddleware for AppendSuffix {
+        impl crate::execution::middleware::language_model::LanguageModelMiddleware for AppendSuffix {
             fn transform_params(
                 &self,
                 mut req: crate::types::ChatRequest,
@@ -490,7 +490,7 @@ mod tests {
 
         let seen = Arc::new(std::sync::Mutex::new(None::<String>));
         let seen_clone = seen.clone();
-        let hook: crate::executors::BeforeSendHook = Arc::new(move |body: &serde_json::Value| {
+        let hook: crate::execution::executors::BeforeSendHook = Arc::new(move |body: &serde_json::Value| {
             let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("");
             *seen_clone.lock().unwrap() = Some(model.to_string());
             Err(crate::error::LlmError::InvalidParameter("abort".into()))
@@ -535,25 +535,25 @@ mod tests {
 
         // Dummy stream transformer (unused due to short-circuit)
         struct DummyStreamTx;
-        impl crate::transformers::stream::StreamChunkTransformer for DummyStreamTx {
+        impl crate::execution::transformers::stream::StreamChunkTransformer for DummyStreamTx {
             fn provider_id(&self) -> &str {
                 "test"
             }
             fn convert_event(
                 &self,
                 _event: eventsource_stream::Event,
-            ) -> crate::transformers::stream::StreamEventFuture<'_> {
+            ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
                 Box::pin(async { Vec::new() })
             }
         }
 
         // Outer appends suffix to final StreamEnd
         struct Outer;
-        impl crate::middleware::language_model::LanguageModelMiddleware for Outer {
+        impl crate::execution::middleware::language_model::LanguageModelMiddleware for Outer {
             fn wrap_stream_async(
                 &self,
-                next: std::sync::Arc<crate::middleware::language_model::StreamAsyncFn>,
-            ) -> std::sync::Arc<crate::middleware::language_model::StreamAsyncFn> {
+                next: std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn>,
+            ) -> std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn> {
                 std::sync::Arc::new(move |req: crate::types::ChatRequest| {
                     let next = next.clone();
                     Box::pin(async move {
@@ -579,11 +579,11 @@ mod tests {
 
         // Inner short-circuits and returns a synthetic stream
         struct Inner;
-        impl crate::middleware::language_model::LanguageModelMiddleware for Inner {
+        impl crate::execution::middleware::language_model::LanguageModelMiddleware for Inner {
             fn wrap_stream_async(
                 &self,
-                _next: std::sync::Arc<crate::middleware::language_model::StreamAsyncFn>,
-            ) -> std::sync::Arc<crate::middleware::language_model::StreamAsyncFn> {
+                _next: std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn>,
+            ) -> std::sync::Arc<crate::execution::middleware::language_model::StreamAsyncFn> {
                 std::sync::Arc::new(|_req: crate::types::ChatRequest| {
                     Box::pin(async move {
                         let one = futures::stream::once(async move {
@@ -641,12 +641,12 @@ mod tests {
     }
     #[tokio::test]
     async fn wrap_generate_async_orders_and_short_circuits() {
-        use crate::middleware::language_model::GenerateAsyncFn;
+        use crate::execution::middleware::language_model::GenerateAsyncFn;
         use futures::future::BoxFuture;
         use std::sync::Arc;
 
         struct Outer;
-        impl crate::middleware::language_model::LanguageModelMiddleware for Outer {
+        impl crate::execution::middleware::language_model::LanguageModelMiddleware for Outer {
             fn wrap_generate_async(&self, next: Arc<GenerateAsyncFn>) -> Arc<GenerateAsyncFn> {
                 Arc::new(
                     move |req: crate::types::ChatRequest| -> BoxFuture<
@@ -668,7 +668,7 @@ mod tests {
         }
 
         struct Inner;
-        impl crate::middleware::language_model::LanguageModelMiddleware for Inner {
+        impl crate::execution::middleware::language_model::LanguageModelMiddleware for Inner {
             fn wrap_generate_async(&self, _next: Arc<GenerateAsyncFn>) -> Arc<GenerateAsyncFn> {
                 Arc::new(
                     |_req: crate::types::ChatRequest| -> BoxFuture<
@@ -723,7 +723,7 @@ mod tests {
     async fn pre_generate_short_circuits_before_http() {
         // Middleware that short-circuits generate and returns a fixed response
         struct PreMw;
-        impl crate::middleware::language_model::LanguageModelMiddleware for PreMw {
+        impl crate::execution::middleware::language_model::LanguageModelMiddleware for PreMw {
             fn pre_generate(
                 &self,
                 _req: &crate::types::ChatRequest,
@@ -739,7 +739,7 @@ mod tests {
         let response_transformer = Arc::new(NoopResponseTransformer);
 
         // Hook that would abort if HTTP is attempted
-        let hook: crate::executors::BeforeSendHook = Arc::new(move |_body: &serde_json::Value| {
+        let hook: crate::execution::executors::BeforeSendHook = Arc::new(move |_body: &serde_json::Value| {
             Err(crate::error::LlmError::InvalidParameter(
                 "should not be called".into(),
             ))
@@ -779,7 +779,7 @@ mod tests {
     async fn pre_stream_short_circuits_before_http() {
         // Middleware that short-circuits stream and returns a fixed one-shot stream
         struct PreMwStream;
-        impl crate::middleware::language_model::LanguageModelMiddleware for PreMwStream {
+        impl crate::execution::middleware::language_model::LanguageModelMiddleware for PreMwStream {
             fn pre_stream(
                 &self,
                 _req: &crate::types::ChatRequest,
@@ -796,14 +796,14 @@ mod tests {
 
         // Dummy stream transformer (won't be used due to pre short-circuit)
         struct DummyTx;
-        impl crate::transformers::stream::StreamChunkTransformer for DummyTx {
+        impl crate::execution::transformers::stream::StreamChunkTransformer for DummyTx {
             fn provider_id(&self) -> &str {
                 "test"
             }
             fn convert_event(
                 &self,
                 _event: eventsource_stream::Event,
-            ) -> crate::transformers::stream::StreamEventFuture<'_> {
+            ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
                 Box::pin(async { vec![] })
             }
         }
@@ -912,7 +912,7 @@ mod tests {
                 &self,
                 _req: &crate::types::ChatRequest,
                 _ctx: &crate::core::ProviderContext,
-            ) -> Option<crate::executors::BeforeSendHook> {
+            ) -> Option<crate::execution::executors::BeforeSendHook> {
                 None
             }
         }
@@ -971,14 +971,14 @@ mod tests {
     async fn merges_request_headers_into_base_stream() {
         // Dummy stream transformer
         struct DummyTx;
-        impl crate::transformers::stream::StreamChunkTransformer for DummyTx {
+        impl crate::execution::transformers::stream::StreamChunkTransformer for DummyTx {
             fn provider_id(&self) -> &str {
                 "test"
             }
             fn convert_event(
                 &self,
                 _event: eventsource_stream::Event,
-            ) -> crate::transformers::stream::StreamEventFuture<'_> {
+            ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
                 Box::pin(async { vec![] })
             }
         }
@@ -1027,7 +1027,7 @@ mod tests {
                 &self,
                 _req: &crate::types::ChatRequest,
                 _ctx: &crate::core::ProviderContext,
-            ) -> Option<crate::executors::BeforeSendHook> {
+            ) -> Option<crate::execution::executors::BeforeSendHook> {
                 None
             }
         }
@@ -1165,7 +1165,7 @@ impl ChatExecutor for HttpChatExecutor {
                     let mut body = request_tx.transform_chat(&req_in)?;
 
                     // Apply middleware JSON body transformations
-                    crate::middleware::language_model::apply_json_body_transform_chain(
+                    crate::execution::middleware::language_model::apply_json_body_transform_chain(
                         &middlewares,
                         &req_in,
                         &mut body,
@@ -1177,7 +1177,7 @@ impl ChatExecutor for HttpChatExecutor {
                         body
                     };
 
-                    let config = crate::executors::common::HttpExecutionConfig {
+                    let config = crate::execution::executors::common::HttpExecutionConfig {
                         provider_id: provider_id.clone(),
                         http_client: client.clone(),
                         provider_spec: provider_spec.clone(),
@@ -1186,10 +1186,10 @@ impl ChatExecutor for HttpChatExecutor {
                         retry_options: retry_options.clone(),
                     };
                     let per_request_headers = req_in.http_config.as_ref().map(|hc| &hc.headers);
-                    let result = crate::executors::common::execute_json_request(
+                    let result = crate::execution::executors::common::execute_json_request(
                         &config,
                         &url,
-                        crate::executors::common::HttpBody::Json(json_body),
+                        crate::execution::executors::common::HttpBody::Json(json_body),
                         per_request_headers,
                         false,
                     )
@@ -1371,7 +1371,7 @@ impl ChatExecutor for HttpChatExecutor {
                 let mut body = request_tx.transform_chat(&req_in)?;
 
                 // Apply middleware JSON body transformations
-                crate::middleware::language_model::apply_json_body_transform_chain(
+                crate::execution::middleware::language_model::apply_json_body_transform_chain(
                     &middlewares,
                     &req_in,
                     &mut body,
@@ -1510,7 +1510,7 @@ pub struct ChatExecutorBuilder {
     stream_disable_compression: bool,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
-    before_send: Option<crate::executors::BeforeSendHook>,
+    before_send: Option<crate::execution::executors::BeforeSendHook>,
     retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
@@ -1596,7 +1596,7 @@ impl ChatExecutorBuilder {
     }
 
     /// Set the before_send hook
-    pub fn with_before_send(mut self, hook: crate::executors::BeforeSendHook) -> Self {
+    pub fn with_before_send(mut self, hook: crate::execution::executors::BeforeSendHook) -> Self {
         self.before_send = Some(hook);
         self
     }
