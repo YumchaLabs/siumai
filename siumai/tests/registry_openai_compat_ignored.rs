@@ -26,7 +26,7 @@ async fn registry_openrouter_smoke() -> Result<(), Box<dyn std::error::Error>> {
         }),
     );
     // Example model id for OpenRouter
-    let lm = reg.language_model("openrouter:openai/gpt-4o-mini")?;
+    let _lm = reg.language_model("openrouter:openai/gpt-4o-mini")?;
     // Not executing network call by default (ignored). Uncomment to try:
     // let resp = lm.chat(vec![siumai::user!("ping")], None).await?;
     // assert!(resp.content_text().is_some());

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::*;
 use crate::error::LlmError;
 use crate::types::{
-    ChatMessage, ChatResponse, FinishReason, FunctionCall, MessageContent, Tool, ToolCall, Usage,
+    ChatMessage, ChatResponse, ContentPart, FinishReason, MessageContent, Tool, Usage,
 };
 
 // ============================================================================
@@ -31,6 +31,7 @@ impl MockChatModel {
         }
     }
 
+    #[allow(dead_code)]
     fn get_calls(&self) -> Vec<Vec<ChatMessage>> {
         self.calls.lock().unwrap().clone()
     }
@@ -83,7 +84,7 @@ impl MockToolResolver {
         }
     }
 
-    fn with_result(mut self, tool_name: impl Into<String>, result: Value) -> Self {
+    fn with_result(self, tool_name: impl Into<String>, result: Value) -> Self {
         self.results
             .lock()
             .unwrap()
@@ -116,60 +117,23 @@ impl ToolResolver for MockToolResolver {
 // Helper Functions
 // ============================================================================
 
-fn create_tool_call(name: &str, args: Value) -> ToolCall {
-    ToolCall {
-        id: format!("call_{}", name),
-        r#type: "function".to_string(),
-        function: Some(FunctionCall {
-            name: name.to_string(),
-            arguments: serde_json::to_string(&args).unwrap(),
-        }),
-    }
+fn create_tool_call(name: &str, args: Value) -> ContentPart {
+    ContentPart::tool_call(format!("call_{}", name), name.to_string(), args, None)
 }
 
-fn create_response_with_tools(tool_calls: Vec<ToolCall>) -> ChatResponse {
-    use crate::types::ContentPart;
-
-    // Convert ToolCall to ContentPart
-    let parts: Vec<ContentPart> = tool_calls
-        .into_iter()
-        .map(|tc| {
-            let args = if let Some(func) = &tc.function {
-                serde_json::from_str(&func.arguments).unwrap_or(serde_json::json!({}))
-            } else {
-                serde_json::json!({})
-            };
-            let name = tc.function.as_ref().map(|f| f.name.as_str()).unwrap_or("");
-            ContentPart::tool_call(tc.id, name, args, None)
-        })
-        .collect();
+fn create_response_with_tools(tool_calls: Vec<ContentPart>) -> ChatResponse {
+    let parts: Vec<ContentPart> = tool_calls;
 
     let mut response = ChatResponse::new(MessageContent::MultiModal(parts));
     response.finish_reason = Some(FinishReason::ToolCalls);
-    response.usage = Some(Usage {
-        prompt_tokens: 100,
-        completion_tokens: 50,
-        total_tokens: 150,
-        cached_tokens: None,
-        reasoning_tokens: None,
-        prompt_tokens_details: None,
-        completion_tokens_details: None,
-    });
+    response.usage = Some(Usage::new(100, 50));
     response
 }
 
 fn create_text_response(text: &str) -> ChatResponse {
     let mut response = ChatResponse::new(MessageContent::Text(text.to_string()));
     response.finish_reason = Some(FinishReason::Stop);
-    response.usage = Some(Usage {
-        prompt_tokens: 100,
-        completion_tokens: 50,
-        total_tokens: 150,
-        cached_tokens: None,
-        reasoning_tokens: None,
-        prompt_tokens_details: None,
-        completion_tokens_details: None,
-    });
+    response.usage = Some(Usage::new(100, 50));
     response
 }
 
@@ -194,15 +158,15 @@ fn test_step_result_merge_usage() {
         StepResult {
             messages: vec![],
             finish_reason: None,
-            usage: Some(Usage {
-                prompt_tokens: 100,
-                completion_tokens: 50,
-                total_tokens: 150,
-                cached_tokens: Some(10),
-                reasoning_tokens: Some(5),
-                prompt_tokens_details: None,
-                completion_tokens_details: None,
-            }),
+            usage: Some(
+                Usage::builder()
+                    .prompt_tokens(100)
+                    .completion_tokens(50)
+                    .total_tokens(150)
+                    .with_cached_tokens(10)
+                    .with_reasoning_tokens(5)
+                    .build(),
+            ),
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
@@ -210,15 +174,15 @@ fn test_step_result_merge_usage() {
         StepResult {
             messages: vec![],
             finish_reason: None,
-            usage: Some(Usage {
-                prompt_tokens: 200,
-                completion_tokens: 100,
-                total_tokens: 300,
-                cached_tokens: Some(20),
-                reasoning_tokens: Some(10),
-                prompt_tokens_details: None,
-                completion_tokens_details: None,
-            }),
+            usage: Some(
+                Usage::builder()
+                    .prompt_tokens(200)
+                    .completion_tokens(100)
+                    .total_tokens(300)
+                    .with_cached_tokens(20)
+                    .with_reasoning_tokens(10)
+                    .build(),
+            ),
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
@@ -229,8 +193,20 @@ fn test_step_result_merge_usage() {
     assert_eq!(merged.prompt_tokens, 300); // 100 + 200
     assert_eq!(merged.completion_tokens, 150); // 50 + 100
     assert_eq!(merged.total_tokens, 450); // 150 + 300 (simple addition, Vercel AI style)
-    assert_eq!(merged.cached_tokens, Some(30)); // 10 + 20
-    assert_eq!(merged.reasoning_tokens, Some(15)); // 5 + 10
+    assert_eq!(
+        merged
+            .prompt_tokens_details
+            .as_ref()
+            .and_then(|d| d.cached_tokens),
+        Some(30)
+    ); // 10 + 20
+    assert_eq!(
+        merged
+            .completion_tokens_details
+            .as_ref()
+            .and_then(|d| d.reasoning_tokens),
+        Some(15)
+    ); // 5 + 10
 }
 
 #[test]
@@ -479,9 +455,7 @@ async fn test_agent_basic_usage() {
 
     let messages = vec![ChatMessage::user("Hello").build()];
     let AgentResult {
-        response,
-        steps,
-        output,
+        response, steps, ..
     } = agent.generate(messages, &resolver).await.unwrap();
 
     assert_eq!(response.content_text().unwrap(), "Agent response");
@@ -504,9 +478,7 @@ async fn test_agent_with_tools() {
 
     let messages = vec![ChatMessage::user("What is 2 + 3?").build()];
     let AgentResult {
-        response,
-        steps,
-        output,
+        response, steps, ..
     } = agent.generate(messages, &resolver).await.unwrap();
 
     assert_eq!(response.content_text().unwrap(), "The result is 5");
@@ -535,11 +507,7 @@ async fn test_agent_with_callbacks() {
         }));
 
     let messages = vec![ChatMessage::user("Test").build()];
-    let AgentResult {
-        response,
-        steps,
-        output,
-    } = agent.generate(messages, &resolver).await.unwrap();
+    let _ = agent.generate(messages, &resolver).await.unwrap();
 
     assert!(*step_called.lock().unwrap());
     assert!(*finish_called.lock().unwrap());
@@ -765,9 +733,7 @@ async fn test_agent_with_empty_tools() {
 
     let messages = vec![ChatMessage::user("Test").build()];
     let AgentResult {
-        response,
-        steps,
-        output,
+        response, steps, ..
     } = agent.generate(messages, &resolver).await.unwrap();
 
     assert_eq!(response.content_text().unwrap(), "Response");
@@ -780,15 +746,7 @@ fn test_step_result_merge_usage_partial() {
         StepResult {
             messages: vec![],
             finish_reason: None,
-            usage: Some(Usage {
-                prompt_tokens: 100,
-                completion_tokens: 50,
-                total_tokens: 150,
-                cached_tokens: None,
-                reasoning_tokens: None,
-                prompt_tokens_details: None,
-                completion_tokens_details: None,
-            }),
+            usage: Some(Usage::new(100, 50)),
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,

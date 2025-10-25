@@ -809,7 +809,7 @@ mod tests {
 
         let mut req = EmbeddingRequest::new(vec!["hello".into()]).with_model("m");
         req = req.with_provider_param("foo", serde_json::json!("bar"));
-        let mut body = tx.transform_embedding(&req).unwrap();
+        let body = tx.transform_embedding(&req).unwrap();
         assert_eq!(body["foo"], serde_json::json!("bar"));
         // top-level nulls removed
         assert!(body.get("nullable").is_none());

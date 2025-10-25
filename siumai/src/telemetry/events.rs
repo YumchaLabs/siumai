@@ -102,10 +102,12 @@ pub struct ToolExecutionEvent {
     pub parent_span_id: Option<String>,
     /// Event timestamp
     pub timestamp: SystemTime,
-    /// Tool call information (deprecated - use tool_call_id and tool_name instead)
-    #[deprecated(note = "Use tool_call_id and tool_name instead")]
-    #[allow(deprecated)]
-    pub tool_call: crate::types::ToolCall,
+    /// Tool call identifier (if available)
+    pub tool_call_id: Option<String>,
+    /// Tool name (function name)
+    pub tool_name: Option<String>,
+    /// Tool arguments (parsed JSON if available)
+    pub arguments: Option<serde_json::Value>,
     /// Tool execution result (if record_outputs is true)
     pub result: Option<String>,
     /// Execution duration
@@ -264,14 +266,21 @@ impl GenerationEvent {
 
 impl ToolExecutionEvent {
     /// Create a new tool execution event
-    #[allow(deprecated)]
-    pub fn new(id: String, trace_id: String, tool_call: crate::types::ToolCall) -> Self {
+    pub fn new(
+        id: String,
+        trace_id: String,
+        tool_call_id: Option<String>,
+        tool_name: Option<String>,
+        arguments: Option<serde_json::Value>,
+    ) -> Self {
         Self {
             id,
             trace_id,
             parent_span_id: None,
             timestamp: SystemTime::now(),
-            tool_call,
+            tool_call_id,
+            tool_name,
+            arguments,
             result: None,
             duration: None,
             error: None,

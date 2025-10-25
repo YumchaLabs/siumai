@@ -18,7 +18,7 @@ pub trait OpenAiCapability: Send + Sync {
     async fn chat_with_responses_api(
         &self,
         messages: Vec<ChatMessage>,
-        tools: Option<Vec<OpenAiBuiltInTool>>,
+        tools: Option<Vec<crate::types::Tool>>,
     ) -> Result<ChatResponse, LlmError>;
 }
 

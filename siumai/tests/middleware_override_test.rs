@@ -114,6 +114,7 @@ impl LanguageModelMiddleware for OverrideModelMiddleware {
 }
 
 /// Middleware that overrides provider ID to "test-provider"
+#[allow(dead_code)]
 struct OverrideProviderMiddleware;
 
 impl LanguageModelMiddleware for OverrideProviderMiddleware {

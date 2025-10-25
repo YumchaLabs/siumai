@@ -122,6 +122,7 @@ pub trait OpenAiRerankAdapter: Send + Sync {
 
 /// OpenAI Rerank Request Transformer
 struct OpenAiRerankRequestTransformer {
+    #[allow(dead_code)] // kept for future provider-specific branching/logging
     provider_id: String,
     adapter: Option<Arc<dyn OpenAiRerankAdapter>>,
 }
@@ -155,6 +156,7 @@ impl RerankRequestTransformer for OpenAiRerankRequestTransformer {
 
 /// OpenAI Rerank Response Transformer
 struct OpenAiRerankResponseTransformer {
+    #[allow(dead_code)] // kept for future provider-specific branching/logging
     provider_id: String,
     adapter: Option<Arc<dyn OpenAiRerankAdapter>>,
 }

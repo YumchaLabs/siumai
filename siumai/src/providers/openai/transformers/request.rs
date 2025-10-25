@@ -810,6 +810,37 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn transform_rerank_includes_optional_fields() {
+        use crate::types::RerankRequest;
+
+        let tx = OpenAiRequestTransformer;
+        let req = RerankRequest::new(
+            "bge-reranker".to_string(),
+            "rust async".to_string(),
+            vec!["doc1".into(), "doc2".into()],
+        )
+        .with_instruction("rank by semantic relevance".to_string())
+        .with_top_n(3)
+        .with_return_documents(true)
+        .with_max_chunks_per_doc(8)
+        .with_overlap_tokens(16);
+
+        let body = tx.transform_rerank(&req).expect("transform rerank");
+
+        assert_eq!(body["model"], "bge-reranker");
+        assert_eq!(body["query"], "rust async");
+        let docs = body["documents"].as_array().expect("documents array");
+        assert_eq!(docs.len(), 2);
+        assert_eq!(body["top_n"], 3);
+        assert_eq!(body["return_documents"], true);
+        assert_eq!(body["max_chunks_per_doc"], 8);
+        assert_eq!(body["overlap_tokens"], 16);
+        // instruction is optional and may be adapted per provider; if present, assert matches
+        assert_eq!(body["instruction"], "rank by semantic relevance");
+    }
 
     #[cfg(feature = "structured-messages")]
     #[test]

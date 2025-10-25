@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         parallel_function_calling: Some(true),
     };
 
-    let request = ChatRequest::new(vec![
+    let _request = ChatRequest::new(vec![
         ChatMessage::user("Analyze this data with priority processing").build(),
     ])
     .with_provider_options(ProviderOptions::from_custom(priority_feature)?);

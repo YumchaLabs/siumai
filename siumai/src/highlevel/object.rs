@@ -457,7 +457,7 @@ fn remove_trailing_commas(input: &str) -> String {
     */
 }
 
-/// Build a ChatRequest carrying structured_output hints via provider_params.
+/// Build a ChatRequest carrying structured_output hints.
 fn build_chat_request_with_hints(
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
@@ -595,7 +595,7 @@ pub async fn generate_object_auto<T: DeserializeOwned>(
     generate_object(model, messages, tools, opts).await
 }
 
-/// Generic auto streaming convenience using provider params hints.
+/// Generic auto streaming convenience using provider options/content hints.
 pub async fn stream_object_auto<T: DeserializeOwned + Send + 'static>(
     model: &impl ChatCapability,
     messages: Vec<ChatMessage>,

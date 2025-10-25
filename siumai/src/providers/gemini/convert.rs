@@ -220,19 +220,43 @@ pub fn convert_tools_to_gemini(tools: &[Tool]) -> Result<Vec<GeminiTool>, LlmErr
                 });
             }
             Tool::ProviderDefined(provider_tool) => {
-                // Check if this is a Google/Gemini provider-defined tool
-                if provider_tool.provider() == Some("google")
-                    || provider_tool.provider() == Some("gemini")
-                {
-                    // For Google provider-defined tools (like code_execution),
-                    // we need to handle them specially
-                    // For now, we'll skip them as they're handled differently in Gemini API
-                    // TODO: Implement proper handling for Google provider-defined tools
-                    continue;
-                } else {
-                    // Ignore provider-defined tools from other providers
+                // Handle Google/Gemini provider-defined tools
+                if matches!(provider_tool.provider(), Some("google" | "gemini")) {
+                    match provider_tool.tool_type() {
+                        Some("code_execution") => {
+                            // Enable code execution tool
+                            function_declarations.shrink_to_fit();
+                            gemini_tools.push(GeminiTool::CodeExecution {
+                                code_execution: super::types::CodeExecution {},
+                            });
+                        }
+                        Some("google_search") => {
+                            // Gemini 2.0+ Google Search grounding
+                            gemini_tools.push(GeminiTool::GoogleSearch {
+                                google_search: super::types::GoogleSearch {},
+                            });
+                        }
+                        Some("google_search_retrieval") => {
+                            // Gemini 1.5 Google Search Retrieval (legacy)
+                            gemini_tools.push(GeminiTool::GoogleSearchRetrieval {
+                                google_search_retrieval: super::types::GoogleSearchRetrieval {
+                                    dynamic_retrieval_config: None,
+                                },
+                            });
+                        }
+                        Some("url_context") => {
+                            gemini_tools.push(GeminiTool::UrlContext {
+                                url_context: super::types::UrlContext {},
+                            });
+                        }
+                        _ => {
+                            // Unknown Google tool type; ignore for now
+                        }
+                    }
                     continue;
                 }
+                // Ignore provider-defined tools from other providers
+                continue;
             }
         }
     }
@@ -244,6 +268,63 @@ pub fn convert_tools_to_gemini(tools: &[Tool]) -> Result<Vec<GeminiTool>, LlmErr
     }
 
     Ok(gemini_tools)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_google_provider_defined_tools() {
+        // code_execution
+        let tools = vec![Tool::provider_defined(
+            "google.code_execution",
+            "code_execution",
+        )];
+        let mapped = convert_tools_to_gemini(&tools).expect("map ok");
+        assert!(matches!(
+            mapped
+                .iter()
+                .any(|t| matches!(t, GeminiTool::CodeExecution { .. })),
+            true
+        ));
+
+        // google_search
+        let tools = vec![Tool::provider_defined(
+            "google.google_search",
+            "google_search",
+        )];
+        let mapped = convert_tools_to_gemini(&tools).expect("map ok");
+        assert!(matches!(
+            mapped
+                .iter()
+                .any(|t| matches!(t, GeminiTool::GoogleSearch { .. })),
+            true
+        ));
+
+        // google_search_retrieval
+        let tools = vec![Tool::provider_defined(
+            "google.google_search_retrieval",
+            "google_search_retrieval",
+        )];
+        let mapped = convert_tools_to_gemini(&tools).expect("map ok");
+        assert!(matches!(
+            mapped
+                .iter()
+                .any(|t| matches!(t, GeminiTool::GoogleSearchRetrieval { .. })),
+            true
+        ));
+
+        // url_context
+        let tools = vec![Tool::provider_defined("google.url_context", "url_context")];
+        let mapped = convert_tools_to_gemini(&tools).expect("map ok");
+        assert!(matches!(
+            mapped
+                .iter()
+                .any(|t| matches!(t, GeminiTool::UrlContext { .. })),
+            true
+        ));
+    }
 }
 
 /// Build the request body for Gemini API from unified request

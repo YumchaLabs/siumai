@@ -3,7 +3,7 @@
 //! This module contains advanced parameter tests that cover edge cases,
 //! serialization, concurrency, and other advanced scenarios.
 
-use siumai::types::{CommonParams, ProviderParams};
+use siumai::types::CommonParams;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -40,30 +40,7 @@ fn test_parameter_serialization() {
 
     println!("   ✅ CommonParams serialization works correctly");
 
-    // Test ProviderParams serialization
-    let provider_params = ProviderParams::openai()
-        .with_param("frequency_penalty", 0.1)
-        .with_param("presence_penalty", 0.2)
-        .with_param("logit_bias", serde_json::json!({"50256": -100}));
-
-    let provider_json =
-        serde_json::to_string(&provider_params).expect("Failed to serialize ProviderParams");
-    println!("   Serialized ProviderParams: {}", provider_json);
-
-    let deserialized_provider: ProviderParams =
-        serde_json::from_str(&provider_json).expect("Failed to deserialize ProviderParams");
-
-    // Verify provider params
-    assert_eq!(
-        provider_params.get::<f64>("frequency_penalty"),
-        deserialized_provider.get::<f64>("frequency_penalty")
-    );
-    assert_eq!(
-        provider_params.get::<f64>("presence_penalty"),
-        deserialized_provider.get::<f64>("presence_penalty")
-    );
-
-    println!("   ✅ ProviderParams serialization works correctly");
+    // Provider-specific options are now handled with ProviderOptions per request
 }
 
 /// Test parameter validation with extreme values

@@ -207,66 +207,80 @@ telemetry::add_exporter(Box::new(MyCustomExporter {
 
 ### GenerationEvent
 
-Represents a single LLM generation (chat completion, embedding, etc.):
+Represents a single LLM generation（chat/embedding 等）。
 
 ```rust
 pub struct GenerationEvent {
     pub id: String,
-    pub trace_id: Option<String>,
+    pub trace_id: String,
     pub parent_span_id: Option<String>,
+    pub timestamp: SystemTime,
+    pub provider: String,
     pub model: String,
-    pub input: Vec<ChatMessage>,
-    pub output: String,
+    pub input: Option<Vec<ChatMessage>>,   // 受 TelemetryConfig.record_inputs 控制
+    pub output: Option<ChatResponse>,      // 受 TelemetryConfig.record_outputs 控制
     pub usage: Option<Usage>,
-    pub metadata: HashMap<String, serde_json::Value>,
-    pub start_time: SystemTime,
-    pub end_time: SystemTime,
+    pub finish_reason: Option<FinishReason>,
+    pub duration: Option<Duration>,
+    pub metadata: HashMap<String, String>,
+    pub error: Option<String>,
 }
 ```
 
 ### ToolExecutionEvent
 
-Represents a tool/function call:
+表示一次工具调用（函数调用）：
 
 ```rust
 pub struct ToolExecutionEvent {
     pub id: String,
-    pub trace_id: Option<String>,
-    pub tool_name: String,
-    pub input: serde_json::Value,
-    pub output: serde_json::Value,
-    pub start_time: SystemTime,
-    pub end_time: SystemTime,
+    pub trace_id: String,
+    pub parent_span_id: Option<String>,
+    pub timestamp: SystemTime,
+    pub tool_call_id: Option<String>,
+    pub tool_name: Option<String>,
+    pub arguments: Option<serde_json::Value>,
+    pub result: Option<String>,
+    pub duration: Option<Duration>,
+    pub error: Option<String>,
+    pub metadata: HashMap<String, String>,
 }
 ```
 
 ### OrchestratorEvent
 
-Represents a multi-step orchestration:
+代表多步管弦（编排）事件：
 
 ```rust
 pub struct OrchestratorEvent {
     pub id: String,
-    pub trace_id: Option<String>,
-    pub steps: Vec<String>,
-    pub total_duration: Duration,
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub trace_id: String,
+    pub timestamp: SystemTime,
+    pub total_steps: usize,
+    pub current_step: usize,
+    pub step_type: OrchestratorStepType,
+    pub total_usage: Option<Usage>,
+    pub total_duration: Option<Duration>,
+    pub metadata: HashMap<String, String>,
 }
 ```
 
 ### SpanEvent
 
-Represents a hierarchical span for distributed tracing:
+代表层级跨度（分布式追踪）：
 
 ```rust
 pub struct SpanEvent {
-    pub id: String,
-    pub trace_id: String,
+    pub span_id: String,
     pub parent_span_id: Option<String>,
+    pub trace_id: String,
     pub name: String,
     pub start_time: SystemTime,
     pub end_time: Option<SystemTime>,
-    pub attributes: HashMap<String, serde_json::Value>,
+    pub duration: Option<Duration>,
+    pub attributes: HashMap<String, String>,
+    pub status: SpanStatus,
+    pub error: Option<String>,
 }
 ```
 
@@ -462,4 +476,3 @@ See `examples/08_telemetry/` for complete examples of using the telemetry module
 - [Langfuse Documentation](https://langfuse.com/docs)
 - [Helicone Documentation](https://docs.helicone.ai)
 - [OpenTelemetry](https://opentelemetry.io) (for future integration)
-

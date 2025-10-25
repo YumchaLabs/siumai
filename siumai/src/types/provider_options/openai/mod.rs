@@ -26,9 +26,7 @@ pub use prediction::{PredictionContent, PredictionContentData};
 pub use responses_api::ResponsesApiConfig;
 pub use web_search::{OpenAiWebSearchOptions, UserLocationWrapper, WebSearchLocation};
 
-// Re-export OpenAiBuiltInTool from tools module to avoid duplication
-#[allow(deprecated)]
-pub use crate::types::tools::OpenAiBuiltInTool;
+use crate::types::Tool;
 
 /// OpenAI-specific options
 ///
@@ -38,9 +36,9 @@ pub use crate::types::tools::OpenAiBuiltInTool;
 pub struct OpenAiOptions {
     /// Responses API configuration
     pub responses_api: Option<ResponsesApiConfig>,
-    /// Built-in tools (web search, file search, computer use)
-    #[allow(deprecated)]
-    pub built_in_tools: Vec<OpenAiBuiltInTool>,
+    /// Provider-defined tools for OpenAI (web_search, file_search, computer_use, etc.)
+    /// Use `siumai::provider_tools::openai::*` helpers to construct these.
+    pub provider_tools: Vec<Tool>,
     /// Reasoning effort (for o1/o3 models)
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Service tier preference
@@ -67,42 +65,9 @@ impl OpenAiOptions {
         self
     }
 
-    /// Add a built-in tool
-    #[allow(deprecated)]
-    pub fn with_built_in_tool(mut self, tool: OpenAiBuiltInTool) -> Self {
-        self.built_in_tools.push(tool);
-        self
-    }
-
-    /// Enable web search (shorthand for built-in tool)
-    #[allow(deprecated)]
-    pub fn with_web_search(mut self) -> Self {
-        self.built_in_tools.push(OpenAiBuiltInTool::WebSearch);
-        self
-    }
-
-    /// Enable file search with vector store IDs
-    #[allow(deprecated)]
-    pub fn with_file_search(mut self, vector_store_ids: Vec<String>) -> Self {
-        self.built_in_tools.push(OpenAiBuiltInTool::FileSearch {
-            vector_store_ids: Some(vector_store_ids),
-        });
-        self
-    }
-
-    /// Enable computer use with display settings
-    #[allow(deprecated)]
-    pub fn with_computer_use(
-        mut self,
-        display_width: u32,
-        display_height: u32,
-        environment: String,
-    ) -> Self {
-        self.built_in_tools.push(OpenAiBuiltInTool::ComputerUse {
-            display_width,
-            display_height,
-            environment,
-        });
+    /// Add a provider-defined tool (see `provider_tools::openai`)
+    pub fn with_provider_tool(mut self, tool: Tool) -> Self {
+        self.provider_tools.push(tool);
         self
     }
 
@@ -224,7 +189,7 @@ mod tests {
     fn test_openai_options_default() {
         let options = OpenAiOptions::default();
         assert!(options.responses_api.is_none());
-        assert!(options.built_in_tools.is_empty());
+        assert!(options.provider_tools.is_empty());
         assert!(options.reasoning_effort.is_none());
         assert!(options.service_tier.is_none());
         assert!(options.modalities.is_none());
@@ -252,10 +217,10 @@ mod tests {
         let options = OpenAiOptions::new()
             .with_reasoning_effort(ReasoningEffort::High)
             .with_service_tier(ServiceTier::Default)
-            .with_web_search();
+            .with_provider_tool(crate::provider_tools::openai::web_search().build());
 
         assert_eq!(options.reasoning_effort, Some(ReasoningEffort::High));
         assert_eq!(options.service_tier, Some(ServiceTier::Default));
-        assert_eq!(options.built_in_tools.len(), 1);
+        assert_eq!(options.provider_tools.len(), 1);
     }
 }

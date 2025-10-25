@@ -315,10 +315,12 @@ pub struct LanguageModelHandle {
     /// Middlewares to apply to the client
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Registry handle for resolving overridden providers
+    #[allow(dead_code)] // Reserved for future registry-based resolution overrides
     registry: Option<Arc<ProviderRegistryHandle>>,
     /// Shared LRU cache for clients
     cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
     /// Cache key for this handle ("provider:model")
+    #[allow(dead_code)] // Internally derived; kept for debugging/inspection
     cache_key: String,
     /// TTL for cached clients
     client_ttl: Option<Duration>,
@@ -659,6 +661,7 @@ mod tests {
     }
 
     #[derive(Clone)]
+    #[allow(dead_code)]
     struct MockClient(std::sync::Arc<std::sync::Mutex<usize>>);
 
     #[async_trait::async_trait]

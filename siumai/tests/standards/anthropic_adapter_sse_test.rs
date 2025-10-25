@@ -5,7 +5,6 @@
 
 use eventsource_stream::Event;
 use siumai::error::LlmError;
-use siumai::execution::transformers::stream::StreamChunkTransformer;
 use siumai::standards::anthropic::chat::{AnthropicChatAdapter, AnthropicChatStandard};
 use siumai::streaming::ChatStreamEvent;
 use std::sync::Arc;

@@ -63,6 +63,7 @@ impl LanguageModelMiddleware for ModelOverrideMiddleware {
 
 // Middleware 3: Override provider for testing or routing
 #[derive(Clone)]
+#[allow(dead_code)]
 struct ProviderOverrideMiddleware {
     from_provider: String,
     to_provider: String,

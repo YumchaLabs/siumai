@@ -16,7 +16,7 @@
 //! - Client and server implementations
 //! - Tool discovery and execution
 
-use siumai::prelude::*;
+// prelude not needed for this stub example
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -219,6 +219,7 @@ macro_rules! impl_core_delegation_methods {
         ///     .build()
         ///     .await?;
         /// ```
+        #[allow(dead_code)]
         pub fn with_retry(mut self, retry: $crate::retry_api::RetryOptions) -> Self {
             self.core = self.core.with_retry(retry);
             self
@@ -230,6 +231,7 @@ macro_rules! impl_core_delegation_methods {
         ///
         /// # Arguments
         /// * `enabled` - Whether to enable debug logging
+        #[allow(dead_code)]
         pub fn http_debug(mut self, enabled: bool) -> Self {
             self.core = self.core.http_debug(enabled);
             self
@@ -239,6 +241,7 @@ macro_rules! impl_core_delegation_methods {
         ///
         /// # Arguments
         /// * `client` - Custom `reqwest::Client` instance
+        #[allow(dead_code)]
         pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
             self.core = self.core.with_http_client(client);
             self

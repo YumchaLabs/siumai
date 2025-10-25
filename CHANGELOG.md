@@ -42,7 +42,7 @@ Update your imports to use the new module paths:
 
 ```rust
 // Before
-use siumai::utils::http_headers::{HttpHeaderBuilder, ProviderHeaders};
+use siumai::execution::http::headers::{HttpHeaderBuilder, ProviderHeaders};
 use siumai::utils::vertex::vertex_base_url;
 
 // After
@@ -380,7 +380,7 @@ use siumai::core::ProviderSpec;
     - **Migration**: Replace `use siumai::server_adapters::axum` with `use siumai_extras::server::axum`
     - Add `siumai-extras = { version = "0.11", features = ["server"] }` to dependencies
   - **Code quality optimizations**:
-    - Extracted `headermap_to_hashmap()` to `utils::http_headers` for reuse across providers
+    - Extracted `headermap_to_hashmap()` to `execution::http::headers` for reuse across providers
     - Optimized `sse_lines()` to reuse String buffer, reducing allocations in streaming scenarios
     - Added `defaults::profiles` module with preset configurations:
       - `dev()`: Fast feedback, minimal retries for development
@@ -621,7 +621,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   - `ProviderRegistryHandle` delegates client creation to factory instances; capability handles implement corresponding traits.
   - String-driven model resolution via `"provider:model"` format; middleware applied at handle level.
   - Internal: trait objects now use `Arc<dyn LlmClient>` instead of `Box<dyn LlmClient>` for better cloning performance.
-- Request headers unified across providers via `utils::http_headers::ProviderHeaders` and `inject_tracing_headers`; custom headers merged from `http_config.headers`.
+- Request headers unified across providers via `execution::http::headers::ProviderHeaders`; custom headers merged from `http_config.headers`. Tracing headers are handled by OpenTelemetry middleware in siumai-extras.
 - OpenAI-Compatible header unification preserves adapter custom headers + `http_config.headers` + config `custom_headers` (compat client).
 - OpenAI Rerank now uses `ProviderHeaders::openai`; accepts `HttpConfig` for custom headers/tracing.
 
@@ -643,7 +643,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Public typed options scaffold under `siumai::public::options` (converts to `ProviderParams`).
 - Tests: end-to-end header flow tests (OpenAI Files, Anthropic chat with beta, Gemini Files, OpenAI-Compatible chat, Groq/xAI chat); multipart negative checks (Groq STT, OpenAI Files upload).
 - HTTP Interceptors (experimental but stable API):
-  - New `utils::http_interceptor::{HttpInterceptor, HttpRequestContext}` with hooks:
+  - New `execution::http::interceptor::{HttpInterceptor, HttpRequestContext}` with hooks:
     `on_before_send`, `on_response`, `on_error`, `on_sse_event`.
   - Unified `LlmBuilder::with_http_interceptor(...)` and `http_debug(true)` to install
     custom interceptors and enable a built‑in `LoggingInterceptor` (no sensitive data).

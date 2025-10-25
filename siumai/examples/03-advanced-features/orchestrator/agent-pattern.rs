@@ -12,7 +12,7 @@
 
 use siumai::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 use siumai::prelude::*;
-use siumai::types::{Tool, ToolFunction};
+use siumai::types::Tool;
 
 // Simple tool resolver
 struct WeatherResolver;

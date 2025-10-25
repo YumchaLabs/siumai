@@ -2,32 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Tool calling types (deprecated - use ContentPart::ToolCall instead)
-///
-/// This structure is deprecated and kept only for backward compatibility
-/// with the deprecated `with_tool_calls` method. New code should use
-/// `ContentPart::ToolCall` from the `chat` module.
-#[deprecated(
-    since = "0.12.0",
-    note = "Use `ContentPart::ToolCall` instead. Tool calls are now part of message content."
-)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCall {
-    pub id: String,
-    pub r#type: String,
-    pub function: Option<FunctionCall>,
-}
-
-/// Function call details (deprecated - use ContentPart::ToolCall instead)
-#[deprecated(
-    since = "0.12.0",
-    note = "Use `ContentPart::ToolCall` instead. Tool calls are now part of message content."
-)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FunctionCall {
-    pub name: String,
-    pub arguments: String,
-}
+// Deprecated ToolCall and FunctionCall removed. Use ContentPart::ToolCall and tool_result helpers.
 
 /// Provider-defined tool configuration
 ///
@@ -469,6 +444,7 @@ impl ToolChoice {
     since = "0.12.0",
     note = "Use `provider_tools::openai` module instead. See migration guide in the documentation."
 )]
+#[cfg(any())]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OpenAiBuiltInTool {
     /// Web search tool
@@ -527,6 +503,7 @@ pub enum OpenAiBuiltInTool {
     },
 }
 
+#[cfg(any())]
 impl OpenAiBuiltInTool {
     /// Convert to JSON for API requests
     pub fn to_json(&self) -> serde_json::Value {
@@ -674,6 +651,7 @@ impl OpenAiBuiltInTool {
 
 /// Typed options for OpenAI web search built-in tool (subset based on Vercel AI docs)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(any())]
 pub struct WebSearchOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_context_size: Option<String>,
@@ -682,6 +660,7 @@ pub struct WebSearchOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(any())]
 pub struct WebSearchUserLocation {
     #[serde(rename = "type")]
     pub r#type: String, // e.g., "approximate"
@@ -696,6 +675,7 @@ pub struct WebSearchUserLocation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(any())]
 pub struct FileSearchRankingOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ranker: Option<String>,
@@ -705,6 +685,7 @@ pub struct FileSearchRankingOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[cfg(any())]
 pub enum FileSearchFilter {
     #[serde(rename = "eq")]
     Eq {
@@ -742,6 +723,7 @@ pub enum FileSearchFilter {
     Or { filters: Vec<FileSearchFilter> },
 }
 
+#[cfg(any())]
 impl FileSearchFilter {
     pub fn to_json(&self) -> serde_json::Value {
         match self {
@@ -780,6 +762,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(any())]
     fn web_search_advanced_merges_extra() {
         let t = OpenAiBuiltInTool::WebSearchAdvanced {
             extra: serde_json::json!({"region":"us","safe":"moderate"}),
@@ -794,6 +777,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn file_search_advanced_includes_ids_and_extra() {
         let t = OpenAiBuiltInTool::FileSearchAdvanced {
             vector_store_ids: Some(vec!["vs1".into(), "vs2".into()]),
@@ -811,6 +795,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn computer_use_advanced_includes_scale_and_extra() {
         let t = OpenAiBuiltInTool::ComputerUseAdvanced {
             display_width: 1280,
@@ -835,6 +820,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn web_search_options_includes_country_timezone() {
         let t = OpenAiBuiltInTool::WebSearchOptions {
             options: WebSearchOptions {
@@ -858,6 +844,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any())]
     fn file_search_options_includes_max_num_results_ranking_filters() {
         let t = OpenAiBuiltInTool::FileSearchOptions {
             vector_store_ids: Some(vec!["vs1".into()]),

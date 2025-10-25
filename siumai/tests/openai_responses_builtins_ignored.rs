@@ -9,7 +9,7 @@ use siumai::ChatCapability;
 #[ignore]
 async fn responses_with_advanced_builtins_smoke() {
     use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-    use siumai::types::{ChatMessage, OpenAiBuiltInTool};
+    use siumai::types::ChatMessage;
 
     // Skip if no key set
     if std::env::var("OPENAI_API_KEY").is_err() {

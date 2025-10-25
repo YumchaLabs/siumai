@@ -8,8 +8,8 @@
 //! cargo run --example http-interceptor --features openai
 //! ```
 
+use siumai::execution::http::{HttpInterceptor, HttpRequestContext};
 use siumai::prelude::*;
-use siumai::utils::{HttpInterceptor, HttpRequestContext};
 use std::sync::Arc;
 
 #[derive(Clone)]

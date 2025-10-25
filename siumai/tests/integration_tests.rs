@@ -167,32 +167,28 @@ mod tests {
     #[test]
     fn test_usage_statistics() {
         // Test usage statistics merging
-        let mut usage1 = Usage {
-            prompt_tokens: 100,
-            completion_tokens: 50,
-            total_tokens: 150,
-            reasoning_tokens: None,
-            cached_tokens: None,
-            completion_tokens_details: None,
-            prompt_tokens_details: None,
-        };
+        let mut usage1 = Usage::new(100, 50);
 
-        let usage2 = Usage {
-            prompt_tokens: 200,
-            completion_tokens: 75,
-            total_tokens: 275,
-            reasoning_tokens: Some(25),
-            cached_tokens: Some(10),
-            completion_tokens_details: None,
-            prompt_tokens_details: None,
-        };
+        let usage2 = Usage::builder()
+            .prompt_tokens(200)
+            .completion_tokens(75)
+            .total_tokens(275)
+            .with_reasoning_tokens(25)
+            .with_cached_tokens(10)
+            .build();
 
         usage1.merge(&usage2);
 
         assert_eq!(usage1.prompt_tokens, 300);
         assert_eq!(usage1.completion_tokens, 125);
         assert_eq!(usage1.total_tokens, 425);
-        assert_eq!(usage1.reasoning_tokens, Some(25));
+        assert_eq!(
+            usage1
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|d| d.reasoning_tokens),
+            Some(25)
+        );
     }
 
     #[test]

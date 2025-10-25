@@ -52,9 +52,7 @@
 //! - Multi-step tool calling
 //! - Usage tracking
 
-use siumai::orchestrator::{OrchestratorOptions, StepResult, generate, step_count_is};
-use siumai::prelude::*;
-use std::sync::Arc;
+// Intentionally no imports here; this is a stubbed example with guidance text
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

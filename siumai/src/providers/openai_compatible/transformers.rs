@@ -395,6 +395,7 @@ mod tests {
     use crate::providers::openai_compatible::types::RequestType;
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct DummyAdapter;
     impl ProviderAdapter for DummyAdapter {
         fn provider_id(&self) -> &'static str {

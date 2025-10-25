@@ -11,7 +11,6 @@
 use siumai::prelude::*;
 use siumai::registry::{RegistryOptions, create_provider_registry};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::main]

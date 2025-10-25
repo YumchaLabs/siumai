@@ -11,7 +11,7 @@
 use futures::StreamExt;
 use siumai::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 use siumai::prelude::*;
-use siumai::types::{ChatStreamEvent, ContentPart, Tool, ToolFunction};
+use siumai::types::{ChatStreamEvent, ContentPart, Tool};
 
 // Simple tool resolver
 struct NewsResolver;

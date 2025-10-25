@@ -180,12 +180,11 @@ impl CustomChatRequest {
 
 /// Custom chat response
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(deprecated)]
 pub struct CustomChatResponse {
     /// Response content
     pub content: String,
     /// Tool calls (if any)
-    pub tool_calls: Option<Vec<ToolCall>>,
+    pub tool_calls: Option<Vec<CustomToolCall>>,
     /// Usage information
     pub usage: Option<Usage>,
     /// Finish reason
@@ -207,8 +206,7 @@ impl CustomChatResponse {
     }
 
     /// Add tool calls
-    #[allow(deprecated)]
-    pub fn with_tool_calls(mut self, tool_calls: Vec<ToolCall>) -> Self {
+    pub fn with_tool_calls(mut self, tool_calls: Vec<CustomToolCall>) -> Self {
         self.tool_calls = Some(tool_calls);
         self
     }
@@ -240,21 +238,14 @@ impl CustomChatResponse {
         // Build content with tool calls if present
         let mut content_parts = vec![ContentPart::text(&self.content)];
 
-        #[allow(deprecated)]
         if let Some(tool_calls) = &self.tool_calls {
             for tc in tool_calls {
-                if let Some(function) = &tc.function {
-                    // Parse arguments string to JSON Value
-                    let arguments = serde_json::from_str(&function.arguments)
-                        .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
-
-                    content_parts.push(ContentPart::tool_call(
-                        tc.id.clone(),
-                        function.name.clone(),
-                        arguments,
-                        None,
-                    ));
-                }
+                content_parts.push(ContentPart::tool_call(
+                    tc.id.clone(),
+                    tc.name.clone(),
+                    tc.arguments.clone(),
+                    None,
+                ));
             }
         }
 
@@ -292,6 +283,14 @@ impl CustomChatResponse {
             provider_metadata,
         }
     }
+}
+
+/// Simplified custom tool call representation (id, name, arguments)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
 }
 
 /// Custom provider client wrapper

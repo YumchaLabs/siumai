@@ -446,13 +446,7 @@ macro_rules! assistant {
             content: $crate::types::MessageContent::Text($content.into()),
             metadata: $crate::types::MessageMetadata::default(),
         }
-    };
-    // Message with tool calls - returns ChatMessage via builder
-    ($content:expr, tools: $tools:expr) => {
-        $crate::types::ChatMessage::assistant($content)
-            .with_tool_calls($tools)
-            .build()
-    };
+    }; // Message with tool calls arm removed; use assistant_with_content instead
 }
 
 /// Creates a tool result message

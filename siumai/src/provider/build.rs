@@ -160,9 +160,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         };
     }
 
-    // TODO: Migrate to provider_options
-    // Provider-specific parameters are now handled via provider_options in ChatRequest
-    // This builder-level provider_params logic needs to be refactored
+    // Provider-specific parameters are now handled via provider_options in ChatRequest.
+    // The old builder-level provider_params logic has been removed.
     let _reasoning_budget = reasoning_budget; // Suppress unused warning
     let _reasoning_enabled = reasoning_enabled; // Suppress unused warning
 

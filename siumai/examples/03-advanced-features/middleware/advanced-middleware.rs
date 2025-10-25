@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 // Middleware 1: Logging middleware using wrap_generate_async
 #[derive(Clone)]
+#[allow(dead_code)]
 struct LoggingMiddleware;
 
 impl LanguageModelMiddleware for LoggingMiddleware {
@@ -41,7 +42,7 @@ impl LanguageModelMiddleware for LoggingMiddleware {
                 let duration = start.elapsed();
 
                 match &result {
-                    Ok(resp) => println!("✅ [Logging] Response received in {:?}", duration),
+                    Ok(_resp) => println!("✅ [Logging] Response received in {:?}", duration),
                     Err(e) => println!("❌ [Logging] Error: {:?}", e),
                 }
 
@@ -90,6 +91,7 @@ impl LanguageModelMiddleware for LoggingMiddleware {
 
 // Middleware 2: Caching middleware using pre_generate
 #[derive(Clone)]
+#[allow(dead_code)]
 struct CachingMiddleware {
     cache_key: String,
     cached_response: String,
@@ -114,6 +116,7 @@ impl LanguageModelMiddleware for CachingMiddleware {
 
 // Middleware 3: Response transformation using post_generate
 #[derive(Clone)]
+#[allow(dead_code)]
 struct ResponseTransformMiddleware {
     prefix: String,
 }
@@ -135,6 +138,7 @@ impl LanguageModelMiddleware for ResponseTransformMiddleware {
 
 // Middleware 4: Stream event filtering using on_stream_event
 #[derive(Clone)]
+#[allow(dead_code)]
 struct StreamFilterMiddleware;
 
 impl LanguageModelMiddleware for StreamFilterMiddleware {

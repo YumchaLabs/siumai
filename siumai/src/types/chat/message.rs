@@ -75,9 +75,13 @@ impl ChatMessage {
     }
 
     /// Creates a tool message (deprecated - use tool_result instead)
-    #[deprecated(since = "0.12.0", note = "Use `tool_result` instead")]
+    #[deprecated(
+        since = "0.12.0",
+        note = "Use `tool_result_text` or `tool_result_json` instead"
+    )]
     pub fn tool<S: Into<String>>(content: S, tool_call_id: S) -> ChatMessageBuilder {
-        ChatMessageBuilder::tool(content, tool_call_id)
+        // Fallback: create a tool result with unknown tool name
+        ChatMessage::tool_result_text(tool_call_id.into(), "", content)
     }
 
     /// Creates an assistant message with multimodal content
@@ -542,40 +546,7 @@ impl ChatMessageBuilder {
         self
     }
 
-    /// Adds tool calls (deprecated - use with_content_parts instead)
-    #[deprecated(
-        since = "0.12.0",
-        note = "Tool calls are now part of content. Use `with_content_parts` or create message with `ChatMessage::assistant_with_content`"
-    )]
-    #[allow(deprecated)]
-    pub fn with_tool_calls(mut self, tool_calls: Vec<crate::types::ToolCall>) -> Self {
-        // Convert old ToolCall to new ContentPart::ToolCall
-        let mut parts = match self.content {
-            Some(MessageContent::Text(text)) if !text.is_empty() => {
-                vec![ContentPart::Text { text }]
-            }
-            Some(MessageContent::MultiModal(parts)) => parts,
-            _ => vec![],
-        };
-
-        for tc in tool_calls {
-            if let Some(function) = tc.function {
-                // Parse arguments string to JSON Value
-                let arguments = serde_json::from_str(&function.arguments)
-                    .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
-
-                parts.push(ContentPart::ToolCall {
-                    tool_call_id: tc.id,
-                    tool_name: function.name,
-                    arguments,
-                    provider_executed: None,
-                });
-            }
-        }
-
-        self.content = Some(MessageContent::MultiModal(parts));
-        self
-    }
+    // Deprecated with_tool_calls removed. Use with_content_parts or assistant_with_content instead.
 
     /// Adds content parts to the message
     pub fn with_content_parts(mut self, new_parts: Vec<ContentPart>) -> Self {

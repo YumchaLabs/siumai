@@ -299,10 +299,11 @@ impl ToolTracer {
     }
 
     /// Record a tool call
-    #[allow(deprecated)]
     pub fn record_tool_call(
         &self,
-        tool_call: &crate::types::ToolCall,
+        tool_name: Option<&str>,
+        tool_call_id: Option<&str>,
+        parameters: Option<&serde_json::Value>,
         result: Option<String>,
         duration: Option<Duration>,
         error: Option<String>,
@@ -312,17 +313,17 @@ impl ToolTracer {
         info!(
             trace_id = %self.trace_id,
             span_id = %span_id,
-            tool_name = ?tool_call.function.as_ref().map(|f| &f.name),
+            tool_name = tool_name,
             duration_ms = duration.map(|d| d.as_millis()),
             success = error.is_none(),
             "Tool call recorded"
         );
 
         let parameters = if self.include_details {
-            tool_call
-                .function
-                .as_ref()
-                .and_then(|f| serde_json::from_str(&f.arguments).ok())
+            parameters
+                .and_then(|v| {
+                    serde_json::from_value::<HashMap<String, serde_json::Value>>(v.clone()).ok()
+                })
                 .unwrap_or_default()
         } else {
             HashMap::new()
@@ -330,7 +331,8 @@ impl ToolTracer {
 
         TracingEvent::Tool(ToolEvent {
             timestamp: SystemTime::now(),
-            tool_call: tool_call.clone(),
+            tool_call_id: tool_call_id.map(|s| s.to_string()),
+            tool_name: tool_name.map(|s| s.to_string()),
             result: if self.include_details { result } else { None },
             duration,
             error,

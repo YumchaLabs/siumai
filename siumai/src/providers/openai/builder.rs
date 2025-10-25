@@ -62,9 +62,6 @@ pub struct OpenAiBuilder {
     use_responses_api: bool,
     /// Responses API chaining id
     responses_previous_response_id: Option<String>,
-    /// Responses API built-in tools
-    #[allow(deprecated)]
-    responses_built_in_tools: Vec<crate::types::OpenAiBuiltInTool>,
 }
 
 #[cfg(feature = "openai")]
@@ -81,7 +78,6 @@ impl OpenAiBuilder {
             openai_params: OpenAiParams::default(),
             use_responses_api: false,
             responses_previous_response_id: None,
-            responses_built_in_tools: Vec::new(),
         }
     }
 
@@ -286,19 +282,7 @@ impl OpenAiBuilder {
         self
     }
 
-    /// Add a built-in tool for Responses API.
-    #[allow(deprecated)]
-    pub fn responses_built_in_tool(mut self, tool: crate::types::OpenAiBuiltInTool) -> Self {
-        self.responses_built_in_tools.push(tool);
-        self
-    }
-
-    /// Add multiple built-in tools for Responses API.
-    #[allow(deprecated)]
-    pub fn responses_built_in_tools(mut self, tools: Vec<crate::types::OpenAiBuiltInTool>) -> Self {
-        self.responses_built_in_tools.extend(tools);
-        self
-    }
+    // Note: Built-in tools should be configured via OpenAiOptions + provider_tools::openai
 
     /// Builds the `OpenAI` client
     pub async fn build(self) -> Result<OpenAiClient, LlmError> {

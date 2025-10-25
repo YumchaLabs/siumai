@@ -4,6 +4,7 @@ use futures_util::StreamExt;
 use std::io;
 
 /// Load an `.sse` fixture file and split it into SSE data chunks (separated by blank lines), returning a byte stream
+#[allow(dead_code)]
 pub fn load_sse_fixture_as_bytes(path: &str) -> io::Result<Vec<Result<Vec<u8>, io::Error>>> {
     let raw = std::fs::read_to_string(path)?;
     // Normalize line endings
@@ -23,6 +24,7 @@ pub fn load_sse_fixture_as_bytes(path: &str) -> io::Result<Vec<Result<Vec<u8>, i
 }
 
 /// Load a `.jsonl` fixture file and split it into JSON lines, returning a byte stream
+#[allow(dead_code)]
 pub fn load_jsonl_fixture_as_bytes(path: &str) -> io::Result<Vec<Result<Vec<u8>, io::Error>>> {
     let raw = std::fs::read_to_string(path)?;
     // Normalize line endings
@@ -40,6 +42,7 @@ pub fn load_jsonl_fixture_as_bytes(path: &str) -> io::Result<Vec<Result<Vec<u8>,
 }
 
 /// Collect ChatStreamEvent sequence from a byte stream using the provided SSE event converter
+#[allow(dead_code)]
 pub async fn collect_sse_events<C>(
     bytes: Vec<Result<Vec<u8>, io::Error>>,
     converter: C,
@@ -76,6 +79,7 @@ where
 
 /// Collect ChatStreamEvent sequence from a JSON line stream using the provided JSON event converter
 /// This is used for providers like Ollama that stream newline-delimited JSON instead of SSE
+#[allow(dead_code)]
 pub async fn collect_json_events<C>(
     bytes: Vec<Result<Vec<u8>, io::Error>>,
     converter: C,

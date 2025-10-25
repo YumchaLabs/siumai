@@ -55,7 +55,12 @@ async fn gemini_thought_then_text_stop_fixture() {
             ChatStreamEvent::ThinkingDelta { delta } => thought.push_str(&delta),
             ChatStreamEvent::ContentDelta { delta, .. } => content.push_str(&delta),
             ChatStreamEvent::UsageUpdate { usage } => {
-                if usage.reasoning_tokens.is_some() {
+                if usage
+                    .completion_tokens_details
+                    .as_ref()
+                    .and_then(|d| d.reasoning_tokens)
+                    .is_some()
+                {
                     saw_reasoning_tokens = true;
                 }
             }

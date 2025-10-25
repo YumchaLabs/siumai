@@ -130,13 +130,23 @@ impl ProviderSpec for OpenAiSpec {
             prediction,
             web_search_options,
         ) = if let ProviderOptions::OpenAi(ref options) = req.provider_options {
-            let builtins = if !options.built_in_tools.is_empty() {
-                // 🎯 Call to_json() on each tool to get proper JSON representation
-                let tools_json: Vec<serde_json::Value> =
-                    options.built_in_tools.iter().map(|t| t.to_json()).collect();
-                Some(serde_json::Value::Array(tools_json))
+            // Build built-in tools JSON from provider_tools using appropriate format
+            let use_responses = self.use_responses_api(req, _ctx);
+            let tools_json: Vec<serde_json::Value> = if use_responses {
+                crate::providers::openai::utils::convert_tools_to_responses_format(
+                    &options.provider_tools,
+                )
+                .unwrap_or_default()
             } else {
+                crate::providers::openai::utils::convert_tools_to_openai_format(
+                    &options.provider_tools,
+                )
+                .unwrap_or_default()
+            };
+            let builtins = if tools_json.is_empty() {
                 None
+            } else {
+                Some(serde_json::Value::Array(tools_json))
             };
             (
                 builtins,

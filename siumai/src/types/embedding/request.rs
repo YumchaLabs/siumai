@@ -1,6 +1,5 @@
 //! Embedding Request Types
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::common::{EmbeddingFormat, EmbeddingTaskType};

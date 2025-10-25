@@ -17,7 +17,7 @@ use super::models::OpenAiModels;
 use super::rerank::OpenAiRerank;
 use super::types::OpenAiSpecificParams;
 use super::utils::get_default_models;
-use crate::execution::executors::chat::ChatExecutor;
+// use crate::execution::executors::chat::ChatExecutor; // not used directly
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 
@@ -1042,12 +1042,13 @@ mod tests {
         let client = client.with_http_interceptors(vec![Arc::new(cap)]);
 
         // Create request with provider_options for Responses API
-        use crate::types::{OpenAiBuiltInTool, OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_tools::openai as openai_tools;
+        use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
                     OpenAiOptions::new()
-                        .with_built_in_tool(OpenAiBuiltInTool::WebSearch)
+                        .with_provider_tool(openai_tools::web_search().build())
                         .with_responses_api(
                             ResponsesApiConfig::new()
                                 .with_previous_response("resp_123".to_string()),
@@ -1106,13 +1107,14 @@ mod tests {
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with duplicate built-in tools
-        use crate::types::{OpenAiBuiltInTool, OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_tools::openai as openai_tools;
+        use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
                     OpenAiOptions::new()
-                        .with_built_in_tool(OpenAiBuiltInTool::WebSearch)
-                        .with_built_in_tool(OpenAiBuiltInTool::WebSearch)
+                        .with_provider_tool(openai_tools::web_search().build())
+                        .with_provider_tool(openai_tools::web_search().build())
                         .with_responses_api(ResponsesApiConfig::new()),
                 );
 
@@ -1156,23 +1158,24 @@ mod tests {
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different max_num_results
-        use crate::types::{OpenAiBuiltInTool, OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_tools::openai as openai_tools;
+        use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
                     OpenAiOptions::new()
-                        .with_built_in_tool(OpenAiBuiltInTool::FileSearchOptions {
-                            vector_store_ids: Some(vec!["vs1".into()]),
-                            max_num_results: Some(10),
-                            ranking_options: None,
-                            filters: None,
-                        })
-                        .with_built_in_tool(OpenAiBuiltInTool::FileSearchOptions {
-                            vector_store_ids: Some(vec!["vs1".into()]),
-                            max_num_results: Some(20),
-                            ranking_options: None,
-                            filters: None,
-                        })
+                        .with_provider_tool(
+                            openai_tools::file_search()
+                                .with_vector_store_ids(vec!["vs1".into()])
+                                .with_max_num_results(10)
+                                .build(),
+                        )
+                        .with_provider_tool(
+                            openai_tools::file_search()
+                                .with_vector_store_ids(vec!["vs1".into()])
+                                .with_max_num_results(20)
+                                .build(),
+                        )
                         .with_responses_api(ResponsesApiConfig::new()),
                 );
 
@@ -1226,31 +1229,34 @@ mod tests {
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different ranking_options
-        use crate::types::{
-            FileSearchRankingOptions, OpenAiBuiltInTool, OpenAiOptions, ResponsesApiConfig,
-        };
+        use crate::provider_tools::openai as openai_tools;
+        use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
                     OpenAiOptions::new()
-                        .with_built_in_tool(OpenAiBuiltInTool::FileSearchOptions {
-                            vector_store_ids: Some(vec!["vs1".into()]),
-                            max_num_results: Some(10),
-                            ranking_options: Some(FileSearchRankingOptions {
-                                ranker: Some("semantic".into()),
-                                score_threshold: Some(0.6),
-                            }),
-                            filters: None,
-                        })
-                        .with_built_in_tool(OpenAiBuiltInTool::FileSearchOptions {
-                            vector_store_ids: Some(vec!["vs1".into()]),
-                            max_num_results: Some(10),
-                            ranking_options: Some(FileSearchRankingOptions {
-                                ranker: Some("bm25".into()),
-                                score_threshold: Some(0.2),
-                            }),
-                            filters: None,
-                        })
+                        .with_provider_tool(
+                            openai_tools::file_search()
+                                .with_vector_store_ids(vec!["vs1".into()])
+                                .with_max_num_results(10)
+                                .with_ranking_options(
+                                    openai_tools::RankingOptions::new()
+                                        .with_ranker("semantic")
+                                        .with_score_threshold(0.6),
+                                )
+                                .build(),
+                        )
+                        .with_provider_tool(
+                            openai_tools::file_search()
+                                .with_vector_store_ids(vec!["vs1".into()])
+                                .with_max_num_results(10)
+                                .with_ranking_options(
+                                    openai_tools::RankingOptions::new()
+                                        .with_ranker("bm25")
+                                        .with_score_threshold(0.2),
+                                )
+                                .build(),
+                        )
                         .with_responses_api(ResponsesApiConfig::new()),
                 );
 
@@ -1273,8 +1279,8 @@ mod tests {
     }
 
     #[test]
-    fn responses_file_search_dedup_respects_filters() {
-        // Two file_search entries with same ids/max_num_results but different filters should NOT be deduplicated
+    fn responses_file_search_dedup_respects_max_num_results() {
+        // Two file_search entries with same ids but different max_num_results should NOT be deduplicated
         let cfg = OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
         let http = reqwest::Client::new();
         let client = OpenAiClient::new(cfg, http);
@@ -1297,32 +1303,25 @@ mod tests {
         let cap = Capture(captured.clone());
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
-        // Create request with two file_search tools with different filters
-        use crate::types::{
-            FileSearchFilter, OpenAiBuiltInTool, OpenAiOptions, ResponsesApiConfig,
-        };
+        // Create request with two file_search tools with different max_num_results
+        use crate::provider_tools::openai as openai_tools;
+        use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
                     OpenAiOptions::new()
-                        .with_built_in_tool(OpenAiBuiltInTool::FileSearchOptions {
-                            vector_store_ids: Some(vec!["vs1".into()]),
-                            max_num_results: Some(10),
-                            ranking_options: None,
-                            filters: Some(FileSearchFilter::Eq {
-                                key: "doctype".into(),
-                                value: serde_json::json!("pdf"),
-                            }),
-                        })
-                        .with_built_in_tool(OpenAiBuiltInTool::FileSearchOptions {
-                            vector_store_ids: Some(vec!["vs1".into()]),
-                            max_num_results: Some(10),
-                            ranking_options: None,
-                            filters: Some(FileSearchFilter::Eq {
-                                key: "doctype".into(),
-                                value: serde_json::json!("md"),
-                            }),
-                        })
+                        .with_provider_tool(
+                            openai_tools::file_search()
+                                .with_vector_store_ids(vec!["vs1".into()])
+                                .with_max_num_results(10)
+                                .build(),
+                        )
+                        .with_provider_tool(
+                            openai_tools::file_search()
+                                .with_vector_store_ids(vec!["vs1".into()])
+                                .with_max_num_results(5)
+                                .build(),
+                        )
                         .with_responses_api(ResponsesApiConfig::new()),
                 );
 
@@ -1340,7 +1339,7 @@ mod tests {
         assert_eq!(
             files.len(),
             2,
-            "file_search with different filters must both remain"
+            "file_search with different max_num_results must both remain"
         );
     }
 
@@ -1484,7 +1483,7 @@ mod tests {
             fn on_before_send(
                 &self,
                 _ctx: &HttpRequestContext,
-                builder: reqwest::RequestBuilder,
+                _builder: reqwest::RequestBuilder,
                 body: &serde_json::Value,
                 _headers: &reqwest::header::HeaderMap,
             ) -> Result<reqwest::RequestBuilder, LlmError> {

@@ -331,7 +331,7 @@ pub fn headermap_to_hashmap(headers: &HeaderMap) -> HashMap<String, String> {
 mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
-    static TRACING_TOGGLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    static _TRACING_TOGGLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn test_header_builder() {

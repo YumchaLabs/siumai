@@ -211,7 +211,7 @@ pub async fn execute_json_request_with_headers(
     http_client: &reqwest::Client,
     provider_id: &str,
     url: &str,
-    mut headers_base: HeaderMap,
+    headers_base: HeaderMap,
     body: serde_json::Value,
     interceptors: &[Arc<dyn HttpInterceptor>],
     retry_options: Option<RetryOptions>,
@@ -374,7 +374,7 @@ pub async fn execute_request(
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers from provider spec
-    let mut base_headers = config
+    let base_headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
 
@@ -565,7 +565,7 @@ where
     F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
 {
     // 1. Build base headers from provider spec
-    let mut base_headers = config
+    let base_headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
 
@@ -727,7 +727,7 @@ pub async fn execute_get_request(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers from ProviderSpec
-    let mut headers = config
+    let headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
 
@@ -875,7 +875,7 @@ pub async fn execute_delete_request(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers from ProviderSpec
-    let mut headers = config
+    let headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
 
@@ -1041,7 +1041,7 @@ pub async fn execute_get_binary(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<HttpBinaryResult, LlmError> {
     // 1. Build base headers from ProviderSpec
-    let mut headers = config
+    let headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
 

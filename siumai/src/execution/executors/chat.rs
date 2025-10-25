@@ -874,7 +874,7 @@ mod tests {
         fn on_before_send(
             &self,
             _ctx: &crate::execution::http::interceptor::HttpRequestContext,
-            rb: reqwest::RequestBuilder,
+            _rb: reqwest::RequestBuilder,
             _body: &serde_json::Value,
             headers: &reqwest::header::HeaderMap,
         ) -> Result<reqwest::RequestBuilder, LlmError> {
@@ -1155,11 +1155,10 @@ impl ChatExecutor for HttpChatExecutor {
         let interceptors = self.interceptors.clone();
         let before_send = self.before_send.clone();
         let middlewares = self.middlewares.clone();
-        // Pre-compute URL and initial headers (provider/base-level). Request-level headers are merged later per-request.
+        // Pre-compute URL (provider/base-level). Request-level headers are merged later per-request.
         let url = self
             .provider_spec
             .chat_url(false, &req, &self.provider_context);
-        let headers_initial = self.provider_spec.build_headers(&self.provider_context)?;
         let provider_spec = self.provider_spec.clone();
         let provider_context = self.provider_context.clone();
         let retry_options = self.retry_options.clone();
@@ -1167,7 +1166,6 @@ impl ChatExecutor for HttpChatExecutor {
         // Base async generator (no post_generate here)
         let base: Arc<GenerateAsyncFn> = Arc::new(move |req_in: ChatRequest| {
             let url = url.clone();
-            let headers_initial = headers_initial.clone();
             let client = client.clone();
             let request_tx = request_tx.clone();
             let response_tx = response_tx.clone();

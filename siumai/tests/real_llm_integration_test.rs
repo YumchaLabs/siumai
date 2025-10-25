@@ -551,7 +551,11 @@ async fn test_reasoning_openai(config: &ProviderTestConfig) {
 
             // Check for reasoning tokens in usage
             if let Some(usage) = response.usage {
-                if let Some(reasoning_tokens) = usage.reasoning_tokens {
+                if let Some(reasoning_tokens) = usage
+                    .completion_tokens_details
+                    .as_ref()
+                    .and_then(|d| d.reasoning_tokens)
+                {
                     println!("    🧠 Reasoning tokens: {}", reasoning_tokens);
                 }
                 println!(
@@ -778,7 +782,11 @@ async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
 
             // Check for reasoning tokens (if using o1 models through OpenRouter)
             if let Some(usage) = response.usage {
-                if let Some(reasoning_tokens) = usage.reasoning_tokens {
+                if let Some(reasoning_tokens) = usage
+                    .completion_tokens_details
+                    .as_ref()
+                    .and_then(|d| d.reasoning_tokens)
+                {
                     println!("    🧠 Reasoning tokens: {}", reasoning_tokens);
                 }
                 println!(

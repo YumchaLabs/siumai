@@ -246,10 +246,10 @@ pub enum StreamEventType {
 pub struct ToolEvent {
     /// Event timestamp
     pub timestamp: SystemTime,
-    /// Tool call information (deprecated - use tool_call_id and tool_name instead)
-    #[deprecated(note = "Use tool_call_id and tool_name instead")]
-    #[allow(deprecated)]
-    pub tool_call: crate::types::ToolCall,
+    /// Tool call identifier (if available)
+    pub tool_call_id: Option<String>,
+    /// Tool name (function name)
+    pub tool_name: Option<String>,
     /// Tool execution result
     pub result: Option<String>,
     /// Execution duration

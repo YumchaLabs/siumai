@@ -5,8 +5,6 @@
 use super::types::*;
 use crate::error::LlmError;
 use crate::execution::http::headers::ProviderHeaders;
-#[allow(deprecated)]
-use crate::types::ToolCall;
 use crate::types::{ChatMessage, Tool};
 use base64::Engine;
 use reqwest::header::HeaderMap;
@@ -132,29 +130,6 @@ pub fn convert_tool(tool: &Tool) -> Option<OllamaTool> {
     }
 }
 
-/// Convert common `ToolCall` to Ollama format
-#[deprecated(note = "Use ContentPart::ToolCall instead")]
-#[allow(deprecated)]
-pub fn convert_tool_call(tool_call: &crate::types::ToolCall) -> OllamaToolCall {
-    OllamaToolCall {
-        function: OllamaFunctionCall {
-            name: tool_call
-                .function
-                .as_ref()
-                .map(|f| f.name.clone())
-                .unwrap_or_default(),
-            arguments: tool_call
-                .function
-                .as_ref()
-                .map(|f| {
-                    serde_json::from_str(&f.arguments)
-                        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
-                })
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
-        },
-    }
-}
-
 /// Convert Ollama chat message to common format
 pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
     let role = match message.role.as_str() {
@@ -212,18 +187,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
     }
 }
 
-/// Convert Ollama tool call to common format
-#[allow(deprecated)]
-pub fn convert_from_ollama_tool_call(tool_call: &OllamaToolCall) -> ToolCall {
-    ToolCall {
-        id: format!("call_{}", chrono::Utc::now().timestamp_millis()), // Generate ID since Ollama doesn't provide one
-        r#type: "function".to_string(),
-        function: Some(crate::types::FunctionCall {
-            name: tool_call.function.name.clone(),
-            arguments: tool_call.function.arguments.to_string(),
-        }),
-    }
-}
+// Deprecated ToolCall conversions removed; use ContentPart::ToolCall helpers instead.
 
 /// Parse streaming response line
 pub fn parse_streaming_line(line: &str) -> Result<Option<serde_json::Value>, LlmError> {

@@ -47,6 +47,7 @@ impl TrackingMiddleware {
         self.call_count.load(Ordering::SeqCst)
     }
 
+    #[allow(dead_code)]
     fn reset(&self) {
         self.transform_json_body_called
             .store(false, Ordering::SeqCst);

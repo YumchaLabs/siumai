@@ -34,7 +34,7 @@
 //!      cargo run --example sse-http-examples --features openai
 //!    ```
 
-use siumai::prelude::*;
+// prelude not needed for the stubbed example
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
