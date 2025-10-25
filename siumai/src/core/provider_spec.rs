@@ -320,27 +320,14 @@ pub fn default_custom_options_hook(
 /// This function uses the provider registry to resolve aliases, ensuring
 /// consistency with the centralized alias configuration.
 pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
-    // Direct match
     if provider_id == custom_id {
         return true;
     }
-
-    // Check if both IDs resolve to the same provider via the global registry
-    // Use the global instance so user-registered providers and aliases are honored
-    let guard = match crate::registry::global_registry().lock() {
+    let guard = match crate::registry::global_registry().read() {
         Ok(g) => g,
         Err(_) => return false,
     };
-
-    // Try to resolve both IDs using the shared registry
-    let provider_record = guard.resolve(provider_id);
-    let custom_record = guard.resolve(custom_id);
-
-    // If both resolve to records, check if they're the same provider
-    match (provider_record, custom_record) {
-        (Some(p1), Some(p2)) => p1.id == p2.id,
-        _ => false,
-    }
+    guard.is_same_provider(provider_id, custom_id)
 }
 
 #[cfg(test)]

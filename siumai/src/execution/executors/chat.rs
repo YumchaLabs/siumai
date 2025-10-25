@@ -13,7 +13,7 @@ use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::streaming::ChatStream;
-use crate::streaming::SseEventConverter;
+// use crate::streaming::SseEventConverter; // not needed explicitly here
 use crate::telemetry::{
     self,
     events::{GenerationEvent, SpanEvent, TelemetryEvent},
@@ -25,184 +25,9 @@ use std::sync::Arc;
 // Module-scoped stream converter wrappers (SSE/JSON) to avoid inline duplicates
 // -----------------------------------------------------------------------------
 
-#[derive(Clone)]
-struct TransformerConverter(
-    Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>,
-);
-
-impl SseEventConverter for TransformerConverter {
-    fn convert_event(
-        &self,
-        event: eventsource_stream::Event,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>,
-                > + Send
-                + Sync
-                + '_,
-        >,
-    > {
-        self.0.convert_event(event)
-    }
-
-    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
-        self.0.handle_stream_end()
-    }
-}
-
-#[derive(Clone)]
-struct MiddlewareConverter<C> {
-    middlewares:
-        Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
-    req: crate::types::ChatRequest,
-    convert: C,
-}
-
-impl<C> SseEventConverter for MiddlewareConverter<C>
-where
-    C: SseEventConverter + Clone + Send + Sync + 'static,
-{
-    fn convert_event(
-        &self,
-        event: eventsource_stream::Event,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>,
-                > + Send
-                + Sync
-                + '_,
-        >,
-    > {
-        let mws = self.middlewares.clone();
-        let req = self.req.clone();
-        let inner = self.convert.clone();
-        Box::pin(async move {
-            let raw = inner.convert_event(event).await;
-            let mut out = Vec::new();
-            for item in raw.into_iter() {
-                match item {
-                    Ok(ev) => {
-                        match crate::execution::middleware::language_model::apply_stream_event_chain(
-                            &mws, &req, ev,
-                        ) {
-                            Ok(list) => out.extend(list.into_iter().map(Ok)),
-                            Err(e) => out.push(Err(e)),
-                        }
-                    }
-                    Err(e) => out.push(Err(e)),
-                }
-            }
-            out
-        })
-    }
-
-    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
-        match self.convert.handle_stream_end() {
-            Some(Ok(ev)) => {
-                match crate::execution::middleware::language_model::apply_stream_event_chain(
-                    &self.middlewares,
-                    &self.req,
-                    ev,
-                )
-                .map(|mut v| v.pop())
-                {
-                    Ok(Some(last)) => Some(Ok(last)),
-                    Ok(None) => None,
-                    Err(e) => Some(Err(e)),
-                }
-            }
-            other => other,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct InterceptingConverter<C> {
-    interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
-    ctx: crate::execution::http::interceptor::HttpRequestContext,
-    convert: C,
-}
-
-impl<C> SseEventConverter for InterceptingConverter<C>
-where
-    C: SseEventConverter + Clone + Send + Sync + 'static,
-{
-    fn convert_event(
-        &self,
-        event: eventsource_stream::Event,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>,
-                > + Send
-                + Sync
-                + '_,
-        >,
-    > {
-        let interceptors = self.interceptors.clone();
-        let ctx = self.ctx.clone();
-        let inner = self.convert.clone();
-        Box::pin(async move {
-            for it in &interceptors {
-                if let Err(e) = it.on_sse_event(&ctx, &event) {
-                    return vec![Err(e)];
-                }
-            }
-            inner.convert_event(event).await
-        })
-    }
-
-    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
-        self.convert.handle_stream_end()
-    }
-}
-
-#[derive(Clone)]
-struct MiddlewareJsonConverter {
-    middlewares:
-        Vec<Arc<dyn crate::execution::middleware::language_model::LanguageModelMiddleware>>,
-    req: crate::types::ChatRequest,
-    convert: Arc<dyn crate::streaming::JsonEventConverter>,
-}
-
-impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
-    fn convert_json<'a>(
-        &'a self,
-        json_data: &'a str,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>,
-                > + Send
-                + Sync
-                + 'a,
-        >,
-    > {
-        let mws = self.middlewares.clone();
-        let req = self.req.clone();
-        let inner = self.convert.clone();
-        Box::pin(async move {
-            let raw = inner.convert_json(json_data).await;
-            let mut out = Vec::new();
-            for item in raw.into_iter() {
-                match item {
-                    Ok(ev) => {
-                        match crate::execution::middleware::language_model::apply_stream_event_chain(
-                            &mws, &req, ev,
-                        ) {
-                            Ok(list) => out.extend(list.into_iter().map(Ok)),
-                            Err(e) => out.push(Err(e)),
-                        }
-                    }
-                    Err(e) => out.push(Err(e)),
-                }
-            }
-            out
-        })
-    }
-}
+use crate::execution::streaming::adapters::{
+    InterceptingConverter, MiddlewareConverter, MiddlewareJsonConverter, TransformerConverter,
+};
 
 // -----------------------------------------------------------------------------
 // Helper builders for SSE/JSON streaming sources (no behavior change)
@@ -324,59 +149,25 @@ async fn create_json_stream_with_middlewares(
     req_in: crate::types::ChatRequest,
     disable_compression: bool,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
-    use crate::execution::http::headers::merge_headers;
-    use crate::execution::http::interceptor::HttpRequestContext;
-
-    let mut rb = http.post(url.clone());
-    let headers_effective = if let Some(ref hc) = req_in.http_config {
-        merge_headers(headers_base.clone(), &hc.headers)
-    } else {
-        headers_base.clone()
-    };
-    rb = rb.headers(headers_effective);
-    let body_for_send = transformed.clone();
-    rb = rb.json(&body_for_send);
-    if disable_compression {
-        rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
-    }
-    let ctx = HttpRequestContext {
-        provider_id: provider_id.clone(),
-        url: url.clone(),
-        stream: true,
-    };
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
-    for it in &interceptors {
-        rb = it.on_before_send(&ctx, rb, &body_for_send, &cloned_headers)?;
-    }
-    let response = rb
-        .send()
-        .await
-        .map_err(|e| LlmError::HttpError(format!("Failed to send request: {e}")))?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let headers = response.headers().clone();
-        let error_text = response.text().await.unwrap_or_default();
-        let error = crate::retry_api::classify_http_error(
-            &provider_id,
-            status.as_u16(),
-            &error_text,
-            &headers,
-            None,
-        );
-        for it in &interceptors {
-            it.on_error(&ctx, &error);
-        }
-        return Err(error);
-    }
     let mw = MiddlewareJsonConverter {
         middlewares: middlewares.clone(),
         req: req_in.clone(),
         convert: json_conv.clone(),
     };
-    crate::streaming::StreamFactory::create_json_stream(response, mw).await
+    let per_req_headers = req_in.http_config.as_ref().map(|hc| &hc.headers);
+    crate::execution::executors::common::execute_json_stream_request_with_headers(
+        &http,
+        &provider_id,
+        &url,
+        headers_base,
+        transformed,
+        &interceptors,
+        None,
+        per_req_headers,
+        mw,
+        disable_compression,
+    )
+    .await
 }
 
 #[async_trait::async_trait]

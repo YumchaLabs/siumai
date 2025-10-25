@@ -13,7 +13,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // Best-effort provider suggestion by model prefix (when provider is not set)
     if builder.provider_type.is_none() && !builder.common_params.model.is_empty() {
         let registry = crate::registry::global_registry();
-        if let Ok(guard) = registry.lock()
+        if let Ok(guard) = registry.read()
             && let Some(rec) = guard.resolve_for_model(&builder.common_params.model)
         {
             let mapped = match rec.id.as_str() {
@@ -182,7 +182,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             let resolved_base = {
                 let registry = crate::registry::global_registry();
                 let mut guard = registry
-                    .lock()
+                    .write()
                     .map_err(|_| LlmError::InternalError("Registry lock poisoned".to_string()))?;
                 if guard.resolve("openai").is_none() {
                     guard.register_native(
@@ -221,7 +221,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             let resolved_base = {
                 let registry = crate::registry::global_registry();
                 let mut guard = registry
-                    .lock()
+                    .write()
                     .map_err(|_| LlmError::InternalError("Registry lock poisoned".to_string()))?;
                 if guard.resolve("anthropic").is_none() {
                     guard.register_native(
@@ -306,7 +306,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             let resolved_base = {
                 let registry = crate::registry::global_registry();
                 let mut guard = registry
-                    .lock()
+                    .write()
                     .map_err(|_| LlmError::InternalError("Registry lock poisoned".to_string()))?;
                 if guard.resolve("gemini").is_none() {
                     guard.register_native(

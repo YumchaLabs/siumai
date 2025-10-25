@@ -65,6 +65,119 @@ pub struct HttpBytesResult {
     pub headers: HeaderMap,
 }
 
+/// Execute a JSON streaming request with explicit base headers (no ProviderSpec).
+/// Returns a ChatStream that converts line-delimited JSON via the provided converter.
+pub async fn execute_json_stream_request_with_headers<C>(
+    http_client: &reqwest::Client,
+    provider_id: &str,
+    url: &str,
+    headers_base: HeaderMap,
+    body: serde_json::Value,
+    interceptors: &[Arc<dyn HttpInterceptor>],
+    retry_options: Option<RetryOptions>,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    json_converter: C,
+    disable_compression: bool,
+) -> Result<crate::streaming::ChatStream, LlmError>
+where
+    C: crate::streaming::JsonEventConverter + Clone + 'static,
+{
+    // Merge per-request headers
+    let effective_headers = if let Some(req_headers) = per_request_headers {
+        crate::execution::http::headers::merge_headers(headers_base.clone(), req_headers)
+    } else {
+        headers_base.clone()
+    };
+
+    // Build request
+    let mut rb = http_client
+        .post(url)
+        .headers(effective_headers.clone())
+        .json(&body);
+    if disable_compression {
+        rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
+    }
+
+    // Interceptors (before send)
+    let ctx = HttpRequestContext {
+        provider_id: provider_id.to_string(),
+        url: url.to_string(),
+        stream: true,
+    };
+    let cloned_headers = rb
+        .try_clone()
+        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+        .unwrap_or_default();
+    for interceptor in interceptors {
+        rb = interceptor.on_before_send(&ctx, rb, &body, &cloned_headers)?;
+    }
+
+    // Send
+    let mut resp = rb
+        .send()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
+    // 401 retry once
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let should_retry_401 = retry_options
+            .as_ref()
+            .map(|opts| opts.retry_401)
+            .unwrap_or(true);
+        if status.as_u16() == 401 && should_retry_401 {
+            for interceptor in interceptors {
+                interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
+            }
+            // Retry with rebuilt headers (no ProviderSpec here; reuse effective headers)
+            let mut rb_retry = http_client.post(url).headers(effective_headers).json(&body);
+            if disable_compression {
+                rb_retry = rb_retry.header(reqwest::header::ACCEPT_ENCODING, "identity");
+            }
+            let cloned_headers_retry = rb_retry
+                .try_clone()
+                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+                .unwrap_or_default();
+            for interceptor in interceptors {
+                rb_retry =
+                    interceptor.on_before_send(&ctx, rb_retry, &body, &cloned_headers_retry)?;
+            }
+            resp = rb_retry
+                .send()
+                .await
+                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+        }
+    }
+
+    // Error classification
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let response_headers = resp.headers().clone();
+        let error_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error response".to_string());
+        let error = crate::retry_api::classify_http_error(
+            provider_id,
+            status.as_u16(),
+            &error_text,
+            &response_headers,
+            None,
+        );
+        for interceptor in interceptors {
+            interceptor.on_error(&ctx, &error);
+        }
+        return Err(error);
+    }
+
+    for interceptor in interceptors {
+        interceptor.on_response(&ctx, &resp)?;
+    }
+
+    // Convert response into ChatStream via JSON converter
+    crate::streaming::StreamFactory::create_json_stream(resp, json_converter).await
+}
+
 /// Execute a request that returns bytes using ProviderSpec (JSON only).
 /// For multipart bytes request, prefer a specialized path with a form builder.
 pub async fn execute_bytes_request(

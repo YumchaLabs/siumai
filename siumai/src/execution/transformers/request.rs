@@ -351,28 +351,25 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         v: &'a mut serde_json::Value,
         path: &str,
     ) -> Option<&'a mut serde_json::Value> {
-        let mut cur = v as *mut serde_json::Value; // raw pointer to satisfy borrow checker during iteration
-        for seg in parse_path(path) {
-            unsafe {
-                match seg {
-                    PathSeg::Key(k) => match &mut *cur {
-                        serde_json::Value::Object(map) => {
-                            let next = map.get_mut(&k)? as *mut serde_json::Value;
-                            cur = next;
-                        }
-                        _ => return None,
-                    },
-                    PathSeg::Index(i) => match &mut *cur {
-                        serde_json::Value::Array(arr) => {
-                            let next = arr.get_mut(i)? as *mut serde_json::Value;
-                            cur = next;
-                        }
-                        _ => return None,
-                    },
-                }
+        let segs = parse_path(path);
+        let mut cur = v;
+        for seg in segs {
+            match seg {
+                PathSeg::Key(k) => match cur {
+                    serde_json::Value::Object(map) => {
+                        cur = map.get_mut(&k)?;
+                    }
+                    _ => return None,
+                },
+                PathSeg::Index(i) => match cur {
+                    serde_json::Value::Array(arr) => {
+                        cur = arr.get_mut(i)?;
+                    }
+                    _ => return None,
+                },
             }
         }
-        unsafe { Some(&mut *cur) }
+        Some(cur)
     }
 
     fn ensure_parent_object<'a>(
@@ -384,6 +381,7 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         if segments.is_empty() {
             return None;
         }
+        // Last must be a key; otherwise there's no parent object to return
         let (parent_segs, leaf_is_key) = match &segments[segments.len() - 1] {
             PathSeg::Key(_) => (&segments[..segments.len() - 1], true),
             PathSeg::Index(_) => (&segments[..segments.len()], false),
@@ -392,77 +390,74 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
             return None;
         }
 
-        let mut cur: *mut serde_json::Value = v;
+        let mut cur = v;
         for (idx, seg) in parent_segs.iter().enumerate() {
             let next = parent_segs.get(idx + 1);
-            unsafe {
-                match seg {
-                    PathSeg::Key(k) => {
-                        // Ensure current is an object
-                        match &mut *cur {
-                            serde_json::Value::Null => {
-                                *cur = serde_json::Value::Object(serde_json::Map::new());
-                            }
-                            serde_json::Value::Object(_) => {}
-                            _ => return None,
+            match seg {
+                PathSeg::Key(k) => {
+                    // Ensure current is an object (create if null)
+                    match cur {
+                        serde_json::Value::Null => {
+                            *cur = serde_json::Value::Object(serde_json::Map::new());
                         }
-                        if let serde_json::Value::Object(map) = &mut *cur {
-                            // Insert or get child
-                            let entry = map.entry(k.clone()).or_insert(serde_json::Value::Null);
-                            // Shape child according to next segment
-                            match next {
-                                Some(PathSeg::Index(_)) => {
-                                    if !entry.is_array() {
-                                        *entry = serde_json::Value::Array(Vec::new());
-                                    }
-                                }
-                                Some(PathSeg::Key(_)) | None => {
-                                    if !entry.is_object() {
-                                        *entry = serde_json::Value::Object(serde_json::Map::new());
-                                    }
-                                }
-                            }
-                            cur = entry as *mut serde_json::Value;
-                        }
+                        serde_json::Value::Object(_) => {}
+                        _ => return None,
                     }
-                    PathSeg::Index(i) => {
-                        // Ensure current is an array
-                        match &mut *cur {
-                            serde_json::Value::Null => {
-                                *cur = serde_json::Value::Array(Vec::new());
-                            }
-                            serde_json::Value::Array(_) => {}
-                            _ => return None,
-                        }
-                        if let serde_json::Value::Array(arr) = &mut *cur {
-                            if arr.len() <= *i {
-                                arr.resize(i + 1, serde_json::Value::Null);
-                            }
-                            // Shape the indexed child according to next segment
-                            match next {
-                                Some(PathSeg::Index(_)) => {
-                                    if !arr[*i].is_array() {
-                                        arr[*i] = serde_json::Value::Array(Vec::new());
-                                    }
-                                }
-                                Some(PathSeg::Key(_)) | None => {
-                                    if !arr[*i].is_object() {
-                                        arr[*i] = serde_json::Value::Object(serde_json::Map::new());
-                                    }
+                    // SAFETY: cur is guaranteed Object here
+                    if let serde_json::Value::Object(map) = cur {
+                        let entry = map.entry(k.clone()).or_insert(serde_json::Value::Null);
+                        // Shape child according to next segment
+                        match next {
+                            Some(PathSeg::Index(_)) => {
+                                if !entry.is_array() {
+                                    *entry = serde_json::Value::Array(Vec::new());
                                 }
                             }
-                            cur = &mut arr[*i] as *mut serde_json::Value;
+                            Some(PathSeg::Key(_)) | None => {
+                                if !entry.is_object() {
+                                    *entry = serde_json::Value::Object(serde_json::Map::new());
+                                }
+                            }
                         }
+                        cur = entry;
+                    }
+                }
+                PathSeg::Index(i) => {
+                    // Ensure current is an array (create if null)
+                    match cur {
+                        serde_json::Value::Null => {
+                            *cur = serde_json::Value::Array(Vec::new());
+                        }
+                        serde_json::Value::Array(_) => {}
+                        _ => return None,
+                    }
+                    if let serde_json::Value::Array(arr) = cur {
+                        if arr.len() <= *i {
+                            arr.resize(i + 1, serde_json::Value::Null);
+                        }
+                        // Shape the indexed child according to next segment
+                        match next {
+                            Some(PathSeg::Index(_)) => {
+                                if !arr[*i].is_array() {
+                                    arr[*i] = serde_json::Value::Array(Vec::new());
+                                }
+                            }
+                            Some(PathSeg::Key(_)) | None => {
+                                if !arr[*i].is_object() {
+                                    arr[*i] = serde_json::Value::Object(serde_json::Map::new());
+                                }
+                            }
+                        }
+                        cur = &mut arr[*i];
                     }
                 }
             }
         }
-        unsafe {
-            if let serde_json::Value::Object(map) = &mut *cur {
-                Some(map)
-            } else {
-                None
-            }
+
+        if let serde_json::Value::Object(map) = cur {
+            Some(map)
+        } else {
+            None
         }
     }
 

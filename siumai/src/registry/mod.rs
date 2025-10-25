@@ -5,7 +5,7 @@
 //! single, unified interface inspired by Cherry Studio's design.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
@@ -56,6 +56,8 @@ impl ProviderRecord {
 #[derive(Default)]
 pub struct ProviderRegistry {
     by_id: HashMap<String, ProviderRecord>,
+    /// alias -> canonical id, and id -> id for O(1) canonical lookups
+    alias_index: HashMap<String, String>,
 }
 
 impl ProviderRegistry {
@@ -135,9 +137,7 @@ impl ProviderRegistry {
                     .with_custom_feature("thinking", true),
             );
             // Add "google" as an alias for "gemini"
-            if let Some(record) = self.by_id.get_mut("gemini") {
-                record.aliases.push("google".to_string());
-            }
+            self.add_alias("gemini", "google");
         }
 
         // Groq
@@ -192,7 +192,17 @@ impl ProviderRegistry {
 
     /// Register a prebuilt record
     pub fn register(&mut self, record: ProviderRecord) {
-        self.by_id.insert(record.id.clone(), record);
+        // Insert record
+        let id = record.id.clone();
+        let aliases = record.aliases.clone();
+        self.by_id.insert(id.clone(), record);
+
+        // Update alias index: id -> id
+        self.alias_index.insert(id.clone(), id.clone());
+        // Update alias index: alias -> id
+        for a in aliases {
+            self.alias_index.insert(a, id.clone());
+        }
     }
 
     /// Register an OpenAI-compatible provider from configuration
@@ -255,21 +265,26 @@ impl ProviderRegistry {
         self.register(record);
     }
 
+    /// Add an alias for an existing provider and update indexes
+    pub fn add_alias(&mut self, id: &str, alias: &str) {
+        if let Some(rec) = self.by_id.get_mut(id) {
+            rec.aliases.push(alias.to_string());
+            self.alias_index.insert(alias.to_string(), rec.id.clone());
+        }
+    }
+
     /// Register a custom OpenAI-compatible provider
     #[cfg(feature = "openai")]
     pub fn register_custom_provider(&mut self, config: ProviderConfig) {
         let _ = self.register_openai_compatible_from_config(config);
     }
 
-    /// Resolve a provider record by id or alias
+    /// Resolve a provider record by id or alias (O(1) with alias index)
     pub fn resolve(&self, id_or_alias: &str) -> Option<&ProviderRecord> {
-        if let Some(rec) = self.by_id.get(id_or_alias) {
-            return Some(rec);
+        if let Some(canon) = self.alias_index.get(id_or_alias) {
+            return self.by_id.get(canon);
         }
-        // Search by alias
-        self.by_id
-            .values()
-            .find(|rec| rec.aliases.iter().any(|a| a == id_or_alias))
+        self.by_id.get(id_or_alias)
     }
 
     /// Resolve by model id prefix (best-effort). Returns the first match.
@@ -303,14 +318,30 @@ impl ProviderRegistry {
     pub fn list_providers(&self) -> Vec<&ProviderRecord> {
         self.by_id.values().collect()
     }
+
+    /// Return canonical id for given id or alias; None if unknown
+    pub fn canonical_id<'a>(&'a self, id_or_alias: &str) -> Option<&'a str> {
+        self.alias_index
+            .get(id_or_alias)
+            .map(|s| s.as_str())
+            .or_else(|| self.by_id.get(id_or_alias).map(|r| r.id.as_str()))
+    }
+
+    /// Compare two identifiers for same provider using canonical ids
+    pub fn is_same_provider(&self, a: &str, b: &str) -> bool {
+        match (self.canonical_id(a), self.canonical_id(b)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
+    }
 }
 
 // Global provider registry instance
-static GLOBAL_REGISTRY: OnceLock<Mutex<ProviderRegistry>> = OnceLock::new();
+static GLOBAL_REGISTRY: OnceLock<RwLock<ProviderRegistry>> = OnceLock::new();
 
 /// Get the global registry instance (initialized with built-in providers)
-pub fn global_registry() -> &'static Mutex<ProviderRegistry> {
-    GLOBAL_REGISTRY.get_or_init(|| Mutex::new(ProviderRegistry::with_builtin_providers()))
+pub fn global_registry() -> &'static RwLock<ProviderRegistry> {
+    GLOBAL_REGISTRY.get_or_init(|| RwLock::new(ProviderRegistry::with_builtin_providers()))
 }
 
 /// Get the global registry handle (recommended for most use cases)
@@ -345,7 +376,7 @@ pub fn global() -> &'static entry::ProviderRegistryHandle {
 #[cfg(feature = "openai")]
 pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
     global_registry()
-        .lock()
+        .read()
         .map_err(|_| LlmError::ConfigurationError("Failed to lock provider registry".to_string()))?
         .get_adapter(provider_id)
 }

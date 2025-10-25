@@ -226,7 +226,7 @@ pub fn provider_hint_for_model(model: Option<&str>) -> Option<ProviderHint> {
         return None;
     }
     let registry = crate::registry::global_registry();
-    let guard = registry.lock().ok()?;
+    let guard = registry.read().ok()?;
     let rec = guard.resolve_for_model(model)?;
     let mut aliases = rec.aliases.clone();
     aliases.sort();

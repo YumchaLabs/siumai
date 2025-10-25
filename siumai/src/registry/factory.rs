@@ -71,7 +71,7 @@ pub async fn build_openai_compatible_client(
     let registry = crate::registry::global_registry();
     let (resolved_id, adapter, resolved_base) = {
         let mut guard = registry
-            .lock()
+            .write()
             .map_err(|_| LlmError::InternalError("Registry lock poisoned".to_string()))?;
         // Ensure provider is registered
         let _ = guard.register_openai_compatible(&provider_id);

@@ -94,28 +94,37 @@ pub fn convert_tools_to_responses_format(
                 }));
             }
             crate::types::Tool::ProviderDefined(provider_tool) => {
-                // Check if this is an OpenAI provider-defined tool
-                if provider_tool.provider() == Some("openai") {
-                    let tool_type = provider_tool.tool_type().unwrap_or("unknown");
-
-                    let mut openai_tool = serde_json::json!({
-                        "type": tool_type,
-                    });
-
-                    // Merge args into the tool definition
-                    if let serde_json::Value::Object(args_map) = &provider_tool.args {
-                        if let serde_json::Value::Object(tool_map) = &mut openai_tool {
-                            for (k, v) in args_map {
-                                tool_map.insert(k.clone(), v.clone());
-                            }
-                        }
-                    }
-
-                    openai_tools.push(openai_tool);
-                } else {
-                    // Ignore provider-defined tools from other providers
+                // Only transform OpenAI provider-defined tools
+                if provider_tool.provider() != Some("openai") {
                     continue;
                 }
+
+                // Map known built-ins to Responses API names
+                let raw = provider_tool.tool_type().unwrap_or("unknown");
+                let mapped_type = match raw {
+                    // Responses API uses preview names for web_search/computer_use
+                    "web_search" => "web_search_preview",
+                    "computer_use" => "computer_use_preview",
+                    // File search keeps same type in Responses API
+                    "file_search" => "file_search",
+                    // Default passthrough
+                    other => other,
+                };
+
+                let mut openai_tool = serde_json::json!({
+                    "type": mapped_type,
+                });
+
+                // Merge args into the tool definition
+                if let serde_json::Value::Object(args_map) = &provider_tool.args {
+                    if let serde_json::Value::Object(tool_map) = &mut openai_tool {
+                        for (k, v) in args_map {
+                            tool_map.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+
+                openai_tools.push(openai_tool);
             }
         }
     }
