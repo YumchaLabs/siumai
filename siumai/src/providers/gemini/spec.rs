@@ -189,10 +189,35 @@ impl ProviderSpec for GeminiEmbeddingSpecWrapper {
         crate::execution::http::headers::ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
     }
     fn chat_url(&self, _s: bool, _r: &ChatRequest, _c: &ProviderContext) -> String {
-        panic!("not chat")
+        self.base_url.clone()
     }
     fn choose_chat_transformers(&self, _r: &ChatRequest, _c: &ProviderContext) -> ChatTransformers {
-        panic!("not chat")
+        struct UnsupportedReq;
+        impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+            fn transform_chat(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, crate::error::LlmError> {
+                Err(crate::error::LlmError::UnsupportedOperation(
+                    "gemini embedding wrapper does not support chat".into(),
+                ))
+            }
+        }
+        struct UnsupportedResp;
+        impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+        }
+        ChatTransformers {
+            request: std::sync::Arc::new(UnsupportedReq),
+            response: std::sync::Arc::new(UnsupportedResp),
+            stream: None,
+            json: None,
+        }
     }
     fn embedding_url(
         &self,
@@ -216,7 +241,38 @@ impl ProviderSpec for GeminiEmbeddingSpecWrapper {
         _r: &crate::types::EmbeddingRequest,
         _c: &ProviderContext,
     ) -> EmbeddingTransformers {
-        panic!("not used")
+        struct UnsupportedReq;
+        impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+            fn transform_embedding(
+                &self,
+                _req: &crate::types::EmbeddingRequest,
+            ) -> Result<serde_json::Value, crate::error::LlmError> {
+                Err(crate::error::LlmError::UnsupportedOperation(
+                    "gemini wrapper does not expose embedding transformers here".into(),
+                ))
+            }
+            fn transform_chat(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, crate::error::LlmError> {
+                Err(crate::error::LlmError::UnsupportedOperation(
+                    "gemini embedding wrapper does not support chat".into(),
+                ))
+            }
+        }
+        struct UnsupportedResp;
+        impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+        }
+        EmbeddingTransformers {
+            request: std::sync::Arc::new(UnsupportedReq),
+            response: std::sync::Arc::new(UnsupportedResp),
+        }
     }
 }
 
@@ -237,10 +293,35 @@ impl ProviderSpec for GeminiImageSpecWrapper {
         crate::execution::http::headers::ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
     }
     fn chat_url(&self, _s: bool, _r: &ChatRequest, _c: &ProviderContext) -> String {
-        panic!("not chat")
+        self.base_url.clone()
     }
     fn choose_chat_transformers(&self, _r: &ChatRequest, _c: &ProviderContext) -> ChatTransformers {
-        panic!("not chat")
+        struct UnsupportedReq;
+        impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+            fn transform_chat(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, crate::error::LlmError> {
+                Err(crate::error::LlmError::UnsupportedOperation(
+                    "gemini image wrapper does not support chat".into(),
+                ))
+            }
+        }
+        struct UnsupportedResp;
+        impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+        }
+        ChatTransformers {
+            request: std::sync::Arc::new(UnsupportedReq),
+            response: std::sync::Arc::new(UnsupportedResp),
+            stream: None,
+            json: None,
+        }
     }
     fn image_url(
         &self,
@@ -257,7 +338,38 @@ impl ProviderSpec for GeminiImageSpecWrapper {
         _r: &crate::types::ImageGenerationRequest,
         _c: &ProviderContext,
     ) -> ImageTransformers {
-        panic!("not used")
+        struct UnsupportedReq;
+        impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+            fn transform_image(
+                &self,
+                _req: &crate::types::ImageGenerationRequest,
+            ) -> Result<serde_json::Value, crate::error::LlmError> {
+                Err(crate::error::LlmError::UnsupportedOperation(
+                    "gemini wrapper does not expose image transformers here".into(),
+                ))
+            }
+            fn transform_chat(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, crate::error::LlmError> {
+                Err(crate::error::LlmError::UnsupportedOperation(
+                    "gemini image wrapper does not support chat".into(),
+                ))
+            }
+        }
+        struct UnsupportedResp;
+        impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+            fn provider_id(&self) -> &str {
+                "gemini"
+            }
+        }
+        ImageTransformers {
+            request: std::sync::Arc::new(UnsupportedReq),
+            response: std::sync::Arc::new(UnsupportedResp),
+        }
     }
 }
 

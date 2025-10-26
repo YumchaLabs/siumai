@@ -50,6 +50,138 @@ use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+// -----------------------------------------------------------------------------
+// Internal fallback transformers that return UnsupportedOperation instead of panic
+// -----------------------------------------------------------------------------
+
+struct UnsupportedRequestTx {
+    provider: &'static str,
+    capability: &'static str,
+}
+
+impl crate::execution::transformers::request::RequestTransformer for UnsupportedRequestTx {
+    fn provider_id(&self) -> &str {
+        self.provider
+    }
+
+    fn transform_chat(
+        &self,
+        _req: &crate::types::ChatRequest,
+    ) -> Result<serde_json::Value, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "{} does not support chat ({})",
+            self.provider, self.capability
+        )))
+    }
+}
+
+struct UnsupportedResponseTx {
+    provider: &'static str,
+}
+
+impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResponseTx {
+    fn provider_id(&self) -> &str {
+        self.provider
+    }
+}
+
+struct UnsupportedAudioTx {
+    provider: &'static str,
+}
+
+impl crate::execution::transformers::audio::AudioTransformer for UnsupportedAudioTx {
+    fn provider_id(&self) -> &str {
+        self.provider
+    }
+
+    fn build_tts_body(
+        &self,
+        _req: &crate::types::TtsRequest,
+    ) -> Result<crate::execution::transformers::audio::AudioHttpBody, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "{} does not support TTS",
+            self.provider
+        )))
+    }
+
+    fn build_stt_body(
+        &self,
+        _req: &crate::types::SttRequest,
+    ) -> Result<crate::execution::transformers::audio::AudioHttpBody, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "{} does not support STT",
+            self.provider
+        )))
+    }
+
+    fn tts_endpoint(&self) -> &str {
+        ""
+    }
+
+    fn stt_endpoint(&self) -> &str {
+        ""
+    }
+
+    fn parse_stt_response(&self, _json: &serde_json::Value) -> Result<String, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "{} does not support STT",
+            self.provider
+        )))
+    }
+}
+
+struct UnsupportedFilesTx {
+    provider: &'static str,
+}
+
+impl crate::execution::transformers::files::FilesTransformer for UnsupportedFilesTx {
+    fn provider_id(&self) -> &str {
+        self.provider
+    }
+
+    fn build_upload_body(
+        &self,
+        _req: &crate::types::FileUploadRequest,
+    ) -> Result<crate::execution::transformers::files::FilesHttpBody, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "{} does not support file management",
+            self.provider
+        )))
+    }
+
+    fn list_endpoint(&self, _query: &Option<crate::types::FileListQuery>) -> String {
+        "/files".to_string()
+    }
+
+    fn retrieve_endpoint(&self, _file_id: &str) -> String {
+        "/files".to_string()
+    }
+
+    fn delete_endpoint(&self, _file_id: &str) -> String {
+        "/files".to_string()
+    }
+
+    fn transform_file_object(
+        &self,
+        _raw: &serde_json::Value,
+    ) -> Result<crate::types::FileObject, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "{} does not support file management",
+            self.provider
+        )))
+    }
+
+    fn transform_list_response(
+        &self,
+        _raw: &serde_json::Value,
+    ) -> Result<crate::types::FileListResponse, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "{} does not support file management",
+            self.provider
+        )))
+    }
+}
+
 /// Capability kinds (routing/transformer selection)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityKind {
@@ -193,10 +325,14 @@ pub trait ProviderSpec: Send + Sync {
         _req: &EmbeddingRequest,
         _ctx: &ProviderContext,
     ) -> EmbeddingTransformers {
-        panic!(
-            "embedding transformers not implemented for provider {}",
-            self.id()
-        )
+        let provider = self.id();
+        EmbeddingTransformers {
+            request: Arc::new(UnsupportedRequestTx {
+                provider,
+                capability: "embedding",
+            }),
+            response: Arc::new(UnsupportedResponseTx { provider }),
+        }
     }
 
     /// Compute image generation route URL (default OpenAI-compatible)
@@ -228,10 +364,14 @@ pub trait ProviderSpec: Send + Sync {
         _req: &ImageGenerationRequest,
         _ctx: &ProviderContext,
     ) -> ImageTransformers {
-        panic!(
-            "image transformers not implemented for provider {}",
-            self.id()
-        )
+        let provider = self.id();
+        ImageTransformers {
+            request: Arc::new(UnsupportedRequestTx {
+                provider,
+                capability: "image",
+            }),
+            response: Arc::new(UnsupportedResponseTx { provider }),
+        }
     }
 
     /// Compute base URL for audio operations (default OpenAI-compatible)
@@ -241,10 +381,10 @@ pub trait ProviderSpec: Send + Sync {
 
     /// Choose audio transformer (default: unimplemented; implement per provider)
     fn choose_audio_transformer(&self, _ctx: &ProviderContext) -> AudioTransformer {
-        panic!(
-            "audio transformer not implemented for provider {}",
-            self.id()
-        )
+        let provider = self.id();
+        AudioTransformer {
+            transformer: Arc::new(UnsupportedAudioTx { provider }),
+        }
     }
 
     /// Compute base URL for files operations (default OpenAI-compatible)
@@ -254,10 +394,10 @@ pub trait ProviderSpec: Send + Sync {
 
     /// Choose files transformer (default: unimplemented; implement per provider)
     fn choose_files_transformer(&self, _ctx: &ProviderContext) -> FilesTransformer {
-        panic!(
-            "files transformer not implemented for provider {}",
-            self.id()
-        )
+        let provider = self.id();
+        FilesTransformer {
+            transformer: Arc::new(UnsupportedFilesTx { provider }),
+        }
     }
 }
 

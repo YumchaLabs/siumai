@@ -99,7 +99,7 @@ fn custom_provider_config_builds() {
 #[tokio::test]
 async fn custom_provider_chat_and_stream_smoke() -> Result<(), LlmError> {
     let cfg = CustomProviderConfig::new("mini", "http://local", "k").with_model("mini-1");
-    let provider = Box::new(MiniProvider::new());
+    let provider = std::sync::Arc::new(MiniProvider::new());
     let client = CustomProviderClient::new(provider, cfg)?;
 
     // chat()

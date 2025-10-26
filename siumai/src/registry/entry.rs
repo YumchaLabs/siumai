@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::streaming::ChatStream;
 use crate::traits::{
@@ -94,6 +95,8 @@ impl CacheEntry {
 pub struct RegistryOptions {
     pub separator: char,
     pub language_model_middleware: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// HTTP interceptors applied to all clients created via the registry
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Maximum number of cached clients (LRU eviction when exceeded)
     pub max_cache_entries: Option<usize>,
     /// Time-to-live for cached clients (None = no expiration)
@@ -116,6 +119,8 @@ pub struct ProviderRegistryHandle {
     separator: char,
     /// Middlewares to apply to all language models
     pub(crate) middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// HTTP interceptors to apply to clients created via this registry
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// LRU cache for language model clients (key: "provider:model")
     /// Uses async Mutex for concurrent access and per-key build de-duplication
     language_model_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
@@ -200,6 +205,7 @@ impl ProviderRegistryHandle {
             cache: self.language_model_cache.clone(),
             cache_key: id.to_string(),
             client_ttl: self.client_ttl,
+            http_interceptors: self.http_interceptors.clone(),
         })
     }
 
@@ -211,6 +217,7 @@ impl ProviderRegistryHandle {
         Ok(EmbeddingModelHandle {
             factory: factory.clone(),
             model_id,
+            http_interceptors: self.http_interceptors.clone(),
         })
     }
 
@@ -222,6 +229,7 @@ impl ProviderRegistryHandle {
         Ok(ImageModelHandle {
             factory: factory.clone(),
             model_id,
+            http_interceptors: self.http_interceptors.clone(),
         })
     }
 
@@ -233,6 +241,7 @@ impl ProviderRegistryHandle {
         Ok(SpeechModelHandle {
             factory: factory.clone(),
             model_id,
+            http_interceptors: self.http_interceptors.clone(),
         })
     }
 
@@ -244,6 +253,7 @@ impl ProviderRegistryHandle {
         Ok(TranscriptionModelHandle {
             factory: factory.clone(),
             model_id,
+            http_interceptors: self.http_interceptors.clone(),
         })
     }
 }
@@ -269,17 +279,19 @@ pub fn create_provider_registry(
     providers: HashMap<String, Arc<dyn ProviderFactory>>,
     opts: Option<RegistryOptions>,
 ) -> ProviderRegistryHandle {
-    let (separator, middlewares, max_cache_entries, client_ttl, auto_middleware) =
+    let (separator, middlewares, http_interceptors, max_cache_entries, client_ttl, auto_middleware) =
         if let Some(o) = opts {
             (
                 o.separator,
                 o.language_model_middleware,
+                o.http_interceptors,
                 o.max_cache_entries,
                 o.client_ttl,
                 o.auto_middleware,
             )
         } else {
-            (':', Vec::new(), None, None, true) // auto_middleware defaults to true
+            // Defaults: no middlewares, no interceptors, auto middleware enabled
+            (':', Vec::new(), Vec::new(), None, None, true)
         };
 
     // Create LRU cache with specified capacity (default: 100 entries)
@@ -291,6 +303,7 @@ pub fn create_provider_registry(
         providers,
         separator,
         middlewares,
+        http_interceptors,
         language_model_cache: Arc::new(TokioMutex::new(cache)),
         client_ttl,
         auto_middleware,
@@ -314,6 +327,8 @@ pub struct LanguageModelHandle {
     pub model_id: String,
     /// Middlewares to apply to the client
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Registry-level HTTP interceptors to attempt injecting into clients
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Registry handle for resolving overridden providers
     #[allow(dead_code)] // Reserved for future registry-based resolution overrides
     registry: Option<Arc<ProviderRegistryHandle>>,
@@ -356,7 +371,16 @@ impl LanguageModelHandle {
 
         // Cache miss or expired - build new client
         drop(cache); // Release lock before async factory call
-        let client = self.factory.language_model(model_id).await?;
+        let client_built = self.factory.language_model(model_id).await?;
+
+        // Best-effort injection of HTTP interceptors via downcast to known clients
+        let client = if self.http_interceptors.is_empty() {
+            client_built
+        } else if let Some(c) = inject_http_interceptors(&client_built, &self.http_interceptors) {
+            c
+        } else {
+            client_built
+        };
 
         // Cache the new client
         let mut cache = self.cache.lock().await;
@@ -446,6 +470,8 @@ impl ChatCapability for LanguageModelHandle {
 pub struct EmbeddingModelHandle {
     factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
+    /// Registry-level HTTP interceptors to attempt injecting into clients
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 /// Implementation of EmbeddingCapability for EmbeddingModelHandle
@@ -456,7 +482,13 @@ pub struct EmbeddingModelHandle {
 impl EmbeddingCapability for EmbeddingModelHandle {
     async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
         // Build client from factory
-        let client = self.factory.embedding_model(&self.model_id).await?;
+        let client_raw = self.factory.embedding_model(&self.model_id).await?;
+        // Best-effort inject HTTP interceptors
+        let client = if !self.http_interceptors.is_empty() {
+            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
+        } else {
+            client_raw
+        };
 
         // Get embedding capability
         let embedding_client = client.as_embedding_capability().ok_or_else(|| {
@@ -482,6 +514,8 @@ impl EmbeddingModelHandle {}
 pub struct ImageModelHandle {
     factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
+    /// Registry-level HTTP interceptors to attempt injecting into clients
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 /// Implementation of ImageGenerationCapability for ImageModelHandle
@@ -495,7 +529,13 @@ impl ImageGenerationCapability for ImageModelHandle {
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         // Build client from factory
-        let client = self.factory.image_model(&self.model_id).await?;
+        let client_raw = self.factory.image_model(&self.model_id).await?;
+        // Best-effort inject HTTP interceptors
+        let client = if !self.http_interceptors.is_empty() {
+            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
+        } else {
+            client_raw
+        };
 
         // Get image generation capability
         let image_client = client.as_image_generation_capability().ok_or_else(|| {
@@ -528,6 +568,8 @@ impl ImageModelHandle {}
 pub struct SpeechModelHandle {
     factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
+    /// Registry-level HTTP interceptors to attempt injecting into clients
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 /// Implementation of AudioCapability for SpeechModelHandle
@@ -543,7 +585,13 @@ impl AudioCapability for SpeechModelHandle {
 
     async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         // Build client from factory
-        let client = self.factory.speech_model(&self.model_id).await?;
+        let client_raw = self.factory.speech_model(&self.model_id).await?;
+        // Best-effort inject HTTP interceptors
+        let client = if !self.http_interceptors.is_empty() {
+            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
+        } else {
+            client_raw
+        };
 
         // Get audio capability
         let audio_client = client.as_audio_capability().ok_or_else(|| {
@@ -575,6 +623,8 @@ impl SpeechModelHandle {
 pub struct TranscriptionModelHandle {
     factory: Arc<dyn ProviderFactory>,
     pub model_id: String,
+    /// Registry-level HTTP interceptors to attempt injecting into clients
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
 }
 
 /// Implementation of AudioCapability for TranscriptionModelHandle
@@ -590,7 +640,13 @@ impl AudioCapability for TranscriptionModelHandle {
 
     async fn speech_to_text(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
         // Build client from factory
-        let client = self.factory.transcription_model(&self.model_id).await?;
+        let client_raw = self.factory.transcription_model(&self.model_id).await?;
+        // Best-effort inject HTTP interceptors
+        let client = if !self.http_interceptors.is_empty() {
+            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
+        } else {
+            client_raw
+        };
 
         // Get audio capability
         let audio_client = client.as_audio_capability().ok_or_else(|| {
@@ -603,6 +659,95 @@ impl AudioCapability for TranscriptionModelHandle {
 }
 
 impl TranscriptionModelHandle {}
+
+/// Best-effort HTTP interceptor injection by downcasting to known client types.
+/// If injection is possible, returns a new Arc<dyn LlmClient> with interceptors installed.
+fn inject_http_interceptors(
+    client: &Arc<dyn LlmClient>,
+    interceptors: &[Arc<dyn HttpInterceptor>],
+) -> Option<Arc<dyn LlmClient>> {
+    // Helper to clone interceptors vec
+    fn clone_vec<T: Clone>(v: &[T]) -> Vec<T> {
+        let mut out = Vec::with_capacity(v.len());
+        out.extend(v.iter().cloned());
+        out
+    }
+
+    // OpenAI
+    #[cfg(feature = "openai")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::openai::OpenAiClient>()
+    {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+    // OpenAI-Compatible
+    #[cfg(feature = "openai")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::openai_compatible::openai_client::OpenAiCompatibleClient>(
+    ) {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+    // Anthropic
+    #[cfg(feature = "anthropic")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::anthropic::AnthropicClient>()
+    {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+    // Gemini
+    #[cfg(feature = "google")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::gemini::client::GeminiClient>()
+    {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+    // Groq
+    #[cfg(feature = "groq")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::groq::client::GroqClient>()
+    {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+    // xAI
+    #[cfg(feature = "xai")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::xai::client::XaiClient>()
+    {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+    // Ollama
+    #[cfg(feature = "ollama")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::ollama::client::OllamaClient>()
+    {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+    // Anthropic on Vertex
+    #[cfg(feature = "anthropic")]
+    if let Some(c) = client
+        .as_any()
+        .downcast_ref::<crate::providers::anthropic_vertex::client::VertexAnthropicClient>(
+    ) {
+        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
+        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
+    }
+
+    None
+}
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 #[cfg(test)]
@@ -652,6 +797,7 @@ impl LlmClient for TestProvClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::interceptor::LoggingInterceptor;
     use std::sync::{Mutex, OnceLock};
 
     // Serialize registry tests that mutate global TEST_BUILD_COUNT to avoid flakiness under parallel runs
@@ -750,6 +896,7 @@ mod tests {
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
                 max_cache_entries: Some(2),
                 client_ttl: None,
                 auto_middleware: false, // Disable for testing
@@ -809,6 +956,7 @@ mod tests {
             Some(RegistryOptions {
                 separator: ':',
                 language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
                 max_cache_entries: None,
                 client_ttl: Some(Duration::from_millis(100)),
                 auto_middleware: false, // Disable for testing
@@ -841,6 +989,84 @@ mod tests {
         assert_eq!(
             TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst),
             2
+        );
+    }
+
+    #[tokio::test]
+    async fn language_model_inherits_registry_interceptors() {
+        let _g = reg_test_guard();
+        // Registry with a logging interceptor at registry level
+        let mut providers = HashMap::new();
+        providers.insert(
+            "testprov".to_string(),
+            Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+        let reg = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: vec![Arc::new(LoggingInterceptor)],
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+        let handle = reg.language_model("testprov:model").unwrap();
+        // Assert handle picked up interceptors
+        assert_eq!(handle.http_interceptors.len(), 1);
+        // Ensure chat still works
+        let _ = handle.chat(vec![]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn embedding_and_image_handles_inherit_interceptors() {
+        let _g = reg_test_guard();
+        let mut providers = HashMap::new();
+        providers.insert(
+            "testprov".to_string(),
+            Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+        providers.insert(
+            "testprov_embed".to_string(),
+            Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+        let reg = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: vec![Arc::new(LoggingInterceptor)],
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+        let eh = reg.embedding_model("testprov_embed:model").unwrap();
+        assert_eq!(eh.http_interceptors.len(), 1);
+        // Call embed to ensure path runs without panic
+        let _ = eh.embed(vec!["hello".into()]).await.unwrap();
+
+        // Image handle still inherits vector even if TestProviderFactory returns chat-only client
+        let ih = reg.image_model("testprov:model").unwrap();
+        assert_eq!(ih.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn inject_interceptors_returns_some_for_openai_client() {
+        use crate::providers::openai::{OpenAiConfig, client::OpenAiClient};
+        // Build a minimal OpenAI client (no network call during construction)
+        let cfg = OpenAiConfig::new("test-key")
+            .with_model("gpt-4o-mini")
+            .with_base_url("http://localhost");
+        let http = reqwest::Client::builder().build().unwrap();
+        let client = OpenAiClient::new(cfg, http);
+        let arc: Arc<dyn LlmClient> = Arc::new(client);
+        let out = inject_http_interceptors(&arc, &[Arc::new(LoggingInterceptor)]);
+        assert!(
+            out.is_some(),
+            "expected OpenAI client to support interceptor injection"
         );
     }
 }

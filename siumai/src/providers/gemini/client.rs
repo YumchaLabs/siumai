@@ -656,7 +656,8 @@ impl EmbeddingCapability for GeminiClient {
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
             ) -> String {
-                panic!("chat_url should not be called on embedding wrapper spec")
+                // Return a benign URL; this wrapper is not intended for chat
+                self.base_url.clone()
             }
 
             fn choose_chat_transformers(
@@ -664,7 +665,32 @@ impl EmbeddingCapability for GeminiClient {
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
             ) -> crate::core::ChatTransformers {
-                panic!("choose_chat_transformers should not be called on embedding wrapper spec")
+                struct UnsupportedReq;
+                impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                    fn transform_chat(
+                        &self,
+                        _req: &crate::types::ChatRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini embedding wrapper does not support chat".into(),
+                        ))
+                    }
+                }
+                struct UnsupportedResp;
+                impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                }
+                crate::core::ChatTransformers {
+                    request: std::sync::Arc::new(UnsupportedReq),
+                    response: std::sync::Arc::new(UnsupportedResp),
+                    stream: None,
+                    json: None,
+                }
             }
 
             fn embedding_url(
@@ -690,7 +716,38 @@ impl EmbeddingCapability for GeminiClient {
                 _req: &crate::types::EmbeddingRequest,
                 _ctx: &ProviderContext,
             ) -> crate::core::EmbeddingTransformers {
-                panic!("choose_embedding_transformers should not be called on wrapper spec")
+                struct UnsupportedReq;
+                impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                    fn transform_embedding(
+                        &self,
+                        _req: &crate::types::EmbeddingRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini wrapper does not expose embedding transformers here".into(),
+                        ))
+                    }
+                    fn transform_chat(
+                        &self,
+                        _req: &crate::types::ChatRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini embedding wrapper does not support chat".into(),
+                        ))
+                    }
+                }
+                struct UnsupportedResp;
+                impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                }
+                crate::core::EmbeddingTransformers {
+                    request: std::sync::Arc::new(UnsupportedReq),
+                    response: std::sync::Arc::new(UnsupportedResp),
+                }
             }
         }
 
@@ -827,7 +884,7 @@ impl EmbeddingExtensions for GeminiClient {
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
             ) -> String {
-                panic!("chat_url should not be called on embedding wrapper spec")
+                self.base_url.clone()
             }
 
             fn choose_chat_transformers(
@@ -835,7 +892,32 @@ impl EmbeddingExtensions for GeminiClient {
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
             ) -> crate::core::ChatTransformers {
-                panic!("choose_chat_transformers should not be called on embedding wrapper spec")
+                struct UnsupportedReq;
+                impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                    fn transform_chat(
+                        &self,
+                        _req: &crate::types::ChatRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini embedding wrapper does not support chat".into(),
+                        ))
+                    }
+                }
+                struct UnsupportedResp;
+                impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                }
+                crate::core::ChatTransformers {
+                    request: std::sync::Arc::new(UnsupportedReq),
+                    response: std::sync::Arc::new(UnsupportedResp),
+                    stream: None,
+                    json: None,
+                }
             }
 
             fn embedding_url(
@@ -861,7 +943,38 @@ impl EmbeddingExtensions for GeminiClient {
                 _req: &crate::types::EmbeddingRequest,
                 _ctx: &ProviderContext,
             ) -> crate::core::EmbeddingTransformers {
-                panic!("choose_embedding_transformers should not be called on wrapper spec")
+                struct UnsupportedReq;
+                impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                    fn transform_embedding(
+                        &self,
+                        _req: &crate::types::EmbeddingRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini wrapper does not expose embedding transformers here".into(),
+                        ))
+                    }
+                    fn transform_chat(
+                        &self,
+                        _req: &crate::types::ChatRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini embedding wrapper does not support chat".into(),
+                        ))
+                    }
+                }
+                struct UnsupportedResp;
+                impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                }
+                crate::core::EmbeddingTransformers {
+                    request: std::sync::Arc::new(UnsupportedReq),
+                    response: std::sync::Arc::new(UnsupportedResp),
+                }
             }
         }
 
@@ -984,7 +1097,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
             ) -> String {
-                panic!("chat_url should not be called on image wrapper spec")
+                self.base_url.clone()
             }
 
             fn choose_chat_transformers(
@@ -992,7 +1105,32 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 _req: &crate::types::ChatRequest,
                 _ctx: &ProviderContext,
             ) -> crate::core::ChatTransformers {
-                panic!("choose_chat_transformers should not be called on image wrapper spec")
+                struct UnsupportedReq;
+                impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                    fn transform_chat(
+                        &self,
+                        _req: &crate::types::ChatRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini image wrapper does not support chat".into(),
+                        ))
+                    }
+                }
+                struct UnsupportedResp;
+                impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                }
+                crate::core::ChatTransformers {
+                    request: std::sync::Arc::new(UnsupportedReq),
+                    response: std::sync::Arc::new(UnsupportedResp),
+                    stream: None,
+                    json: None,
+                }
             }
 
             fn image_url(
@@ -1011,7 +1149,38 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 _req: &crate::types::ImageGenerationRequest,
                 _ctx: &ProviderContext,
             ) -> crate::core::ImageTransformers {
-                panic!("choose_image_transformers should not be called on wrapper spec")
+                struct UnsupportedReq;
+                impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                    fn transform_image(
+                        &self,
+                        _req: &crate::types::ImageGenerationRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini wrapper does not expose image transformers here".into(),
+                        ))
+                    }
+                    fn transform_chat(
+                        &self,
+                        _req: &crate::types::ChatRequest,
+                    ) -> Result<serde_json::Value, crate::error::LlmError> {
+                        Err(crate::error::LlmError::UnsupportedOperation(
+                            "gemini image wrapper does not support chat".into(),
+                        ))
+                    }
+                }
+                struct UnsupportedResp;
+                impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                    fn provider_id(&self) -> &str {
+                        "gemini"
+                    }
+                }
+                crate::core::ImageTransformers {
+                    request: std::sync::Arc::new(UnsupportedReq),
+                    response: std::sync::Arc::new(UnsupportedResp),
+                }
             }
         }
 

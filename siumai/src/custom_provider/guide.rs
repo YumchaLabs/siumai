@@ -73,7 +73,8 @@ use serde_json;
 /// .with_timeout(30)
 /// .with_param("temperature", 0.7);
 ///
-/// let provider = Box::new(MyCustomProvider::new(config.clone()));
+/// use std::sync::Arc;
+/// let provider = Arc::new(MyCustomProvider::new(config.clone()));
 /// let client = CustomProviderClient::new(provider, config)?;
 /// # Ok(())
 /// # }
@@ -352,13 +353,13 @@ impl HuggingFaceProviderBuilder {
 }
 
 impl CustomProviderBuilder for HuggingFaceProviderBuilder {
-    fn build(self) -> Result<Box<dyn CustomProvider>, LlmError> {
+    fn build(self) -> Result<std::sync::Arc<dyn CustomProvider>, LlmError> {
         let config = self
             .config
             .ok_or_else(|| LlmError::ConfigurationError("Configuration is required".to_string()))?;
 
         let provider = HuggingFaceProvider::new(config);
-        Ok(Box::new(provider))
+        Ok(std::sync::Arc::new(provider))
     }
 }
 

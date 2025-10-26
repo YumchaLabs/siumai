@@ -295,8 +295,8 @@ pub struct CustomToolCall {
 
 /// Custom provider client wrapper
 pub struct CustomProviderClient {
-    /// Custom provider implementation
-    provider: Box<dyn CustomProvider>,
+    /// Custom provider implementation (Arc for cheap clone)
+    provider: std::sync::Arc<dyn CustomProvider>,
     /// Configuration
     config: CustomProviderConfig,
     /// HTTP client
@@ -306,7 +306,7 @@ pub struct CustomProviderClient {
 impl CustomProviderClient {
     /// Create a new custom provider client
     pub fn new(
-        provider: Box<dyn CustomProvider>,
+        provider: std::sync::Arc<dyn CustomProvider>,
         config: CustomProviderConfig,
     ) -> Result<Self, LlmError> {
         // Validate configuration
@@ -326,7 +326,7 @@ impl CustomProviderClient {
 
     /// Create a new custom provider client with a custom HTTP client
     pub fn with_http_client(
-        provider: Box<dyn CustomProvider>,
+        provider: std::sync::Arc<dyn CustomProvider>,
         config: CustomProviderConfig,
         http_client: reqwest::Client,
     ) -> Result<Self, LlmError> {
@@ -435,16 +435,18 @@ impl LlmClient for CustomProviderClient {
     }
 
     fn clone_box(&self) -> Box<dyn LlmClient> {
-        // Custom providers need to implement their own cloning logic
-        // This is a placeholder implementation
-        panic!("Custom provider cloning not implemented")
+        Box::new(CustomProviderClient {
+            provider: std::sync::Arc::clone(&self.provider),
+            config: self.config.clone(),
+            http_client: self.http_client.clone(),
+        })
     }
 }
 
 /// Helper trait for building custom providers
 pub trait CustomProviderBuilder {
     /// Build the custom provider
-    fn build(self) -> Result<Box<dyn CustomProvider>, LlmError>;
+    fn build(self) -> Result<std::sync::Arc<dyn CustomProvider>, LlmError>;
 }
 
 #[cfg(test)]

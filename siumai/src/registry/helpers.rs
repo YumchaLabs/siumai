@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use crate::execution::http::interceptor::LoggingInterceptor;
 use crate::execution::middleware::samples::chain_default_and_clamp;
 use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_provider_registry};
 
@@ -19,6 +20,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
+            http_interceptors: vec![std::sync::Arc::new(LoggingInterceptor)],
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
             auto_middleware: true,   // Enable automatic middleware
@@ -35,6 +37,7 @@ pub fn create_empty_registry() -> ProviderRegistryHandle {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: Vec::new(),
+            http_interceptors: Vec::new(),
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
             auto_middleware: true,   // Enable automatic middleware
@@ -50,6 +53,7 @@ pub fn create_bare_registry() -> ProviderRegistryHandle {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: Vec::new(),
+            http_interceptors: Vec::new(),
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
             auto_middleware: false,  // Disable automatic middleware

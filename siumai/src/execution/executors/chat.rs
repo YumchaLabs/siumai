@@ -46,61 +46,6 @@ async fn create_sse_stream_with_middlewares(
     disable_compression: bool,
     retry_options: Option<crate::retry_api::RetryOptions>,
 ) -> Result<crate::streaming::ChatStream, LlmError> {
-    use crate::execution::http::headers::merge_headers;
-    use crate::execution::http::interceptor::HttpRequestContext;
-    use crate::streaming::StreamFactory;
-
-    let build_request = {
-        let http = http.clone();
-        let headers_base = headers_base.clone();
-        let url_for_retry = url.clone();
-        let transformed_for_retry = transformed.clone();
-        let interceptors = interceptors.clone();
-        let provider_id_clone = provider_id.clone();
-        let req_headers_extra = req_in.http_config.as_ref().map(|hc| hc.headers.clone());
-        move || -> Result<reqwest::RequestBuilder, LlmError> {
-            let headers_effective = if let Some(ref headers_map) = req_headers_extra {
-                merge_headers(headers_base.clone(), headers_map)
-            } else {
-                headers_base.clone()
-            };
-            let mut rb = http
-                .post(url_for_retry.clone())
-                .headers(headers_effective)
-                .header(reqwest::header::ACCEPT, "text/event-stream")
-                .header(reqwest::header::CACHE_CONTROL, "no-cache")
-                .header(reqwest::header::CONNECTION, "keep-alive");
-            let mut body_for_send = transformed_for_retry.clone();
-            if provider_id_clone.starts_with("openai") {
-                body_for_send["stream"] = serde_json::Value::Bool(true);
-                if body_for_send.get("stream_options").is_none() {
-                    body_for_send["stream_options"] = serde_json::json!({"include_usage": true});
-                } else if let Some(obj) = body_for_send["stream_options"].as_object_mut() {
-                    obj.entry("include_usage")
-                        .or_insert(serde_json::Value::Bool(true));
-                }
-            }
-            rb = rb.json(&body_for_send);
-            if disable_compression {
-                rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
-            }
-            let ctx = HttpRequestContext {
-                provider_id: provider_id_clone.clone(),
-                url: url_for_retry.clone(),
-                stream: true,
-            };
-            let cloned_headers = rb
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
-            let mut out_rb = rb;
-            for it in &interceptors {
-                out_rb = it.on_before_send(&ctx, out_rb, &body_for_send, &cloned_headers)?;
-            }
-            Ok(out_rb)
-        }
-    };
-
     let converter = TransformerConverter(sse_tx.clone());
     let mw_wrapped = MiddlewareConverter {
         middlewares: middlewares.clone(),
@@ -109,24 +54,36 @@ async fn create_sse_stream_with_middlewares(
     };
     let intercepting = InterceptingConverter {
         interceptors: interceptors.clone(),
-        ctx: HttpRequestContext {
+        ctx: crate::execution::http::interceptor::HttpRequestContext {
             provider_id: provider_id.clone(),
             url: url.clone(),
             stream: true,
         },
         convert: mw_wrapped,
     };
-    let should_retry_401 = retry_options
-        .as_ref()
-        .map(|opts| opts.retry_401)
-        .unwrap_or(true);
-    StreamFactory::create_eventsource_stream_with_retry(
+    // Prepare body (OpenAI stream flags) before calling common helper
+    let mut body_for_send = transformed.clone();
+    if provider_id.starts_with("openai") {
+        body_for_send["stream"] = serde_json::Value::Bool(true);
+        if body_for_send.get("stream_options").is_none() {
+            body_for_send["stream_options"] = serde_json::json!({"include_usage": true});
+        } else if let Some(obj) = body_for_send["stream_options"].as_object_mut() {
+            obj.entry("include_usage")
+                .or_insert(serde_json::Value::Bool(true));
+        }
+    }
+
+    crate::execution::executors::common::execute_sse_stream_request_with_headers(
+        &http,
         &provider_id,
         &url,
-        should_retry_401,
-        build_request,
-        intercepting,
+        headers_base,
+        body_for_send,
         &interceptors,
+        retry_options,
+        req_in.http_config.as_ref().map(|hc| hc.headers.clone()),
+        intercepting,
+        disable_compression,
     )
     .await
 }

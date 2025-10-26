@@ -179,6 +179,34 @@ pub fn classify_http_error(
 ) -> LlmError {
     let lower = body_text.to_lowercase();
 
+    // Extract common request/trace identifiers to aid debugging (best-effort)
+    fn header_val(headers: &HeaderMap, name: &str) -> Option<String> {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    }
+    let request_ids = [
+        "x-request-id",
+        "x-response-id",
+        "x-openai-request-id",
+        "x-trace-id",
+        "traceparent",
+        "x-correlation-id",
+        "x-goog-request-id",
+    ]
+    .iter()
+    .filter_map(|k| header_val(headers, k).map(|v| format!("{}={}", k, v)))
+    .collect::<Vec<_>>()
+    .join(",");
+    let ids_suffix = if request_ids.is_empty() {
+        String::new()
+    } else {
+        format!(" ids=[{}]", request_ids)
+    };
+    // Limit body sample size to avoid noisy logs
+    let body_sample = body_text.chars().take(200).collect::<String>();
+
     // 429 Too Many Requests → RateLimit with optional Retry-After hint
     if status == 429 {
         let retry_after = headers
@@ -186,14 +214,17 @@ pub fn classify_http_error(
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
         return LlmError::RateLimitError(format!(
-            "provider={} http=429 retry_after={}",
-            provider_id, retry_after
+            "provider={} http=429 retry_after={}{} body_sample={}",
+            provider_id, retry_after, ids_suffix, body_sample
         ));
     }
 
     // 401 → Authentication
     if status == 401 {
-        return LlmError::AuthenticationError(format!("provider={} unauthorized", provider_id));
+        return LlmError::AuthenticationError(format!(
+            "provider={} unauthorized{} body_sample={}",
+            provider_id, ids_suffix, body_sample
+        ));
     }
 
     // 403/400 with quota/rate patterns → QuotaExceeded or RateLimit
