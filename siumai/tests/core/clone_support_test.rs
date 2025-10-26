@@ -37,8 +37,8 @@ async fn test_basic_clone_functionality() {
         let cloned_client = client.clone();
         // Just test that clone works without errors
         assert_eq!(
-            LlmClient::provider_name(&client),
-            LlmClient::provider_name(&cloned_client)
+            LlmClient::provider_id(&client),
+            LlmClient::provider_id(&cloned_client)
         );
     }
 }

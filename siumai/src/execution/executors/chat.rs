@@ -167,6 +167,30 @@ async fn create_json_stream_with_middlewares(
     .await
 }
 
+// -----------------------------------------------------------------------------
+// Small helper to build chat JSON body with middlewares + before_send
+// -----------------------------------------------------------------------------
+
+fn build_chat_body(
+    request_tx: &Arc<dyn RequestTransformer>,
+    middlewares: &[Arc<dyn LanguageModelMiddleware>],
+    before_send: &Option<crate::execution::executors::BeforeSendHook>,
+    req_in: &crate::types::ChatRequest,
+) -> Result<serde_json::Value, LlmError> {
+    let mut body = request_tx.transform_chat(req_in)?;
+    crate::execution::middleware::language_model::apply_json_body_transform_chain(
+        middlewares,
+        req_in,
+        &mut body,
+    )?;
+    let out = if let Some(cb) = before_send {
+        cb(&body)?
+    } else {
+        body
+    };
+    Ok(out)
+}
+
 #[async_trait::async_trait]
 pub trait ChatExecutor: Send + Sync {
     async fn execute(&self, req: ChatRequest) -> Result<ChatResponse, LlmError>;
@@ -941,20 +965,8 @@ impl ChatExecutor for HttpChatExecutor {
             let retry_options = retry_options.clone();
             Box::pin({
                 async move {
-                    let mut body = request_tx.transform_chat(&req_in)?;
-
-                    // Apply middleware JSON body transformations
-                    crate::execution::middleware::language_model::apply_json_body_transform_chain(
-                        &middlewares,
-                        &req_in,
-                        &mut body,
-                    )?;
-
-                    let json_body = if let Some(cb) = &before_send {
-                        cb(&body)?
-                    } else {
-                        body
-                    };
+                    let json_body =
+                        build_chat_body(&request_tx, &middlewares, &before_send, &req_in)?;
 
                     let config = crate::execution::executors::common::HttpExecutionConfig {
                         provider_id: provider_id.clone(),
@@ -1101,20 +1113,8 @@ impl ChatExecutor for HttpChatExecutor {
             let _provider_context = provider_context.clone();
             let retry_options = retry_options.clone();
             Box::pin(async move {
-                let mut body = request_tx.transform_chat(&req_in)?;
-
-                // Apply middleware JSON body transformations
-                crate::execution::middleware::language_model::apply_json_body_transform_chain(
-                    &middlewares,
-                    &req_in,
-                    &mut body,
-                )?;
-
-                let transformed = if let Some(cb) = &before_send {
-                    cb(&body)?
-                } else {
-                    body
-                };
+                let transformed =
+                    build_chat_body(&request_tx, &middlewares, &before_send, &req_in)?;
 
                 // Build and send streaming via helpers below (SSE or JSON)
 

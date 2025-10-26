@@ -359,8 +359,8 @@ impl ModelListingCapability for VertexAnthropicClient {
 }
 
 impl crate::client::LlmClient for VertexAnthropicClient {
-    fn provider_name(&self) -> &'static str {
-        "anthropic"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("anthropic")
     }
 
     fn supported_models(&self) -> Vec<String> {

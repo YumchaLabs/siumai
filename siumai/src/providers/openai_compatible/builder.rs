@@ -427,10 +427,26 @@ impl OpenAiCompatibleBuilder {
         // Create adapter using the registry (much simpler!)
         let adapter = get_provider_adapter(&self.provider_id)?;
 
-        // Use custom base URL if provided, otherwise use adapter's default
-        let base_url = self
-            .base_url
-            .unwrap_or_else(|| adapter.base_url().to_string());
+        // Use custom base URL if provided, otherwise use adapter's default.
+        // If a custom base URL lacks a path segment, append the adapter's default path suffix
+        // (e.g., for Groq: "/openai/v1") so tests and users can pass just the origin.
+        let base_url = if let Some(custom) = self.base_url.clone() {
+            let def = adapter.base_url();
+            // Extract path part from default (after scheme://host)
+            let def_path = def.splitn(4, '/').skip(3).next().unwrap_or("");
+            let custom_path = custom.splitn(4, '/').skip(3).next().unwrap_or("");
+            if custom_path.is_empty() && !def_path.is_empty() {
+                format!(
+                    "{}/{}",
+                    custom.trim_end_matches('/'),
+                    def_path.trim_start_matches('/')
+                )
+            } else {
+                custom
+            }
+        } else {
+            adapter.base_url().to_string()
+        };
 
         // Create configuration
         let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(

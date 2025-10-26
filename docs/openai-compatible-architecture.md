@@ -21,7 +21,7 @@ This note explains how Siumai supports providers that expose an OpenAI‑like RE
 ## When To Use
 
 - Rapidly onboard a provider that claims OpenAI API compatibility.
-- Keep portability: switch providers by changing `provider_name`/`base_url`/`api_key`.
+- Keep portability: switch providers by changing `provider_id`/`base_url`/`api_key`.
 - Prefer native providers when you need deep, non‑OpenAI features.
 
 ## Gotchas

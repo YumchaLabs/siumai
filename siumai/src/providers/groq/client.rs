@@ -61,7 +61,7 @@ impl Clone for GroqClient {
 impl std::fmt::Debug for GroqClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GroqClient")
-            .field("provider_name", &"groq")
+            .field("provider_id", &"groq")
             .field("model", &self.config.common_params.model)
             .field("base_url", &self.config.base_url)
             .field("temperature", &self.config.common_params.temperature)
@@ -130,8 +130,8 @@ impl GroqClient {
 
 #[async_trait]
 impl LlmClient for GroqClient {
-    fn provider_name(&self) -> &'static str {
-        "groq"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("groq")
     }
 
     fn supported_models(&self) -> Vec<String> {

@@ -75,7 +75,7 @@ impl Clone for AnthropicClient {
 impl std::fmt::Debug for AnthropicClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnthropicClient")
-            .field("provider_name", &"anthropic")
+            .field("provider_id", &"anthropic")
             .field("model", &self.common_params.model)
             .field("base_url", &self.base_url)
             .field("temperature", &self.common_params.temperature)
@@ -363,8 +363,8 @@ impl ModelListingCapability for AnthropicClient {
 }
 
 impl LlmClient for AnthropicClient {
-    fn provider_name(&self) -> &'static str {
-        "anthropic"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("anthropic")
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -405,7 +405,10 @@ mod tests {
             HttpConfig::default(),
         );
 
-        assert_eq!(client.provider_name(), "anthropic");
+        assert_eq!(
+            client.provider_id(),
+            std::borrow::Cow::Borrowed("anthropic")
+        );
         assert!(!client.supported_models().is_empty());
     }
 

@@ -61,8 +61,8 @@ impl ChatCapability for TestProvider {
 }
 
 impl LlmClient for TestProvider {
-    fn provider_name(&self) -> &'static str {
-        "mock"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("mock")
     }
 
     fn supported_models(&self) -> Vec<String> {

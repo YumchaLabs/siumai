@@ -178,10 +178,10 @@ async fn test_all_providers_supported() {
     }
 }
 
-/// Test provider name mapping consistency
+/// Test provider id mapping consistency
 #[tokio::test]
-async fn test_provider_name_mapping() {
-    // Test that provider_name() method correctly maps provider types
+async fn test_provider_id_mapping() {
+    // Test that provider_id() method correctly maps provider types
     let test_cases = vec![
         ("openai", ProviderType::OpenAi),
         ("anthropic", ProviderType::Anthropic),
@@ -194,7 +194,7 @@ async fn test_provider_name_mapping() {
     ];
 
     for (name, _expected_type) in test_cases {
-        let _builder = SiumaiBuilder::new().provider_name(name);
+        let _builder = SiumaiBuilder::new().provider_id(name);
         // We can't easily access the internal provider_type, but we can test
         // that the builder doesn't fail with unsupported provider errors
 

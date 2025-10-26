@@ -66,10 +66,8 @@ impl ConfigurableAdapter {
 }
 
 impl ProviderAdapter for ConfigurableAdapter {
-    fn provider_id(&self) -> &'static str {
-        // Note: This is a limitation of the current trait design
-        // In practice, we might want to change the trait to return &str
-        Box::leak(self.config.id.clone().into_boxed_str())
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(self.config.id.clone())
     }
 
     fn transform_request_params(
@@ -88,11 +86,11 @@ impl ProviderAdapter for ConfigurableAdapter {
             thinking_fields: config_mappings
                 .thinking_fields
                 .iter()
-                .map(|s| Box::leak(s.clone().into_boxed_str()) as &'static str)
+                .map(|s| std::borrow::Cow::Owned(s.clone()))
                 .collect(),
-            content_field: Box::leak(config_mappings.content_field.clone().into_boxed_str()),
-            tool_calls_field: Box::leak(config_mappings.tool_calls_field.clone().into_boxed_str()),
-            role_field: Box::leak(config_mappings.role_field.clone().into_boxed_str()),
+            content_field: std::borrow::Cow::Owned(config_mappings.content_field.clone()),
+            tool_calls_field: std::borrow::Cow::Owned(config_mappings.tool_calls_field.clone()),
+            role_field: std::borrow::Cow::Owned(config_mappings.role_field.clone()),
         }
     }
 

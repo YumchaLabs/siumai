@@ -157,8 +157,8 @@ impl XaiClient {
 
 #[async_trait]
 impl LlmClient for XaiClient {
-    fn provider_name(&self) -> &'static str {
-        "xai"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("xai")
     }
 
     fn supported_models(&self) -> Vec<String> {

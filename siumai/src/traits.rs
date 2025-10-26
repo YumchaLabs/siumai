@@ -122,7 +122,8 @@ pub use audio::AudioCapability;
 
 /// Core provider trait for capability discovery and metadata
 pub trait LlmProvider: Send + Sync {
-    fn provider_name(&self) -> &'static str;
+    /// Canonical provider id (e.g., "openai")
+    fn provider_id(&self) -> std::borrow::Cow<'static, str>;
     fn supported_models(&self) -> Vec<String>;
     fn capabilities(&self) -> ProviderCapabilities;
     fn http_client(&self) -> &reqwest::Client;

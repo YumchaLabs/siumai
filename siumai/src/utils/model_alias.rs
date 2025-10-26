@@ -189,6 +189,10 @@ pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
             if ml.starts_with("grok-") {
                 return format!("xai/{m}");
             }
+            // Perplexity Sonar models should take precedence over vendor-family mapping
+            if ml.contains("sonar") {
+                return format!("perplexity/{m}");
+            }
             // Meta Llama
             if ml.starts_with("llama-3.1-")
                 || ml.starts_with("llama-3.2-")
@@ -199,10 +203,6 @@ pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
             // Mistral/Mixtral
             if ml.starts_with("mistral-") || ml.starts_with("mixtral-") {
                 return format!("mistralai/{m}");
-            }
-            // Perplexity Sonar models
-            if ml.contains("sonar") {
-                return format!("perplexity/{m}");
             }
             // Cohere Command models
             if ml.starts_with("command-r") || ml.starts_with("command-") {

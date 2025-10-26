@@ -60,10 +60,12 @@ impl RequestTransformer for GeminiRequestTransformer {
 
                 // Put common params at top-level for rule-based moving into generationConfig
                 if let Some(t) = req.common_params.temperature {
-                    body["temperature"] = serde_json::json!(t);
+                    let v = (t as f64 * 1_000_000.0).round() / 1_000_000.0;
+                    body["temperature"] = serde_json::json!(v);
                 }
                 if let Some(tp) = req.common_params.top_p {
-                    body["top_p"] = serde_json::json!(tp);
+                    let v = (tp as f64 * 1_000_000.0).round() / 1_000_000.0;
+                    body["top_p"] = serde_json::json!(v);
                 }
                 if let Some(max) = req.common_params.max_tokens {
                     body["max_tokens"] = serde_json::json!(max);

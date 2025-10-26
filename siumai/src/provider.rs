@@ -11,6 +11,7 @@ use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,7 +44,7 @@ impl std::fmt::Debug for Siumai {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Siumai")
             .field("provider_type", &self.metadata.provider_type)
-            .field("provider_name", &self.metadata.provider_name)
+            .field("provider_id", &self.metadata.provider_id)
             .field(
                 "supported_models_count",
                 &self.metadata.supported_models.len(),
@@ -57,7 +58,7 @@ impl std::fmt::Debug for Siumai {
 #[derive(Debug, Clone)]
 pub struct ProviderMetadata {
     pub provider_type: ProviderType,
-    pub provider_name: String,
+    pub provider_id: String,
     pub supported_models: Vec<String>,
     pub capabilities: ProviderCapabilities,
 }
@@ -67,7 +68,7 @@ impl Siumai {
     pub fn new(client: Arc<dyn LlmClient>) -> Self {
         let metadata = ProviderMetadata {
             provider_type: client.provider_type(),
-            provider_name: client.provider_name().to_string(),
+            provider_id: client.provider_id().into_owned(),
             supported_models: client.supported_models(),
             capabilities: client.capabilities(),
         };
@@ -166,7 +167,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support image generation.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -178,7 +179,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support file management.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -193,7 +194,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support file management.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -205,7 +206,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support file management.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -217,7 +218,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support file management.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -229,7 +230,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support file management.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -244,7 +245,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support image generation.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -259,7 +260,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support image generation.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -271,7 +272,7 @@ impl Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support rerank.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -329,7 +330,7 @@ impl EmbeddingCapability for Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support embedding functionality. Consider using OpenAI, Gemini, or Ollama for embeddings.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -340,7 +341,7 @@ impl EmbeddingCapability for Siumai {
             embedding_client.embedding_dimension()
         } else {
             // Fallback to default dimension based on provider
-            match self.client.provider_name() {
+            match self.client.provider_id().as_ref() {
                 "openai" => 1536,
                 "ollama" => 384,
                 "gemini" => 768,
@@ -355,7 +356,7 @@ impl EmbeddingCapability for Siumai {
             embedding_client.max_tokens_per_embedding()
         } else {
             // Fallback to default based on provider
-            match self.client.provider_name() {
+            match self.client.provider_id().as_ref() {
                 "openai" => 8192,
                 "ollama" => 8192,
                 "gemini" => 2048,
@@ -370,7 +371,7 @@ impl EmbeddingCapability for Siumai {
             embedding_client.supported_embedding_models()
         } else {
             // Fallback to default models based on provider
-            match self.client.provider_name() {
+            match self.client.provider_id().as_ref() {
                 "openai" => vec![
                     "text-embedding-3-small".to_string(),
                     "text-embedding-3-large".to_string(),
@@ -437,7 +438,7 @@ impl EmbeddingExtensions for Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support embedding functionality. Consider using OpenAI, Gemini, or Ollama for embeddings.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
@@ -461,7 +462,7 @@ impl EmbeddingExtensions for Siumai {
                     );
 
                     // Add task type support for Gemini models
-                    if self.client.provider_name() == "gemini" {
+                    if self.client.provider_id() == "gemini" {
                         model_info = model_info
                             .with_task(EmbeddingTaskType::RetrievalQuery)
                             .with_task(EmbeddingTaskType::RetrievalDocument)
@@ -473,7 +474,7 @@ impl EmbeddingExtensions for Siumai {
                     }
 
                     // Add custom dimensions support for OpenAI models
-                    if self.client.provider_name() == "openai" {
+                    if self.client.provider_id() == "openai" {
                         model_info = model_info.with_custom_dimensions();
                     }
 
@@ -484,24 +485,15 @@ impl EmbeddingExtensions for Siumai {
         } else {
             Err(LlmError::UnsupportedOperation(format!(
                 "Provider {} does not support embedding functionality.",
-                self.client.provider_name()
+                self.client.provider_id()
             )))
         }
     }
 }
 
 impl LlmClient for Siumai {
-    fn provider_name(&self) -> &'static str {
-        // We need to return a static str, so we'll use a match
-        match self.metadata.provider_type {
-            ProviderType::OpenAi => "openai",
-            ProviderType::Anthropic => "anthropic",
-            ProviderType::Gemini => "gemini",
-            ProviderType::XAI => "xai",
-            ProviderType::Ollama => "ollama",
-            ProviderType::Custom(_) => "custom",
-            ProviderType::Groq => "groq",
-        }
+    fn provider_id(&self) -> Cow<'static, str> {
+        Cow::Owned(self.metadata.provider_id.clone())
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -584,7 +576,7 @@ impl LlmClient for Siumai {
 /// while maintaining access to provider-specific features when needed.
 pub struct SiumaiBuilder {
     pub(crate) provider_type: Option<ProviderType>,
-    pub(crate) provider_name: Option<String>,
+    pub(crate) provider_id: Option<String>,
     api_key: Option<String>,
     base_url: Option<String>,
     capabilities: Vec<String>,
@@ -615,7 +607,7 @@ impl SiumaiBuilder {
     pub fn new() -> Self {
         Self {
             provider_type: None,
-            provider_name: None,
+            provider_id: None,
             api_key: None,
             base_url: None,
             capabilities: Vec::new(),
@@ -640,11 +632,11 @@ impl SiumaiBuilder {
         self
     }
 
-    /// Set the provider by name (dynamic dispatch)
-    /// This provides the llm_dart-style ai().provider('name') interface
-    pub fn provider_name<S: Into<String>>(mut self, name: S) -> Self {
-        let name = name.into();
-        self.provider_name = Some(name.clone());
+    /// Set the provider by canonical id (dynamic dispatch)
+    /// Recommended to use canonical ids like "openai", "anthropic", "gemini".
+    pub fn provider_id<S: Into<String>>(mut self, id: S) -> Self {
+        let name = id.into();
+        self.provider_id = Some(name.clone());
 
         // Map provider name to type
         self.provider_type = Some(match name.as_str() {
@@ -977,9 +969,9 @@ impl<'a> AudioCapabilityProxy<'a> {
         self.reported_support
     }
 
-    /// Get provider name for debugging
-    pub fn provider_name(&self) -> &'static str {
-        self.provider.provider_name()
+    /// Get provider id for debugging
+    pub fn provider_id(&self) -> String {
+        self.provider.provider_id().into_owned()
     }
 
     /// Get a support status message (optional, for user-controlled warnings)
@@ -988,11 +980,11 @@ impl<'a> AudioCapabilityProxy<'a> {
     /// The library itself will not automatically warn or log anything.
     pub fn support_status_message(&self) -> String {
         if self.reported_support {
-            format!("Provider {} reports audio support", self.provider_name())
+            format!("Provider {} reports audio support", self.provider_id())
         } else {
             format!(
                 "Provider {} does not report audio support, but this may still work depending on the model",
-                self.provider_name()
+                self.provider_id()
             )
         }
     }
@@ -1028,22 +1020,19 @@ impl<'a> EmbeddingCapabilityProxy<'a> {
         self.reported_support
     }
 
-    /// Get provider name for debugging
-    pub fn provider_name(&self) -> &'static str {
-        self.provider.provider_name()
+    /// Get provider id for debugging
+    pub fn provider_id(&self) -> String {
+        self.provider.provider_id().into_owned()
     }
 
     /// Get a support status message (optional, for user-controlled information)
     pub fn support_status_message(&self) -> String {
         if self.reported_support {
-            format!(
-                "Provider {} reports embedding support",
-                self.provider_name()
-            )
+            format!("Provider {} reports embedding support", self.provider_id())
         } else {
             format!(
                 "Provider {} does not report embedding support, but this may still work depending on the model",
-                self.provider_name()
+                self.provider_id()
             )
         }
     }
@@ -1090,19 +1079,19 @@ impl<'a> VisionCapabilityProxy<'a> {
         self.reported_support
     }
 
-    /// Get provider name for debugging
-    pub fn provider_name(&self) -> &'static str {
-        self.provider.provider_name()
+    /// Get provider id for debugging
+    pub fn provider_id(&self) -> String {
+        self.provider.provider_id().into_owned()
     }
 
     /// Get a support status message (optional, for user-controlled information)
     pub fn support_status_message(&self) -> String {
         if self.reported_support {
-            format!("Provider {} reports vision support", self.provider_name())
+            format!("Provider {} reports vision support", self.provider_id())
         } else {
             format!(
                 "Provider {} does not report vision support, but this may still work depending on the model",
-                self.provider_name()
+                self.provider_id()
             )
         }
     }
@@ -1128,7 +1117,7 @@ impl std::fmt::Debug for SiumaiBuilder {
 
         debug_struct
             .field("provider_type", &self.provider_type)
-            .field("provider_name", &self.provider_name)
+            .field("provider_id", &self.provider_id)
             .field("base_url", &self.base_url)
             .field("model", &self.common_params.model)
             .field("temperature", &self.common_params.temperature)
@@ -1198,8 +1187,8 @@ mod tests {
     }
 
     impl LlmClient for MockProvider {
-        fn provider_name(&self) -> &'static str {
-            "mock"
+        fn provider_id(&self) -> Cow<'static, str> {
+            Cow::Borrowed("mock")
         }
 
         fn supported_models(&self) -> Vec<String> {
@@ -1243,7 +1232,7 @@ mod tests {
         let siumai = Siumai::new(Arc::new(mock_provider));
 
         let proxy = siumai.embedding_capability();
-        assert_eq!(proxy.provider_name(), "custom"); // MockProvider gets mapped to "custom" type
+        assert_eq!(proxy.provider_id(), "mock");
         assert!(!proxy.is_reported_as_supported()); // Mock provider doesn't report embedding support
     }
 

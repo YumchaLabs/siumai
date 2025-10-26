@@ -129,7 +129,7 @@ async fn siumai_anthropic_streaming_headers() {
 async fn siumai_anthropic_vertex_streaming_headers() {
     let (it, captured) = TestInterceptor::new();
     let client = SiumaiBuilder::new()
-        .provider_name("anthropic-vertex")
+        .provider_id("anthropic-vertex")
         .model("claude-3-5-sonnet-20241022")
         .http_header("authorization", "Bearer test-token")
         .base_url("https://us-central1-aiplatform.googleapis.com/v1beta/projects/demo/locations/us-central1/publishers/anthropic")

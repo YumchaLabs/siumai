@@ -398,8 +398,8 @@ mod tests {
     #[allow(dead_code)]
     struct DummyAdapter;
     impl ProviderAdapter for DummyAdapter {
-        fn provider_id(&self) -> &'static str {
-            "dummy"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("dummy")
         }
         fn transform_request_params(
             &self,

@@ -16,8 +16,8 @@ struct MappingAdapter {
 }
 
 impl ProviderAdapter for MappingAdapter {
-    fn provider_id(&self) -> &'static str {
-        "mapping-test"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("mapping-test")
     }
 
     fn transform_request_params(

@@ -11,7 +11,7 @@ pub struct ApiErrorHandler;
 
 impl ApiErrorHandler {
     /// Handle a failed HTTP response and convert it to an appropriate LlmError
-    pub async fn handle_response_error(response: Response, provider_name: &str) -> LlmError {
+    pub async fn handle_response_error(response: Response, provider_id: &str) -> LlmError {
         let status_code = response.status().as_u16();
         let error_text = response
             .text()
@@ -23,27 +23,27 @@ impl ApiErrorHandler {
 
         // Map common HTTP status codes to appropriate error types
         match status_code {
-            400 => LlmError::InvalidInput(format!("{provider_name} API error: {error_text}")),
+            400 => LlmError::InvalidInput(format!("{provider_id} API error: {error_text}")),
             401 => LlmError::AuthenticationError(format!(
-                "Authentication failed for {provider_name}: {error_text}"
+                "Authentication failed for {provider_id}: {error_text}"
             )),
             403 => LlmError::AuthenticationError(format!(
-                "Access forbidden for {provider_name}: {error_text}"
+                "Access forbidden for {provider_id}: {error_text}"
             )),
-            404 => LlmError::NotFound(format!("{provider_name} resource not found: {error_text}")),
+            404 => LlmError::NotFound(format!("{provider_id} resource not found: {error_text}")),
             413 => LlmError::InvalidInput("Request payload too large".to_string()),
             415 => LlmError::InvalidInput("Unsupported media type".to_string()),
             429 => LlmError::RateLimitError(format!(
-                "Rate limit exceeded for {provider_name}: {error_text}"
+                "Rate limit exceeded for {provider_id}: {error_text}"
             )),
             500..=599 => LlmError::ApiError {
                 code: status_code,
-                message: format!("{provider_name} server error: {error_text}"),
+                message: format!("{provider_id} server error: {error_text}"),
                 details: error_details,
             },
             _ => LlmError::ApiError {
                 code: status_code,
-                message: format!("{provider_name} API error {status_code}: {error_text}"),
+                message: format!("{provider_id} API error {status_code}: {error_text}"),
                 details: error_details,
             },
         }
@@ -165,22 +165,22 @@ impl ApiErrorHandler {
 
     /// Handle Gemini-specific error responses
     pub async fn handle_gemini_error(response: Response) -> LlmError {
-        Self::handle_response_error(response, "Gemini").await
+        Self::handle_response_error(response, "gemini").await
     }
 
     /// Handle Groq-specific error responses
     pub async fn handle_groq_error(response: Response) -> LlmError {
-        Self::handle_response_error(response, "Groq").await
+        Self::handle_response_error(response, "groq").await
     }
 
     /// Handle xAI-specific error responses
     pub async fn handle_xai_error(response: Response) -> LlmError {
-        Self::handle_response_error(response, "xAI").await
+        Self::handle_response_error(response, "xai").await
     }
 
     /// Handle Ollama-specific error responses
     pub async fn handle_ollama_error(response: Response) -> LlmError {
-        Self::handle_response_error(response, "Ollama").await
+        Self::handle_response_error(response, "ollama").await
     }
 }
 

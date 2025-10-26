@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 /// Mock provider factory for testing
 struct MockProviderFactory {
-    provider_name: &'static str,
+    provider_id: &'static str,
 }
 
 #[async_trait::async_trait]
@@ -17,7 +17,7 @@ impl ProviderFactory for MockProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Return a mock client that echoes the provider and model in the response
         Ok(Arc::new(MockClient {
-            provider: self.provider_name.to_string(),
+            provider: self.provider_id.to_string(),
             model: model_id.to_string(),
         }))
     }
@@ -46,8 +46,8 @@ impl ProviderFactory for MockProviderFactory {
         ))
     }
 
-    fn provider_name(&self) -> &'static str {
-        self.provider_name
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(self.provider_id)
     }
 }
 
@@ -83,8 +83,8 @@ impl ChatCapability for MockClient {
 }
 
 impl LlmClient for MockClient {
-    fn provider_name(&self) -> &'static str {
-        "mock"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("mock")
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -130,7 +130,7 @@ async fn test_model_id_override() {
     providers.insert(
         "openai".to_string(),
         Arc::new(MockProviderFactory {
-            provider_name: "openai",
+            provider_id: "openai",
         }) as Arc<dyn ProviderFactory>,
     );
 
@@ -164,7 +164,7 @@ async fn test_no_override() {
     providers.insert(
         "openai".to_string(),
         Arc::new(MockProviderFactory {
-            provider_name: "openai",
+            provider_id: "openai",
         }) as Arc<dyn ProviderFactory>,
     );
 
@@ -189,7 +189,7 @@ async fn test_multiple_middlewares_first_override_wins() {
     providers.insert(
         "openai".to_string(),
         Arc::new(MockProviderFactory {
-            provider_name: "openai",
+            provider_id: "openai",
         }) as Arc<dyn ProviderFactory>,
     );
 

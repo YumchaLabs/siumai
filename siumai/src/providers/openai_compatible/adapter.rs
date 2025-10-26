@@ -81,8 +81,8 @@ impl ProviderCompatibility {
 /// Inspired by Cherry Studio's transformer patterns and fully integrated with our
 /// existing traits system including ProviderCapabilities and HttpConfig.
 pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
-    /// Provider identifier
-    fn provider_id(&self) -> &'static str;
+    /// Provider identifier (canonical id)
+    fn provider_id(&self) -> std::borrow::Cow<'static, str>;
 
     /// Transform request parameters based on provider and model specifics
     ///
@@ -286,7 +286,7 @@ impl AdapterRegistry {
 
     /// Register an adapter
     pub fn register(&mut self, adapter: Box<dyn ProviderAdapter>) {
-        let provider_id = adapter.provider_id().to_string();
+        let provider_id = adapter.provider_id().into_owned();
         self.adapters.insert(provider_id, adapter);
     }
 
@@ -325,8 +325,8 @@ mod tests {
     struct TestAdapter;
 
     impl ProviderAdapter for TestAdapter {
-        fn provider_id(&self) -> &'static str {
-            "test"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("test")
         }
 
         fn transform_request_params(

@@ -15,8 +15,8 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     #[derive(Debug, Clone)]
     struct Adapter;
     impl ProviderAdapter for Adapter {
-        fn provider_id(&self) -> &'static str {
-            "openai"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("openai")
         }
         fn transform_request_params(
             &self,

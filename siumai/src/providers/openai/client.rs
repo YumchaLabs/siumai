@@ -87,7 +87,7 @@ impl std::fmt::Debug for OpenAiClient {
         let mut debug_struct = f.debug_struct("OpenAiClient");
 
         debug_struct
-            .field("provider_name", &"openai")
+            .field("provider_id", &"openai")
             .field("model", &self.common_params.model)
             .field("base_url", &self.base_url)
             .field("temperature", &self.common_params.temperature)
@@ -687,8 +687,8 @@ impl AudioCapability for OpenAiClient {
 }
 
 impl LlmProvider for OpenAiClient {
-    fn provider_name(&self) -> &'static str {
-        "openai"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("openai")
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -714,8 +714,8 @@ impl LlmProvider for OpenAiClient {
 }
 
 impl LlmClient for OpenAiClient {
-    fn provider_name(&self) -> &'static str {
-        LlmProvider::provider_name(self)
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        LlmProvider::provider_id(self)
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -1012,7 +1012,10 @@ mod tests {
         let config = OpenAiConfig::new("test-key");
         let client = OpenAiClient::new(config, reqwest::Client::new());
 
-        assert_eq!(LlmProvider::provider_name(&client), "openai");
+        assert_eq!(
+            LlmProvider::provider_id(&client),
+            std::borrow::Cow::Borrowed("openai")
+        );
         assert!(!LlmProvider::supported_models(&client).is_empty());
     }
 

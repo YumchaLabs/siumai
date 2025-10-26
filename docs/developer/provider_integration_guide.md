@@ -29,7 +29,7 @@ Steps:
   - See: `src/providers/openai_compatible/adapter.rs`
 - Register adapter in the compat registry (if not already)
   - See: `src/providers/openai_compatible/registry.rs`
-- Builder path: no changes required — `Siumai::builder().provider_name("your_id")`
+- Builder path: no changes required — `Siumai::builder().provider_id("your_id")`
   automatically resolves via `ProviderRegistryV2` and constructs a client through
   `build_openai_compatible_client`.
 

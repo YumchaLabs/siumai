@@ -64,7 +64,7 @@ pub trait ProviderFactory: Send + Sync {
     }
 
     /// Get the provider name
-    fn provider_name(&self) -> &'static str;
+    fn provider_id(&self) -> std::borrow::Cow<'static, str>;
 }
 
 /// Cache entry with TTL support
@@ -632,8 +632,8 @@ impl ChatCapability for TestProvClient {
 }
 #[cfg(test)]
 impl LlmClient for TestProvClient {
-    fn provider_name(&self) -> &'static str {
-        "testprov"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("testprov")
     }
     fn supported_models(&self) -> Vec<String> {
         vec!["model".into()]
@@ -687,8 +687,8 @@ mod tests {
     }
 
     impl LlmClient for MockClient {
-        fn provider_name(&self) -> &'static str {
-            "mock"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("mock")
         }
         fn supported_models(&self) -> Vec<String> {
             vec!["mock-model".into()]
@@ -862,8 +862,8 @@ impl crate::traits::EmbeddingCapability for TestProvEmbedClient {
 }
 #[cfg(test)]
 impl LlmClient for TestProvEmbedClient {
-    fn provider_name(&self) -> &'static str {
-        "testprov_embed"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("testprov_embed")
     }
     fn supported_models(&self) -> Vec<String> {
         vec!["model".into()]

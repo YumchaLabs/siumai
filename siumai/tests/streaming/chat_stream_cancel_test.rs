@@ -45,7 +45,7 @@ impl ChatCapability for CancelTestProvider {
 }
 
 impl LlmClient for CancelTestProvider {
-    fn provider_name(&self) -> &'static str { "mock-cancel" }
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> { std::borrow::Cow::Borrowed("mock-cancel") }
     fn supported_models(&self) -> Vec<String> { vec!["mock".into()] }
     fn capabilities(&self) -> ProviderCapabilities { ProviderCapabilities::new().with_chat().with_streaming() }
     fn as_any(&self) -> &dyn std::any::Any { self }
@@ -60,7 +60,7 @@ impl LlmClient for CancelTestProvider {
 #[tokio::test]
 async fn chat_stream_with_cancel_stops_further_events() {
     let provider = CancelTestProvider::new();
-    let client = siumai::provider::Siumai::new(Box::new(provider));
+    let client = siumai::provider::Siumai::new(std::sync::Arc::new(provider));
 
     let handle = client
         .chat_stream_with_cancel(vec![ChatMessage::user("hi").build()], None)

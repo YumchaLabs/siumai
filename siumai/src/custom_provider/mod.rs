@@ -232,7 +232,7 @@ impl CustomChatResponse {
     }
 
     /// Convert to standard `ChatResponse`
-    pub fn to_chat_response(&self, _provider_name: &str) -> ChatResponse {
+    pub fn to_chat_response(&self, _provider_id: &str) -> ChatResponse {
         use crate::types::ContentPart;
 
         // Build content with tool calls if present
@@ -417,10 +417,9 @@ impl ChatCapability for CustomProviderClient {
 }
 
 impl LlmClient for CustomProviderClient {
-    fn provider_name(&self) -> &'static str {
-        // Note: This returns a static str, but the actual name is dynamic
-        // In a real implementation, you might want to use a different approach
-        "custom"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        // Logical provider id for custom providers
+        std::borrow::Cow::Borrowed("custom")
     }
 
     fn supported_models(&self) -> Vec<String> {

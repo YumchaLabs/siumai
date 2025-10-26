@@ -87,10 +87,28 @@ pub async fn build_openai_compatible_client(
                 rec.id
             ))
         })?;
-        let base = base_url
-            .clone()
-            .or(rec.base_url)
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+        // Prefer custom base_url when provided; if it lacks a path segment,
+        // append the adapter's default path suffix (e.g., "/openai/v1" for Groq)
+        let base = if let Some(custom) = base_url.clone() {
+            let def = rec
+                .base_url
+                .clone()
+                .unwrap_or_else(|| adapter.base_url().to_string());
+            let def_path = def.splitn(4, '/').skip(3).next().unwrap_or("");
+            let custom_path = custom.splitn(4, '/').skip(3).next().unwrap_or("");
+            if custom_path.is_empty() && !def_path.is_empty() {
+                format!(
+                    "{}/{}",
+                    custom.trim_end_matches('/'),
+                    def_path.trim_start_matches('/')
+                )
+            } else {
+                custom
+            }
+        } else {
+            rec.base_url
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
+        };
         (rec.id, adapter, base)
     };
 
@@ -190,13 +208,13 @@ pub async fn build_gemini_client(
     // Build base config
     let mut gcfg = GenerationConfig::new();
     if let Some(temp) = common_params.temperature {
-        gcfg = gcfg.with_temperature(temp);
+        gcfg = gcfg.with_temperature(temp as f64);
     }
     if let Some(max_tokens) = common_params.max_tokens {
         gcfg = gcfg.with_max_output_tokens(max_tokens as i32);
     }
     if let Some(top_p) = common_params.top_p {
-        gcfg = gcfg.with_top_p(top_p);
+        gcfg = gcfg.with_top_p(top_p as f64);
     }
     if let Some(stop) = common_params.stop_sequences.clone() {
         gcfg = gcfg.with_stop_sequences(stop);

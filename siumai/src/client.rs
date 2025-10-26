@@ -6,15 +6,16 @@ use crate::error::LlmError;
 use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
+use std::borrow::Cow;
 
 /// Unified LLM client interface
 pub trait LlmClient: ChatCapability + Send + Sync {
-    /// Get the provider name
-    fn provider_name(&self) -> &'static str;
+    /// Get the canonical provider id (e.g., "openai", "anthropic")
+    fn provider_id(&self) -> Cow<'static, str>;
 
-    /// Get the provider type. Default implementation maps from `provider_name()`.
+    /// Get the provider type. Default implementation maps from `provider_id()`.
     fn provider_type(&self) -> ProviderType {
-        ProviderType::from_name(self.provider_name())
+        ProviderType::from_name(&self.provider_id())
     }
 
     /// Get the list of supported models
@@ -283,8 +284,8 @@ impl ChatCapability for ClientWrapper {
 // UnifiedLlmClient trait implementations removed - functionality available through ClientWrapper
 
 impl LlmClient for ClientWrapper {
-    fn provider_name(&self) -> &'static str {
-        self.client().provider_name()
+    fn provider_id(&self) -> Cow<'static, str> {
+        self.client().provider_id()
     }
 
     fn supported_models(&self) -> Vec<String> {

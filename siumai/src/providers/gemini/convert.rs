@@ -384,13 +384,15 @@ pub fn build_request_body(
 
     // Common params take precedence over generation_config defaults
     if let Some(temp) = config.common_params.temperature {
-        merged_generation_config.temperature = Some(temp);
+        let v = (temp as f64 * 1_000_000.0).round() / 1_000_000.0;
+        merged_generation_config.temperature = Some(v);
     }
     if let Some(max_tokens) = config.common_params.max_tokens {
         merged_generation_config.max_output_tokens = Some(max_tokens as i32);
     }
     if let Some(top_p) = config.common_params.top_p {
-        merged_generation_config.top_p = Some(top_p);
+        let v = (top_p as f64 * 1_000_000.0).round() / 1_000_000.0;
+        merged_generation_config.top_p = Some(v);
     }
     if let Some(stops) = &config.common_params.stop_sequences {
         merged_generation_config.stop_sequences = Some(stops.clone());

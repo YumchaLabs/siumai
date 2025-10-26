@@ -186,7 +186,7 @@ impl GeminiClient {
 
         // Update generation config
         let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.temperature = Some(temperature);
+        generation_config.temperature = Some(temperature as f64);
         self.config.generation_config = Some(generation_config);
         self
     }
@@ -210,7 +210,7 @@ impl GeminiClient {
 
         // Update generation config
         let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.top_p = Some(top_p);
+        generation_config.top_p = Some(top_p as f64);
         self.config.generation_config = Some(generation_config);
         self
     }
@@ -1126,8 +1126,8 @@ impl FileManagementCapability for GeminiClient {
 }
 
 impl LlmClient for GeminiClient {
-    fn provider_name(&self) -> &'static str {
-        "gemini"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("gemini")
     }
 
     fn supported_models(&self) -> Vec<String> {

@@ -74,7 +74,7 @@ impl Clone for OllamaClient {
 impl std::fmt::Debug for OllamaClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OllamaClient")
-            .field("provider_name", &"ollama")
+            .field("provider_id", &"ollama")
             .field("model", &self.common_params.model)
             .field("base_url", &self.base_url)
             .field("temperature", &self.common_params.temperature)
@@ -480,8 +480,8 @@ impl ModelListingCapability for OllamaClient {
 }
 
 impl LlmClient for OllamaClient {
-    fn provider_name(&self) -> &'static str {
-        "ollama"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ollama")
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -514,8 +514,8 @@ impl LlmClient for OllamaClient {
 }
 
 impl LlmProvider for OllamaClient {
-    fn provider_name(&self) -> &'static str {
-        "ollama"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ollama")
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -548,7 +548,10 @@ mod tests {
         let config = OllamaConfig::default();
         let client = OllamaClient::new_with_config(config);
 
-        assert_eq!(LlmProvider::provider_name(&client), "ollama");
+        assert_eq!(
+            LlmProvider::provider_id(&client),
+            std::borrow::Cow::Borrowed("ollama")
+        );
         assert_eq!(client.base_url(), "http://localhost:11434");
     }
 

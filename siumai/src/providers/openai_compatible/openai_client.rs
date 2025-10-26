@@ -742,7 +742,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
 }
 
 impl LlmClient for OpenAiCompatibleClient {
-    fn provider_name(&self) -> &'static str {
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         self.config.adapter.provider_id()
     }
 

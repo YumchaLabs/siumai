@@ -44,7 +44,7 @@ impl ChatCapability for ConnectRetryProvider {
 }
 
 impl LlmClient for ConnectRetryProvider {
-    fn provider_name(&self) -> &'static str { "mock-retry-stream" }
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> { std::borrow::Cow::Borrowed("mock-retry-stream") }
     fn supported_models(&self) -> Vec<String> { vec!["mock".into()] }
     fn capabilities(&self) -> ProviderCapabilities { ProviderCapabilities::new().with_chat().with_streaming() }
     fn as_any(&self) -> &dyn std::any::Any { self }
@@ -59,7 +59,7 @@ impl LlmClient for ConnectRetryProvider {
 async fn chat_stream_retries_connect_then_succeeds() {
     // Fail once, then succeed on the second attempt
     let provider = ConnectRetryProvider::new(1);
-    let client = siumai::provider::Siumai::new(Box::new(provider))
+    let client = siumai::provider::Siumai::new(std::sync::Arc::new(provider))
         .with_retry_options(Some(RetryOptions::policy_default().with_max_attempts(3)));
 
     let stream = client

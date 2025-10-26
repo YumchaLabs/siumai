@@ -62,11 +62,13 @@ pub struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none", rename = "maxOutputTokens")]
     pub max_output_tokens: Option<i32>,
     /// Optional. Controls the randomness of the output.
+    /// Use f64 to preserve decimal representation (avoids f32 rounding artifacts in JSON).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
+    pub temperature: Option<f64>,
     /// Optional. The maximum cumulative probability of tokens to consider when sampling.
+    /// Use f64 to preserve decimal representation (avoids f32 rounding artifacts in JSON).
     #[serde(skip_serializing_if = "Option::is_none", rename = "topP")]
-    pub top_p: Option<f32>,
+    pub top_p: Option<f64>,
     /// Optional. The maximum number of tokens to consider when sampling.
     #[serde(skip_serializing_if = "Option::is_none", rename = "topK")]
     pub top_k: Option<i32>,
@@ -117,12 +119,12 @@ impl GenerationConfig {
         self
     }
     /// Set temperature
-    pub fn with_temperature(mut self, t: f32) -> Self {
+    pub fn with_temperature(mut self, t: f64) -> Self {
         self.temperature = Some(t);
         self
     }
     /// Set top_p
-    pub fn with_top_p(mut self, top_p: f32) -> Self {
+    pub fn with_top_p(mut self, top_p: f64) -> Self {
         self.top_p = Some(top_p);
         self
     }

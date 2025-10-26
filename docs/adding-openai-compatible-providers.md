@@ -48,7 +48,7 @@ use siumai::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Siumai::builder()
-        .provider_name("deepseek")
+        .provider_id("deepseek")
         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
         .model("deepseek-chat")
         .build()
@@ -84,4 +84,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Keep mapping minimal: only override what differs from OpenAI.
 - Prefer unified interface (`Siumai::builder()`) for portability; fall back to provider‑specific clients when you need advanced features.
 - Ensure streaming tool‑call deltas behave correctly by running the streaming tests.
-

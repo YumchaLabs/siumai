@@ -89,22 +89,22 @@ impl Default for ErrorSummary {
 
 /// Summarize an LlmError with friendly suggestions and optional provider hint.
 ///
-/// - `model` and `provider_name` are optional and used for better suggestions.
+/// - `model` and `provider_id` are optional and used for better suggestions.
 pub fn summarize_error(
     err: &LlmError,
     model: Option<&str>,
-    provider_name: Option<&str>,
+    provider_id: Option<&str>,
 ) -> ErrorSummary {
     let status = err.status_code();
     let kind = map_error_kind(err);
     let message = extract_raw_message(err);
-    let mut suggestions = suggest_fixes(err, provider_name);
+    let mut suggestions = suggest_fixes(err, provider_id);
 
     // Add Vertex-specific header hint when auth/category implies Vertex usage
     if matches!(
         kind,
         ErrorKind::Auth | ErrorKind::RateLimit | ErrorKind::Quota
-    ) && provider_name.map(|p| p.contains("vertex")).unwrap_or(false)
+    ) && provider_id.map(|p| p.contains("vertex")).unwrap_or(false)
     {
         suggestions.push(
             "If using Google Vertex AI, consider setting x-goog-user-project for billing/quota"
@@ -175,7 +175,7 @@ fn extract_raw_message(err: &LlmError) -> String {
 }
 
 /// Suggest fixes based on error type and optional provider name.
-pub fn suggest_fixes(err: &LlmError, provider_name: Option<&str>) -> Vec<String> {
+pub fn suggest_fixes(err: &LlmError, provider_id: Option<&str>) -> Vec<String> {
     let mut tips = Vec::new();
     match err.category() {
         ErrorCategory::Authentication => {
@@ -203,7 +203,7 @@ pub fn suggest_fixes(err: &LlmError, provider_name: Option<&str>) -> Vec<String>
         }
         _ => {}
     }
-    if let Some(name) = provider_name {
+    if let Some(name) = provider_id {
         tips.push(format!(
             "Open provider settings to review {} configuration",
             name

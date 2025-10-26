@@ -21,8 +21,8 @@ impl ProviderFactory for OpenAIProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "openai"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("openai")
     }
 }
 
@@ -38,8 +38,8 @@ impl ProviderFactory for AnthropicProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "anthropic"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("anthropic")
     }
 }
 
@@ -55,8 +55,8 @@ impl ProviderFactory for GeminiProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "gemini"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("gemini")
     }
 }
 
@@ -72,8 +72,8 @@ impl ProviderFactory for GroqProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "groq"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("groq")
     }
 }
 
@@ -89,8 +89,8 @@ impl ProviderFactory for XAIProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "xai"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("xai")
     }
 }
 
@@ -106,8 +106,8 @@ impl ProviderFactory for OllamaProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "ollama"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ollama")
     }
 }
 
@@ -127,8 +127,8 @@ impl ProviderFactory for OpenRouterProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "openrouter"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("openrouter")
     }
 }
 
@@ -144,8 +144,8 @@ impl ProviderFactory for DeepSeekProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "deepseek"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("deepseek")
     }
 }
 
@@ -184,8 +184,8 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         Ok(Arc::new(client))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "openai-compatible"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("openai-compatible")
     }
 }
 
@@ -206,7 +206,7 @@ impl ProviderFactory for TestProviderFactory {
         Ok(Arc::new(crate::registry::entry::TestProvEmbedClient))
     }
 
-    fn provider_name(&self) -> &'static str {
-        "testprov"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("testprov")
     }
 }

@@ -49,7 +49,7 @@ mod debug_tests {
 
         // Should contain useful information
         assert!(debug_output.contains("OpenAiClient"));
-        assert!(debug_output.contains("provider_name"));
+        assert!(debug_output.contains("provider_id"));
         assert!(debug_output.contains("openai"));
         assert!(debug_output.contains("model"));
         assert!(debug_output.contains("gpt-4o-mini"));
@@ -85,7 +85,7 @@ mod debug_tests {
 
         // Should contain useful information
         assert!(debug_output.contains("AnthropicClient"));
-        assert!(debug_output.contains("provider_name"));
+        assert!(debug_output.contains("provider_id"));
         assert!(debug_output.contains("anthropic"));
         assert!(debug_output.contains("model"));
         assert!(debug_output.contains("claude-3-5-sonnet-20241022"));
@@ -109,7 +109,7 @@ mod debug_tests {
 
         // Should contain useful information
         assert!(debug_output.contains("GroqClient"));
-        assert!(debug_output.contains("provider_name"));
+        assert!(debug_output.contains("provider_id"));
         assert!(debug_output.contains("groq"));
         assert!(debug_output.contains("model"));
         assert!(debug_output.contains("llama-3.3-70b-versatile"));
@@ -139,7 +139,7 @@ mod debug_tests {
 
         // Should contain useful information
         assert!(debug_output.contains("OllamaClient"));
-        assert!(debug_output.contains("provider_name"));
+        assert!(debug_output.contains("provider_id"));
         assert!(debug_output.contains("ollama"));
         assert!(debug_output.contains("model"));
         assert!(debug_output.contains("llama3.2:3b"));

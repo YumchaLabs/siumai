@@ -15,8 +15,8 @@ pub struct OpenAiStandardAdapter {
 }
 
 impl ProviderAdapter for OpenAiStandardAdapter {
-    fn provider_id(&self) -> &'static str {
-        "openai"
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("openai")
     }
 
     fn transform_request_params(

@@ -1,6 +1,6 @@
 //! Shared types for OpenAI-compatible providers
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 /// Request type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,13 +18,13 @@ pub enum RequestType {
 #[derive(Debug, Clone)]
 pub struct FieldMappings {
     /// Fields that contain thinking/reasoning content (in priority order)
-    pub thinking_fields: Vec<&'static str>,
+    pub thinking_fields: Vec<Cow<'static, str>>,
     /// Field that contains regular content
-    pub content_field: &'static str,
+    pub content_field: Cow<'static, str>,
     /// Field that contains tool calls
-    pub tool_calls_field: &'static str,
+    pub tool_calls_field: Cow<'static, str>,
     /// Field that contains role information
-    pub role_field: &'static str,
+    pub role_field: Cow<'static, str>,
 }
 
 /// Dynamic field accessor for flexible response parsing
@@ -50,10 +50,10 @@ pub trait FieldAccessor {
 impl Default for FieldMappings {
     fn default() -> Self {
         Self {
-            thinking_fields: vec!["thinking"],
-            content_field: "content",
-            tool_calls_field: "tool_calls",
-            role_field: "role",
+            thinking_fields: vec![Cow::Borrowed("thinking")],
+            content_field: Cow::Borrowed("content"),
+            tool_calls_field: Cow::Borrowed("tool_calls"),
+            role_field: Cow::Borrowed("role"),
         }
     }
 }
@@ -142,7 +142,7 @@ impl FieldAccessor for JsonFieldAccessor {
         json: &serde_json::Value,
         mappings: &FieldMappings,
     ) -> Option<String> {
-        let content_field = mappings.content_field;
+        let content_field = &mappings.content_field;
 
         // Define possible paths for content
         let paths = vec![
@@ -169,10 +169,13 @@ impl FieldMappings {
     /// Create field mappings for DeepSeek models (supports reasoning_content)
     pub fn deepseek() -> Self {
         Self {
-            thinking_fields: vec!["reasoning_content", "thinking"],
-            content_field: "content",
-            tool_calls_field: "tool_calls",
-            role_field: "role",
+            thinking_fields: vec![
+                Cow::Borrowed("reasoning_content"),
+                Cow::Borrowed("thinking"),
+            ],
+            content_field: Cow::Borrowed("content"),
+            tool_calls_field: Cow::Borrowed("tool_calls"),
+            role_field: Cow::Borrowed("role"),
         }
     }
 
@@ -251,18 +254,25 @@ mod tests {
     #[test]
     fn test_field_mappings_default() {
         let mappings = FieldMappings::default();
-        assert_eq!(mappings.thinking_fields, vec!["thinking"]);
-        assert_eq!(mappings.content_field, "content");
+        let tf: Vec<&str> = mappings
+            .thinking_fields
+            .iter()
+            .map(|s| s.as_ref())
+            .collect();
+        assert_eq!(tf, vec!["thinking"]);
+        assert_eq!(mappings.content_field.as_ref(), "content");
     }
 
     #[test]
     fn test_field_mappings_deepseek() {
         let mappings = FieldMappings::deepseek();
-        assert_eq!(
-            mappings.thinking_fields,
-            vec!["reasoning_content", "thinking"]
-        );
-        assert_eq!(mappings.content_field, "content");
+        let tf: Vec<&str> = mappings
+            .thinking_fields
+            .iter()
+            .map(|s| s.as_ref())
+            .collect();
+        assert_eq!(tf, vec!["reasoning_content", "thinking"]);
+        assert_eq!(mappings.content_field.as_ref(), "content");
     }
 
     #[test]

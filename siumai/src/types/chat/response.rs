@@ -77,7 +77,7 @@ pub struct ChatResponse {
     /// Provider-specific metadata (nested structure for namespace isolation)
     ///
     /// This field contains provider-specific metadata in a nested structure:
-    /// `{ "provider_name": { "key": value, ... }, ... }`
+    /// `{ "provider_id": { "key": value, ... }, ... }`
     ///
     /// For type-safe access to common provider metadata, use the helper methods:
     /// - `anthropic_metadata()` for Anthropic-specific metadata

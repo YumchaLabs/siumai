@@ -85,7 +85,7 @@ mod groq_tests {
         let http_client = reqwest::Client::new();
         let client = GroqClient::new(config, http_client);
 
-        assert_eq!(client.provider_name(), "groq");
+        assert_eq!(client.provider_id(), std::borrow::Cow::Borrowed("groq"));
         assert!(
             client
                 .supported_models()

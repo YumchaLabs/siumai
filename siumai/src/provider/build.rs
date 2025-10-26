@@ -30,7 +30,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             if let Some(pt) = mapped {
                 builder.provider_type = Some(pt);
                 if rec.id == "anthropic-vertex" || rec.id == "google-vertex-anthropic" {
-                    builder.provider_name = Some("anthropic-vertex".to_string());
+                    builder.provider_id = Some("anthropic-vertex".to_string());
                 }
             }
         }
@@ -259,11 +259,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 guard.resolve("anthropic").and_then(|r| r.base_url.clone())
             };
             // Detect Anthropic on Vertex AI:
-            // - If provider_name is explicitly set to "anthropic-vertex"
+            // - If provider_id is explicitly set to "anthropic-vertex"
             // - Or base_url contains aiplatform.googleapis.com
             // - Or Authorization header is present (and base_url looks like Vertex)
             let is_vertex = builder
-                .provider_name
+                .provider_id
                 .as_deref()
                 .map(|n| n == "anthropic-vertex")
                 .unwrap_or(false)
