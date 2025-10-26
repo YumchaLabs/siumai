@@ -156,13 +156,12 @@ impl ChatCapability for GeminiChatCapability {
             response_transformer: Arc::new(resp_tx),
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.interceptors.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+                .with_interceptors(self.interceptors.clone()),
             middlewares: self.middlewares.clone(),
             provider_spec: spec_wrapper,
             provider_context: ctx_with_token,
-            before_send: None,
-            retry_options: None,
         };
         exec.execute(req).await
     }
@@ -280,13 +279,12 @@ impl ChatCapability for GeminiChatCapability {
             response_transformer: Arc::new(resp_tx),
             stream_transformer: Some(Arc::new(stream_tx)),
             json_stream_converter: None,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.interceptors.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+                .with_interceptors(self.interceptors.clone()),
             middlewares: self.middlewares.clone(),
             provider_spec: spec_wrapper,
             provider_context: ctx_with_token,
-            before_send: None,
-            retry_options: None,
         };
         exec.execute_stream(req).await
     }

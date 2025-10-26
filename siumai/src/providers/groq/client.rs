@@ -227,6 +227,9 @@ impl AudioCapability for GroqClient {
             transformer: std::sync::Arc::new(super::transformers::GroqAudioTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         };
         let audio_bytes = exec.tts(request).await?;
         Ok(crate::types::TtsResponse {
@@ -259,6 +262,9 @@ impl AudioCapability for GroqClient {
             transformer: std::sync::Arc::new(super::transformers::GroqAudioTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         };
         let text = exec.stt(request).await?;
         Ok(crate::types::SttResponse {

@@ -423,13 +423,14 @@ impl ChatCapability for OllamaClient {
             response_transformer: std::sync::Arc::new(resp_tx),
             stream_transformer: None,
             json_stream_converter: Some(json_converter),
-            stream_disable_compression: self.chat_capability.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(
+                    self.chat_capability.http_config.stream_disable_compression,
+                )
+                .with_interceptors(self.http_interceptors.clone()),
             middlewares: self.model_middlewares.clone(),
             provider_spec: spec,
             provider_context: ctx,
-            before_send: None,
-            retry_options: None,
         };
         exec.execute_stream(request).await
     }

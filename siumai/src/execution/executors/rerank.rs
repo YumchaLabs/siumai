@@ -1,7 +1,7 @@
 //! Rerank executor traits
 
 use crate::error::LlmError;
-use crate::execution::http::interceptor::HttpInterceptor;
+// use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{RerankRequest, RerankResponse};
@@ -18,10 +18,11 @@ pub struct HttpRerankExecutor {
     pub http_client: reqwest::Client,
     pub request_transformer: Arc<dyn RerankRequestTransformer>,
     pub response_transformer: Arc<dyn RerankResponseTransformer>,
-    pub interceptors: Vec<Arc<dyn HttpInterceptor>>,
-    pub retry_options: Option<crate::retry_api::RetryOptions>,
+    /// Execution policy
+    pub policy: crate::execution::ExecutionPolicy,
     pub url: String,
     pub headers: reqwest::header::HeaderMap,
+    // Rerank doesn't commonly use JSON mutations; keep for symmetry
     pub before_send: Option<crate::execution::executors::BeforeSendHook>,
 }
 
@@ -40,8 +41,8 @@ impl RerankExecutor for HttpRerankExecutor {
             &self.url,
             self.headers.clone(),
             body,
-            &self.interceptors,
-            self.retry_options.clone(),
+            &self.policy.interceptors,
+            self.policy.retry_options.clone(),
             None,
             false,
         )

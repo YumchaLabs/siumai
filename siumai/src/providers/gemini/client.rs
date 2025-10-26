@@ -96,7 +96,8 @@ impl GeminiClient {
 
         let models_capability = GeminiModels::new(config.clone(), http_client.clone());
 
-        let files_capability = GeminiFiles::new(config.clone(), http_client.clone());
+        let files_capability =
+            GeminiFiles::new(config.clone(), http_client.clone(), Vec::new(), None);
 
         // Use common parameters from config (already contains model, temperature, max_tokens, top_p, stop_sequences)
         let mut common_params = config.common_params.clone();
@@ -433,6 +434,13 @@ impl GeminiClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+        // Rebuild files capability with updated retry options
+        self.files_capability = GeminiFiles::new(
+            self.config.clone(),
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        );
     }
 
     /// Install HTTP interceptors for all chat requests.
@@ -443,6 +451,13 @@ impl GeminiClient {
         self.chat_capability =
             GeminiChatCapability::new(self.config.clone(), self.http_client.clone(), interceptors)
                 .with_middlewares(mws);
+        // Rebuild files capability to apply interceptors
+        self.files_capability = GeminiFiles::new(
+            self.config.clone(),
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        );
         self
     }
 
@@ -717,9 +732,8 @@ impl EmbeddingCapability for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
+                            policy: crate::execution::ExecutionPolicy::new()
+                                .with_interceptors(self.http_interceptors.clone()),
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -735,9 +749,9 @@ impl EmbeddingCapability for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
+                policy: crate::execution::ExecutionPolicy::new()
+                    .with_interceptors(self.http_interceptors.clone())
+                    .with_retry_options(self.retry_options.clone()),
             };
             EmbeddingExecutor::execute(&exec, req).await
         }
@@ -888,9 +902,7 @@ impl EmbeddingExtensions for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
+                            policy: crate::execution::ExecutionPolicy::new(),
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -906,9 +918,7 @@ impl EmbeddingExtensions for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
+                policy: crate::execution::ExecutionPolicy::new(),
             };
             EmbeddingExecutor::execute(&exec, request).await
         }
@@ -1050,9 +1060,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                             response_transformer: std::sync::Arc::new(resp_tx),
                             provider_spec: spec,
                             provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
+                            policy: crate::execution::ExecutionPolicy::new(),
                         };
                         ImageExecutor::execute(&exec, rq).await
                     }
@@ -1068,9 +1076,7 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
                 response_transformer: std::sync::Arc::new(resp_tx),
                 provider_spec: spec,
                 provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
+                policy: crate::execution::ExecutionPolicy::new(),
             };
             ImageExecutor::execute(&exec, request).await
         }

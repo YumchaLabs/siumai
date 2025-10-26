@@ -107,7 +107,7 @@ where
     let cloned_headers = rb
         .try_clone()
         .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| effective_headers.clone());
     for interceptor in interceptors {
         rb = interceptor.on_before_send(&ctx, rb, &body, &cloned_headers)?;
     }
@@ -130,14 +130,17 @@ where
                 interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
             }
             // Retry with rebuilt headers (no ProviderSpec here; reuse effective headers)
-            let mut rb_retry = http_client.post(url).headers(effective_headers).json(&body);
+            let mut rb_retry = http_client
+                .post(url)
+                .headers(effective_headers.clone())
+                .json(&body);
             if disable_compression {
                 rb_retry = rb_retry.header(reqwest::header::ACCEPT_ENCODING, "identity");
             }
             let cloned_headers_retry = rb_retry
                 .try_clone()
                 .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
+                .unwrap_or_else(|| effective_headers.clone());
             for interceptor in interceptors {
                 rb_retry =
                     interceptor.on_before_send(&ctx, rb_retry, &body, &cloned_headers_retry)?;
@@ -203,6 +206,14 @@ pub async fn execute_bytes_request(
         .http_client
         .post(url)
         .headers(effective_headers.clone());
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
     let json_body = match &body {
         HttpBody::Json(json) => {
             rb = rb.json(json);
@@ -224,7 +235,7 @@ pub async fn execute_bytes_request(
     let cloned_headers = rb
         .try_clone()
         .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| effective_headers.clone());
     for interceptor in &config.interceptors {
         rb = interceptor.on_before_send(&ctx, rb, &json_body, &cloned_headers)?;
     }
@@ -258,12 +269,12 @@ pub async fn execute_bytes_request(
             let mut rb_retry = config
                 .http_client
                 .post(url)
-                .headers(retry_effective_headers)
+                .headers(retry_effective_headers.clone())
                 .json(&json_body);
             let cloned_headers_retry = rb_retry
                 .try_clone()
                 .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
+                .unwrap_or_else(|| retry_effective_headers.clone());
             for interceptor in &config.interceptors {
                 rb_retry = interceptor.on_before_send(
                     &ctx,
@@ -316,6 +327,153 @@ pub async fn execute_bytes_request(
     })
 }
 
+/// Execute a multipart HTTP request that returns binary content (bytes)
+///
+/// Mirrors `execute_multipart_request` but returns raw bytes instead of JSON.
+/// Multipart forms cannot be cloned; the `build_form` function will be called
+/// for the initial request and again for a retry (if applicable).
+pub async fn execute_multipart_bytes_request<F>(
+    config: &HttpExecutionConfig,
+    url: &str,
+    build_form: F,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<HttpBytesResult, LlmError>
+where
+    F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
+{
+    // 1. Build base headers from provider spec
+    let base_headers = config
+        .provider_spec
+        .build_headers(&config.provider_context)?;
+
+    // 2. Merge per-request headers if provided
+    let effective_headers = if let Some(req_headers) = per_request_headers {
+        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
+    } else {
+        base_headers.clone()
+    };
+
+    // 3. Build form and request
+    let form = build_form()?;
+    let mut rb = config
+        .http_client
+        .post(url)
+        .headers(effective_headers.clone())
+        .multipart(form);
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
+
+    // Apply interceptors (use empty JSON body for visibility)
+    let ctx = HttpRequestContext {
+        provider_id: config.provider_id.clone(),
+        url: url.to_string(),
+        stream: false,
+    };
+    let empty_json = serde_json::json!({});
+    let cloned_headers = rb
+        .try_clone()
+        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+        .unwrap_or_else(|| effective_headers.clone());
+    for interceptor in &config.interceptors {
+        rb = interceptor.on_before_send(&ctx, rb, &empty_json, &cloned_headers)?;
+    }
+
+    // 4. Send request
+    let mut resp = rb
+        .send()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
+    // 5. Handle 401 retry once
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let should_retry_401 = config
+            .retry_options
+            .as_ref()
+            .map(|opts| opts.retry_401)
+            .unwrap_or(true);
+        if status.as_u16() == 401 && should_retry_401 {
+            for interceptor in &config.interceptors {
+                interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
+            }
+            // Rebuild headers and form
+            let retry_headers = config
+                .provider_spec
+                .build_headers(&config.provider_context)?;
+            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+            } else {
+                retry_headers
+            };
+            let retry_form = build_form()?;
+            let mut rb_retry = config
+                .http_client
+                .post(url)
+                .headers(retry_effective_headers.clone())
+                .multipart(retry_form);
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
+            let cloned_headers_retry = rb_retry
+                .try_clone()
+                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+                .unwrap_or_else(|| retry_effective_headers.clone());
+            for interceptor in &config.interceptors {
+                rb_retry = interceptor.on_before_send(
+                    &ctx,
+                    rb_retry,
+                    &empty_json,
+                    &cloned_headers_retry,
+                )?;
+            }
+            resp = rb_retry
+                .send()
+                .await
+                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+        }
+    }
+
+    // 6. Classify error if still not successful
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let response_headers = resp.headers().clone();
+        let error_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error response".to_string());
+        let error = crate::retry_api::classify_http_error(
+            &config.provider_id,
+            status.as_u16(),
+            &error_text,
+            &response_headers,
+            None,
+        );
+        for interceptor in &config.interceptors {
+            interceptor.on_error(&ctx, &error);
+        }
+        return Err(error);
+    }
+
+    // 7. Notify interceptors and return bytes
+    for interceptor in &config.interceptors {
+        interceptor.on_response(&ctx, &resp)?;
+    }
+    let status_code = resp.status().as_u16();
+    let response_headers = resp.headers().clone();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+    Ok(HttpBytesResult {
+        bytes: bytes.to_vec(),
+        status: status_code,
+        headers: response_headers,
+    })
+}
+
 /// Execute a JSON HTTP request using explicit base headers (no ProviderSpec).
 ///
 /// This helper is useful for code paths that already have a fully constructed
@@ -331,6 +489,7 @@ pub async fn execute_json_request_with_headers(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
+    println!("execute_request enter url={} stream={}", url, stream);
     // Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::execution::http::headers::merge_headers(headers_base.clone(), req_headers)
@@ -343,6 +502,10 @@ pub async fn execute_json_request_with_headers(
         .post(url)
         .headers(effective_headers.clone())
         .json(&body);
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
 
     let ctx = HttpRequestContext {
         provider_id: provider_id.to_string(),
@@ -354,7 +517,7 @@ pub async fn execute_json_request_with_headers(
     let cloned_headers = rb
         .try_clone()
         .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| effective_headers.clone());
     for interceptor in interceptors {
         rb = interceptor.on_before_send(&ctx, rb, &body, &cloned_headers)?;
     }
@@ -386,12 +549,16 @@ pub async fn execute_json_request_with_headers(
             };
             let mut rb_retry = http_client
                 .post(url)
-                .headers(retry_effective_headers)
+                .headers(retry_effective_headers.clone())
                 .json(&body);
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
             let cloned_headers_retry = rb_retry
                 .try_clone()
                 .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
+                .unwrap_or_else(|| retry_effective_headers.clone());
             for interceptor in interceptors {
                 rb_retry =
                     interceptor.on_before_send(&ctx, rb_retry, &body, &cloned_headers_retry)?;
@@ -478,6 +645,8 @@ pub async fn execute_json_request(
     execute_request(config, url, body, per_request_headers, stream).await
 }
 
+// unit tests migrated to integration tests in tests/http_common_retry_401.rs
+
 /// Execute an HTTP request (JSON or Multipart) with unified retry, interceptors, and error handling
 pub async fn execute_request(
     config: &HttpExecutionConfig,
@@ -528,13 +697,14 @@ pub async fn execute_request(
     let cloned_headers = rb
         .try_clone()
         .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| effective_headers.clone());
 
     for interceptor in &config.interceptors {
         rb = interceptor.on_before_send(&ctx, rb, &json_body, &cloned_headers)?;
     }
 
     // 5. Send request
+
     let mut resp = rb
         .send()
         .await
@@ -570,7 +740,11 @@ pub async fn execute_request(
             let mut rb_retry = config
                 .http_client
                 .post(url)
-                .headers(retry_effective_headers);
+                .headers(retry_effective_headers.clone());
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
 
             // Apply body again
             rb_retry = match &body {
@@ -586,7 +760,7 @@ pub async fn execute_request(
             let cloned_headers_retry = rb_retry
                 .try_clone()
                 .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
+                .unwrap_or_else(|| retry_effective_headers.clone());
 
             for interceptor in &config.interceptors {
                 rb_retry = interceptor.on_before_send(
@@ -708,13 +882,14 @@ where
     let cloned_headers = rb
         .try_clone()
         .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| effective_headers.clone());
 
     for interceptor in &config.interceptors {
         rb = interceptor.on_before_send(&ctx, rb, &empty_json, &cloned_headers)?;
     }
 
     // 5. Send request
+
     let mut resp = rb
         .send()
         .await
@@ -856,6 +1031,10 @@ pub async fn execute_get_request(
         .http_client
         .get(url)
         .headers(effective_headers.clone());
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
 
     // 5. Apply HTTP interceptors (on_before_send)
     let ctx = HttpRequestContext {
@@ -875,6 +1054,7 @@ pub async fn execute_get_request(
     }
 
     // 6. Send request
+
     let mut resp = rb
         .send()
         .await
@@ -906,13 +1086,24 @@ pub async fn execute_get_request(
                 retry_headers
             };
 
-            let mut rb_retry = config.http_client.get(url).headers(retry_effective_headers);
+            let mut rb_retry = config
+                .http_client
+                .get(url)
+                .headers(retry_effective_headers.clone());
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
 
             // Apply interceptors again
             let cloned_headers_retry = rb_retry
                 .try_clone()
                 .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
+                .unwrap_or_else(|| retry_effective_headers.clone());
 
             for interceptor in &config.interceptors {
                 rb_retry = interceptor.on_before_send(
@@ -1004,6 +1195,10 @@ pub async fn execute_delete_request(
         .http_client
         .delete(url)
         .headers(effective_headers.clone());
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
 
     // 5. Apply HTTP interceptors (on_before_send)
     let ctx = HttpRequestContext {
@@ -1057,13 +1252,17 @@ pub async fn execute_delete_request(
             let mut rb_retry = config
                 .http_client
                 .delete(url)
-                .headers(retry_effective_headers);
+                .headers(retry_effective_headers.clone());
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
 
             // Apply interceptors again
             let cloned_headers_retry = rb_retry
                 .try_clone()
                 .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
+                .unwrap_or_else(|| retry_effective_headers.clone());
 
             for interceptor in &config.interceptors {
                 rb_retry = interceptor.on_before_send(
@@ -1170,6 +1369,10 @@ pub async fn execute_get_binary(
         .http_client
         .get(url)
         .headers(effective_headers.clone());
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
 
     // 5. Apply HTTP interceptors (on_before_send)
     let ctx = HttpRequestContext {
@@ -1220,13 +1423,16 @@ pub async fn execute_get_binary(
                 retry_headers
             };
 
-            let mut rb_retry = config.http_client.get(url).headers(retry_effective_headers);
+            let mut rb_retry = config
+                .http_client
+                .get(url)
+                .headers(retry_effective_headers.clone());
 
             // Apply interceptors again
             let cloned_headers_retry = rb_retry
                 .try_clone()
                 .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
+                .unwrap_or_else(|| retry_effective_headers.clone());
 
             for interceptor in &config.interceptors {
                 rb_retry = interceptor.on_before_send(

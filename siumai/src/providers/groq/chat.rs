@@ -88,13 +88,12 @@ impl ChatCapability for GroqChatCapability {
             response_transformer: bundle.response,
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.interceptors.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(self.http_config.stream_disable_compression)
+                .with_interceptors(self.interceptors.clone()),
             middlewares: self.middlewares.clone(),
             provider_spec: spec,
             provider_context: ctx,
-            before_send: None,
-            retry_options: None,
         };
         exec.execute(request).await
     }
@@ -132,13 +131,12 @@ impl ChatCapability for GroqChatCapability {
             response_transformer: bundle.response,
             stream_transformer: bundle.stream,
             json_stream_converter: bundle.json,
-            stream_disable_compression: self.http_config.stream_disable_compression,
-            interceptors: self.interceptors.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(self.http_config.stream_disable_compression)
+                .with_interceptors(self.interceptors.clone()),
             middlewares: self.middlewares.clone(),
             provider_spec: spec,
             provider_context: ctx,
-            before_send: None,
-            retry_options: None,
         };
         exec.execute_stream(request).await
     }

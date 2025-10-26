@@ -249,9 +249,7 @@ async fn image_executor_retries_on_401() {
         response_transformer: Arc::new(DummyResponseTransformer),
         provider_spec: spec,
         provider_context: ctx,
-        interceptors: vec![],
-        before_send: None,
-        retry_options: None,
+        policy: siumai::execution::ExecutionPolicy::new(),
     };
 
     // execute

@@ -31,12 +31,17 @@ use super::config::OpenAiConfig;
 ///
 /// # API Reference
 /// <https://platform.openai.com/docs/api-reference/files>
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiFiles {
     /// `OpenAI` configuration
     config: OpenAiConfig,
     /// HTTP client
     http_client: reqwest::Client,
+    /// HTTP interceptors to apply
+    http_interceptors:
+        Vec<std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
+    /// Unified retry options
+    retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
 impl OpenAiFiles {
@@ -45,10 +50,19 @@ impl OpenAiFiles {
     /// # Arguments
     /// * `config` - `OpenAI` configuration
     /// * `http_client` - HTTP client for making requests
-    pub const fn new(config: OpenAiConfig, http_client: reqwest::Client) -> Self {
+    pub fn new(
+        config: OpenAiConfig,
+        http_client: reqwest::Client,
+        http_interceptors: Vec<
+            std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>,
+        >,
+        retry_options: Option<crate::retry_api::RetryOptions>,
+    ) -> Self {
         Self {
             config,
             http_client,
+            http_interceptors,
+            retry_options,
         }
     }
 
@@ -139,6 +153,16 @@ impl OpenAiFiles {
     // Legacy direct HTTP helpers removed; requests are delegated to HttpFilesExecutor.
 }
 
+impl std::fmt::Debug for OpenAiFiles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiFiles")
+            .field("base_url", &self.config.base_url)
+            .field("has_interceptors", &(!self.http_interceptors.is_empty()))
+            .field("has_retry", &self.retry_options.is_some())
+            .finish()
+    }
+}
+
 #[async_trait]
 impl FileManagementCapability for OpenAiFiles {
     /// Upload a file to OpenAI's storage.
@@ -166,8 +190,9 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
-            interceptors: vec![], // No interceptors for legacy API
-            retry_options: None,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         };
         exec.upload(request).await
     }
@@ -194,8 +219,9 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
-            interceptors: vec![], // No interceptors for legacy API
-            retry_options: None,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         };
         exec.list(query).await
     }
@@ -222,8 +248,9 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
-            interceptors: vec![], // No interceptors for legacy API
-            retry_options: None,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         };
         exec.retrieve(file_id).await
     }
@@ -250,8 +277,9 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
-            interceptors: vec![], // No interceptors for legacy API
-            retry_options: None,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         };
         exec.delete(file_id).await
     }
@@ -278,8 +306,9 @@ impl FileManagementCapability for OpenAiFiles {
             transformer: std::sync::Arc::new(super::transformers::OpenAiFilesTransformer),
             provider_spec: spec,
             provider_context: ctx,
-            interceptors: vec![], // No interceptors for legacy API
-            retry_options: None,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         };
         exec.get_content(file_id).await
     }

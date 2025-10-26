@@ -228,8 +228,7 @@ async fn files_executor_retries_on_401_list_retrieve_delete_upload_content() {
         transformer: Arc::new(TestFilesTransformer),
         provider_spec: spec,
         provider_context: ctx,
-        interceptors: vec![],
-        retry_options: None,
+        policy: siumai::execution::ExecutionPolicy::new(),
     };
 
     // list

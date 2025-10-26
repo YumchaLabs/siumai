@@ -273,9 +273,9 @@ impl OpenAiClient {
                 response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: self.retry_options.clone(),
+                policy: crate::execution::ExecutionPolicy::new()
+                    .with_interceptors(self.http_interceptors.clone())
+                    .with_retry_options(self.retry_options.clone()),
             },
         )
     }
@@ -298,9 +298,9 @@ impl OpenAiClient {
             response_transformer: bundle.response,
             provider_spec: spec,
             provider_context: ctx,
-            interceptors: vec![],
-            before_send: None,
-            retry_options: self.retry_options.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         }
     }
 
@@ -315,6 +315,9 @@ impl OpenAiClient {
             transformer: Arc::new(super::transformers::OpenAiAudioTransformer),
             provider_spec: spec,
             provider_context: ctx,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
         }
     }
 
@@ -600,9 +603,7 @@ impl EmbeddingExtensions for OpenAiClient {
                             response_transformer: bundle.response,
                             provider_spec: spec_arc,
                             provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
+                            policy: crate::execution::ExecutionPolicy::new(),
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -632,9 +633,7 @@ impl EmbeddingExtensions for OpenAiClient {
                 response_transformer: bundle.response,
                 provider_spec: spec_arc,
                 provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
+                policy: crate::execution::ExecutionPolicy::new(),
             };
             exec.execute(request).await
         }
@@ -760,7 +759,39 @@ impl LlmClient for OpenAiClient {
 impl RerankCapability for OpenAiClient {
     /// Rerank documents based on their relevance to a query
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
-        self.rerank_capability.rerank(request).await
+        use crate::execution::executors::rerank::{HttpRerankExecutor, RerankExecutor};
+        use crate::execution::http::headers::ProviderHeaders;
+        use crate::standards::openai::rerank::OpenAiRerankStandard;
+
+        // Build transformers via OpenAI-style rerank standard
+        let standard = OpenAiRerankStandard::new();
+        let transformers = standard.create_transformers("openai");
+
+        // Build URL (OpenAI-style rerank endpoint)
+        let url = format!("{}/rerank", self.base_url.trim_end_matches('/'));
+
+        // Build headers including org/project and custom headers
+        let headers = ProviderHeaders::openai(
+            self.api_key.expose_secret(),
+            self.organization.as_deref(),
+            self.project.as_deref(),
+            &self.http_config.headers,
+        )?;
+
+        // Execute via unified rerank executor with interceptors/retry
+        let exec = HttpRerankExecutor {
+            provider_id: "openai".to_string(),
+            http_client: self.http_client.clone(),
+            request_transformer: transformers.request,
+            response_transformer: transformers.response,
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
+            url,
+            headers,
+            before_send: None,
+        };
+        RerankExecutor::execute(&exec, request).await
     }
 
     /// Get the maximum number of documents that can be reranked
@@ -871,7 +902,12 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             http_config: self.http_config.clone(),
             web_search_config: self.web_search_config.clone(),
         };
-        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        let files = super::files::OpenAiFiles::new(
+            cfg,
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        );
         files.upload_file(request).await
     }
 
@@ -889,7 +925,12 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             http_config: self.http_config.clone(),
             web_search_config: self.web_search_config.clone(),
         };
-        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        let files = super::files::OpenAiFiles::new(
+            cfg,
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        );
         files.list_files(query).await
     }
 
@@ -904,7 +945,12 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             http_config: self.http_config.clone(),
             web_search_config: self.web_search_config.clone(),
         };
-        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        let files = super::files::OpenAiFiles::new(
+            cfg,
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        );
         files.retrieve_file(file_id).await
     }
 
@@ -922,7 +968,12 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             http_config: self.http_config.clone(),
             web_search_config: self.web_search_config.clone(),
         };
-        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        let files = super::files::OpenAiFiles::new(
+            cfg,
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        );
         files.delete_file(file_id).await
     }
 
@@ -937,7 +988,12 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             http_config: self.http_config.clone(),
             web_search_config: self.web_search_config.clone(),
         };
-        let files = super::files::OpenAiFiles::new(cfg, self.http_client.clone());
+        let files = super::files::OpenAiFiles::new(
+            cfg,
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        );
         files.get_file_content(file_id).await
     }
 }

@@ -1,6 +1,7 @@
 //! Audio executor traits
 
 use crate::error::LlmError;
+use crate::execution::ExecutionPolicy;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
 use crate::observability::tracing::ProviderTracer;
 use crate::types::{SttRequest, TtsRequest};
@@ -18,6 +19,8 @@ pub struct HttpAudioExecutor {
     pub transformer: Arc<dyn AudioTransformer>,
     pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
     pub provider_context: crate::core::ProviderContext,
+    /// Execution policy
+    pub policy: ExecutionPolicy,
 }
 
 #[async_trait::async_trait]
@@ -34,21 +37,25 @@ impl AudioExecutor for HttpAudioExecutor {
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.tts_endpoint());
 
-        // Use common bytes execution (JSON only)
+        // Use common bytes/multipart execution with interceptors/retry
         let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
             provider_context: self.provider_context.clone(),
-            interceptors: vec![],
-            retry_options: None,
+            interceptors: self.policy.interceptors.clone(),
+            retry_options: self.policy.retry_options.clone(),
         };
 
         let tracer = ProviderTracer::new(&self.provider_id);
         tracer.trace_request_start("POST", &url);
         let start = std::time::Instant::now();
         match body {
-            AudioHttpBody::Json(json) => {
+            AudioHttpBody::Json(mut json) => {
+                // Apply before_send if present
+                if let Some(cb) = &self.policy.before_send {
+                    json = cb(&json)?;
+                }
                 let result = crate::execution::executors::common::execute_bytes_request(
                     &config,
                     &url,
@@ -59,33 +66,23 @@ impl AudioExecutor for HttpAudioExecutor {
                 tracer.trace_request_complete(start, result.bytes.len());
                 Ok(result.bytes)
             }
-            AudioHttpBody::Multipart(form) => {
-                // Fallback to direct send for multipart
-                let headers = self.provider_spec.build_headers(&self.provider_context)?;
-                let resp = self
-                    .http_client
-                    .post(url)
-                    .headers(headers)
-                    .multipart(form)
-                    .send()
-                    .await
-                    .map_err(|e| LlmError::HttpError(e.to_string()))?;
-                tracer.trace_response_success(resp.status().as_u16(), start, resp.headers());
-                if !resp.status().is_success() {
-                    let status = resp.status();
-                    let text = resp.text().await.unwrap_or_default();
-                    return Err(LlmError::ApiError {
-                        code: status.as_u16(),
-                        message: text,
-                        details: None,
-                    });
-                }
-                let bytes = resp
-                    .bytes()
-                    .await
-                    .map_err(|e| LlmError::HttpError(e.to_string()))?;
-                tracer.trace_request_complete(start, bytes.len());
-                Ok(bytes.to_vec())
+            AudioHttpBody::Multipart(_form) => {
+                // Use unified multipart->bytes helper with retry/interceptors
+                let transformer = self.transformer.clone();
+                let req_cloned = req.clone();
+                let build_form = move || match transformer.build_tts_body(&req_cloned)? {
+                    AudioHttpBody::Multipart(form) => Ok(form),
+                    _ => Err(LlmError::InvalidParameter(
+                        "Expected multipart form for TTS".into(),
+                    )),
+                };
+
+                let result = crate::execution::executors::common::execute_multipart_bytes_request(
+                    &config, &url, build_form, None,
+                )
+                .await?;
+                tracer.trace_request_complete(start, result.bytes.len());
+                Ok(result.bytes)
             }
         }
     }
@@ -106,8 +103,8 @@ impl AudioExecutor for HttpAudioExecutor {
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
             provider_context: self.provider_context.clone(),
-            interceptors: vec![],
-            retry_options: None,
+            interceptors: self.policy.interceptors.clone(),
+            retry_options: self.policy.retry_options.clone(),
         };
 
         let per_request_headers = None;
@@ -115,7 +112,11 @@ impl AudioExecutor for HttpAudioExecutor {
         tracer.trace_request_start("POST", &url);
         let start = std::time::Instant::now();
         let result = match body {
-            AudioHttpBody::Json(json) => {
+            AudioHttpBody::Json(mut json) => {
+                // Apply before_send if present
+                if let Some(cb) = &self.policy.before_send {
+                    json = cb(&json)?;
+                }
                 crate::execution::executors::common::execute_json_request(
                     &config,
                     &url,

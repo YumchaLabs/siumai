@@ -1,8 +1,13 @@
-# Telemetry Module
+# Telemetry Module (Shim)
 
 ## 📋 Purpose
 
-The `telemetry` module provides **external event export** capabilities for the Siumai library. It allows you to send structured telemetry events to external observability platforms like Langfuse and Helicone for analysis, monitoring, and debugging in production environments.
+This module is a thin re-export shim to `observability::telemetry`.
+
+- All implementation now lives under `siumai/src/observability/telemetry/*`.
+- The public API remains available under `siumai::telemetry::*` via re-exports.
+
+The telemetry subsystem provides **external event export** capabilities for the Siumai library. It allows you to send structured telemetry events to external observability platforms like Langfuse and Helicone for analysis, monitoring, and debugging in production environments.
 
 ## 🎯 Responsibilities
 
@@ -61,8 +66,10 @@ The `telemetry` module provides **external event export** capabilities for the S
 
 ## 📦 Module Structure
 
+Effective source of truth (re-export target):
+
 ```
-telemetry/
+observability/telemetry/
 ├── mod.rs              # Module entry, global collector
 ├── config.rs           # TelemetryConfig
 ├── events.rs           # Event types (TelemetryEvent, GenerationEvent, etc.)
@@ -302,11 +309,13 @@ let config = TelemetryConfig::builder()
 
 ### Configuration Options
 
-- **enabled**: Enable/disable telemetry globally
-- **record_inputs**: Whether to record input messages
-- **record_outputs**: Whether to record output responses
-- **record_metadata**: Whether to record metadata
-- **sample_rate**: Sampling rate (0.0 to 1.0)
+- enabled: Enable/disable telemetry globally
+- record_inputs: Whether to record input messages
+- record_outputs: Whether to record output responses
+- record_tools: Whether to record tool calls
+- record_usage: Whether to record token usage
+- function_id: Optional grouping identifier
+- metadata/tags/session_id/user_id: Optional contextual fields
 
 ## 🔒 Privacy and Security
 
@@ -317,17 +326,17 @@ let config = TelemetryConfig::builder()
 1. **Data Minimization**: Only record what you need
    ```rust
    let config = TelemetryConfig::builder()
+       .enabled(true)
        .record_inputs(false)  // Don't record user messages
        .record_outputs(false) // Don't record AI responses
-       .record_metadata(true) // Only record metadata
+       .record_usage(true)
        .build();
    ```
 
 2. **Sampling**: Reduce data volume
    ```rust
-   let config = TelemetryConfig::builder()
-       .sample_rate(0.1)  // Only 10% of requests
-       .build();
+   // Sampling is not built-in; consider filtering in your exporter
+   // or wrap telemetry::emit to downsample events.
    ```
 
 3. **Data Scrubbing**: Implement custom exporters that scrub sensitive data

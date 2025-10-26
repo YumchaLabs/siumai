@@ -54,6 +54,7 @@
 pub mod executors;
 pub mod http;
 pub mod middleware;
+pub mod policy;
 pub mod telemetry;
 pub mod transformers;
 
@@ -79,3 +80,4 @@ pub use transformers::{
 };
 
 pub use middleware::{LanguageModelMiddleware, MiddlewareBuilder, NamedMiddleware};
+pub use policy::ExecutionPolicy;

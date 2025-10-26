@@ -132,13 +132,12 @@ impl OpenAiCompatibleClient {
             response_transformer: bundle.response,
             stream_transformer: bundle.stream,
             json_stream_converter: bundle.json,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+                .with_interceptors(self.http_interceptors.clone()),
             middlewares: self.model_middlewares.clone(),
             provider_spec: spec,
             provider_context: ctx,
-            before_send: None,
-            retry_options: None,
         });
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -191,13 +190,12 @@ impl OpenAiCompatibleClient {
             response_transformer: bundle.response,
             stream_transformer: bundle.stream,
             json_stream_converter: bundle.json,
-            stream_disable_compression: self.config.http_config.stream_disable_compression,
-            interceptors: self.http_interceptors.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+                .with_interceptors(self.http_interceptors.clone()),
             middlewares: self.model_middlewares.clone(),
             provider_spec: spec,
             provider_context: ctx,
-            before_send: None,
-            retry_options: None,
         });
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
@@ -413,9 +411,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                             response_transformer: resp_tx_arc.clone(),
                             provider_spec: spec,
                             provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
+                            policy: crate::execution::ExecutionPolicy::new(),
                         };
                         EmbeddingExecutor::execute(&exec, rqc).await
                     }
@@ -431,9 +427,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                 response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
+                policy: crate::execution::ExecutionPolicy::new(),
             };
             exec.execute(req).await
         }
@@ -506,8 +500,9 @@ impl RerankCapability for OpenAiCompatibleClient {
             http_client: self.http_client.clone(),
             request_transformer: transformers.request,
             response_transformer: transformers.response,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_interceptors(self.http_interceptors.clone())
+                .with_retry_options(self.retry_options.clone()),
             url,
             headers,
             before_send: None,
@@ -707,9 +702,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                             response_transformer: resp_tx_arc.clone(),
                             provider_spec: spec,
                             provider_context: ctx,
-                            interceptors: vec![],
-                            before_send: None,
-                            retry_options: None,
+                            policy: crate::execution::ExecutionPolicy::new(),
                         };
                         ImageExecutor::execute(&exec, rqc).await
                     }
@@ -725,9 +718,7 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
                 response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
-                interceptors: vec![],
-                before_send: None,
-                retry_options: None,
+                policy: crate::execution::ExecutionPolicy::new(),
             };
             exec.execute(request).await
         }

@@ -182,21 +182,14 @@ pub struct HttpChatExecutor {
     pub stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
     /// Optional JSON streaming converter for providers that emit JSON lines
     pub json_stream_converter: Option<Arc<dyn crate::streaming::JsonEventConverter>>,
-    /// Whether to disable compression for streaming requests
-    pub stream_disable_compression: bool,
-    /// Optional list of HTTP interceptors (order preserved)
-    pub interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Execution policy (interceptors/retry/before_send/stream flags)
+    pub policy: crate::execution::ExecutionPolicy,
     /// Optional model-level middlewares (transform ChatRequest before mapping)
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Provider spec for building headers and URLs
     pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
     /// Provider context for header/URL construction
     pub provider_context: crate::core::ProviderContext,
-    /// Optional external parameter transformer (plugin-like), applied to JSON body
-    pub before_send: Option<crate::execution::executors::BeforeSendHook>,
-    /// Optional retry options for controlling retry behavior (including 401 retry)
-    /// If None, uses default behavior (401 retry enabled)
-    pub retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
 #[cfg(test)]
@@ -312,13 +305,19 @@ mod tests {
             response_transformer,
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: true,
-            interceptors: vec![],
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(true)
+                .with_retry_options(None),
             middlewares: vec![Arc::new(AppendSuffix)],
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
-            before_send: Some(hook),
-            retry_options: None,
+            // attach before_send via policy; create a new executor with updated policy
+        };
+
+        // Rebuild with before_send hook (immutable struct fields)
+        let exec = HttpChatExecutor {
+            policy: exec.policy.clone().with_before_send(hook),
+            ..exec
         };
 
         let mut req = crate::types::ChatRequest::new(vec![]);
@@ -421,13 +420,10 @@ mod tests {
             response_transformer,
             stream_transformer: Some(std::sync::Arc::new(DummyStreamTx)),
             json_stream_converter: None,
-            stream_disable_compression: true,
-            interceptors: vec![],
+            policy: crate::execution::ExecutionPolicy::new().with_stream_disable_compression(true),
             middlewares: vec![std::sync::Arc::new(Outer), std::sync::Arc::new(Inner)],
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
-            before_send: None,
-            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -507,13 +503,10 @@ mod tests {
             response_transformer,
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: true,
-            interceptors: vec![],
+            policy: crate::execution::ExecutionPolicy::new().with_stream_disable_compression(true),
             middlewares: vec![Arc::new(Outer), Arc::new(Inner)],
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
-            before_send: None,
-            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -564,13 +557,12 @@ mod tests {
             response_transformer,
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: true,
-            interceptors: vec![],
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(true)
+                .with_before_send(hook),
             middlewares: vec![Arc::new(PreMw)],
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
-            before_send: Some(hook),
-            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -631,13 +623,10 @@ mod tests {
             response_transformer,
             stream_transformer: Some(Arc::new(DummyTx)),
             json_stream_converter: None,
-            stream_disable_compression: true,
-            interceptors: vec![],
+            policy: crate::execution::ExecutionPolicy::new().with_stream_disable_compression(true),
             middlewares: vec![Arc::new(PreMwStream)],
             provider_spec: Arc::new(TestProviderSpec),
             provider_context,
-            before_send: None,
-            retry_options: None,
         };
 
         let req = crate::types::ChatRequest::new(vec![]);
@@ -741,13 +730,12 @@ mod tests {
             response_transformer,
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: true,
-            interceptors: vec![Arc::new(interceptor)],
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(true)
+                .with_interceptors(vec![Arc::new(interceptor)]),
             middlewares: vec![],
             provider_spec: Arc::new(TestSpecWithHeaders),
             provider_context,
-            before_send: None,
-            retry_options: None,
         };
 
         let mut req = crate::types::ChatRequest::new(vec![]);
@@ -856,13 +844,12 @@ mod tests {
             response_transformer,
             stream_transformer: Some(Arc::new(DummyTx)),
             json_stream_converter: None,
-            stream_disable_compression: true,
-            interceptors: vec![Arc::new(interceptor)],
+            policy: crate::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(true)
+                .with_interceptors(vec![Arc::new(interceptor)]),
             middlewares: vec![],
             provider_spec: Arc::new(TestSpecWithHeaders),
             provider_context,
-            before_send: None,
-            retry_options: None,
         };
         let mut req = crate::types::ChatRequest::new(vec![]);
         let mut hc = crate::types::HttpConfig::default();
@@ -928,8 +915,8 @@ impl ChatExecutor for HttpChatExecutor {
         let client = self.http_client.clone();
         let request_tx = self.request_transformer.clone();
         let response_tx = self.response_transformer.clone();
-        let interceptors = self.interceptors.clone();
-        let before_send = self.before_send.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let before_send = self.policy.before_send.clone();
         let middlewares = self.middlewares.clone();
         // Pre-compute URL (provider/base-level). Request-level headers are merged later per-request.
         let url = self
@@ -937,7 +924,7 @@ impl ChatExecutor for HttpChatExecutor {
             .chat_url(false, &req, &self.provider_context);
         let provider_spec = self.provider_spec.clone();
         let provider_context = self.provider_context.clone();
-        let retry_options = self.retry_options.clone();
+        let retry_options = self.policy.retry_options.clone();
 
         // Base async generator (no post_generate here)
         let base: Arc<GenerateAsyncFn> = Arc::new(move |req_in: ChatRequest| {
@@ -1086,17 +1073,17 @@ impl ChatExecutor for HttpChatExecutor {
         let request_tx = self.request_transformer.clone();
         let sse_tx = sse_tx_opt.clone();
         let json_tx = json_tx_opt.clone();
-        let interceptors = self.interceptors.clone();
-        let before_send = self.before_send.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let before_send = self.policy.before_send.clone();
         let url = self
             .provider_spec
             .chat_url(true, &req, &self.provider_context);
         let headers_base = self.provider_spec.build_headers(&self.provider_context)?;
-        let disable_compression = self.stream_disable_compression;
+        let disable_compression = self.policy.stream_disable_compression;
         let middlewares = self.middlewares.clone();
         let provider_spec = self.provider_spec.clone();
         let provider_context = self.provider_context.clone();
-        let retry_options = self.retry_options.clone();
+        let retry_options = self.policy.retry_options.clone();
 
         // Base async stream builder
         let base: Arc<StreamAsyncFn> = Arc::new(move |req_in: ChatRequest| {
@@ -1249,11 +1236,8 @@ pub struct ChatExecutorBuilder {
     response_transformer: Option<Arc<dyn ResponseTransformer>>,
     stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
     json_stream_converter: Option<Arc<dyn crate::streaming::JsonEventConverter>>,
-    stream_disable_compression: bool,
-    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    policy: crate::execution::ExecutionPolicy,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
-    before_send: Option<crate::execution::executors::BeforeSendHook>,
-    retry_options: Option<crate::retry_api::RetryOptions>,
 }
 
 impl ChatExecutorBuilder {
@@ -1268,11 +1252,8 @@ impl ChatExecutorBuilder {
             response_transformer: None,
             stream_transformer: None,
             json_stream_converter: None,
-            stream_disable_compression: false,
-            interceptors: Vec::new(),
+            policy: crate::execution::ExecutionPolicy::new(),
             middlewares: Vec::new(),
-            before_send: None,
-            retry_options: None,
         }
     }
 
@@ -1321,13 +1302,13 @@ impl ChatExecutorBuilder {
 
     /// Set whether to disable compression for streaming
     pub fn with_stream_disable_compression(mut self, disable: bool) -> Self {
-        self.stream_disable_compression = disable;
+        self.policy.stream_disable_compression = disable;
         self
     }
 
     /// Set HTTP interceptors
     pub fn with_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
-        self.interceptors = interceptors;
+        self.policy.interceptors = interceptors;
         self
     }
 
@@ -1339,13 +1320,13 @@ impl ChatExecutorBuilder {
 
     /// Set the before_send hook
     pub fn with_before_send(mut self, hook: crate::execution::executors::BeforeSendHook) -> Self {
-        self.before_send = Some(hook);
+        self.policy.before_send = Some(hook);
         self
     }
 
     /// Set retry options
     pub fn with_retry_options(mut self, retry_options: crate::retry_api::RetryOptions) -> Self {
-        self.retry_options = Some(retry_options);
+        self.policy.retry_options = Some(retry_options);
         self
     }
 
@@ -1365,13 +1346,10 @@ impl ChatExecutorBuilder {
                 .expect("response_transformer is required"),
             stream_transformer: self.stream_transformer,
             json_stream_converter: self.json_stream_converter,
-            stream_disable_compression: self.stream_disable_compression,
-            interceptors: self.interceptors,
+            policy: self.policy,
             middlewares: self.middlewares,
             provider_spec: self.spec.expect("provider_spec is required"),
             provider_context: self.context.expect("provider_context is required"),
-            before_send: self.before_send,
-            retry_options: self.retry_options,
         })
     }
 }

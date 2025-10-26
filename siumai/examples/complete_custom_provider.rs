@@ -221,13 +221,11 @@ impl MyCustomProviderClient {
             response_transformer: transformers.response,
             stream_transformer: transformers.stream,
             json_stream_converter: transformers.json,
-            stream_disable_compression: false,
-            interceptors: vec![],
+            policy: siumai::execution::ExecutionPolicy::new()
+                .with_stream_disable_compression(false),
             middlewares: vec![],
             provider_spec: spec,
             provider_context: ctx,
-            before_send: None,
-            retry_options: None,
         };
 
         executor.execute(request).await

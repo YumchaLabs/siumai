@@ -18,13 +18,8 @@ pub struct HttpEmbeddingExecutor {
     pub response_transformer: Arc<dyn ResponseTransformer>,
     pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
     pub provider_context: crate::core::ProviderContext,
-    /// HTTP interceptors for request/response observation and modification
-    pub interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
-    /// Optional external parameter transformer (plugin-like), applied to JSON body
-    pub before_send: Option<crate::execution::executors::BeforeSendHook>,
-    /// Optional retry options for controlling retry behavior (including 401 retry)
-    /// If None, uses default behavior (401 retry enabled)
-    pub retry_options: Option<crate::retry_api::RetryOptions>,
+    /// Execution policy
+    pub policy: crate::execution::ExecutionPolicy,
 }
 
 #[async_trait::async_trait]
@@ -41,7 +36,7 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
         let mut body = self.request_transformer.transform_embedding(&req)?;
 
         // 2. Apply before_send hook if present
-        if let Some(cb) = &self.before_send {
+        if let Some(cb) = &self.policy.before_send {
             body = cb(&body)?;
         }
 
@@ -56,8 +51,8 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
             http_client: self.http_client.clone(),
             provider_spec: self.provider_spec.clone(),
             provider_context: self.provider_context.clone(),
-            interceptors: self.interceptors.clone(),
-            retry_options: self.retry_options.clone(),
+            interceptors: self.policy.interceptors.clone(),
+            retry_options: self.policy.retry_options.clone(),
         };
 
         // 5. Execute request using common HTTP layer
@@ -74,5 +69,159 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
         // 6. Transform response
         self.response_transformer
             .transform_embedding_response(&result.json)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+    use std::sync::{Arc, Mutex};
+
+    // Minimal ProviderSpec for embedding
+    #[derive(Clone, Copy)]
+    struct TestSpec;
+    impl crate::core::ProviderSpec for TestSpec {
+        fn id(&self) -> &'static str {
+            "test"
+        }
+        fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+            crate::traits::ProviderCapabilities::new().with_embedding()
+        }
+        fn build_headers(
+            &self,
+            _ctx: &crate::core::ProviderContext,
+        ) -> Result<HeaderMap, LlmError> {
+            let mut h = HeaderMap::new();
+            h.insert(
+                HeaderName::from_static("x-base"),
+                HeaderValue::from_static("B"),
+            );
+            Ok(h)
+        }
+        fn chat_url(
+            &self,
+            _s: bool,
+            _r: &crate::types::ChatRequest,
+            _c: &crate::core::ProviderContext,
+        ) -> String {
+            unreachable!()
+        }
+        fn choose_chat_transformers(
+            &self,
+            _r: &crate::types::ChatRequest,
+            _c: &crate::core::ProviderContext,
+        ) -> crate::core::ChatTransformers {
+            unreachable!()
+        }
+    }
+
+    // No-op transformers
+    struct EchoReq;
+    impl crate::execution::transformers::request::RequestTransformer for EchoReq {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+        fn transform_chat(
+            &self,
+            _req: &crate::types::ChatRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+        fn transform_embedding(
+            &self,
+            req: &crate::types::EmbeddingRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({"model": req.model.clone().unwrap_or_default(), "mark": "orig"}))
+        }
+    }
+    struct NoopResp;
+    impl crate::execution::transformers::response::ResponseTransformer for NoopResp {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+        fn transform_embedding_response(
+            &self,
+            _raw: &serde_json::Value,
+        ) -> Result<crate::types::EmbeddingResponse, LlmError> {
+            Err(LlmError::InvalidParameter("abort".into()))
+        }
+    }
+
+    // Interceptor capturing headers and abort
+    struct CaptureHeaders {
+        seen: Arc<Mutex<Option<HeaderMap>>>,
+    }
+    impl HttpInterceptor for CaptureHeaders {
+        fn on_before_send(
+            &self,
+            _ctx: &HttpRequestContext,
+            _rb: reqwest::RequestBuilder,
+            _body: &serde_json::Value,
+            headers: &HeaderMap,
+        ) -> Result<reqwest::RequestBuilder, LlmError> {
+            *self.seen.lock().unwrap() = Some(headers.clone());
+            Err(LlmError::InvalidParameter("abort".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn embedding_before_send_applied_and_aborts() {
+        let http = reqwest::Client::new();
+        let spec = Arc::new(TestSpec);
+        let ctx =
+            crate::core::ProviderContext::new("test", "http://127.0.0.1", None, Default::default());
+        let exec = HttpEmbeddingExecutor {
+            provider_id: "test".into(),
+            http_client: http,
+            request_transformer: Arc::new(EchoReq),
+            response_transformer: Arc::new(NoopResp),
+            provider_spec: spec,
+            provider_context: ctx,
+            policy: crate::execution::ExecutionPolicy::new().with_before_send(Arc::new(|body| {
+                assert_eq!(body["mark"], serde_json::json!("orig"));
+                Err(LlmError::InvalidParameter("abort".into()))
+            })),
+        };
+        let req = crate::types::EmbeddingRequest::new(vec!["hi".into()]).with_model("m");
+        let err = exec.execute(req).await.unwrap_err();
+        match err {
+            LlmError::InvalidParameter(m) => assert_eq!(m, "abort"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn embedding_interceptor_merges_headers() {
+        let http = reqwest::Client::new();
+        let spec = Arc::new(TestSpec);
+        let ctx =
+            crate::core::ProviderContext::new("test", "http://127.0.0.1", None, Default::default());
+        let seen = Arc::new(Mutex::new(None::<HeaderMap>));
+        let interceptor = Arc::new(CaptureHeaders { seen: seen.clone() });
+        let exec = HttpEmbeddingExecutor {
+            provider_id: "test".into(),
+            http_client: http,
+            request_transformer: Arc::new(EchoReq),
+            response_transformer: Arc::new(NoopResp),
+            provider_spec: spec,
+            provider_context: ctx,
+            policy: crate::execution::ExecutionPolicy::new().with_interceptors(vec![interceptor]),
+        };
+        let mut req = crate::types::EmbeddingRequest::new(vec!["hi".into()]).with_model("m");
+        let mut hc = crate::types::HttpConfig::default();
+        hc.headers.insert("x-req".into(), "R".into());
+        req.http_config = Some(hc);
+        let _ = exec.execute(req).await; // expect abort
+        let headers = seen.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            headers.get("x-base").unwrap(),
+            &HeaderValue::from_static("B")
+        );
+        assert_eq!(
+            headers.get("x-req").unwrap(),
+            &HeaderValue::from_static("R")
+        );
     }
 }
