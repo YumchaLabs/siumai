@@ -12,10 +12,24 @@ readme = "../README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "async"]
 categories = ["api-bindings"]
 
-exclude = ["../docs/*", "../siumai-extras"]
+exclude = [
+    "../docs/**",
+    "../siumai-extras",
+    "../examples/**",
+    "../scripts/**",
+    "../repo-ref/**",
+    "../_third_party/**",
+    "../target/**",
+    "../*.log",
+]
 
 [lib]
 doctest = false
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["openai"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 # Async traits

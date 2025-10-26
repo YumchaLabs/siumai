@@ -8,9 +8,7 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 
 use crate::streaming::ChatStream;
-use crate::traits::{
-    AudioCapability, ChatCapability, ModelListingCapability, ProviderCapabilities,
-};
+use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
 use crate::types::*;
 
 use super::api::GroqModels;
@@ -20,6 +18,9 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use std::sync::Arc;
+
+// Split capability implementations into submodules (no public API changes)
+mod audio;
 
 /// `Groq` client that implements all capabilities
 pub struct GroqClient {
@@ -197,86 +198,7 @@ impl ChatCapability for GroqClient {
     }
 }
 
-#[async_trait]
-impl AudioCapability for GroqClient {
-    fn supported_features(&self) -> &[crate::types::AudioFeature] {
-        // Minimal list for Groq (whisper + tts)
-        use crate::types::AudioFeature::*;
-        const FEATURES: &[crate::types::AudioFeature] = &[TextToSpeech, SpeechToText];
-        FEATURES
-    }
-
-    async fn text_to_speech(
-        &self,
-        request: crate::types::TtsRequest,
-    ) -> Result<crate::types::TtsResponse, LlmError> {
-        use crate::execution::executors::audio::{AudioExecutor, HttpAudioExecutor};
-        use secrecy::ExposeSecret;
-
-        let spec = std::sync::Arc::new(super::spec::GroqSpec);
-        let ctx = crate::core::ProviderContext::new(
-            "groq",
-            self.config.base_url.clone(),
-            Some(self.config.api_key.expose_secret().to_string()),
-            self.config.http_config.headers.clone(),
-        );
-
-        let exec = HttpAudioExecutor {
-            provider_id: "groq".to_string(),
-            http_client: self.http_client.clone(),
-            transformer: std::sync::Arc::new(super::transformers::GroqAudioTransformer),
-            provider_spec: spec,
-            provider_context: ctx,
-            policy: crate::execution::ExecutionPolicy::new()
-                .with_interceptors(self.http_interceptors.clone())
-                .with_retry_options(self.retry_options.clone()),
-        };
-        let audio_bytes = exec.tts(request).await?;
-        Ok(crate::types::TtsResponse {
-            audio_data: audio_bytes,
-            format: "wav".to_string(),
-            duration: None,
-            sample_rate: None,
-            metadata: std::collections::HashMap::new(),
-        })
-    }
-
-    async fn speech_to_text(
-        &self,
-        request: crate::types::SttRequest,
-    ) -> Result<crate::types::SttResponse, LlmError> {
-        use crate::execution::executors::audio::{AudioExecutor, HttpAudioExecutor};
-        use secrecy::ExposeSecret;
-
-        let spec = std::sync::Arc::new(super::spec::GroqSpec);
-        let ctx = crate::core::ProviderContext::new(
-            "groq",
-            self.config.base_url.clone(),
-            Some(self.config.api_key.expose_secret().to_string()),
-            self.config.http_config.headers.clone(),
-        );
-
-        let exec = HttpAudioExecutor {
-            provider_id: "groq".to_string(),
-            http_client: self.http_client.clone(),
-            transformer: std::sync::Arc::new(super::transformers::GroqAudioTransformer),
-            provider_spec: spec,
-            provider_context: ctx,
-            policy: crate::execution::ExecutionPolicy::new()
-                .with_interceptors(self.http_interceptors.clone())
-                .with_retry_options(self.retry_options.clone()),
-        };
-        let text = exec.stt(request).await?;
-        Ok(crate::types::SttResponse {
-            text,
-            language: None,
-            confidence: None,
-            words: None,
-            duration: None,
-            metadata: std::collections::HashMap::new(),
-        })
-    }
-}
+// Audio capability implementation moved to client/audio.rs (no behavior change)
 
 impl GroqClient {
     /// Create provider context for this client

@@ -169,3 +169,165 @@ impl ProviderSpec for GeminiSpec {
         }
     }
 }
+
+// Lightweight ProviderSpec wrappers with explicit URL decisions for embedding/image
+
+struct GeminiEmbeddingSpecWrapper {
+    base_url: String,
+    model: String,
+}
+
+impl ProviderSpec for GeminiEmbeddingSpecWrapper {
+    fn id(&self) -> &'static str {
+        "gemini"
+    }
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_embedding()
+    }
+    fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
+        let api_key = ctx.api_key.as_deref().unwrap_or("");
+        crate::execution::http::headers::ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
+    }
+    fn chat_url(&self, _s: bool, _r: &ChatRequest, _c: &ProviderContext) -> String {
+        panic!("not chat")
+    }
+    fn choose_chat_transformers(&self, _r: &ChatRequest, _c: &ProviderContext) -> ChatTransformers {
+        panic!("not chat")
+    }
+    fn embedding_url(
+        &self,
+        req: &crate::types::EmbeddingRequest,
+        _ctx: &ProviderContext,
+    ) -> String {
+        if req.input.len() == 1 {
+            crate::utils::url::join_url(
+                &self.base_url,
+                &format!("models/{}:embedContent", self.model),
+            )
+        } else {
+            crate::utils::url::join_url(
+                &self.base_url,
+                &format!("models/{}:batchEmbedContents", self.model),
+            )
+        }
+    }
+    fn choose_embedding_transformers(
+        &self,
+        _r: &crate::types::EmbeddingRequest,
+        _c: &ProviderContext,
+    ) -> EmbeddingTransformers {
+        panic!("not used")
+    }
+}
+
+struct GeminiImageSpecWrapper {
+    base_url: String,
+    model: String,
+}
+
+impl ProviderSpec for GeminiImageSpecWrapper {
+    fn id(&self) -> &'static str {
+        "gemini"
+    }
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_vision()
+    }
+    fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
+        let api_key = ctx.api_key.as_deref().unwrap_or("");
+        crate::execution::http::headers::ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
+    }
+    fn chat_url(&self, _s: bool, _r: &ChatRequest, _c: &ProviderContext) -> String {
+        panic!("not chat")
+    }
+    fn choose_chat_transformers(&self, _r: &ChatRequest, _c: &ProviderContext) -> ChatTransformers {
+        panic!("not chat")
+    }
+    fn image_url(
+        &self,
+        _r: &crate::types::ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> String {
+        crate::utils::url::join_url(
+            &self.base_url,
+            &format!("models/{}:generateContent", self.model),
+        )
+    }
+    fn choose_image_transformers(
+        &self,
+        _r: &crate::types::ImageGenerationRequest,
+        _c: &ProviderContext,
+    ) -> ImageTransformers {
+        panic!("not used")
+    }
+}
+
+/// Create an embedding wrapper spec with explicit URL behavior.
+pub fn create_embedding_wrapper(base_url: String, model: String) -> Arc<dyn ProviderSpec> {
+    Arc::new(GeminiEmbeddingSpecWrapper { base_url, model })
+}
+
+/// Create an image wrapper spec with explicit URL behavior.
+pub fn create_image_wrapper(base_url: String, model: String) -> Arc<dyn ProviderSpec> {
+    Arc::new(GeminiImageSpecWrapper { base_url, model })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn embedding_wrapper_selects_single_vs_batch_url() {
+        let base = "https://example/v1".to_string();
+        let model = "gemini-embedding-001".to_string();
+        let spec = create_embedding_wrapper(base.clone(), model.clone());
+
+        let ctx = ProviderContext::new("gemini", base.clone(), Some("KEY".into()), HashMap::new());
+
+        let single = crate::types::EmbeddingRequest::new(vec!["hello".to_string()])
+            .with_model(model.clone());
+        let url_single = spec.embedding_url(&single, &ctx);
+        assert!(url_single.ends_with(&format!("models/{}:embedContent", model)));
+
+        let batch = crate::types::EmbeddingRequest::new(vec!["a".into(), "b".into()])
+            .with_model(model.clone());
+        let url_batch = spec.embedding_url(&batch, &ctx);
+        assert!(url_batch.ends_with(&format!("models/{}:batchEmbedContents", model)));
+    }
+
+    #[test]
+    fn image_wrapper_uses_generate_content_url() {
+        let base = "https://example/v1".to_string();
+        let model = "gemini-1.5-flash".to_string();
+        let spec = create_image_wrapper(base.clone(), model.clone());
+        let ctx = ProviderContext::new("gemini", base.clone(), Some("KEY".into()), HashMap::new());
+
+        let req = crate::types::ImageGenerationRequest::default();
+        let url = spec.image_url(&req, &ctx);
+        assert!(url.ends_with(&format!("models/{}:generateContent", model)));
+    }
+
+    #[test]
+    fn gemini_headers_use_api_key_without_bearer() {
+        let base = "https://example".to_string();
+        let model = "gemini-1.5-flash".to_string();
+        let spec = create_image_wrapper(base.clone(), model.clone());
+        let ctx = ProviderContext::new("gemini", base, Some("APIKEY".into()), HashMap::new());
+        let headers = spec.build_headers(&ctx).unwrap();
+        assert_eq!(headers.get("x-goog-api-key").unwrap(), "APIKEY");
+        assert_eq!(headers.get("content-type").unwrap(), "application/json");
+    }
+
+    #[test]
+    fn gemini_headers_skip_api_key_with_bearer() {
+        let base = "https://example".to_string();
+        let model = "gemini-1.5-flash".to_string();
+        let spec = create_embedding_wrapper(base.clone(), model.clone());
+        let mut extra = HashMap::new();
+        extra.insert("Authorization".into(), "Bearer token".into());
+        let ctx = ProviderContext::new("gemini", base, Some("APIKEY".into()), extra);
+        let headers = spec.build_headers(&ctx).unwrap();
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer token");
+        assert!(headers.get("x-goog-api-key").is_none());
+    }
+}

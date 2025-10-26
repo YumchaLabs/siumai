@@ -14,7 +14,6 @@ use crate::params::AnthropicParams;
 
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::retry_api::RetryOptions;
-use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 use std::sync::Arc;
@@ -22,6 +21,9 @@ use std::sync::Arc;
 use super::models::AnthropicModels;
 use super::types::AnthropicSpecificParams;
 use super::utils::get_default_models;
+
+// Split capability implementations into submodules (no public API changes)
+mod chat;
 
 /// Anthropic Client
 pub struct AnthropicClient {
@@ -266,88 +268,6 @@ impl AnthropicClient {
         }
 
         builder.build()
-    }
-
-    /// Execute chat request via spec (unified implementation)
-    async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::execution::executors::chat::ChatExecutor;
-
-        let exec = self.build_chat_executor(&request);
-        ChatExecutor::execute(&*exec, request).await
-    }
-
-    /// Execute streaming chat request via spec (unified implementation)
-    async fn chat_stream_request_via_spec(
-        &self,
-        request: ChatRequest,
-    ) -> Result<ChatStream, LlmError> {
-        use crate::execution::executors::chat::ChatExecutor;
-
-        let exec = self.build_chat_executor(&request);
-        ChatExecutor::execute_stream(&*exec, request).await
-    }
-
-    async fn chat_with_tools_inner(
-        &self,
-        messages: Vec<ChatMessage>,
-        tools: Option<Vec<Tool>>,
-    ) -> Result<ChatResponse, LlmError> {
-        // Build unified request
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            ..Default::default()
-        };
-
-        self.chat_request_via_spec(request).await
-    }
-}
-
-#[async_trait]
-impl ChatCapability for AnthropicClient {
-    async fn chat_with_tools(
-        &self,
-        messages: Vec<ChatMessage>,
-        tools: Option<Vec<Tool>>,
-    ) -> Result<ChatResponse, LlmError> {
-        if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let m = messages.clone();
-                    let t = tools.clone();
-                    async move { self.chat_with_tools_inner(m, t).await }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            self.chat_with_tools_inner(messages, tools).await
-        }
-    }
-
-    async fn chat_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        tools: Option<Vec<Tool>>,
-    ) -> Result<ChatStream, LlmError> {
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            stream: true,
-            ..Default::default()
-        };
-
-        self.chat_stream_request_via_spec(request).await
-    }
-
-    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        self.chat_request_via_spec(request).await
-    }
-
-    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        self.chat_stream_request_via_spec(request).await
     }
 }
 

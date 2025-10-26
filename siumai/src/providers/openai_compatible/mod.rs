@@ -53,6 +53,8 @@ pub mod spec;
 pub mod streaming;
 pub mod transformers;
 pub mod types;
+// Macro list for generating builder methods across modules
+pub mod builder_list;
 
 // Re-export model constants for easy access
 pub use providers::models::{deepseek, groq, openrouter, siliconflow, xai};

@@ -45,6 +45,42 @@ This document explains the core architecture after the 0.11 refactor.
 - Use `retry_api` facade for retrying operations
 - Prefer Registry/Factory when adding or changing providers
 
+## Provider Client Structure
+
+- OpenAI
+  - `siumai/src/providers/openai/client.rs` – client type and shared helpers (build executors/context)
+  - `siumai/src/providers/openai/client/chat.rs` – Chat capability
+  - `siumai/src/providers/openai/client/embedding.rs` – Embedding capability
+  - `siumai/src/providers/openai/client/image.rs` – Image capability
+  - `siumai/src/providers/openai/client/audio.rs` – Audio capability
+  - `siumai/src/providers/openai/client/rerank.rs` – Rerank capability
+  - `siumai/src/providers/openai/client/files.rs` – Files capability
+  - `siumai/src/providers/openai/client/models.rs` – ModelListing capability
+
+- Anthropic
+  - `siumai/src/providers/anthropic/client.rs` – client type and shared helpers
+  - `siumai/src/providers/anthropic/client/chat.rs` – Chat capability
+
+- Gemini
+  - `siumai/src/providers/gemini/client.rs` – client type and shared helpers
+  - `siumai/src/providers/gemini/client/embedding.rs` – Embedding capability
+  - `siumai/src/providers/gemini/client/image.rs` – Image capability
+  - `siumai/src/providers/gemini/client/models.rs` – ModelListing capability
+
+- Groq
+  - `siumai/src/providers/groq/client.rs` – client type and shared helpers
+  - `siumai/src/providers/groq/client/audio.rs` – Audio capability
+
+- Ollama
+  - `siumai/src/providers/ollama/client.rs` – client type and shared helpers (delegates to chat/embeddings)
+  - Chat and Embedding in `siumai/src/providers/ollama/chat.rs`, `siumai/src/providers/ollama/embeddings.rs`
+
+- xAI
+  - `siumai/src/providers/xai/client.rs` – client type and shared helpers (delegates to chat/models)
+  - Chat/Streaming in `siumai/src/providers/xai/chat.rs`, `siumai/src/providers/xai/streaming.rs`
+
+Note: This refactor only changes file organization; public API remains stable. All capabilities share Executors + Transformers.
+
 ## Headers & Tracing
 
 - Use `execution::http::headers::ProviderHeaders::*` to build provider headers consistently:

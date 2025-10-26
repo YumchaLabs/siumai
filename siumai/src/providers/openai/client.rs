@@ -2,14 +2,11 @@
 //!
 //! Main client structure that aggregates all `OpenAI` capabilities.
 
-use async_trait::async_trait;
 use secrecy::ExposeSecret;
 use std::sync::Arc;
 
 use crate::client::LlmClient;
-use crate::error::LlmError;
 use crate::params::OpenAiParams;
-use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 
@@ -20,6 +17,19 @@ use super::utils::get_default_models;
 // use crate::execution::executors::chat::ChatExecutor; // not used directly
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
+
+// Test-only imports
+#[cfg(test)]
+use crate::error::LlmError;
+
+// Split capability implementations into focused submodules (no API change)
+mod audio;
+mod chat;
+mod embedding;
+mod files;
+mod image;
+mod models;
+mod rerank;
 
 /// `OpenAI` Client
 pub struct OpenAiClient {
@@ -322,6 +332,7 @@ impl OpenAiClient {
     }
 
     /// Stream chat via ProviderSpec (unified path)
+    #[cfg(any())]
     async fn chat_stream_via_spec(
         &self,
         messages: Vec<ChatMessage>,
@@ -342,6 +353,7 @@ impl OpenAiClient {
     }
 
     /// Execute chat (non-stream) via ProviderSpec with a fully-formed ChatRequest
+    #[cfg(any())]
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
         let exec = self.build_chat_executor(&request);
@@ -349,6 +361,7 @@ impl OpenAiClient {
     }
 
     /// Execute chat (stream) via ProviderSpec with a fully-formed ChatRequest
+    #[cfg(any())]
     async fn chat_stream_request_via_spec(
         &self,
         request: ChatRequest,
@@ -445,6 +458,7 @@ impl OpenAiClient {
 }
 
 impl OpenAiClient {
+    #[cfg(any())]
     async fn chat_with_tools_inner(
         &self,
         messages: Vec<ChatMessage>,
@@ -464,6 +478,7 @@ impl OpenAiClient {
     }
 }
 
+#[cfg(any())]
 #[async_trait]
 impl ChatCapability for OpenAiClient {
     /// Chat with tools implementation
@@ -507,17 +522,9 @@ impl ChatCapability for OpenAiClient {
     }
 }
 
-#[async_trait]
-impl ModelListingCapability for OpenAiClient {
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        self.models_capability.list_models().await
-    }
+// ModelListing capability implementation moved to client/models.rs
 
-    async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
-        self.models_capability.get_model(model_id).await
-    }
-}
-
+#[cfg(any())]
 #[async_trait]
 impl EmbeddingCapability for OpenAiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
@@ -559,6 +566,7 @@ impl EmbeddingCapability for OpenAiClient {
 }
 
 // Provide extended embedding APIs that accept EmbeddingRequest directly
+#[cfg(any())]
 #[async_trait]
 impl EmbeddingExtensions for OpenAiClient {
     async fn embed_with_config(
@@ -641,6 +649,7 @@ impl EmbeddingExtensions for OpenAiClient {
 }
 
 #[async_trait]
+#[cfg(any())]
 impl AudioCapability for OpenAiClient {
     fn supported_features(&self) -> &[crate::types::AudioFeature] {
         use crate::types::AudioFeature::*;
@@ -756,6 +765,7 @@ impl LlmClient for OpenAiClient {
 }
 
 #[async_trait]
+#[cfg(any())]
 impl RerankCapability for OpenAiClient {
     /// Rerank documents based on their relevance to a query
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
@@ -806,6 +816,7 @@ impl RerankCapability for OpenAiClient {
 }
 
 #[async_trait]
+#[cfg(any())]
 impl ImageGenerationCapability for OpenAiClient {
     /// Generate images from text prompts.
     async fn generate_images(
@@ -887,6 +898,7 @@ impl ImageGenerationCapability for OpenAiClient {
 }
 
 #[async_trait::async_trait]
+#[cfg(any())]
 impl crate::traits::FileManagementCapability for OpenAiClient {
     async fn upload_file(
         &self,

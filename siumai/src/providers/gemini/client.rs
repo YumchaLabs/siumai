@@ -21,6 +21,11 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 
+// Split capability implementations into submodules (no public API changes)
+mod embedding;
+mod image;
+mod models;
+
 /// Gemini client that implements the `LlmClient` trait
 pub struct GeminiClient {
     /// HTTP client for making requests
@@ -594,6 +599,7 @@ impl ChatCapability for GeminiClient {
 }
 
 #[async_trait]
+#[cfg(any())]
 impl EmbeddingCapability for GeminiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
         use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
@@ -771,6 +777,7 @@ impl EmbeddingCapability for GeminiClient {
 }
 
 #[async_trait]
+#[cfg(any())]
 impl EmbeddingExtensions for GeminiClient {
     async fn embed_with_config(
         &self,
@@ -924,18 +931,10 @@ impl EmbeddingExtensions for GeminiClient {
         }
     }
 }
-#[async_trait]
-impl ModelListingCapability for GeminiClient {
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        self.models_capability.list_models().await
-    }
-
-    async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
-        self.models_capability.get_model(model_id).await
-    }
-}
+// ModelListing capability implementation moved to client/models.rs
 
 #[async_trait]
+#[cfg(any())]
 impl crate::traits::ImageGenerationCapability for GeminiClient {
     async fn generate_images(
         &self,
@@ -1168,6 +1167,12 @@ impl LlmClient for GeminiClient {
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+        Some(self)
+    }
+
+    fn as_image_generation_capability(
+        &self,
+    ) -> Option<&dyn crate::traits::ImageGenerationCapability> {
         Some(self)
     }
 

@@ -392,4 +392,109 @@ mod tests {
             panic!("Expected StreamEnd event in results: {:?}", result);
         }
     }
+
+    #[tokio::test]
+    async fn test_empty_event_is_ignored() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+        let event = eventsource_stream::Event {
+            event: "".into(),
+            data: "".into(),
+            id: "".into(),
+            retry: None,
+        };
+        let result = converter.convert_event(event).await;
+        assert!(result.is_empty(), "Empty SSE event should be ignored");
+    }
+
+    #[tokio::test]
+    async fn test_invalid_json_emits_error() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+        let event = eventsource_stream::Event {
+            event: "".into(),
+            data: "{ not json".into(),
+            id: "".into(),
+            retry: None,
+        };
+        let result = converter.convert_event(event).await;
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0], Err(LlmError::ParseError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_stream_start_emitted_once_across_events() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+        let mk_event = |text: &str| eventsource_stream::Event {
+            event: "".into(),
+            data: format!(
+                "{{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"{}\"}}]}}}}]}}",
+                text
+            ),
+            id: "".into(),
+            retry: None,
+        };
+
+        let r1 = converter.convert_event(mk_event("first")).await;
+        let r2 = converter.convert_event(mk_event("second")).await;
+
+        // First batch should contain a StreamStart
+        assert!(
+            r1.iter()
+                .any(|e| matches!(e, Ok(ChatStreamEvent::StreamStart { .. })))
+        );
+        // Second batch should not contain StreamStart
+        assert!(
+            !r2.iter()
+                .any(|e| matches!(e, Ok(ChatStreamEvent::StreamStart { .. })))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_multi_parts_emit_multiple_deltas_in_order() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+        let json = r#"{"candidates":[{"content":{"parts":[{"text":"A"},{"text":"B"}]}}]}"#;
+        let event = eventsource_stream::Event {
+            event: "".into(),
+            data: json.into(),
+            id: "".into(),
+            retry: None,
+        };
+        let result = converter.convert_event(event).await;
+        let deltas: Vec<_> = result
+            .into_iter()
+            .filter_map(|e| match e {
+                Ok(ChatStreamEvent::ContentDelta { delta, .. }) => Some(delta),
+                _ => None,
+            })
+            .collect();
+        assert!(deltas.contains(&"A".to_string()));
+        assert!(deltas.contains(&"B".to_string()));
+        // Order is preserved within a single event
+        let a_pos = deltas.iter().position(|d| d == "A").unwrap();
+        let b_pos = deltas.iter().position(|d| d == "B").unwrap();
+        assert!(a_pos < b_pos);
+    }
+
+    #[tokio::test]
+    async fn test_thinking_delta_extraction() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+        let json =
+            r#"{"candidates":[{"content":{"parts":[{"text":"thinking..","thought":true}]}}]}"#;
+        let event = eventsource_stream::Event {
+            event: "".into(),
+            data: json.into(),
+            id: "".into(),
+            retry: None,
+        };
+        let result = converter.convert_event(event).await;
+        assert!(
+            result
+                .iter()
+                .any(|e| matches!(e, Ok(ChatStreamEvent::ThinkingDelta { .. })))
+        );
+    }
 }
