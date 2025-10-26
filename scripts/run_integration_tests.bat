@@ -24,7 +24,7 @@ if exist ".env" (
 )
 
 set providers_configured=0
-set total_providers=8
+set total_providers=9
 
 echo 📋 Checking environment variables...
 echo.
@@ -138,6 +138,22 @@ if defined XAI_API_KEY (
         set /a providers_configured+=1
     ) else (
         echo ⏭️ Skipping xAI
+)
+)
+
+REM Check SiliconFlow (for Rerank tests)
+if defined SILICONFLOW_API_KEY (
+    echo ✅ SILICONFLOW_API_KEY is set
+    set /a providers_configured+=1
+) else (
+    echo ❌ SILICONFLOW_API_KEY is not set
+    set /p "siliconflow_key=🔑 Enter your SiliconFlow API key (or press Enter to skip): "
+    if not "!siliconflow_key!"=="" (
+        set SILICONFLOW_API_KEY=!siliconflow_key!
+        echo ✅ SILICONFLOW_API_KEY set for this session
+        set /a providers_configured+=1
+    ) else (
+        echo ⏭️ Skipping SiliconFlow
     )
 )
 
@@ -189,16 +205,55 @@ echo.
 
 REM Ask user which test to run
 echo Which test would you like to run?
-echo 1^) All available providers ^(recommended^)
-echo 2^) Specific provider
-echo 3^) All individual provider tests
+echo 1^) All available providers - Basic tests ^(Chat, Streaming, Embedding, Reasoning^)
+echo 2^) All capability tests - Tools, Vision, Audio, Image, Rerank
+echo 3^) Specific capability test
+echo 4^) Specific provider test
+echo 5^) Provider interface tests ^(Provider::* vs Siumai::builder(^)^)
 echo.
-set /p "choice=Enter your choice (1-3): "
+set /p "choice=Enter your choice (1-5): "
 
 if "%choice%"=="1" (
-    echo 🚀 Running all available provider tests...
+    echo 🚀 Running basic provider tests...
     cargo test test_all_available_providers -- --ignored --nocapture
 ) else if "%choice%"=="2" (
+    echo 🚀 Running comprehensive capability tests...
+    echo.
+    echo 📋 Running basic provider tests...
+    cargo test test_all_available_providers -- --ignored --nocapture
+    echo.
+    echo 🔧 Running tool capability tests...
+    cargo test test_all_provider_tools -- --ignored --nocapture
+    echo.
+    echo 👁️ Running vision capability tests...
+    cargo test test_all_provider_vision -- --ignored --nocapture
+    echo.
+    echo 🔊 Running audio capability tests...
+    cargo test test_all_provider_audio -- --ignored --nocapture
+    echo.
+    echo 🖼️ Running image integration tests (OpenAI)...
+    cargo test test_openai_image_generation_integration -- --ignored --nocapture
+    echo.
+    echo 💎 Running image integration tests (Gemini)...
+    cargo test test_gemini_image_generation_integration -- --ignored --nocapture
+    echo.
+    echo 🧮 Running rerank capability tests...
+    REM Requires SILICONFLOW_API_KEY to exercise live rerank integration tests
+    cargo test siliconflow_rerank_test -- --ignored --nocapture
+) else if "%choice%"=="3" (
+    echo.
+    echo Available capability tests:
+    echo - test_all_provider_tools ^(Tool calling across providers^)
+    echo - test_all_provider_vision ^(Vision/multimodal^)
+    echo - test_all_provider_audio ^(Audio TTS/STT^)
+    echo - test_openai_image_generation_integration ^(OpenAI image integration^)
+    echo - test_gemini_image_generation_integration ^(Gemini image integration^)
+    echo - siliconflow_rerank_test ^(Rerank integration^)
+    echo - test_all_available_providers ^(Basic smoke tests^)
+    echo.
+    set /p "test_name=Enter test name: "
+    cargo test !test_name! -- --ignored --nocapture
+) else if "%choice%"=="4" (
     echo.
     echo Available provider tests:
     echo - test_openai_integration
@@ -212,9 +267,9 @@ if "%choice%"=="1" (
     echo.
     set /p "test_name=Enter test name: "
     cargo test !test_name! -- --ignored --nocapture
-) else if "%choice%"=="3" (
-    echo 🚀 Running all individual provider tests...
-    cargo test real_llm_integration -- --ignored --nocapture
+) else if "%choice%"=="5" (
+    echo 🚀 Running provider interface tests...
+    cargo test test_all_provider_interfaces -- --ignored --nocapture
 ) else (
     echo ❌ Invalid choice. Exiting.
     pause

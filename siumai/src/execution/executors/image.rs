@@ -38,6 +38,85 @@ pub struct HttpImageExecutor {
     pub policy: crate::execution::ExecutionPolicy,
 }
 
+/// Builder for creating HttpImageExecutor instances
+pub struct ImageExecutorBuilder {
+    provider_id: String,
+    http_client: reqwest::Client,
+    spec: Option<Arc<dyn crate::core::ProviderSpec>>,
+    context: Option<crate::core::ProviderContext>,
+    request_transformer: Option<Arc<dyn RequestTransformer>>,
+    response_transformer: Option<Arc<dyn ResponseTransformer>>,
+    policy: crate::execution::ExecutionPolicy,
+}
+
+impl ImageExecutorBuilder {
+    pub fn new(provider_id: impl Into<String>, http_client: reqwest::Client) -> Self {
+        Self {
+            provider_id: provider_id.into(),
+            http_client,
+            spec: None,
+            context: None,
+            request_transformer: None,
+            response_transformer: None,
+            policy: crate::execution::ExecutionPolicy::new(),
+        }
+    }
+
+    pub fn with_spec(mut self, spec: Arc<dyn crate::core::ProviderSpec>) -> Self {
+        self.spec = Some(spec);
+        self
+    }
+
+    pub fn with_context(mut self, context: crate::core::ProviderContext) -> Self {
+        self.context = Some(context);
+        self
+    }
+
+    pub fn with_transformers(
+        mut self,
+        request: Arc<dyn RequestTransformer>,
+        response: Arc<dyn ResponseTransformer>,
+    ) -> Self {
+        self.request_transformer = Some(request);
+        self.response_transformer = Some(response);
+        self
+    }
+
+    pub fn with_before_send(mut self, hook: crate::execution::executors::BeforeSendHook) -> Self {
+        self.policy.before_send = Some(hook);
+        self
+    }
+
+    pub fn with_interceptors(
+        mut self,
+        interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
+    ) -> Self {
+        self.policy.interceptors = interceptors;
+        self
+    }
+
+    pub fn with_retry_options(mut self, retry_options: crate::retry_api::RetryOptions) -> Self {
+        self.policy.retry_options = Some(retry_options);
+        self
+    }
+
+    pub fn build(self) -> Arc<HttpImageExecutor> {
+        Arc::new(HttpImageExecutor {
+            provider_id: self.provider_id,
+            http_client: self.http_client,
+            request_transformer: self
+                .request_transformer
+                .expect("request_transformer is required"),
+            response_transformer: self
+                .response_transformer
+                .expect("response_transformer is required"),
+            provider_spec: self.spec.expect("provider_spec is required"),
+            provider_context: self.context.expect("provider_context is required"),
+            policy: self.policy,
+        })
+    }
+}
+
 #[async_trait::async_trait]
 impl ImageExecutor for HttpImageExecutor {
     async fn execute(

@@ -58,7 +58,7 @@ echo ""
 
 # Check which providers are configured
 providers_configured=0
-total_providers=8
+total_providers=9
 
 # OpenAI
 if check_env_var "OPENAI_API_KEY"; then
@@ -126,6 +126,16 @@ if check_env_var "XAI_API_KEY"; then
 else
     prompt_for_key "XAI_API_KEY" "xAI"
     if [ -n "$XAI_API_KEY" ]; then
+        ((providers_configured++))
+    fi
+fi
+
+# SiliconFlow (for Rerank)
+if check_env_var "SILICONFLOW_API_KEY"; then
+    ((providers_configured++))
+else
+    prompt_for_key "SILICONFLOW_API_KEY" "SiliconFlow"
+    if [ -n "$SILICONFLOW_API_KEY" ]; then
         ((providers_configured++))
     fi
 fi
@@ -203,8 +213,14 @@ case $choice in
         echo "🔊 Running audio capability tests..."
         cargo test test_all_provider_audio -- --ignored --nocapture
         echo ""
-        echo "📦 Running provider interface tests..."
+    echo "📦 Running provider interface tests..."
         cargo test test_all_provider_interfaces -- --ignored --nocapture
+        echo ""
+        echo "🖼️ Running image integration tests (OpenAI)..."
+        cargo test test_openai_image_generation_integration -- --ignored --nocapture
+        echo ""
+        echo "🧮 Running rerank integration tests (SiliconFlow)..."
+        cargo test siliconflow_rerank_test -- --ignored --nocapture
         ;;
     3)
         echo ""
@@ -214,6 +230,8 @@ case $choice in
         echo "- test_all_provider_audio (Audio TTS/STT for OpenAI and Groq)"
         echo "- test_all_provider_interfaces (Provider::* vs Siumai::builder())"
         echo "- test_all_available_providers (Basic chat, streaming, embedding, reasoning)"
+        echo "- test_openai_image_generation_integration (real image generation)"
+        echo "- siliconflow_rerank_test (real rerank)"
         echo ""
         read -p "Enter test name: " test_name
         cargo test $test_name -- --ignored --nocapture
@@ -247,6 +265,12 @@ case $choice in
         echo "Audio capability tests:"
         echo "- test_openai_audio_capability"
         echo "- test_groq_audio_capability"
+        echo ""
+        echo "Image capability & integration tests:"
+        echo "- test_openai_image_generation_integration"
+        echo ""
+        echo "Rerank integration tests:"
+        echo "- siliconflow_rerank_test"
         echo ""
         echo "Provider interface tests:"
         echo "- test_openai_provider_interface"

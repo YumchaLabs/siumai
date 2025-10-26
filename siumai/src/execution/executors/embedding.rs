@@ -72,6 +72,99 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
     }
 }
 
+/// Builder for creating HttpEmbeddingExecutor instances
+///
+/// Mirrors ChatExecutorBuilder to provide a consistent construction API
+/// for non-streaming embedding executors.
+pub struct EmbeddingExecutorBuilder {
+    provider_id: String,
+    http_client: reqwest::Client,
+    spec: Option<Arc<dyn crate::core::ProviderSpec>>,
+    context: Option<crate::core::ProviderContext>,
+    request_transformer: Option<Arc<dyn RequestTransformer>>,
+    response_transformer: Option<Arc<dyn ResponseTransformer>>,
+    policy: crate::execution::ExecutionPolicy,
+}
+
+impl EmbeddingExecutorBuilder {
+    /// Create a new builder with required fields
+    pub fn new(provider_id: impl Into<String>, http_client: reqwest::Client) -> Self {
+        Self {
+            provider_id: provider_id.into(),
+            http_client,
+            spec: None,
+            context: None,
+            request_transformer: None,
+            response_transformer: None,
+            policy: crate::execution::ExecutionPolicy::new(),
+        }
+    }
+
+    /// Set the provider spec
+    pub fn with_spec(mut self, spec: Arc<dyn crate::core::ProviderSpec>) -> Self {
+        self.spec = Some(spec);
+        self
+    }
+
+    /// Set the provider context
+    pub fn with_context(mut self, context: crate::core::ProviderContext) -> Self {
+        self.context = Some(context);
+        self
+    }
+
+    /// Set the transformers
+    pub fn with_transformers(
+        mut self,
+        request: Arc<dyn RequestTransformer>,
+        response: Arc<dyn ResponseTransformer>,
+    ) -> Self {
+        self.request_transformer = Some(request);
+        self.response_transformer = Some(response);
+        self
+    }
+
+    /// Set the before_send hook
+    pub fn with_before_send(mut self, hook: crate::execution::executors::BeforeSendHook) -> Self {
+        self.policy.before_send = Some(hook);
+        self
+    }
+
+    /// Set HTTP interceptors
+    pub fn with_interceptors(
+        mut self,
+        interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
+    ) -> Self {
+        self.policy.interceptors = interceptors;
+        self
+    }
+
+    /// Set retry options
+    pub fn with_retry_options(mut self, retry_options: crate::retry_api::RetryOptions) -> Self {
+        self.policy.retry_options = Some(retry_options);
+        self
+    }
+
+    /// Build the HttpEmbeddingExecutor
+    ///
+    /// # Panics
+    /// Panics if required fields (spec, context, transformers) are not set
+    pub fn build(self) -> Arc<HttpEmbeddingExecutor> {
+        Arc::new(HttpEmbeddingExecutor {
+            provider_id: self.provider_id,
+            http_client: self.http_client,
+            request_transformer: self
+                .request_transformer
+                .expect("request_transformer is required"),
+            response_transformer: self
+                .response_transformer
+                .expect("response_transformer is required"),
+            provider_spec: self.spec.expect("provider_spec is required"),
+            provider_context: self.context.expect("provider_context is required"),
+            policy: self.policy,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

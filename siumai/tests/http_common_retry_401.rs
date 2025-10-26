@@ -1,7 +1,4 @@
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::{Arc, Mutex, atomic::AtomicUsize};
 
 use siumai::execution::executors::common::{
     HttpBody, HttpExecutionConfig, execute_delete_request, execute_get_binary, execute_get_request,

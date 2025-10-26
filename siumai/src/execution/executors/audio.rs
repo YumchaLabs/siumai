@@ -23,6 +23,73 @@ pub struct HttpAudioExecutor {
     pub policy: ExecutionPolicy,
 }
 
+/// Builder for creating HttpAudioExecutor instances
+pub struct AudioExecutorBuilder {
+    provider_id: String,
+    http_client: reqwest::Client,
+    spec: Option<Arc<dyn crate::core::ProviderSpec>>,
+    context: Option<crate::core::ProviderContext>,
+    transformer: Option<Arc<dyn AudioTransformer>>,
+    policy: crate::execution::ExecutionPolicy,
+}
+
+impl AudioExecutorBuilder {
+    pub fn new(provider_id: impl Into<String>, http_client: reqwest::Client) -> Self {
+        Self {
+            provider_id: provider_id.into(),
+            http_client,
+            spec: None,
+            context: None,
+            transformer: None,
+            policy: crate::execution::ExecutionPolicy::new(),
+        }
+    }
+
+    pub fn with_spec(mut self, spec: Arc<dyn crate::core::ProviderSpec>) -> Self {
+        self.spec = Some(spec);
+        self
+    }
+
+    pub fn with_context(mut self, context: crate::core::ProviderContext) -> Self {
+        self.context = Some(context);
+        self
+    }
+
+    pub fn with_transformer(mut self, transformer: Arc<dyn AudioTransformer>) -> Self {
+        self.transformer = Some(transformer);
+        self
+    }
+
+    pub fn with_before_send(mut self, hook: crate::execution::executors::BeforeSendHook) -> Self {
+        self.policy.before_send = Some(hook);
+        self
+    }
+
+    pub fn with_interceptors(
+        mut self,
+        interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
+    ) -> Self {
+        self.policy.interceptors = interceptors;
+        self
+    }
+
+    pub fn with_retry_options(mut self, retry_options: crate::retry_api::RetryOptions) -> Self {
+        self.policy.retry_options = Some(retry_options);
+        self
+    }
+
+    pub fn build(self) -> Arc<HttpAudioExecutor> {
+        Arc::new(HttpAudioExecutor {
+            provider_id: self.provider_id,
+            http_client: self.http_client,
+            transformer: self.transformer.expect("audio transformer is required"),
+            provider_spec: self.spec.expect("provider_spec is required"),
+            provider_context: self.context.expect("provider_context is required"),
+            policy: self.policy,
+        })
+    }
+}
+
 #[async_trait::async_trait]
 impl AudioExecutor for HttpAudioExecutor {
     async fn tts(&self, req: TtsRequest) -> Result<Vec<u8>, LlmError> {

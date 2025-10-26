@@ -10,57 +10,9 @@ use crate::types::{
     ModerationRequest, RerankRequest,
 };
 use std::collections::HashMap;
+// Path helpers are provided by super::json_path
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum PathSeg {
-    Key(String),
-    Index(usize),
-}
-
-fn parse_path(path: &str) -> Vec<PathSeg> {
-    let mut segs = Vec::new();
-    for part in path.split('.') {
-        if part.is_empty() {
-            continue;
-        }
-        // Parse key plus optional [idx][idx]...
-        let mut key = String::new();
-        let mut chars = part.chars().peekable();
-        while let Some(&ch) = chars.peek() {
-            if ch == '[' {
-                break;
-            }
-            key.push(ch);
-            chars.next();
-        }
-        if !key.is_empty() {
-            segs.push(PathSeg::Key(key.clone()));
-        }
-        // parse zero or more [number]
-        while let Some(&ch) = chars.peek() {
-            if ch != '[' {
-                break;
-            }
-            // consume '['
-            chars.next();
-            // read digits
-            let mut num = String::new();
-            while let Some(&d) = chars.peek() {
-                if d == ']' {
-                    break;
-                }
-                num.push(d);
-                chars.next();
-            }
-            // consume ']'
-            let _ = chars.next();
-            if let Ok(idx) = num.parse::<usize>() {
-                segs.push(PathSeg::Index(idx));
-            }
-        }
-    }
-    segs
-}
+// PathSeg + parse_path moved to transformers::json_path
 
 /// Body for image HTTP requests
 pub enum ImageHttpBody {
@@ -331,217 +283,7 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
             }
         }
     }
-    fn get_path<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
-        let mut cur = v;
-        for seg in parse_path(path) {
-            match (seg, cur) {
-                (PathSeg::Key(k), serde_json::Value::Object(map)) => {
-                    cur = map.get(&k)?;
-                }
-                (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
-                    cur = arr.get(i)?;
-                }
-                _ => return None,
-            }
-        }
-        Some(cur)
-    }
-
-    fn get_path_mut<'a>(
-        v: &'a mut serde_json::Value,
-        path: &str,
-    ) -> Option<&'a mut serde_json::Value> {
-        let segs = parse_path(path);
-        let mut cur = v;
-        for seg in segs {
-            match seg {
-                PathSeg::Key(k) => match cur {
-                    serde_json::Value::Object(map) => {
-                        cur = map.get_mut(&k)?;
-                    }
-                    _ => return None,
-                },
-                PathSeg::Index(i) => match cur {
-                    serde_json::Value::Array(arr) => {
-                        cur = arr.get_mut(i)?;
-                    }
-                    _ => return None,
-                },
-            }
-        }
-        Some(cur)
-    }
-
-    fn ensure_parent_object<'a>(
-        v: &'a mut serde_json::Value,
-        path: &str,
-    ) -> Option<&'a mut serde_json::Map<String, serde_json::Value>> {
-        // Parent of the final key; path must end with a key
-        let segments = parse_path(path);
-        if segments.is_empty() {
-            return None;
-        }
-        // Last must be a key; otherwise there's no parent object to return
-        let (parent_segs, leaf_is_key) = match &segments[segments.len() - 1] {
-            PathSeg::Key(_) => (&segments[..segments.len() - 1], true),
-            PathSeg::Index(_) => (&segments[..segments.len()], false),
-        };
-        if !leaf_is_key {
-            return None;
-        }
-
-        let mut cur = v;
-        for (idx, seg) in parent_segs.iter().enumerate() {
-            let next = parent_segs.get(idx + 1);
-            match seg {
-                PathSeg::Key(k) => {
-                    // Ensure current is an object (create if null)
-                    match cur {
-                        serde_json::Value::Null => {
-                            *cur = serde_json::Value::Object(serde_json::Map::new());
-                        }
-                        serde_json::Value::Object(_) => {}
-                        _ => return None,
-                    }
-                    // SAFETY: cur is guaranteed Object here
-                    if let serde_json::Value::Object(map) = cur {
-                        let entry = map.entry(k.clone()).or_insert(serde_json::Value::Null);
-                        // Shape child according to next segment
-                        match next {
-                            Some(PathSeg::Index(_)) => {
-                                if !entry.is_array() {
-                                    *entry = serde_json::Value::Array(Vec::new());
-                                }
-                            }
-                            Some(PathSeg::Key(_)) | None => {
-                                if !entry.is_object() {
-                                    *entry = serde_json::Value::Object(serde_json::Map::new());
-                                }
-                            }
-                        }
-                        cur = entry;
-                    }
-                }
-                PathSeg::Index(i) => {
-                    // Ensure current is an array (create if null)
-                    match cur {
-                        serde_json::Value::Null => {
-                            *cur = serde_json::Value::Array(Vec::new());
-                        }
-                        serde_json::Value::Array(_) => {}
-                        _ => return None,
-                    }
-                    if let serde_json::Value::Array(arr) = cur {
-                        if arr.len() <= *i {
-                            arr.resize(i + 1, serde_json::Value::Null);
-                        }
-                        // Shape the indexed child according to next segment
-                        match next {
-                            Some(PathSeg::Index(_)) => {
-                                if !arr[*i].is_array() {
-                                    arr[*i] = serde_json::Value::Array(Vec::new());
-                                }
-                            }
-                            Some(PathSeg::Key(_)) | None => {
-                                if !arr[*i].is_object() {
-                                    arr[*i] = serde_json::Value::Object(serde_json::Map::new());
-                                }
-                            }
-                        }
-                        cur = &mut arr[*i];
-                    }
-                }
-            }
-        }
-
-        if let serde_json::Value::Object(map) = cur {
-            Some(map)
-        } else {
-            None
-        }
-    }
-
-    fn move_field(body: &mut serde_json::Value, from: &str, to: &str) {
-        // Read value
-        let val = Self::get_path(body, from).cloned();
-        if val.is_none() || val.as_ref().unwrap().is_null() {
-            return;
-        }
-        // Remove source
-        Self::drop_field(body, from);
-        // Set destination
-        if let Some(parent) = Self::ensure_parent_object(body, to) {
-            let leaf = to.split('.').next_back().unwrap();
-            parent.insert(leaf.to_string(), val.unwrap());
-        }
-    }
-
-    fn drop_field(body: &mut serde_json::Value, field: &str) {
-        let segs = parse_path(field);
-        if segs.is_empty() {
-            return;
-        }
-        if segs.len() == 1 {
-            match (&segs[0], body) {
-                (PathSeg::Key(k), serde_json::Value::Object(map)) => {
-                    map.remove(k);
-                }
-                (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
-                    if *i < arr.len() {
-                        arr.remove(*i);
-                    }
-                }
-                _ => {}
-            }
-            return;
-        }
-        let parent_path = {
-            // reconstruct parent string path for get_path_mut, which now supports arrays
-            let mut s = String::new();
-            for (idx, seg) in segs.iter().enumerate() {
-                if idx == segs.len() - 1 {
-                    break;
-                }
-                match seg {
-                    PathSeg::Key(k) => {
-                        if !s.is_empty() {
-                            s.push('.');
-                        }
-                        s.push_str(k);
-                    }
-                    PathSeg::Index(i) => {
-                        s.push('[');
-                        s.push_str(&i.to_string());
-                        s.push(']');
-                    }
-                }
-            }
-            s
-        };
-        if let Some(parent) = Self::get_path_mut(body, &parent_path) {
-            match (segs.last().unwrap(), parent) {
-                (PathSeg::Key(k), serde_json::Value::Object(map)) => {
-                    map.remove(k);
-                }
-                (PathSeg::Index(i), serde_json::Value::Array(arr)) => {
-                    if *i < arr.len() {
-                        arr.remove(*i);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn apply_default(body: &mut serde_json::Value, field: &str, value: serde_json::Value) {
-        let exists_and_non_null = Self::get_path(body, field)
-            .map(|v| !v.is_null())
-            .unwrap_or(false);
-        if !exists_and_non_null && let Some(parent) = Self::ensure_parent_object(body, field) {
-            let leaf = field.split('.').next_back().unwrap();
-            parent.insert(leaf.to_string(), value);
-        }
-    }
+    // Path helpers moved to `super::json_path`
 
     fn validate_range(
         body: &mut serde_json::Value,
@@ -551,7 +293,7 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         mode: RangeMode,
         message: Option<&'static str>,
     ) -> Result<(), LlmError> {
-        if let Some(v) = Self::get_path_mut(body, field) {
+        if let Some(v) = super::json_path::get_path_mut(body, field) {
             let n_opt = match v {
                 serde_json::Value::Number(n) => n.as_f64(),
                 serde_json::Value::Null => None,
@@ -583,7 +325,7 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
         max: usize,
         message: &'static str,
     ) -> Result<(), LlmError> {
-        if let Some(v) = Self::get_path(body, field)
+        if let Some(v) = super::json_path::get_path(body, field)
             && let serde_json::Value::Array(arr) = v
             && arr.len() > max
         {
@@ -600,9 +342,11 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
     ) -> Result<(), LlmError> {
         for r in rules {
             match r {
-                Rule::Move { from, to } => Self::move_field(body, from, to),
-                Rule::Drop { field } => Self::drop_field(body, field),
-                Rule::Default { field, value } => Self::apply_default(body, field, value.clone()),
+                Rule::Move { from, to } => super::json_path::move_field(body, from, to),
+                Rule::Drop { field } => super::json_path::drop_field(body, field),
+                Rule::Default { field, value } => {
+                    super::json_path::apply_default(body, field, value.clone())
+                }
                 Rule::Range {
                     field,
                     min,
@@ -622,7 +366,7 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                     };
                     if violated {
                         // Only error if the field is effectively set
-                        let present = Self::get_path(body, field)
+                        let present = super::json_path::get_path(body, field)
                             .map(|v| !v.is_null())
                             .unwrap_or(false);
                         if present {
@@ -636,23 +380,23 @@ impl<H: ProviderRequestHooks> GenericRequestTransformer<H> {
                     map,
                     default,
                 } => {
-                    let current =
-                        Self::get_path(body, from).and_then(|v| v.as_str().map(|s| s.to_string()));
+                    let current = super::json_path::get_path(body, from)
+                        .and_then(|v| v.as_str().map(|s| s.to_string()));
                     if let Some(key) = current {
                         // Find mapping for key
                         if let Some((_, mapped)) = map.iter().find(|(k, _)| k == &key) {
-                            if let Some(parent) = Self::ensure_parent_object(body, to) {
+                            if let Some(parent) = super::json_path::ensure_parent_object(body, to) {
                                 let leaf = to.split('.').next_back().unwrap();
                                 parent.insert(leaf.to_string(), mapped.clone());
                             }
                         } else if let Some(d) = default.clone() {
-                            if let Some(parent) = Self::ensure_parent_object(body, to) {
+                            if let Some(parent) = super::json_path::ensure_parent_object(body, to) {
                                 let leaf = to.split('.').next_back().unwrap();
                                 parent.insert(leaf.to_string(), d);
                             }
                         }
                     } else if let Some(d) = default.clone() {
-                        if let Some(parent) = Self::ensure_parent_object(body, to) {
+                        if let Some(parent) = super::json_path::ensure_parent_object(body, to) {
                             let leaf = to.split('.').next_back().unwrap();
                             parent.insert(leaf.to_string(), d);
                         }

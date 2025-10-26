@@ -2,7 +2,6 @@ use crate::core::{
     ChatTransformers, EmbeddingTransformers, ImageTransformers, ProviderContext, ProviderSpec,
 };
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
 use reqwest::header::HeaderMap;
@@ -24,50 +23,27 @@ impl ProviderSpec for GeminiSpec {
             .with_tools()
             .with_embedding()
             .with_vision()
+            .with_custom_feature("image_generation", true)
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        // Gemini header rules are encapsulated in ProviderHeaders::gemini:
-        // - If Authorization exists (e.g., Vertex token), do not inject x-goog-api-key.
-        // - Otherwise use x-goog-api-key when api_key is provided.
-        let api_key = ctx.api_key.as_deref().unwrap_or("");
-        ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
+        // Delegate to standard headers with adapter hook capability
+        let spec = crate::standards::gemini::GeminiChatStandard::new().create_spec("gemini");
+        spec.build_headers(ctx)
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        let base = ctx.base_url.trim_end_matches('/');
-        let model = &req.common_params.model;
-        if stream {
-            format!("{}/models/{}:streamGenerateContent?alt=sse", base, model)
-        } else {
-            format!("{}/models/{}:generateContent", base, model)
-        }
+        // Delegate to standard spec for URL decision
+        let spec = crate::standards::gemini::GeminiChatStandard::new().create_spec("gemini");
+        spec.chat_url(stream, req, ctx)
     }
 
     fn choose_chat_transformers(
         &self,
         _req: &ChatRequest,
-        _ctx: &ProviderContext,
+        ctx: &ProviderContext,
     ) -> ChatTransformers {
-        let req_tx = crate::providers::gemini::transformers::GeminiRequestTransformer {
-            config: crate::providers::gemini::types::GeminiConfig::default(),
-        };
-        let resp_tx = crate::providers::gemini::transformers::GeminiResponseTransformer {
-            config: crate::providers::gemini::types::GeminiConfig::default(),
-        };
-        let inner = crate::providers::gemini::streaming::GeminiEventConverter::new(
-            crate::providers::gemini::types::GeminiConfig::default(),
-        );
-        let stream_tx = crate::providers::gemini::transformers::GeminiStreamChunkTransformer {
-            provider_id: "gemini".to_string(),
-            inner,
-        };
-        ChatTransformers {
-            request: Arc::new(req_tx),
-            response: Arc::new(resp_tx),
-            stream: Some(Arc::new(stream_tx)),
-            json: None,
-        }
+        crate::standards::gemini::GeminiChatStandard::new().create_transformers(&ctx.provider_id)
     }
 
     fn chat_before_send(
@@ -150,13 +126,8 @@ impl ProviderSpec for GeminiSpec {
     }
 
     fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
-        let base = ctx.base_url.trim_end_matches('/');
-        let model = req.model.as_deref().unwrap_or("");
-        if req.input.len() == 1 {
-            format!("{}/models/{}:embedContent", base, model)
-        } else {
-            format!("{}/models/{}:batchEmbedContents", base, model)
-        }
+        let spec = crate::standards::gemini::GeminiEmbeddingStandard::new().create_spec("gemini");
+        spec.embedding_url(req, ctx)
     }
 
     fn choose_embedding_transformers(
@@ -164,27 +135,16 @@ impl ProviderSpec for GeminiSpec {
         _req: &crate::types::EmbeddingRequest,
         _ctx: &ProviderContext,
     ) -> EmbeddingTransformers {
-        let req_tx = crate::providers::gemini::transformers::GeminiRequestTransformer {
-            config: crate::providers::gemini::types::GeminiConfig::default(),
-        };
-        let resp_tx = crate::providers::gemini::transformers::GeminiResponseTransformer {
-            config: crate::providers::gemini::types::GeminiConfig::default(),
-        };
-        EmbeddingTransformers {
-            request: std::sync::Arc::new(req_tx),
-            response: std::sync::Arc::new(resp_tx),
-        }
+        crate::standards::gemini::GeminiEmbeddingStandard::new().create_transformers()
     }
 
     fn image_url(
         &self,
-        _req: &crate::types::ImageGenerationRequest,
+        req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
     ) -> String {
-        // Gemini image generation uses generateContent
-        let base = ctx.base_url.trim_end_matches('/');
-        // Model is supplied in request common params; default to empty handled by executor
-        format!("{}/models/{}:generateContent", base, "")
+        let spec = crate::standards::gemini::GeminiImageStandard::new().create_spec("gemini");
+        spec.image_url(req, ctx)
     }
 
     fn choose_image_transformers(
@@ -192,16 +152,7 @@ impl ProviderSpec for GeminiSpec {
         _req: &crate::types::ImageGenerationRequest,
         _ctx: &ProviderContext,
     ) -> ImageTransformers {
-        let req_tx = crate::providers::gemini::transformers::GeminiRequestTransformer {
-            config: crate::providers::gemini::types::GeminiConfig::default(),
-        };
-        let resp_tx = crate::providers::gemini::transformers::GeminiResponseTransformer {
-            config: crate::providers::gemini::types::GeminiConfig::default(),
-        };
-        ImageTransformers {
-            request: std::sync::Arc::new(req_tx),
-            response: std::sync::Arc::new(resp_tx),
-        }
+        crate::standards::gemini::GeminiImageStandard::new().create_transformers()
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {
