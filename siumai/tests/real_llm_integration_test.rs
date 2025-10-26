@@ -148,7 +148,7 @@ fn get_provider_configs() -> Vec<ProviderTestConfig> {
         ProviderTestConfig {
             name: "Ollama",
             api_key_env: "OLLAMA_BASE_URL", // Use base URL as "key" for Ollama
-            default_model: "llama3.2:3b",
+            default_model: "llama3.2:latest",
             supports_embedding: true,
             supports_reasoning: true,
             reasoning_model: Some("deepseek-r1:8b"),
@@ -277,6 +277,8 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
                 .openrouter()
                 .api_key(api_key)
                 .model(config.default_model)
+                // Cap tokens to avoid provider-specific context errors
+                .max_tokens(1024)
                 .build()
                 .await
                 .expect("Failed to build OpenRouter client");
@@ -763,6 +765,8 @@ async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
         .openrouter()
         .api_key(api_key)
         .model(reasoning_model)
+        // Keep a conservative cap for compatibility
+        .max_tokens(1024)
         .build()
         .await
         .expect("Failed to build OpenRouter reasoning client");
@@ -1288,6 +1292,8 @@ mod tests {
             .openrouter()
             .api_key(api_key)
             .model(config.default_model)
+            // Cap tokens to avoid provider-specific context errors
+            .max_tokens(1024)
             .build()
             .await
             .expect("Failed to build OpenRouter client");

@@ -42,7 +42,11 @@ impl OllamaBuilder {
     /// # Arguments
     /// * `model` - The model name (e.g., "llama3.2", "mistral:7b")
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
-        self.model = Some(model.into());
+        let m = model.into();
+        // Keep legacy field for compatibility
+        self.model = Some(m.clone());
+        // Unify: store in common_params as the single source of truth
+        self.common_params.model = m;
         self
     }
 
@@ -296,20 +300,15 @@ impl OllamaBuilder {
         // or tracing_subscriber directly before creating the client.
 
         // Step 3: Build configuration
-        let model_for_middleware = self.model.clone();
         let model_from_common_params = self.common_params.model.clone();
 
         let http_config_clone = self.core.http_config.clone();
 
-        let mut config = crate::providers::ollama::OllamaConfig::builder()
+        let config = crate::providers::ollama::OllamaConfig::builder()
             .base_url(base_url)
             .common_params(self.common_params)
             .http_config(http_config_clone.clone())
             .ollama_params(self.ollama_params);
-
-        if let Some(model) = self.model {
-            config = config.model(model);
-        }
 
         let config = config.build()?;
 
@@ -334,9 +333,11 @@ impl OllamaBuilder {
         }
 
         // Step 8: Install automatic middlewares
-        let model_id = model_for_middleware
-            .as_deref()
-            .unwrap_or(&model_from_common_params);
+        let model_id = if !model_from_common_params.is_empty() {
+            model_from_common_params.as_str()
+        } else {
+            ""
+        };
         let middlewares = self.core.get_auto_middlewares("ollama", model_id);
         if !middlewares.is_empty() {
             client = client.with_model_middlewares(middlewares);

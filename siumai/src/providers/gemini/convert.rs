@@ -396,8 +396,16 @@ pub fn build_request_body(
         merged_generation_config.stop_sequences = Some(stops.clone());
     }
 
+    // Prefer unified common_params.model as the single source of truth,
+    // fallback to config.model for backward compatibility.
+    let model = if !config.common_params.model.is_empty() {
+        config.common_params.model.clone()
+    } else {
+        config.model.clone()
+    };
+
     Ok(GenerateContentRequest {
-        model: config.model.clone(),
+        model,
         contents,
         system_instruction,
         tools: gemini_tools,

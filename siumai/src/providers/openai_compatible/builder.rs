@@ -42,8 +42,6 @@ pub struct OpenAiCompatibleBuilder {
     api_key: Option<String>,
     /// Custom base URL (overrides provider default)
     base_url: Option<String>,
-    /// Model to use
-    model: Option<String>,
     /// Common parameters
     common_params: crate::types::CommonParams,
     /// HTTP configuration
@@ -61,20 +59,22 @@ pub struct OpenAiCompatibleBuilder {
 impl OpenAiCompatibleBuilder {
     /// Create a new OpenAI-compatible builder
     pub fn new(base: LlmBuilder, provider_id: &str) -> Self {
-        // Get default model from registry
-        let default_model =
-            crate::providers::openai_compatible::default_models::get_default_chat_model(
-                provider_id,
-            )
-            .map(|model| model.to_string());
-
         Self {
             base: base.clone(),
             provider_id: provider_id.to_string(),
             api_key: None,
             base_url: None,
-            model: default_model,
-            common_params: crate::types::CommonParams::default(),
+            common_params: {
+                let mut cp = crate::types::CommonParams::default();
+                if let Some(m) =
+                    crate::providers::openai_compatible::default_models::get_default_chat_model(
+                        provider_id,
+                    )
+                {
+                    cp.model = m.to_string();
+                }
+                cp
+            },
             http_config: crate::types::HttpConfig::default(),
             provider_specific_config: std::collections::HashMap::new(),
             retry_options: None,
@@ -132,7 +132,7 @@ impl OpenAiCompatibleBuilder {
 
     /// Set the model
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
-        self.model = Some(model.into());
+        self.common_params.model = model.into();
         self
     }
 
@@ -440,9 +440,21 @@ impl OpenAiCompatibleBuilder {
             adapter,
         );
 
-        // Set model if provided
-        if let Some(model) = self.model {
-            config = config.with_model(&model);
+        // Ensure model is set. Prefer common_params.model; otherwise fall back to registry default.
+        let effective_model_raw = if !self.common_params.model.is_empty() {
+            self.common_params.model.clone()
+        } else {
+            crate::providers::openai_compatible::default_models::get_default_chat_model(
+                &self.provider_id,
+            )
+            .unwrap_or("")
+            .to_string()
+        };
+        // Normalize aliases (e.g., OpenRouter vendor prefixes, DeepSeek short ids)
+        let effective_model =
+            crate::utils::model_alias::normalize_model_id(&self.provider_id, &effective_model_raw);
+        if !effective_model.is_empty() {
+            config = config.with_model(&effective_model);
         }
 
         // Set common parameters
@@ -472,7 +484,7 @@ impl OpenAiCompatibleBuilder {
 
         config = config.with_http_config(final_http_config);
 
-        // Save model before moving config
+        // Save model before moving config (may still be empty for truly unknown providers)
         let model_id = config.model.clone();
 
         // Create client with or without custom HTTP client

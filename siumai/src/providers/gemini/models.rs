@@ -108,24 +108,23 @@ impl GeminiModels {
             ]);
         }
 
-        // Determine context window
-        let context_window = model.input_token_limit.unwrap_or_else(|| {
-            // Default context windows based on model name
-            if id.contains("1.5-pro") {
-                2_000_000 // 2M tokens for Gemini 1.5 Pro
-            } else if id.contains("1.5-flash") || id.contains("2.0") {
-                1_000_000 // 1M tokens for Gemini 1.5 Flash and 2.0
-            } else {
-                32_000 // Default fallback
-            }
-        });
+        // Determine context window (prefer API); and max output tokens
+        let context_window: u32 = model
+            .input_token_limit
+            .map(|t| t as u32)
+            .unwrap_or_else(|| get_model_context_window(&id));
+        let max_output_tokens: u32 = model
+            .output_token_limit
+            .map(|t| t as u32)
+            .unwrap_or_else(|| get_model_max_output_tokens(&id));
 
         ModelInfo {
             id,
             name: Some(model.display_name.unwrap_or(model.name)),
             description: model.description,
-            context_window: Some(context_window as u32),
-            max_output_tokens: model.output_token_limit.map(|t| t as u32),
+            context_window: Some(context_window),
+            // Prefer API-provided output limit; otherwise use curated mapping
+            max_output_tokens: Some(max_output_tokens),
             capabilities,
             input_cost_per_token: None,
             output_cost_per_token: None,
@@ -276,15 +275,26 @@ pub fn get_default_models() -> Vec<String> {
     vec![
         // Latest Gemini 2.5 models
         "gemini-2.5-pro".to_string(),
+        "gemini-2.5-pro-exp-03-25".to_string(),
         "gemini-2.5-flash".to_string(),
         "gemini-2.5-flash-lite".to_string(),
         // Gemini 2.0 models
+        "gemini-2.0-pro-exp-02-05".to_string(),
         "gemini-2.0-flash".to_string(),
+        "gemini-2.0-flash-001".to_string(),
+        "gemini-2.0-flash-exp".to_string(),
+        "gemini-2.0-flash-thinking-exp-01-21".to_string(),
         "gemini-2.0-flash-lite".to_string(),
         // Legacy models (deprecated but still available)
         "gemini-1.5-flash".to_string(),
+        "gemini-1.5-flash-001".to_string(),
+        "gemini-1.5-flash-002".to_string(),
         "gemini-1.5-flash-8b".to_string(),
         "gemini-1.5-pro".to_string(),
+        "gemini-1.5-pro-001".to_string(),
+        "gemini-1.5-pro-002".to_string(),
+        // LearnLM
+        "learnlm-1.5-pro-experimental".to_string(),
     ]
 }
 
@@ -319,6 +329,8 @@ pub fn get_model_context_window(model_id: &str) -> u32 {
         || model_id.contains("2.0-flash")
     {
         1_048_576 // 1M tokens for Gemini 2.5 Pro, 2.5 Flash and 2.0 Flash
+    } else if model_id.contains("2.0-pro") {
+        2_097_152 // 2M tokens for Gemini 2.0 Pro experimental
     } else if model_id.contains("1.5-pro") {
         2_097_152 // 2M tokens for Gemini 1.5 Pro
     } else if model_id.contains("1.5-flash") {
@@ -337,6 +349,8 @@ pub fn get_model_max_output_tokens(model_id: &str) -> u32 {
         || model_id.contains("1.5-flash")
     {
         8192 // Gemini 2.0 Flash, 1.5 Pro and Flash max output
+    } else if model_id.contains("2.0-pro") {
+        8192 // Gemini 2.0 Pro experimental max output
     } else if model_id.contains("tts") {
         16_000 // TTS models have different output limits
     } else {

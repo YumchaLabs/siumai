@@ -101,7 +101,10 @@ pub async fn build_openai_compatible_client(
         &resolved_base,
         adapter,
     )
-    .with_model(&common_params.model)
+    .with_model(&{
+        // Normalize model id for provider-specific aliasing (e.g., OpenRouter, DeepSeek)
+        crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
+    })
     .with_http_config(http_config.clone());
 
     // Apply common params we support directly

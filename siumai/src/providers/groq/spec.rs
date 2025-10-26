@@ -35,11 +35,9 @@ impl ProviderSpec for GroqSpec {
         _req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> String {
-        // Groq uses OpenAI-compatible API with /openai/v1 prefix
-        format!(
-            "{}/openai/v1/chat/completions",
-            ctx.base_url.trim_end_matches('/')
-        )
+        // Base URL already includes "/openai/v1" (see GroqConfig::DEFAULT_BASE_URL).
+        // Append only the operation path to avoid duplicating the prefix.
+        format!("{}/chat/completions", ctx.base_url.trim_end_matches('/'))
     }
 
     fn choose_chat_transformers(

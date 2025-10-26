@@ -53,7 +53,7 @@ impl Default for GeminiConfig {
         Self {
             api_key: SecretString::from(String::new()),
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            model: "gemini-1.5-flash".to_string(),
+            model: "gemini-2.5-flash".to_string(),
             common_params: CommonParams::default(),
             generation_config: None,
             safety_settings: None,

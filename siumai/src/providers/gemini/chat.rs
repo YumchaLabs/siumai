@@ -72,7 +72,7 @@ impl ChatCapability for GeminiChatCapability {
             messages,
             tools,
             common_params: crate::types::CommonParams {
-                model: self.config.model.clone(),
+                model: self.config.common_params.model.clone(),
                 ..Default::default()
             },
             ..Default::default()
@@ -175,7 +175,7 @@ impl ChatCapability for GeminiChatCapability {
             messages,
             tools,
             common_params: crate::types::CommonParams {
-                model: self.config.model.clone(),
+                model: self.config.common_params.model.clone(),
                 ..Default::default()
             },
             stream: true,

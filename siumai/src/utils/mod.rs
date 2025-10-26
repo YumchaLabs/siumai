@@ -27,6 +27,7 @@
 
 pub mod cancel;
 pub mod mime;
+pub mod model_alias;
 pub mod url;
 pub mod utf8_decoder;
 
@@ -35,6 +36,7 @@ pub mod vertex;
 
 // Re-exports for convenience
 pub use mime::*;
+pub use model_alias::*;
 pub use url::*;
 pub use utf8_decoder::Utf8StreamDecoder;
 

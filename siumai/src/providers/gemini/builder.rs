@@ -1,5 +1,6 @@
 use crate::core::builder_core::ProviderCore;
 use crate::retry_api::RetryOptions;
+use crate::types::CommonParams;
 use crate::{LlmBuilder, LlmError};
 
 /// Gemini-specific builder for configuring Gemini clients.
@@ -36,18 +37,11 @@ pub struct GeminiBuilder {
     api_key: Option<String>,
     /// Base URL for Gemini API
     base_url: Option<String>,
-    /// Model to use
-    model: Option<String>,
-    /// Temperature setting
-    temperature: Option<f32>,
-    /// Maximum output tokens
-    max_tokens: Option<i32>,
-    /// Top-p setting
-    top_p: Option<f32>,
+    /// Common params (unified: model, temperature, max_tokens, top_p, stop_sequences)
+    common_params: CommonParams,
     /// Top-k setting
     top_k: Option<i32>,
-    /// Stop sequences
-    stop_sequences: Option<Vec<String>>,
+    /// Stop sequences are provided via common_params
     /// Candidate count
     candidate_count: Option<i32>,
     /// Safety settings
@@ -65,12 +59,8 @@ impl GeminiBuilder {
             core: ProviderCore::new(base),
             api_key: None,
             base_url: None,
-            model: None,
-            temperature: None,
-            max_tokens: None,
-            top_p: None,
+            common_params: CommonParams::default(),
             top_k: None,
-            stop_sequences: None,
             candidate_count: None,
             safety_settings: None,
             json_schema: None,
@@ -90,27 +80,28 @@ impl GeminiBuilder {
         self
     }
 
-    /// Set the model
+    /// Set the model (unified via common_params)
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
-        self.model = Some(model.into());
+        self.common_params.model = model.into();
         self
     }
 
     /// Set temperature (0.0 to 2.0)
     pub const fn temperature(mut self, temperature: f32) -> Self {
-        self.temperature = Some(temperature);
+        self.common_params.temperature = Some(temperature);
         self
     }
 
     /// Set maximum output tokens
-    pub const fn max_tokens(mut self, max_tokens: i32) -> Self {
-        self.max_tokens = Some(max_tokens);
+    pub fn max_tokens(mut self, max_tokens: i32) -> Self {
+        let v = if max_tokens < 0 { 0 } else { max_tokens as u32 };
+        self.common_params.max_tokens = Some(v);
         self
     }
 
     /// Set top-p (0.0 to 1.0)
     pub const fn top_p(mut self, top_p: f32) -> Self {
-        self.top_p = Some(top_p);
+        self.common_params.top_p = Some(top_p);
         self
     }
 
@@ -122,7 +113,7 @@ impl GeminiBuilder {
 
     /// Set stop sequences
     pub fn stop_sequences(mut self, sequences: Vec<String>) -> Self {
-        self.stop_sequences = Some(sequences);
+        self.common_params.stop_sequences = Some(sequences);
         self
     }
 
@@ -387,29 +378,15 @@ impl GeminiBuilder {
             // No client-side validation needed
         }
 
-        // Save model before potentially moving it
-        let model_for_middleware = self.model.clone();
-
-        if let Some(model) = self.model {
-            config = config.with_model(model);
+        // Apply common parameters (includes unified model)
+        config = config.with_common_params(self.common_params.clone());
+        // Keep config.model in sync for Gemini converters/spec (they read config.model)
+        if !config.common_params.model.is_empty() {
+            let m = config.common_params.model.clone();
+            config = config.with_model(m);
         }
 
-        // Set common parameters (temperature, max_tokens, top_p, stop_sequences)
-        if let Some(temp) = self.temperature {
-            config = config.with_temperature(temp);
-        }
-
-        if let Some(max_tokens) = self.max_tokens {
-            config = config.with_max_tokens(max_tokens as u32);
-        }
-
-        if let Some(top_p) = self.top_p {
-            config = config.with_top_p(top_p);
-        }
-
-        if let Some(stop_sequences) = self.stop_sequences {
-            config = config.with_stop_sequences(stop_sequences);
-        }
+        // Common parameters already applied via with_common_params()
 
         // Build generation config for Gemini-specific parameters (top_k, candidate_count, etc.)
         let mut generation_config = crate::providers::gemini::GenerationConfig::new();
@@ -450,8 +427,12 @@ impl GeminiBuilder {
         // Step 4: Build HTTP client from core
         let http_client = self.core.build_http_client()?;
 
-        // Save model from config before moving it
-        let model_id = config.model.clone();
+        // Save model from config common params (fallback to config.model if empty) before moving it
+        let model_id = if !config.common_params.model.is_empty() {
+            config.common_params.model.clone()
+        } else {
+            config.model.clone()
+        };
 
         // Step 5: Create client instance
         let mut client =
@@ -472,8 +453,7 @@ impl GeminiBuilder {
         }
 
         // Step 8: Install automatic middlewares
-        let final_model_id = model_for_middleware.as_deref().unwrap_or(&model_id);
-        let middlewares = self.core.get_auto_middlewares("gemini", final_model_id);
+        let middlewares = self.core.get_auto_middlewares("gemini", &model_id);
         if !middlewares.is_empty() {
             client = client.with_model_middlewares(middlewares);
         }

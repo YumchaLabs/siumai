@@ -52,8 +52,6 @@ pub struct OpenAiBuilder {
     organization: Option<String>,
     /// Project ID
     project: Option<String>,
-    /// Model name
-    model: Option<String>,
     /// Common parameters (temperature, max_tokens, etc.)
     common_params: CommonParams,
     /// OpenAI-specific parameters
@@ -73,7 +71,6 @@ impl OpenAiBuilder {
             base_url: None,
             organization: None,
             project: None,
-            model: None,
             common_params: CommonParams::default(),
             openai_params: OpenAiParams::default(),
             use_responses_api: false,
@@ -107,9 +104,7 @@ impl OpenAiBuilder {
 
     /// Sets the model
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
-        let model_str = model.into();
-        self.model = Some(model_str.clone());
-        self.common_params.model = model_str;
+        self.common_params.model = model.into();
         self
     }
 
@@ -304,12 +299,9 @@ impl OpenAiBuilder {
         // or tracing_subscriber directly before creating the client.
 
         // Step 3: Build configuration
-        let model_id = self
-            .model
-            .clone()
-            .unwrap_or_else(|| self.common_params.model.clone());
+        let model_id = self.common_params.model.clone();
 
-        let mut cfg = crate::providers::openai::OpenAiConfig {
+        let cfg = crate::providers::openai::OpenAiConfig {
             api_key: secrecy::SecretString::from(api_key),
             base_url,
             organization: self.organization,
@@ -320,10 +312,7 @@ impl OpenAiBuilder {
             web_search_config: crate::types::WebSearchConfig::default(),
         };
 
-        // Ensure model is set if provided separately
-        if let Some(m) = &self.model {
-            cfg.common_params.model = m.clone();
-        }
+        // Model is carried solely via common_params.model now
 
         // Step 4: Build HTTP client from core
         let http_client = self.core.build_http_client()?;

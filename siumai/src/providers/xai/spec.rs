@@ -36,8 +36,9 @@ impl ProviderSpec for XaiSpec {
         _req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> String {
-        // xAI uses OpenAI-compatible API with /v1 prefix
-        format!("{}/v1/chat/completions", ctx.base_url.trim_end_matches('/'))
+        // Base URL already includes "/v1" (see XaiConfig::new default).
+        // Append only the operation path to avoid duplicating the prefix.
+        format!("{}/chat/completions", ctx.base_url.trim_end_matches('/'))
     }
 
     fn choose_chat_transformers(

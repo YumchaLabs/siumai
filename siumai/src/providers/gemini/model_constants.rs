@@ -8,8 +8,12 @@ pub mod gemini_2_5_pro {
     /// Gemini 2.5 Pro - Most powerful thinking model
     pub const GEMINI_2_5_PRO: &str = "gemini-2.5-pro";
 
+    /// Gemini 2.5 Pro Experimental (03-25)
+    /// Aligns with LobeChat provider config id: `gemini-2.5-pro-exp-03-25`
+    pub const GEMINI_2_5_PRO_EXP_03_25: &str = "gemini-2.5-pro-exp-03-25";
+
     /// All Gemini 2.5 Pro models
-    pub const ALL: &[&str] = &[GEMINI_2_5_PRO];
+    pub const ALL: &[&str] = &[GEMINI_2_5_PRO, GEMINI_2_5_PRO_EXP_03_25];
 }
 
 /// Gemini 2.5 Flash model family constants
@@ -83,6 +87,16 @@ pub mod gemini_2_0_flash {
     pub const ALL: &[&str] = &[GEMINI_2_0_FLASH, GEMINI_2_0_FLASH_001, GEMINI_2_0_FLASH_EXP];
 }
 
+/// Gemini 2.0 Pro model family constants
+pub mod gemini_2_0_pro {
+    /// Gemini 2.0 Pro Experimental (02-05)
+    /// Aligns with LobeChat provider config id: `gemini-2.0-pro-exp-02-05`
+    pub const GEMINI_2_0_PRO_EXP_02_05: &str = "gemini-2.0-pro-exp-02-05";
+
+    /// All Gemini 2.0 Pro models
+    pub const ALL: &[&str] = &[GEMINI_2_0_PRO_EXP_02_05];
+}
+
 /// Gemini 2.0 Flash Image Generation model family constants
 pub mod gemini_2_0_flash_image_gen {
     /// Gemini 2.0 Flash Preview Image Generation
@@ -102,6 +116,16 @@ pub mod gemini_2_0_flash_lite {
 
     /// All Gemini 2.0 Flash-Lite models
     pub const ALL: &[&str] = &[GEMINI_2_0_FLASH_LITE, GEMINI_2_0_FLASH_LITE_001];
+}
+
+/// Gemini 2.0 Flash Thinking (experimental) model family constants
+pub mod gemini_2_0_flash_thinking_exp {
+    /// Gemini 2.0 Flash Thinking Experimental (01-21)
+    /// Aligns with LobeChat provider config id: `gemini-2.0-flash-thinking-exp-01-21`
+    pub const GEMINI_2_0_FLASH_THINKING_EXP_01_21: &str = "gemini-2.0-flash-thinking-exp-01-21";
+
+    /// All Gemini 2.0 Flash Thinking Experimental models
+    pub const ALL: &[&str] = &[GEMINI_2_0_FLASH_THINKING_EXP_01_21];
 }
 
 /// Gemini 2.0 Flash Live model family constants
@@ -170,6 +194,16 @@ pub mod gemini_1_5_pro {
     ];
 }
 
+/// LearnLM model family constants (experimental)
+pub mod learnlm_1_5_pro {
+    /// LearnLM 1.5 Pro Experimental
+    /// Aligns with LobeChat provider config id: `learnlm-1.5-pro-experimental`
+    pub const LEARNLM_1_5_PRO_EXPERIMENTAL: &str = "learnlm-1.5-pro-experimental";
+
+    /// All LearnLM 1.5 Pro models
+    pub const ALL: &[&str] = &[LEARNLM_1_5_PRO_EXPERIMENTAL];
+}
+
 /// Popular model recommendations
 pub mod popular {
     use super::*;
@@ -221,10 +255,13 @@ pub fn all_chat_models() -> Vec<&'static str> {
     models.extend_from_slice(gemini_2_5_flash::ALL);
     models.extend_from_slice(gemini_2_5_flash_lite::ALL);
     models.extend_from_slice(gemini_2_0_flash::ALL);
+    models.extend_from_slice(gemini_2_0_pro::ALL);
+    models.extend_from_slice(gemini_2_0_flash_thinking_exp::ALL);
     models.extend_from_slice(gemini_2_0_flash_lite::ALL);
     models.extend_from_slice(gemini_1_5_flash::ALL);
     models.extend_from_slice(gemini_1_5_flash_8b::ALL);
     models.extend_from_slice(gemini_1_5_pro::ALL);
+    models.extend_from_slice(learnlm_1_5_pro::ALL);
     models
 }
 

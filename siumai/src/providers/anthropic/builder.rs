@@ -14,7 +14,6 @@ pub struct AnthropicBuilder {
     pub(crate) core: ProviderCore,
     api_key: Option<String>,
     base_url: Option<String>,
-    model: Option<String>,
     common_params: CommonParams,
     anthropic_params: AnthropicParams,
 }
@@ -25,7 +24,6 @@ impl AnthropicBuilder {
             core: ProviderCore::new(base),
             api_key: None,
             base_url: None,
-            model: None,
             common_params: CommonParams::default(),
             anthropic_params: AnthropicParams::default(),
         }
@@ -45,9 +43,7 @@ impl AnthropicBuilder {
 
     /// Sets the model
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
-        let model_str = model.into();
-        self.model = Some(model_str.clone());
-        self.common_params.model = model_str;
+        self.common_params.model = model.into();
         self
     }
 
