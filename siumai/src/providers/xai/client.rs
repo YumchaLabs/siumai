@@ -353,22 +353,38 @@ impl XaiClient {
         &self,
         request_id: &str,
     ) -> Result<ChatResponse, LlmError> {
+        use secrecy::ExposeSecret;
+        use std::sync::Arc;
+
+        // Build URL
         let url = format!(
             "{}/chat/deferred-completion/{}",
             self.chat_capability.base_url, request_id
         );
-        use secrecy::ExposeSecret;
-        let headers = super::utils::build_headers(
-            self.chat_capability.api_key.expose_secret(),
-            &self.chat_capability.http_config.headers,
-        )?;
 
-        let response = self.http_client.get(&url).headers(headers).send().await?;
+        // Use unified common HTTP helper so interceptors/retry/tracing apply consistently
+        let ctx = crate::core::ProviderContext::new(
+            "xai",
+            self.chat_capability.base_url.clone(),
+            Some(self.chat_capability.api_key.expose_secret().to_string()),
+            self.chat_capability.http_config.headers.clone(),
+        );
+        let spec = Arc::new(crate::providers::xai::spec::XaiSpec);
+        let config = crate::execution::executors::common::HttpExecutionConfig {
+            provider_id: "xai".to_string(),
+            http_client: self.http_client.clone(),
+            provider_spec: spec,
+            provider_context: ctx,
+            interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+        };
 
-        match response.status().as_u16() {
+        let result =
+            crate::execution::executors::common::execute_get_request(&config, &url, None).await?;
+
+        match result.status {
             200 => {
-                let _xai_response: super::types::XaiChatResponse = response.json().await?;
-                // We need to make parse_chat_response public or create a wrapper
+                // Not yet implemented: map to UnsupportedOperation to match previous behavior
                 Err(LlmError::UnsupportedOperation(
                     "Get deferred completion not implemented yet".to_string(),
                 ))
@@ -376,17 +392,14 @@ impl XaiClient {
             202 => Err(LlmError::ApiError {
                 code: 202,
                 message: "Deferred completion not ready yet".to_string(),
-                details: None,
+                details: Some(result.json),
             }),
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await.unwrap_or_default();
-                Err(LlmError::ApiError {
-                    code: status.as_u16(),
-                    message: format!("xAI API error: {error_text}"),
-                    details: serde_json::from_str(&error_text).ok(),
-                })
-            }
+            // Non-2xx are already converted to Err by execute_get_request
+            other => Err(LlmError::ApiError {
+                code: other,
+                message: "Unexpected deferred completion status".to_string(),
+                details: Some(result.json),
+            }),
         }
     }
 

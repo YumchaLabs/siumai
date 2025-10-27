@@ -14,6 +14,7 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, EmbeddingCapability, ImageGenerationCapability,
@@ -43,10 +44,30 @@ pub trait ProviderFactory: Send + Sync {
     /// The returned client should NOT have middlewares applied - the Handle will apply them.
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError>;
 
+    /// Create a language model client with build context (interceptors, retry, etc.)
+    /// Default implementation falls back to `language_model` for backward compatibility.
+    async fn language_model_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.language_model(model_id).await
+    }
+
     /// Create an embedding model client for the given model ID
     async fn embedding_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Default: delegate to language_model (many providers use same client)
         self.language_model(model_id).await
+    }
+
+    /// Create an embedding model client with build context (default delegates to language_model_with_ctx)
+    async fn embedding_model_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // Default: keep behavior of embedding_model() to allow custom embedding clients
+        self.embedding_model(model_id).await
     }
 
     /// Create an image model client for the given model ID
@@ -54,14 +75,41 @@ pub trait ProviderFactory: Send + Sync {
         self.language_model(model_id).await
     }
 
+    /// Create an image model client with build context (default delegates to language_model_with_ctx)
+    async fn image_model_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.image_model(model_id).await
+    }
+
     /// Create a speech model client for the given model ID
     async fn speech_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.language_model(model_id).await
     }
 
+    /// Create a speech model client with build context (default delegates to language_model_with_ctx)
+    async fn speech_model_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.speech_model(model_id).await
+    }
+
     /// Create a transcription model client for the given model ID
     async fn transcription_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.speech_model(model_id).await
+    }
+
+    /// Create a transcription model client with build context (default delegates to speech_model_with_ctx)
+    async fn transcription_model_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.transcription_model(model_id).await
     }
 
     /// Get the provider name
@@ -97,6 +145,8 @@ pub struct RegistryOptions {
     pub language_model_middleware: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// HTTP interceptors applied to all clients created via the registry
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Unified retry options applied to clients created via the registry (optional)
+    pub retry_options: Option<RetryOptions>,
     /// Maximum number of cached clients (LRU eviction when exceeded)
     pub max_cache_entries: Option<usize>,
     /// Time-to-live for cached clients (None = no expiration)
@@ -128,6 +178,18 @@ pub struct ProviderRegistryHandle {
     client_ttl: Option<Duration>,
     /// Whether to automatically add model-specific middlewares
     auto_middleware: bool,
+    /// Registry-level retry options applied during client build (optional)
+    retry_options: Option<RetryOptions>,
+}
+
+/// Build-time context for ProviderFactory client construction
+/// Carries cross-cutting concerns such as HTTP interceptors and retry options.
+#[derive(Default, Clone)]
+pub struct BuildContext {
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    pub retry_options: Option<RetryOptions>,
+    /// Optional model-level middlewares (used by some providers); left empty by default.
+    pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl ProviderRegistryHandle {
@@ -201,11 +263,10 @@ impl ProviderRegistryHandle {
             provider_id,
             model_id,
             middlewares,
-            registry: None, // Will be set if we need to support provider override
             cache: self.language_model_cache.clone(),
-            cache_key: id.to_string(),
             client_ttl: self.client_ttl,
             http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
         })
     }
 
@@ -218,6 +279,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
         })
     }
 
@@ -230,6 +292,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
         })
     }
 
@@ -242,6 +305,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
         })
     }
 
@@ -254,6 +318,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
         })
     }
 }
@@ -279,20 +344,28 @@ pub fn create_provider_registry(
     providers: HashMap<String, Arc<dyn ProviderFactory>>,
     opts: Option<RegistryOptions>,
 ) -> ProviderRegistryHandle {
-    let (separator, middlewares, http_interceptors, max_cache_entries, client_ttl, auto_middleware) =
-        if let Some(o) = opts {
-            (
-                o.separator,
-                o.language_model_middleware,
-                o.http_interceptors,
-                o.max_cache_entries,
-                o.client_ttl,
-                o.auto_middleware,
-            )
-        } else {
-            // Defaults: no middlewares, no interceptors, auto middleware enabled
-            (':', Vec::new(), Vec::new(), None, None, true)
-        };
+    let (
+        separator,
+        middlewares,
+        http_interceptors,
+        retry_options,
+        max_cache_entries,
+        client_ttl,
+        auto_middleware,
+    ) = if let Some(o) = opts {
+        (
+            o.separator,
+            o.language_model_middleware,
+            o.http_interceptors,
+            o.retry_options,
+            o.max_cache_entries,
+            o.client_ttl,
+            o.auto_middleware,
+        )
+    } else {
+        // Defaults: no middlewares, no interceptors, auto middleware enabled
+        (':', Vec::new(), Vec::new(), None, None, None, true)
+    };
 
     // Create LRU cache with specified capacity (default: 100 entries)
     let cache_capacity = max_cache_entries.unwrap_or(100);
@@ -307,6 +380,7 @@ pub fn create_provider_registry(
         language_model_cache: Arc::new(TokioMutex::new(cache)),
         client_ttl,
         auto_middleware,
+        retry_options,
     }
 }
 
@@ -329,16 +403,12 @@ pub struct LanguageModelHandle {
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Registry-level HTTP interceptors to attempt injecting into clients
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
-    /// Registry handle for resolving overridden providers
-    #[allow(dead_code)] // Reserved for future registry-based resolution overrides
-    registry: Option<Arc<ProviderRegistryHandle>>,
     /// Shared LRU cache for clients
     cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
-    /// Cache key for this handle ("provider:model")
-    #[allow(dead_code)] // Internally derived; kept for debugging/inspection
-    cache_key: String,
     /// TTL for cached clients
     client_ttl: Option<Duration>,
+    /// Registry-level retry options copied into the handle
+    retry_options: Option<RetryOptions>,
 }
 
 impl LanguageModelHandle {
@@ -371,16 +441,16 @@ impl LanguageModelHandle {
 
         // Cache miss or expired - build new client
         drop(cache); // Release lock before async factory call
-        let client_built = self.factory.language_model(model_id).await?;
-
-        // Best-effort injection of HTTP interceptors via downcast to known clients
-        let client = if self.http_interceptors.is_empty() {
-            client_built
-        } else if let Some(c) = inject_http_interceptors(&client_built, &self.http_interceptors) {
-            c
-        } else {
-            client_built
+        // Construct build context from registry-level settings
+        let ctx = BuildContext {
+            http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            model_middlewares: Vec::new(),
         };
+        let client_built = self.factory.language_model_with_ctx(model_id, &ctx).await?;
+
+        // Client built via factory with BuildContext already contains interceptors/retry.
+        let client = client_built;
 
         // Cache the new client
         let mut cache = self.cache.lock().await;
@@ -472,6 +542,8 @@ pub struct EmbeddingModelHandle {
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level retry options copied into the handle
+    retry_options: Option<RetryOptions>,
 }
 
 /// Implementation of EmbeddingCapability for EmbeddingModelHandle
@@ -481,14 +553,17 @@ pub struct EmbeddingModelHandle {
 #[async_trait::async_trait]
 impl EmbeddingCapability for EmbeddingModelHandle {
     async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        // Build client from factory
-        let client_raw = self.factory.embedding_model(&self.model_id).await?;
-        // Best-effort inject HTTP interceptors
-        let client = if !self.http_interceptors.is_empty() {
-            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
-        } else {
-            client_raw
+        // Build client from factory with context
+        let ctx = BuildContext {
+            http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            model_middlewares: Vec::new(),
         };
+        let client_raw = self
+            .factory
+            .embedding_model_with_ctx(&self.model_id, &ctx)
+            .await?;
+        let client = client_raw;
 
         // Get embedding capability
         let embedding_client = client.as_embedding_capability().ok_or_else(|| {
@@ -516,6 +591,8 @@ pub struct ImageModelHandle {
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level retry options copied into the handle
+    retry_options: Option<RetryOptions>,
 }
 
 /// Implementation of ImageGenerationCapability for ImageModelHandle
@@ -528,14 +605,17 @@ impl ImageGenerationCapability for ImageModelHandle {
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        // Build client from factory
-        let client_raw = self.factory.image_model(&self.model_id).await?;
-        // Best-effort inject HTTP interceptors
-        let client = if !self.http_interceptors.is_empty() {
-            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
-        } else {
-            client_raw
+        // Build client from factory with context
+        let ctx = BuildContext {
+            http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            model_middlewares: Vec::new(),
         };
+        let client_raw = self
+            .factory
+            .image_model_with_ctx(&self.model_id, &ctx)
+            .await?;
+        let client = client_raw;
 
         // Get image generation capability
         let image_client = client.as_image_generation_capability().ok_or_else(|| {
@@ -570,6 +650,8 @@ pub struct SpeechModelHandle {
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level retry options copied into the handle
+    retry_options: Option<RetryOptions>,
 }
 
 /// Implementation of AudioCapability for SpeechModelHandle
@@ -584,14 +666,17 @@ impl AudioCapability for SpeechModelHandle {
     }
 
     async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
-        // Build client from factory
-        let client_raw = self.factory.speech_model(&self.model_id).await?;
-        // Best-effort inject HTTP interceptors
-        let client = if !self.http_interceptors.is_empty() {
-            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
-        } else {
-            client_raw
+        // Build client from factory with context
+        let ctx = BuildContext {
+            http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            model_middlewares: Vec::new(),
         };
+        let client_raw = self
+            .factory
+            .speech_model_with_ctx(&self.model_id, &ctx)
+            .await?;
+        let client = client_raw;
 
         // Get audio capability
         let audio_client = client.as_audio_capability().ok_or_else(|| {
@@ -625,6 +710,8 @@ pub struct TranscriptionModelHandle {
     pub model_id: String,
     /// Registry-level HTTP interceptors to attempt injecting into clients
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level retry options copied into the handle
+    retry_options: Option<RetryOptions>,
 }
 
 /// Implementation of AudioCapability for TranscriptionModelHandle
@@ -639,14 +726,17 @@ impl AudioCapability for TranscriptionModelHandle {
     }
 
     async fn speech_to_text(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
-        // Build client from factory
-        let client_raw = self.factory.transcription_model(&self.model_id).await?;
-        // Best-effort inject HTTP interceptors
-        let client = if !self.http_interceptors.is_empty() {
-            inject_http_interceptors(&client_raw, &self.http_interceptors).unwrap_or(client_raw)
-        } else {
-            client_raw
+        // Build client from factory with context
+        let ctx = BuildContext {
+            http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            model_middlewares: Vec::new(),
         };
+        let client_raw = self
+            .factory
+            .transcription_model_with_ctx(&self.model_id, &ctx)
+            .await?;
+        let client = client_raw;
 
         // Get audio capability
         let audio_client = client.as_audio_capability().ok_or_else(|| {
@@ -660,94 +750,6 @@ impl AudioCapability for TranscriptionModelHandle {
 
 impl TranscriptionModelHandle {}
 
-/// Best-effort HTTP interceptor injection by downcasting to known client types.
-/// If injection is possible, returns a new Arc<dyn LlmClient> with interceptors installed.
-fn inject_http_interceptors(
-    client: &Arc<dyn LlmClient>,
-    interceptors: &[Arc<dyn HttpInterceptor>],
-) -> Option<Arc<dyn LlmClient>> {
-    // Helper to clone interceptors vec
-    fn clone_vec<T: Clone>(v: &[T]) -> Vec<T> {
-        let mut out = Vec::with_capacity(v.len());
-        out.extend(v.iter().cloned());
-        out
-    }
-
-    // OpenAI
-    #[cfg(feature = "openai")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::openai::OpenAiClient>()
-    {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-    // OpenAI-Compatible
-    #[cfg(feature = "openai")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::openai_compatible::openai_client::OpenAiCompatibleClient>(
-    ) {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-    // Anthropic
-    #[cfg(feature = "anthropic")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::anthropic::AnthropicClient>()
-    {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-    // Gemini
-    #[cfg(feature = "google")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::gemini::client::GeminiClient>()
-    {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-    // Groq
-    #[cfg(feature = "groq")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::groq::client::GroqClient>()
-    {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-    // xAI
-    #[cfg(feature = "xai")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::xai::client::XaiClient>()
-    {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-    // Ollama
-    #[cfg(feature = "ollama")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::ollama::client::OllamaClient>()
-    {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-    // Anthropic on Vertex
-    #[cfg(feature = "anthropic")]
-    if let Some(c) = client
-        .as_any()
-        .downcast_ref::<crate::providers::anthropic_vertex::client::VertexAnthropicClient>(
-    ) {
-        let newc = c.clone().with_http_interceptors(clone_vec(interceptors));
-        return Some(Arc::new(newc) as Arc<dyn LlmClient>);
-    }
-
-    None
-}
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 #[cfg(test)]
@@ -897,6 +899,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: Vec::new(),
+                retry_options: None,
                 max_cache_entries: Some(2),
                 client_ttl: None,
                 auto_middleware: false, // Disable for testing
@@ -957,6 +960,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: Vec::new(),
+                retry_options: None,
                 max_cache_entries: None,
                 client_ttl: Some(Duration::from_millis(100)),
                 auto_middleware: false, // Disable for testing
@@ -1007,6 +1011,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: vec![Arc::new(LoggingInterceptor)],
+                retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
                 auto_middleware: false,
@@ -1037,6 +1042,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: vec![Arc::new(LoggingInterceptor)],
+                retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
                 auto_middleware: false,
@@ -1052,23 +1058,7 @@ mod tests {
         assert_eq!(ih.http_interceptors.len(), 1);
     }
 
-    #[test]
-    #[cfg(feature = "openai")]
-    fn inject_interceptors_returns_some_for_openai_client() {
-        use crate::providers::openai::{OpenAiConfig, client::OpenAiClient};
-        // Build a minimal OpenAI client (no network call during construction)
-        let cfg = OpenAiConfig::new("test-key")
-            .with_model("gpt-4o-mini")
-            .with_base_url("http://localhost");
-        let http = reqwest::Client::builder().build().unwrap();
-        let client = OpenAiClient::new(cfg, http);
-        let arc: Arc<dyn LlmClient> = Arc::new(client);
-        let out = inject_http_interceptors(&arc, &[Arc::new(LoggingInterceptor)]);
-        assert!(
-            out.is_some(),
-            "expected OpenAI client to support interceptor injection"
-        );
-    }
+    // Downcast-based interceptor injection is removed; factories install interceptors via BuildContext.
 }
 
 #[cfg(test)]

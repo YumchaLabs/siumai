@@ -11,6 +11,14 @@
 //! - Per-request header merging
 //! - Tracing headers injection
 //! - Telemetry integration
+//!
+//! Retry Helpers
+//! - `rebuild_headers_and_retry_once` re-creates a RequestBuilder with rebuilt/effective headers
+//!   and re-applies `on_before_send` interceptors before a single retry attempt.
+//! - `rebuild_headers_and_retry_once_multipart` does the same for multipart forms by rebuilding
+//!   the form (multipart bodies are not cloneable), then re-applies interceptors and retries once.
+//! - The helpers assume requests are idempotent (typical for LLM HTTP calls). Callers decide when
+//!   to retry (e.g. only on 401) and prepare the correct effective headers.
 
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
@@ -18,6 +26,141 @@ use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 use crate::retry_api::RetryOptions;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
+
+/// Build-safe header extraction from a `RequestBuilder`.
+///
+/// Purpose
+/// - Attempts to build the inner `Request` and clone its headers to provide
+///   interceptors visibility into the real outgoing headers.
+/// - If cloning/building fails (e.g., due to non-cloneable body), it falls back
+///   to the provided `fallback` header map to ensure a consistent call.
+///
+/// Notes
+/// - This function never mutates the builder.
+/// - Caller is responsible for choosing an appropriate `fallback` map
+///   (usually the effective/merged headers for this request).
+fn headers_from_builder(rb: &reqwest::RequestBuilder, fallback: &HeaderMap) -> HeaderMap {
+    rb.try_clone()
+        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
+        .unwrap_or_else(|| fallback.clone())
+}
+
+/// Apply `on_before_send` interceptors with a consistent header-clone strategy.
+///
+/// Behavior
+/// - Clones headers via `headers_from_builder` to give interceptors accurate
+///   visibility of outgoing headers (or a safe fallback).
+/// - Applies interceptors in-order, returning a mutated `RequestBuilder`.
+///
+/// Errors
+/// - Propagates any error returned by an interceptor.
+fn apply_before_send_interceptors(
+    interceptors: &[Arc<dyn HttpInterceptor>],
+    ctx: &HttpRequestContext,
+    rb: reqwest::RequestBuilder,
+    body: &serde_json::Value,
+    effective_headers: &HeaderMap,
+) -> Result<reqwest::RequestBuilder, LlmError> {
+    let cloned = headers_from_builder(&rb, effective_headers);
+    let mut out = rb;
+    for it in interceptors {
+        out = it.on_before_send(ctx, out, body, &cloned)?;
+    }
+    Ok(out)
+}
+
+/// Retry once with rebuilt headers using a caller-provided builder closure.
+///
+/// Behavior
+/// - Builds a new `RequestBuilder` using `build_with_headers` with the provided
+///   `effective_headers`.
+/// - Re-applies `on_before_send` interceptors (headers are cloned for visibility).
+/// - Sends the request and returns the response.
+///
+/// Expectations
+/// - The retry is intended for idempotent requests (most LLM HTTP calls are).
+/// - The original request is expected to have failed with 401 and caller has
+///   already decided to retry once.
+///
+/// Errors
+/// - Network errors or interceptor errors are propagated as `LlmError`.
+async fn rebuild_headers_and_retry_once<F>(
+    build_with_headers: F,
+    interceptors: &[Arc<dyn HttpInterceptor>],
+    ctx: &HttpRequestContext,
+    body_for_interceptors: &serde_json::Value,
+    effective_headers: HeaderMap,
+) -> Result<reqwest::Response, LlmError>
+where
+    F: FnOnce(HeaderMap) -> reqwest::RequestBuilder,
+{
+    let mut rb_retry = build_with_headers(effective_headers.clone());
+    #[cfg(test)]
+    {
+        rb_retry = rb_retry.header("x-retry-attempt", "1");
+    }
+    rb_retry = apply_before_send_interceptors(
+        interceptors,
+        ctx,
+        rb_retry,
+        body_for_interceptors,
+        &effective_headers,
+    )?;
+    let resp = rb_retry
+        .send()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+    Ok(resp)
+}
+
+/// Retry once for multipart requests by rebuilding the form and applying interceptors.
+///
+/// Behavior
+/// - Rebuilds the multipart form by invoking `build_form` again (multipart bodies
+///   are not cloneable), attaches `effective_headers`, re-applies interceptors and sends.
+///
+/// Expectations
+/// - Caller has already decided to retry (e.g., after a 401) and prepared the
+///   correct `effective_headers` (including any per-request header merging).
+/// - The form builder must be side-effect free beyond constructing a new form.
+///
+/// Errors
+/// - Form builder errors or network/interceptor errors are propagated as `LlmError`.
+async fn rebuild_headers_and_retry_once_multipart<F>(
+    http_client: &reqwest::Client,
+    url: &str,
+    interceptors: &[Arc<dyn HttpInterceptor>],
+    ctx: &HttpRequestContext,
+    effective_headers: HeaderMap,
+    build_form: F,
+) -> Result<reqwest::Response, LlmError>
+where
+    F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
+{
+    let form = build_form()?;
+    let mut rb_retry = http_client
+        .post(url)
+        .headers(effective_headers.clone())
+        .multipart(form);
+    #[cfg(test)]
+    {
+        rb_retry = rb_retry.header("x-retry-attempt", "1");
+    }
+    // Use empty JSON body for interceptor visibility (multipart has no JSON body)
+    let empty_json = serde_json::json!({});
+    rb_retry = apply_before_send_interceptors(
+        interceptors,
+        ctx,
+        rb_retry,
+        &empty_json,
+        &effective_headers,
+    )?;
+    let resp = rb_retry
+        .send()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+    Ok(resp)
+}
 
 /// HTTP request body type
 #[derive(Debug)]
@@ -111,10 +254,7 @@ where
                 url: url_owned.clone(),
                 stream: true,
             };
-            let cloned_headers = rb
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| effective_headers.clone());
+            let cloned_headers = headers_from_builder(&rb, &effective_headers);
             let mut out_rb = rb;
             for it in &interceptors {
                 out_rb = it.on_before_send(&ctx, out_rb, &body_owned, &cloned_headers)?;
@@ -178,13 +318,7 @@ where
         url: url.to_string(),
         stream: true,
     };
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_else(|| effective_headers.clone());
-    for interceptor in interceptors {
-        rb = interceptor.on_before_send(&ctx, rb, &body, &cloned_headers)?;
-    }
+    rb = apply_before_send_interceptors(interceptors, &ctx, rb, &body, &effective_headers)?;
 
     // Send
     let mut resp = rb
@@ -204,25 +338,21 @@ where
                 interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
             }
             // Retry with rebuilt headers (no ProviderSpec here; reuse effective headers)
-            let mut rb_retry = http_client
-                .post(url)
-                .headers(effective_headers.clone())
-                .json(&body);
-            if disable_compression {
-                rb_retry = rb_retry.header(reqwest::header::ACCEPT_ENCODING, "identity");
-            }
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| effective_headers.clone());
-            for interceptor in interceptors {
-                rb_retry =
-                    interceptor.on_before_send(&ctx, rb_retry, &body, &cloned_headers_retry)?;
-            }
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            let builder = |headers: HeaderMap| {
+                let mut b = http_client.post(url).headers(headers).json(&body);
+                if disable_compression {
+                    b = b.header(reqwest::header::ACCEPT_ENCODING, "identity");
+                }
+                b
+            };
+            resp = rebuild_headers_and_retry_once(
+                builder,
+                interceptors,
+                &ctx,
+                &body,
+                effective_headers.clone(),
+            )
+            .await?;
         }
     }
 
@@ -302,13 +432,13 @@ pub async fn execute_bytes_request(
         url: url.to_string(),
         stream: false,
     };
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_else(|| effective_headers.clone());
-    for interceptor in &config.interceptors {
-        rb = interceptor.on_before_send(&ctx, rb, &json_body, &cloned_headers)?;
-    }
+    rb = apply_before_send_interceptors(
+        &config.interceptors,
+        &ctx,
+        rb,
+        &json_body,
+        &effective_headers,
+    )?;
 
     // 5. Send
     let mut resp = rb
@@ -336,27 +466,21 @@ pub async fn execute_bytes_request(
             } else {
                 retry_headers
             };
-            let mut rb_retry = config
-                .http_client
-                .post(url)
-                .headers(retry_effective_headers.clone())
-                .json(&json_body);
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| retry_effective_headers.clone());
-            for interceptor in &config.interceptors {
-                rb_retry = interceptor.on_before_send(
-                    &ctx,
-                    rb_retry,
-                    &json_body,
-                    &cloned_headers_retry,
-                )?;
-            }
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            let builder = |headers: HeaderMap| {
+                config
+                    .http_client
+                    .post(url)
+                    .headers(headers)
+                    .json(&json_body)
+            };
+            resp = rebuild_headers_and_retry_once(
+                builder,
+                &config.interceptors,
+                &ctx,
+                &json_body,
+                retry_effective_headers.clone(),
+            )
+            .await?;
         }
     }
 
@@ -442,10 +566,7 @@ where
         stream: false,
     };
     let empty_json = serde_json::json!({});
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_else(|| effective_headers.clone());
+    let cloned_headers = headers_from_builder(&rb, &effective_headers);
     for interceptor in &config.interceptors {
         rb = interceptor.on_before_send(&ctx, rb, &empty_json, &cloned_headers)?;
     }
@@ -487,10 +608,7 @@ where
             {
                 rb_retry = rb_retry.header("x-retry-attempt", "1");
             }
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| retry_effective_headers.clone());
+            let cloned_headers_retry = headers_from_builder(&rb_retry, &retry_effective_headers);
             for interceptor in &config.interceptors {
                 rb_retry = interceptor.on_before_send(
                     &ctx,
@@ -559,7 +677,6 @@ pub async fn execute_json_request_with_headers(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
-    println!("execute_request enter url={} stream={}", url, stream);
     // Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
         crate::execution::http::headers::merge_headers(headers_base.clone(), req_headers)
@@ -584,13 +701,7 @@ pub async fn execute_json_request_with_headers(
     };
 
     // Interceptors (before send)
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_else(|| effective_headers.clone());
-    for interceptor in interceptors {
-        rb = interceptor.on_before_send(&ctx, rb, &body, &cloned_headers)?;
-    }
+    rb = apply_before_send_interceptors(interceptors, &ctx, rb, &body, &effective_headers)?;
 
     // Send
     let mut resp = rb
@@ -617,26 +728,15 @@ pub async fn execute_json_request_with_headers(
             } else {
                 retry_headers
             };
-            let mut rb_retry = http_client
-                .post(url)
-                .headers(retry_effective_headers.clone())
-                .json(&body);
-            #[cfg(test)]
-            {
-                rb_retry = rb_retry.header("x-retry-attempt", "1");
-            }
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| retry_effective_headers.clone());
-            for interceptor in interceptors {
-                rb_retry =
-                    interceptor.on_before_send(&ctx, rb_retry, &body, &cloned_headers_retry)?;
-            }
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            let builder = |headers: HeaderMap| http_client.post(url).headers(headers).json(&body);
+            resp = rebuild_headers_and_retry_once(
+                builder,
+                interceptors,
+                &ctx,
+                &body,
+                retry_effective_headers.clone(),
+            )
+            .await?;
         }
     }
 
@@ -763,15 +863,14 @@ pub async fn execute_request(
         stream,
     };
 
-    // Build effective headers for interceptor visibility
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_else(|| effective_headers.clone());
-
-    for interceptor in &config.interceptors {
-        rb = interceptor.on_before_send(&ctx, rb, &json_body, &cloned_headers)?;
-    }
+    // Apply before-send interceptors
+    rb = apply_before_send_interceptors(
+        &config.interceptors,
+        &ctx,
+        rb,
+        &json_body,
+        &effective_headers,
+    )?;
 
     // 5. Send request
 
@@ -795,56 +894,30 @@ pub async fn execute_request(
                 interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
             }
 
-            // Rebuild headers and retry once
+            // Rebuild headers and retry once (unified helper)
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-
-            // Merge per-request headers again
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
                 crate::execution::http::headers::merge_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
-
-            let mut rb_retry = config
-                .http_client
-                .post(url)
-                .headers(retry_effective_headers.clone());
-            #[cfg(test)]
-            {
-                rb_retry = rb_retry.header("x-retry-attempt", "1");
-            }
-
-            // Apply body again
-            rb_retry = match &body {
-                HttpBody::Json(json) => rb_retry.json(json),
-                HttpBody::Multipart(_) => {
-                    return Err(LlmError::InvalidParameter(
-                        "Use execute_multipart_request for multipart bodies".into(),
-                    ));
-                }
+            let builder = |headers: HeaderMap| {
+                let json = match &body {
+                    HttpBody::Json(j) => j,
+                    HttpBody::Multipart(_) => unreachable!("multipart not used in JSON retry"),
+                };
+                config.http_client.post(url).headers(headers).json(json)
             };
-
-            // Apply interceptors again
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| retry_effective_headers.clone());
-
-            for interceptor in &config.interceptors {
-                rb_retry = interceptor.on_before_send(
-                    &ctx,
-                    rb_retry,
-                    &json_body,
-                    &cloned_headers_retry,
-                )?;
-            }
-
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            resp = rebuild_headers_and_retry_once(
+                builder,
+                &config.interceptors,
+                &ctx,
+                &json_body,
+                retry_effective_headers.clone(),
+            )
+            .await?;
         }
     }
 
@@ -991,31 +1064,15 @@ where
                 retry_headers
             };
 
-            let retry_form = build_form()?;
-            let mut rb_retry = config
-                .http_client
-                .post(url)
-                .headers(retry_effective_headers)
-                .multipart(retry_form);
-
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_default();
-
-            for interceptor in &config.interceptors {
-                rb_retry = interceptor.on_before_send(
-                    &ctx,
-                    rb_retry,
-                    &empty_json,
-                    &cloned_headers_retry,
-                )?;
-            }
-
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            resp = rebuild_headers_and_retry_once_multipart(
+                &config.http_client,
+                url,
+                &config.interceptors,
+                &ctx,
+                retry_effective_headers,
+                build_form,
+            )
+            .await?;
         }
     }
 
@@ -1066,19 +1123,56 @@ where
     })
 }
 
-/// Execute a GET request with unified HTTP handling
+/// Execute a GET request with unified HTTP handling.
 ///
-/// This function provides the same unified HTTP handling as `execute_json_request`,
-/// but for GET requests (no request body).
+/// Summary
+/// - Builds ProviderSpec headers, merges per-request headers, applies interceptors, sends GET,
+///   and retries once on 401 with rebuilt headers.
 ///
-/// # Arguments
-/// * `config` - HTTP execution configuration
-/// * `url` - Request URL
-/// * `per_request_headers` - Optional per-request headers to merge
+/// Arguments
+/// - `config`: HTTP execution configuration (ProviderSpec + context)
+/// - `url`: Request URL
+/// - `per_request_headers`: Optional per-request header overrides
 ///
-/// # Returns
-/// * `Ok(HttpExecutionResult)` - Successful response with JSON body
-/// * `Err(LlmError)` - HTTP error, parse error, or other failure
+/// Returns
+/// - `Ok(HttpExecutionResult)` with parsed JSON, status and headers
+/// - `Err(LlmError)` on network/HTTP/interceptor/parse errors
+///
+/// Example
+/// ```ignore
+/// use siumai::execution::executors::common::{HttpExecutionConfig, execute_get_request};
+/// use siumai::core::{ProviderContext, ProviderSpec};
+/// use std::sync::Arc;
+///
+/// // Minimal ProviderSpec for example (builds static headers and URL routing)
+/// #[derive(Clone)]
+/// struct ExampleSpec;
+/// impl ProviderSpec for ExampleSpec {
+///   fn id(&self) -> &'static str { "example" }
+///   fn capabilities(&self) -> siumai::traits::ProviderCapabilities { Default::default() }
+///   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> {
+///     Ok(reqwest::header::HeaderMap::new())
+///   }
+///   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
+///   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
+///     -> siumai::core::ChatTransformers { unimplemented!() }
+/// }
+///
+/// # async fn demo() -> Result<(), siumai::LlmError> {
+/// let http = reqwest::Client::new();
+/// let spec = Arc::new(ExampleSpec);
+/// let ctx = ProviderContext::new("example", "https://api.example.com", None, Default::default());
+/// let config = HttpExecutionConfig {
+///   provider_id: "example".into(),
+///   http_client: http,
+///   provider_spec: spec,
+///   provider_context: ctx,
+///   interceptors: vec![],
+///   retry_options: Some(siumai::retry_api::RetryOptions::default()),
+/// };
+/// let res = execute_get_request(&config, "https://api.example.com/ping", None).await?;
+/// # Ok(()) }
+/// ```
 pub async fn execute_get_request(
     config: &HttpExecutionConfig,
     url: &str,
@@ -1114,14 +1208,13 @@ pub async fn execute_get_request(
     };
 
     let empty_json = serde_json::json!({});
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
-
-    for interceptor in &config.interceptors {
-        rb = interceptor.on_before_send(&ctx, rb, &empty_json, &cloned_headers)?;
-    }
+    rb = apply_before_send_interceptors(
+        &config.interceptors,
+        &ctx,
+        rb,
+        &empty_json,
+        &effective_headers,
+    )?;
 
     // 6. Send request
 
@@ -1156,38 +1249,15 @@ pub async fn execute_get_request(
                 retry_headers
             };
 
-            let mut rb_retry = config
-                .http_client
-                .get(url)
-                .headers(retry_effective_headers.clone());
-            #[cfg(test)]
-            {
-                rb_retry = rb_retry.header("x-retry-attempt", "1");
-            }
-            #[cfg(test)]
-            {
-                rb_retry = rb_retry.header("x-retry-attempt", "1");
-            }
-
-            // Apply interceptors again
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| retry_effective_headers.clone());
-
-            for interceptor in &config.interceptors {
-                rb_retry = interceptor.on_before_send(
-                    &ctx,
-                    rb_retry,
-                    &empty_json,
-                    &cloned_headers_retry,
-                )?;
-            }
-
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            let builder = |headers: HeaderMap| config.http_client.get(url).headers(headers);
+            resp = rebuild_headers_and_retry_once(
+                builder,
+                &config.interceptors,
+                &ctx,
+                &empty_json,
+                retry_effective_headers.clone(),
+            )
+            .await?;
         }
 
         // If still not successful, classify error
@@ -1230,19 +1300,44 @@ pub async fn execute_get_request(
     })
 }
 
-/// Execute a DELETE request with unified HTTP handling
+/// Execute a DELETE request with unified HTTP handling.
 ///
-/// This function provides the same unified HTTP handling as `execute_json_request`,
-/// but for DELETE requests (no request body, may return empty response).
+/// Summary
+/// - Builds ProviderSpec headers, merges per-request headers, applies interceptors, sends DELETE,
+///   and retries once on 401 with rebuilt headers. Response may be empty JSON.
 ///
-/// # Arguments
-/// * `config` - HTTP execution configuration
-/// * `url` - Request URL
-/// * `per_request_headers` - Optional per-request headers to merge
+/// Arguments
+/// - `config`: HTTP execution configuration (ProviderSpec + context)
+/// - `url`: Request URL
+/// - `per_request_headers`: Optional per-request header overrides
 ///
-/// # Returns
-/// * `Ok(HttpExecutionResult)` - Successful response (may have empty JSON body)
-/// * `Err(LlmError)` - HTTP error or other failure
+/// Returns
+/// - `Ok(HttpExecutionResult)` with parsed JSON (possibly empty), status and headers
+/// - `Err(LlmError)` on network/HTTP/interceptor/parse errors
+///
+/// Example
+/// ```ignore
+/// # use siumai::execution::executors::common::{HttpExecutionConfig, execute_delete_request};
+/// # use siumai::core::{ProviderContext, ProviderSpec};
+/// # use std::sync::Arc;
+/// # #[derive(Clone)]
+/// # struct ExampleSpec;
+/// # impl ProviderSpec for ExampleSpec {
+/// #   fn id(&self) -> &'static str { "example" }
+/// #   fn capabilities(&self) -> siumai::traits::ProviderCapabilities { Default::default() }
+/// #   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> { Ok(reqwest::header::HeaderMap::new()) }
+/// #   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
+/// #   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
+/// #     -> siumai::core::ChatTransformers { unimplemented!() }
+/// # }
+/// # async fn demo() -> Result<(), siumai::LlmError> {
+/// # let http = reqwest::Client::new();
+/// # let spec = Arc::new(ExampleSpec);
+/// # let ctx = ProviderContext::new("example", "https://api.example.com", None, Default::default());
+/// # let config = HttpExecutionConfig { provider_id: "example".into(), http_client: http, provider_spec: spec, provider_context: ctx, interceptors: vec![], retry_options: Some(siumai::retry_api::RetryOptions::default()) };
+/// let res = execute_delete_request(&config, "https://api.example.com/resource/1", None).await?;
+/// # Ok(()) }
+/// ```
 pub async fn execute_delete_request(
     config: &HttpExecutionConfig,
     url: &str,
@@ -1278,14 +1373,13 @@ pub async fn execute_delete_request(
     };
 
     let empty_json = serde_json::json!({});
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
-
-    for interceptor in &config.interceptors {
-        rb = interceptor.on_before_send(&ctx, rb, &empty_json, &cloned_headers)?;
-    }
+    rb = apply_before_send_interceptors(
+        &config.interceptors,
+        &ctx,
+        rb,
+        &empty_json,
+        &effective_headers,
+    )?;
 
     // 6. Send request
     let mut resp = rb
@@ -1319,34 +1413,15 @@ pub async fn execute_delete_request(
                 retry_headers
             };
 
-            let mut rb_retry = config
-                .http_client
-                .delete(url)
-                .headers(retry_effective_headers.clone());
-            #[cfg(test)]
-            {
-                rb_retry = rb_retry.header("x-retry-attempt", "1");
-            }
-
-            // Apply interceptors again
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| retry_effective_headers.clone());
-
-            for interceptor in &config.interceptors {
-                rb_retry = interceptor.on_before_send(
-                    &ctx,
-                    rb_retry,
-                    &empty_json,
-                    &cloned_headers_retry,
-                )?;
-            }
-
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            let builder = |headers: HeaderMap| config.http_client.delete(url).headers(headers);
+            resp = rebuild_headers_and_retry_once(
+                builder,
+                &config.interceptors,
+                &ctx,
+                &empty_json,
+                retry_effective_headers.clone(),
+            )
+            .await?;
         }
 
         // If still not successful, classify error
@@ -1404,19 +1479,43 @@ pub struct HttpBinaryResult {
     pub headers: HeaderMap,
 }
 
-/// Execute a GET request for binary content (e.g., file download)
+/// Execute a GET request for binary content (e.g., file download).
 ///
-/// This function is similar to `execute_get_request` but returns binary data
-/// instead of parsing JSON.
+/// Summary
+/// - Same semantics as `execute_get_request` but returns bytes with status and headers.
 ///
-/// # Arguments
-/// * `config` - HTTP execution configuration
-/// * `url` - Request URL
-/// * `per_request_headers` - Optional per-request headers to merge
+/// Arguments
+/// - `config`: HTTP execution configuration (ProviderSpec + context)
+/// - `url`: Request URL
+/// - `per_request_headers`: Optional per-request header overrides
 ///
-/// # Returns
-/// * `Ok(HttpBinaryResult)` - Successful response with binary body
-/// * `Err(LlmError)` - HTTP error or other failure
+/// Returns
+/// - `Ok(HttpBinaryResult)` on success
+/// - `Err(LlmError)` on network/HTTP/interceptor errors
+///
+/// Example
+/// ```ignore
+/// # use siumai::execution::executors::common::{HttpExecutionConfig, execute_get_binary};
+/// # use siumai::core::{ProviderContext, ProviderSpec};
+/// # use std::sync::Arc;
+/// # #[derive(Clone)]
+/// # struct ExampleSpec;
+/// # impl ProviderSpec for ExampleSpec {
+/// #   fn id(&self) -> &'static str { "example" }
+/// #   fn capabilities(&self) -> siumai::traits::ProviderCapabilities { Default::default() }
+/// #   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> { Ok(reqwest::header::HeaderMap::new()) }
+/// #   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
+/// #   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
+/// #     -> siumai::core::ChatTransformers { unimplemented!() }
+/// # }
+/// # async fn demo() -> Result<(), siumai::LlmError> {
+/// # let http = reqwest::Client::new();
+/// # let spec = Arc::new(ExampleSpec);
+/// # let ctx = ProviderContext::new("example", "https://api.example.com", None, Default::default());
+/// # let config = HttpExecutionConfig { provider_id: "example".into(), http_client: http, provider_spec: spec, provider_context: ctx, interceptors: vec![], retry_options: Some(siumai::retry_api::RetryOptions::default()) };
+/// let res = execute_get_binary(&config, "https://api.example.com/file.bin", None).await?;
+/// # Ok(()) }
+/// ```
 pub async fn execute_get_binary(
     config: &HttpExecutionConfig,
     url: &str,
@@ -1452,14 +1551,13 @@ pub async fn execute_get_binary(
     };
 
     let empty_json = serde_json::json!({});
-    let cloned_headers = rb
-        .try_clone()
-        .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-        .unwrap_or_default();
-
-    for interceptor in &config.interceptors {
-        rb = interceptor.on_before_send(&ctx, rb, &empty_json, &cloned_headers)?;
-    }
+    rb = apply_before_send_interceptors(
+        &config.interceptors,
+        &ctx,
+        rb,
+        &empty_json,
+        &effective_headers,
+    )?;
 
     // 6. Send request
     let mut resp = rb
@@ -1493,30 +1591,15 @@ pub async fn execute_get_binary(
                 retry_headers
             };
 
-            let mut rb_retry = config
-                .http_client
-                .get(url)
-                .headers(retry_effective_headers.clone());
-
-            // Apply interceptors again
-            let cloned_headers_retry = rb_retry
-                .try_clone()
-                .and_then(|req| req.build().ok().map(|r| r.headers().clone()))
-                .unwrap_or_else(|| retry_effective_headers.clone());
-
-            for interceptor in &config.interceptors {
-                rb_retry = interceptor.on_before_send(
-                    &ctx,
-                    rb_retry,
-                    &empty_json,
-                    &cloned_headers_retry,
-                )?;
-            }
-
-            resp = rb_retry
-                .send()
-                .await
-                .map_err(|e| LlmError::HttpError(e.to_string()))?;
+            let builder = |headers: HeaderMap| config.http_client.get(url).headers(headers);
+            resp = rebuild_headers_and_retry_once(
+                builder,
+                &config.interceptors,
+                &ctx,
+                &empty_json,
+                retry_effective_headers.clone(),
+            )
+            .await?;
         }
 
         // If still not successful, classify error

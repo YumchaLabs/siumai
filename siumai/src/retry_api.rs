@@ -186,7 +186,7 @@ pub fn classify_http_error(
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string())
     }
-    let request_ids = [
+    let id_keys = [
         "x-request-id",
         "x-response-id",
         "x-openai-request-id",
@@ -194,15 +194,15 @@ pub fn classify_http_error(
         "traceparent",
         "x-correlation-id",
         "x-goog-request-id",
-    ]
-    .iter()
-    .filter_map(|k| header_val(headers, k).map(|v| format!("{}={}", k, v)))
-    .collect::<Vec<_>>()
-    .join(",");
-    let ids_suffix = if request_ids.is_empty() {
+    ];
+    let request_ids_vec: Vec<String> = id_keys
+        .iter()
+        .filter_map(|k| header_val(headers, k).map(|v| format!("{}={}", k, v)))
+        .collect();
+    let ids_suffix = if request_ids_vec.is_empty() {
         String::new()
     } else {
-        format!(" ids=[{}]", request_ids)
+        format!(" ids=[{}]", request_ids_vec.join(","))
     };
     // Limit body sample size to avoid noisy logs
     let body_sample = body_text.chars().take(200).collect::<String>();
@@ -258,7 +258,22 @@ pub fn classify_http_error(
     } else {
         body_text
     };
-    LlmError::api_error(status, msg)
+    // Build structured details for ApiError
+    let details = match serde_json::from_str::<serde_json::Value>(body_text) {
+        Ok(json) => serde_json::json!({
+            "status": status,
+            "provider": provider_id,
+            "response": json,
+            "request_ids": request_ids_vec,
+        }),
+        Err(_) => serde_json::json!({
+            "status": status,
+            "provider": provider_id,
+            "raw": body_text,
+            "request_ids": request_ids_vec,
+        }),
+    };
+    LlmError::api_error_with_details(status, msg, details)
 }
 
 #[cfg(test)]

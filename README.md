@@ -618,6 +618,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Alternatively, set interceptors at the Registry level to apply across Chat/Embedding/Image/Audio/Files handles:
+
+```
+use siumai::execution::http::interceptor::LoggingInterceptor;
+use siumai::registry::{create_provider_registry, RegistryOptions};
+use std::sync::Arc;
+
+let registry = create_provider_registry(
+    std::collections::HashMap::new(),
+    Some(RegistryOptions {
+        separator: ':',
+        language_model_middleware: Vec::new(),
+        http_interceptors: vec![Arc::new(LoggingInterceptor)],
+        max_cache_entries: None,
+        client_ttl: None,
+        auto_middleware: true,
+    })
+);
+// See docs/REGISTRY-HTTP-INTERCEPTORS.md for details
+```
+
 ## Provider Capabilities (Quick Matrix)
 
 - OpenAI
@@ -645,7 +666,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Notes
 - 行为以各模型与供应商实际支持为准；以上为 Siumai 侧映射与执行路径能力概览。
 
-Interceptors receive hooks: `on_before_send`, `on_response`, `on_error`, and `on_sse_event` for streaming. See `src/utils/http_interceptor.rs`.
+Interceptors receive hooks: `on_before_send`, `on_response`, `on_error`, and `on_sse_event` for streaming. See `siumai/src/execution/http/interceptor.rs`.
 
 ## 🔄 Retry & Error Handling
 

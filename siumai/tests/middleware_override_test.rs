@@ -140,6 +140,7 @@ async fn test_model_id_override() {
             separator: ':',
             language_model_middleware: vec![Arc::new(OverrideModelMiddleware)],
             http_interceptors: Vec::new(),
+            retry_options: None,
             max_cache_entries: None,
             client_ttl: None,
             auto_middleware: true,
@@ -217,6 +218,7 @@ async fn test_multiple_middlewares_first_override_wins() {
                 Arc::new(SecondOverride), // This should be ignored
             ],
             http_interceptors: Vec::new(),
+            retry_options: None,
             max_cache_entries: None,
             client_ttl: None,
             auto_middleware: true,
