@@ -211,22 +211,12 @@ impl XaiBuilder {
         http_client: reqwest::Client,
     ) -> Result<XaiClient, LlmError> {
         // Step 1: Get API key (priority: parameter/config > environment variable)
-        // If api_key not set in config, try environment fallback
+        use secrecy::{ExposeSecret, SecretString};
+        let mut config = self.config;
+        if config.api_key.expose_secret().is_empty()
+            && let Ok(k) = std::env::var("XAI_API_KEY")
         {
-            use secrecy::{ExposeSecret, SecretString};
-            if self.config.api_key.expose_secret().is_empty() {
-                if let Ok(k) = std::env::var("XAI_API_KEY") {
-                    // SAFETY: set the API key from environment
-                    let mut cfg = self.config.clone();
-                    cfg.api_key = SecretString::from(k);
-                    return XaiBuilder {
-                        core: self.core.clone(),
-                        config: cfg,
-                    }
-                    .build_with_client(http_client)
-                    .await;
-                }
-            }
+            config.api_key = SecretString::from(k);
         }
 
         // Step 2: Get base URL (from parameter or default in config)
@@ -237,9 +227,7 @@ impl XaiBuilder {
         // or tracing_subscriber directly before creating the client.
 
         // Step 3: Build configuration
-        self.config.validate()?;
-
-        let mut config = self.config;
+        config.validate()?;
         if config.common_params.model.is_empty() {
             config.common_params.model = crate::providers::xai::models::popular::LATEST.to_string();
         }

@@ -305,6 +305,12 @@ API keys and environment variables:
 - OpenAI‑compatible via Registry: reads `{PROVIDER_ID}_API_KEY` (e.g., `DEEPSEEK_API_KEY`)
 - OpenAI‑compatible via Builder: `.api_key(..)` or `{PROVIDER_ID}_API_KEY`
 
+## Acknowledgements
+
+This project draws inspiration from:
+- [Vercel AI SDK](https://github.com/vercel/ai) (adapter patterns)
+- [Cherry Studio](https://github.com/CherryHQ/cherry-studio) (transformer design)
+
 ## Changelog and license
 
 See `CHANGELOG.md` for detailed changes and migration tips.

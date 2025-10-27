@@ -4,6 +4,49 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [0.11.0-beta.1] - 2025-10-27
 
+This beta delivers a major refactor of module layout, execution/streaming, and provider integration. Design inspired by Cherry Studio’s transformer design and the Vercel AI SDK’s adapter architecture.
+
+### Breaking Changes
+- Module paths: `utils::http_*` → `execution::http::*`; `utils::vertex::*` → `auth::vertex::*`.
+- Tracing: removed custom `X-Trace-Id`/`X-Span-Id` header injection; use `siumai-extras` middleware for OpenTelemetry `traceparent`.
+- Response metadata: `ChatResponse.provider_metadata` is now namespaced by provider.
+- Removed: deprecated `provider_core`, `server_adapters`; legacy provider-specific streaming structs.
+
+### Added
+- Provider Registry and model handles (`siumai/src/registry/*`).
+- HTTP Interceptors (`execution::http::interceptor`), including built-in `LoggingInterceptor`.
+- Unified execution layer and middleware (`execution::{executors, transformers, middleware}`) with auto middlewares (e.g., reasoning extraction).
+- Orchestrator rework and examples (`siumai/examples/03-advanced-features/orchestrator/*`).
+- High-level object API: `highlevel::object::{generate_object, stream_object}`.
+- New crate `siumai-extras` (optional features: `schema`, `telemetry`, `opentelemetry`, `server`, `mcp`).
+
+### Changed
+- Workspace split into `siumai` and `siumai-extras`.
+- Unified streaming events (start/delta/usage/end); improved UTF‑8-safe chunking and tag extraction.
+- Unified retry facade (`retry_api`) with idempotency and 401 token refresh retry.
+- OpenAI‑compatible providers consolidated via adapter; consistent transformers/executors paths.
+- Clippy cleanups; boxed large enum variants internally (minor internal breaking).
+
+### Removed
+- Top-level `examples/` moved to `siumai/examples/`.
+- Removed obsolete `docs/openapi.documented.yml`.
+
+### Fixed
+- Ensure `before_send_hook` is correctly applied across providers.
+- UTF‑8 safety: tag extraction, string slicing, streaming chunk boundaries, and token masking.
+- Reliability fixes in streaming, headers, and parameter mapping; expanded fixture-based tests.
+
+### Migration Notes
+- ProviderParams → ProviderOptions: In this beta, migrated for ChatRequest only; Embedding/WebSearch still use `provider_params` and will migrate later.
+- Import path updates: `provider_core` → `core`; `executors`/`transformers`/`middleware` moved under `execution::*`.
+- OpenTelemetry usage and examples: see `examples/opentelemetry_tracing.rs` and `siumai-extras` docs.
+
+### Known Issues
+- OpenAI Responses API `web_search` is not implemented; calling returns `UnsupportedOperation`.
+
+### Stability
+- This is a beta pre-release; minor API adjustments may follow.
+
 ### Module Reorganization
 
 BREAKING: Reorganized utility modules for better code organization.
@@ -30,7 +73,6 @@ Benefits:
 - Better separation of concerns with execution-related code
 - Clearer responsibilities; `utils` reserved for generic helpers
 
-## [0.11.1]
 
 ### Tracing Architecture Simplification
 
@@ -51,7 +93,6 @@ Benefits:
 - Aligns with industry standards
 - Works with Jaeger/Zipkin/Datadog and other OTLP backends
 
-## [0.11.0-beta.1]
 
 ### Added
 
@@ -81,7 +122,8 @@ Benefits:
 
 ### Migration: ProviderParams → ProviderOptions
 
-The `HashMap<String, Value>` style `ProviderParams` is removed in favor of type‑safe `ProviderOptions`.
+In this beta, ChatRequest migrates from the `HashMap<String, Value>` style `provider_params` to type‑safe `ProviderOptions`.
+EmbeddingRequest and WebSearch still accept `provider_params` for now and will be migrated in a subsequent release.
 Example:
 
 Before:
@@ -98,7 +140,7 @@ let req = ChatRequestBuilder::new()
     .build();
 ```
 
-After:
+After (ChatRequest):
 
 ```rust
 use siumai::types::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
@@ -231,12 +273,6 @@ Major refactor across code organization, providers, and developer ergonomics. Ch
 
 - OpenAI Responses API `web_search`: not implemented yet; calling returns `UnsupportedOperation`.
 
-### Acknowledgements
-
-Some design inspiration was taken from:
-- Vercel AI SDK: https://github.com/vercel/ai
-- Cherry Studio: https://github.com/CherryHQ/cherry-studio
-
 #### Fixed
 
 - Critical: `before_send_hook` now correctly set in all providers to ensure provider‑specific options (e.g., Responses API, Anthropic thinking) are applied.
@@ -262,7 +298,7 @@ Some design inspiration was taken from:
 - Telemetry/tracing
   - Tracing initialization and OpenTelemetry exporters moved to `siumai-extras`.
 
-See docs/MIGRATION-v0.11.md for concrete examples and sed‑style one‑liners.
+Note: A dedicated migration guide for v0.11 is in progress and will be added soon.
 
 - **REMOVED**: Deleted `src/provider_model/` module (duplicate of ProviderSpec architecture)
   - Removed 200+ lines of duplicate code
@@ -294,7 +330,7 @@ All 7 provider clients simplified with consistent patterns:
 
 #### Documentation
 
-- **NEW**: Added `docs/architecture/v0.11-refactoring.md` - Comprehensive refactoring documentation
+- Planned: `docs/architecture/v0.11-refactoring.md` - Comprehensive refactoring documentation (to be added)
 - **UPDATED**: Main README with module organization section
 - **UPDATED**: Main README with retry system documentation
 
@@ -311,7 +347,7 @@ use siumai::provider_core::ProviderSpec;
 use siumai::core::ProviderSpec;
 ```
 
-**For Contributors**: All providers should follow the new helper method pattern (see `docs/architecture/v0.11-refactoring.md`).
+**For Contributors**: All providers should follow the new helper method pattern (doc to be added under `docs/architecture/v0.11-refactoring.md`).
 
 ### Breaking Changes
 
@@ -476,8 +512,8 @@ use siumai::core::ProviderSpec;
       - Works with all Siumai-supported LLM providers (OpenAI, Anthropic, Google, etc.)
       - Compatible with `ToolLoopAgent` for reusable agent patterns
     - **Documentation**:
-      - Complete integration guide: `siumai/docs/guides/MCP_INTEGRATION.md`
-      - API reference: `siumai-extras/docs/MCP_FEATURE.md`
+      - Integration guide (to be added): `siumai/docs/guides/MCP_INTEGRATION.md`
+      - API reference (to be added): `siumai-extras/docs/MCP_FEATURE.md`
       - Examples: `siumai/examples/05-integrations/mcp/`
     - **Design Philosophy**:
       - External integration (not in core library) following Vercel AI SDK's pattern
@@ -485,7 +521,7 @@ use siumai::core::ProviderSpec;
       - Optional feature that users can opt-in as needed
       - Based on industry-standard MCP protocol
 - Comprehensive module documentation:
-  - `siumai/src/tracing/README.md`: Detailed documentation for the tracing module
+  - `siumai/src/observability/tracing/README.md`: Detailed documentation for the tracing module
   - `siumai/src/telemetry/README.md`: Detailed documentation for the telemetry module
   - `docs/developer/performance_module.md`: Documentation for the performance module
   - `docs/developer/code_organization.md`: Code organization guidelines
@@ -586,7 +622,8 @@ Option 1: Use `siumai-extras::telemetry` for advanced configuration:
 use siumai_extras::telemetry;
 
 // Add to Cargo.toml:
-// siumai-extras = { version = "0.11.1", features = ["telemetry"] }
+// For the beta release:
+// siumai-extras = { version = "0.11.0-beta.1", features = ["telemetry"] }
 
 // Initialize with default configuration
 telemetry::init_default()?;
@@ -620,7 +657,8 @@ tracing_subscriber::fmt::init();
 use siumai_extras::schema;
 
 // Add to Cargo.toml:
-// siumai-extras = { version = "0.11.1", features = ["schema"] }
+// For the beta release:
+// siumai-extras = { version = "0.11.0-beta.1", features = ["schema"] }
 
 // Validate JSON against schema
 schema::validate_json(&instance, &schema)?;
@@ -642,7 +680,8 @@ use siumai::server_adapters::axum::to_sse_response;
 use siumai_extras::server::axum::to_sse_response;
 
 // Add to Cargo.toml:
-// siumai-extras = { version = "0.11.1", features = ["server"] }
+// For the beta release:
+// siumai-extras = { version = "0.11.0-beta.1", features = ["server"] }
 ```
 
 #### MCP Integration (NEW)
