@@ -1,6 +1,124 @@
 # Changelog
 
+This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
+
+## [0.11.0-beta.1] - 2025-10-27
+
+### Module Reorganization
+
+BREAKING: Reorganized utility modules for better code organization.
+
+- HTTP utilities moved from `utils::*` to `execution::http::*`
+  - `utils::http_client` → `execution::http::client`
+  - `utils::http_headers` → `execution::http::headers`
+  - `utils::http_interceptor` → `execution::http::interceptor`
+- Vertex helpers moved to `auth::vertex`
+
+Migration examples:
+
+```rust
+// Before
+use siumai::utils::http_headers::{HttpHeaderBuilder, ProviderHeaders};
+use siumai::utils::vertex::vertex_base_url;
+
+// After
+use siumai::execution::http::headers::{HttpHeaderBuilder, ProviderHeaders};
+use siumai::auth::vertex::vertex_base_url;
+```
+
+Benefits:
+- Better separation of concerns with execution-related code
+- Clearer responsibilities; `utils` reserved for generic helpers
+
+## [0.11.1]
+
+### Tracing Architecture Simplification
+
+BREAKING: Removed custom tracing headers in favor of standard OpenTelemetry integration (now in `siumai-extras`).
+
+- Removed automatic `X-Trace-Id`/`X-Span-Id` injection
+- Add `siumai-extras` OpenTelemetry middleware for W3C `traceparent`
+
+Quick start:
+
+```rust
+use siumai_extras::{otel, otel_middleware::OpenTelemetryMiddleware};
+otel::init_opentelemetry("my-service", "http://localhost:4317")?;
+let client = Client::builder().add_middleware(Arc::new(OpenTelemetryMiddleware::new())).build()?;
+```
+
+Benefits:
+- Aligns with industry standards
+- Works with Jaeger/Zipkin/Datadog and other OTLP backends
+
 ## [0.11.0-beta.1]
+
+### Added
+
+- Provider Registry and model handles (`siumai/src/registry/*`)
+  - Unified string-based `provider:model` resolution with LRU caching and optional TTL
+  - Customizable registry options (middlewares, interceptors, retry)
+- HTTP Interceptors (`execution::http::interceptor`)
+  - Request/response hooks and SSE event observation
+  - Built-in `LoggingInterceptor`
+- Execution layer and middleware system (`execution::{executors,transformers,middleware}`)
+  - Auto middlewares based on provider/model (defaults/clamping/reasoning extraction)
+- Orchestrator rework (`siumai/src/orchestrator/*`)
+  - Multi-step tool calling, agent pattern, tool approval, streaming tool execution
+  - See examples under `siumai/examples/03-advanced-features/orchestrator/`
+- High-level object APIs (`siumai::highlevel::object`)
+  - `generate_object` / `stream_object` for provider-agnostic typed JSON outputs
+  - Optional JSON repair and schema validation; partial object streaming
+- `siumai-extras` crate
+  - Optional features: `schema`, `telemetry`, `opentelemetry`, `server`, `mcp`
+
+### Changed
+
+- Workspace split into `siumai` and `siumai-extras`
+- Streaming unification (start/delta/usage/end) across providers; UTF‑8 safe chunking and tag extraction
+- Unified retry facade (`retry_api`) with idempotency and 401 token refresh retry
+- OpenAI‑compatible providers consolidated via adapter; consistent transformers/executors paths
+
+### Migration: ProviderParams → ProviderOptions
+
+The `HashMap<String, Value>` style `ProviderParams` is removed in favor of type‑safe `ProviderOptions`.
+Example:
+
+Before:
+
+```rust
+// ChatRequestBuilder with generic provider_params
+let req = ChatRequestBuilder::new()
+    .message(user!("Return an object with title"))
+    .provider_params({
+        let mut m = std::collections::HashMap::new();
+        m.insert("structured_output".into(), schema_json);
+        m
+    })
+    .build();
+```
+
+After:
+
+```rust
+use siumai::types::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+let req = ChatRequestBuilder::new()
+    .message(user!("Return an object with title"))
+    .openai_options(
+        OpenAiOptions::new().with_responses_api(
+            ResponsesApiConfig::new().with_response_format(schema_json)
+        ),
+    )
+    .build();
+```
+
+Alternatively, use the provider‑agnostic high‑level API:
+
+```rust
+let (obj, _resp) = siumai::highlevel::object::generate_object::<MyType>(
+    &client, messages, None, Default::default(),
+).await?;
+```
 
 ### Code Quality
 
@@ -29,112 +147,11 @@ Migration tips:
 Notes:
 - All internal call sites and tests updated. Public APIs not using these internals are unaffected.
 
-### Module Reorganization (v0.11.2)
+### Documentation Updates
 
-**BREAKING CHANGE**: Reorganized utility modules for better code organization.
+- Updated tracing docs; added `siumai-extras` OpenTelemetry examples
 
-#### Module Moves
-
-- **HTTP Utilities**: Moved from `utils/` to `execution/http/`
-  - `utils::http_client` → `execution::http::client`
-  - `utils::http_headers` → `execution::http::headers`
-  - `utils::http_interceptor` → `execution::http::interceptor`
-
-- **Vertex AI Utilities**: Moved from `utils/` to `auth/`
-  - `utils::vertex` → `auth::vertex`
-
-#### Backward Compatibility
-
-Older versions (<= v0.11.2) temporarily maintained deprecated re-exports under `utils::http_*`.
-These bridges have now been fully removed. Please update imports to the new paths:
-
-```rust
-// New paths (required)
-use siumai::execution::http::headers::*;
-use siumai::execution::http::client::*;
-use siumai::execution::http::interceptor::*;
-use siumai::auth::vertex::*;
-```
-
-#### Benefits
-
-- **Better Organization**: HTTP utilities are now grouped with execution logic
-- **Clearer Responsibilities**: Vertex utilities are now with authentication code
-- **Reduced Confusion**: `utils/` module is now focused on true utility functions
-- **No Breaking Changes**: Old imports continue to work with deprecation warnings
-
-#### Migration Guide
-
-Update your imports to use the new module paths:
-
-```rust
-// Before
-use siumai::execution::http::headers::{HttpHeaderBuilder, ProviderHeaders};
-use siumai::utils::vertex::vertex_base_url;
-
-// After
-use siumai::execution::http::headers::{HttpHeaderBuilder, ProviderHeaders};
-use siumai::auth::vertex::vertex_base_url;
-```
-
----
-
-### Tracing Architecture Simplification (v0.11.1)
-
-**BREAKING CHANGE**: Removed custom tracing headers in favor of standard OpenTelemetry integration.
-
-#### Removed Features
-
-- **Custom Tracing Headers**: Removed automatic injection of `X-Trace-Id` and `X-Span-Id` headers
-  - Deleted `inject_tracing_headers()` function from `utils/http_headers.rs`
-  - Removed 47 call sites across all providers and executors
-  - Removed W3C traceparent generation functions from `tracing/mod.rs`
-  - Removed `W3C_TRACE_ENABLED` global flag
-
-#### New Features (siumai-extras)
-
-- **OpenTelemetry W3C Trace Context**: `OpenTelemetryMiddleware` now automatically injects standard `traceparent` headers
-  - Format: `traceparent: 00-{trace_id}-{span_id}-{trace_flags}`
-  - Uses active OpenTelemetry span context from `opentelemetry::Context::current()`
-  - Compatible with Jaeger, Zipkin, Datadog, and all OTLP-compatible backends
-  - Enables true distributed tracing across services
-
-#### Migration Guide
-
-**Before (v0.11.0 and earlier)**:
-```rust
-// Custom headers were automatically injected
-// X-Trace-Id and X-Span-Id were added to all requests
-```
-
-**After (v0.11.1+)**:
-```rust
-use siumai_extras::otel;
-use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
-
-// Initialize OpenTelemetry
-otel::init_opentelemetry("my-service", "http://localhost:4317")?;
-
-// Add middleware to client
-let client = Client::builder()
-    .add_middleware(Arc::new(OpenTelemetryMiddleware::new()))
-    .build()?;
-```
-
-#### Benefits
-
-- **Industry Standard**: Uses W3C Trace Context standard
-- **Better Integration**: Works with all OpenTelemetry-compatible tools
-- **Simpler Core**: Removed ~100 lines of custom tracing code
-- **More Flexible**: Users can choose their own tracing backend
-
-#### Documentation Updates
-
-- Updated `siumai/src/tracing/README.md` with OpenTelemetry integration guide
-- Added comprehensive documentation to `siumai-extras/src/otel_middleware.rs`
-- Created `examples/opentelemetry_tracing.rs` with complete examples
-
-### Architecture Refactoring (v0.11)
+### Architecture Refactoring
 
 Major refactor across code organization, providers, and developer ergonomics. Changes derived from a full `git diff` between `main..refactor` (excluding `repo-ref/`).
 
@@ -198,6 +215,27 @@ Major refactor across code organization, providers, and developer ergonomics. Ch
 - Old provider‑specific streaming structs in favor of executor‑based streaming.
 - Large OpenAPI document `docs/openapi.documented.yml` (obsolete).
 - Legacy example paths under top‑level `examples/` (replaced by `siumai/examples/`).
+
+### API Keys and Environment Variables
+
+- OpenAI: `.api_key(..)` or `OPENAI_API_KEY` (env fallback)
+- Anthropic: `.api_key(..)` or `ANTHROPIC_API_KEY` (env fallback)
+- Groq: `.api_key(..)` or `GROQ_API_KEY` (env fallback)
+- Gemini: `.api_key(..)` or `GEMINI_API_KEY` (env fallback)
+- xAI: `.api_key(..)` or `XAI_API_KEY` (env fallback)
+- Ollama: no API key (local service, default `http://localhost:11434`)
+- OpenAI‑compatible via Builder: `.api_key(..)` or `{PROVIDER_ID}_API_KEY`
+- OpenAI‑compatible via Registry: reads `{PROVIDER_ID}_API_KEY` (e.g., `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`)
+
+### Known limitations
+
+- OpenAI Responses API `web_search`: not implemented yet; calling returns `UnsupportedOperation`.
+
+### Acknowledgements
+
+Some design inspiration was taken from:
+- Vercel AI SDK: https://github.com/vercel/ai
+- Cherry Studio: https://github.com/CherryHQ/cherry-studio
 
 #### Fixed
 

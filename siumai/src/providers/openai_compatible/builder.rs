@@ -420,9 +420,17 @@ impl OpenAiCompatibleBuilder {
     pub async fn build(
         self,
     ) -> Result<crate::providers::openai_compatible::OpenAiCompatibleClient, LlmError> {
-        let api_key = self.api_key.ok_or_else(|| {
-            LlmError::ConfigurationError(format!("API key is required for {}", self.provider_id))
-        })?;
+        // Step 1: Get API key (priority: parameter > environment variable {PROVIDER_ID}_API_KEY)
+        let env_key = format!("{}_API_KEY", self.provider_id.to_uppercase());
+        let api_key = self
+            .api_key
+            .or_else(|| std::env::var(&env_key).ok())
+            .ok_or_else(|| {
+                LlmError::ConfigurationError(format!(
+                    "API key is required for {} (missing {} or explicit .api_key())",
+                    self.provider_id, env_key
+                ))
+            })?;
 
         // Create adapter using the registry (much simpler!)
         let adapter = get_provider_adapter(&self.provider_id)?;

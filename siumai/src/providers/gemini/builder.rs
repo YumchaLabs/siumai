@@ -353,10 +353,13 @@ impl GeminiBuilder {
 
     /// Build the Gemini client
     pub async fn build(self) -> Result<crate::providers::gemini::GeminiClient, LlmError> {
-        // Step 1: Get API key (from parameter)
-        let api_key = self.api_key.ok_or_else(|| {
-            LlmError::ConfigurationError("API key is required for Gemini".to_string())
-        })?;
+        // Step 1: Get API key (priority: parameter > environment variable)
+        let api_key = self
+            .api_key
+            .or_else(|| std::env::var("GEMINI_API_KEY").ok())
+            .ok_or_else(|| {
+                LlmError::ConfigurationError("API key is required for Gemini".to_string())
+            })?;
 
         // Step 2: Get base URL (from parameter or default)
         // Note: Default is set in GeminiConfig::new()

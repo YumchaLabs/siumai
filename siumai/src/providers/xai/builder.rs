@@ -210,8 +210,24 @@ impl XaiBuilder {
         self,
         http_client: reqwest::Client,
     ) -> Result<XaiClient, LlmError> {
-        // Step 1: Get API key (from parameter or config)
-        // Note: API key is already set in XaiConfig
+        // Step 1: Get API key (priority: parameter/config > environment variable)
+        // If api_key not set in config, try environment fallback
+        {
+            use secrecy::{ExposeSecret, SecretString};
+            if self.config.api_key.expose_secret().is_empty() {
+                if let Ok(k) = std::env::var("XAI_API_KEY") {
+                    // SAFETY: set the API key from environment
+                    let mut cfg = self.config.clone();
+                    cfg.api_key = SecretString::from(k);
+                    return XaiBuilder {
+                        core: self.core.clone(),
+                        config: cfg,
+                    }
+                    .build_with_client(http_client)
+                    .await;
+                }
+            }
+        }
 
         // Step 2: Get base URL (from parameter or default in config)
         // Note: Base URL is already set in XaiConfig
