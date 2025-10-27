@@ -1,0 +1,12 @@
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"type":"function_call","name":"lookup","call_id":"call_1"},"output_index":0}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"{\"q\":\"rus","item_id":"call_1","output_index":0}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"t\"}","item_id":"call_1","output_index":0}
+
+event: response.completed
+data: {"type":"response.completed"}
+

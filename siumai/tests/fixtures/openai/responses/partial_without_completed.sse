@@ -1,0 +1,6 @@
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"Part 1 ","output_index":0}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"Part 2","output_index":0}
+

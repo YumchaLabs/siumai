@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"parts":[{"text":"(ignored)"}]}},{"content":{"parts":[{"text":"Visible from second"}]}}]}
+
+data: {"candidates":[{"finishReason":"STOP"}]}
+

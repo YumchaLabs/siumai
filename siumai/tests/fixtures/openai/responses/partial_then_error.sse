@@ -1,0 +1,6 @@
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"Chunk before error","output_index":0}
+
+event: response.error
+data: {"type":"response.error","error":{"message":"Upstream failure"}}
+

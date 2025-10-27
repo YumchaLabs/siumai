@@ -1,0 +1,347 @@
+[package]
+name = "siumai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "A unified LLM interface library for Rust"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai"
+readme = "../README.md"
+keywords = ["llm", "ai", "openai", "anthropic", "async"]
+categories = ["api-bindings"]
+
+exclude = [
+    "../docs/**",
+    "../siumai-extras",
+    "../examples/**",
+    "../scripts/**",
+    "../repo-ref/**",
+    "../_third_party/**",
+    "../target/**",
+    "../*.log",
+]
+
+[lib]
+doctest = false
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["openai"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+# Async traits
+async-trait.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+jsonwebtoken = { workspace = true, optional = true }
+
+# HTTP client
+reqwest.workspace = true
+
+# Async runtime
+tokio.workspace = true
+futures.workspace = true
+
+# Streaming
+futures-util.workspace = true
+async-stream.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
+
+# Time handling
+chrono.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# UUID generation
+uuid.workspace = true
+
+# Tracing and observability
+tracing.workspace = true
+
+# Random number generation (for retry jitter)
+rand.workspace = true
+
+# URL encoding
+urlencoding.workspace = true
+infer.workspace = true
+
+# Security
+secrecy.workspace = true
+
+# Retry mechanism
+backoff.workspace = true
+lru.workspace = true
+
+# JSON repair for handling malformed LLM outputs
+jsonrepair = { version = "0.1", optional = true, features = ["serde"] }
+base64 = "0.22.1"
+
+[features]
+# Default features - include all providers for convenience
+default = ["all-providers"]
+
+# Enable structured JSON messages (MessageContent::Json)
+structured-messages = []
+
+# Provider features - each provider can be enabled independently
+openai = []
+anthropic = []
+google = []
+ollama = []
+xai = []
+groq = []
+
+# GCP authentication feature (for Google Vertex AI, ADC, Service Account)
+gcp = ["dep:jsonwebtoken", "google"]
+
+# JSON repair support for handling malformed LLM outputs
+json-repair = ["dep:jsonrepair"]
+
+# Convenience features for common combinations
+all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq"]
+
+[dev-dependencies]
+tokio-test.workspace = true
+mockito.workspace = true
+wiremock.workspace = true
+tracing-test.workspace = true
+tempfile.workspace = true
+futures-util.workspace = true
+tokio-util.workspace = true
+proptest.workspace = true
+rmcp = { workspace = true, features = [
+    "transport-io",
+    "transport-child-process",
+    "transport-sse-client-reqwest",
+    "transport-sse-server",
+    "transport-streamable-http-client-reqwest",
+    "transport-streamable-http-server",
+    "transport-streamable-http-server-session",
+    "macros",
+    "server",
+    "client",
+] }
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+axum = "0.8.4"
+actix-web = "4"
+
+# Examples configuration
+# Examples (0.11.0 refactored structure)
+# 01-quickstart
+[[example]]
+name = "basic-chat"
+path = "examples/01-quickstart/basic-chat.rs"
+
+[[example]]
+name = "streaming"
+path = "examples/01-quickstart/streaming.rs"
+
+[[example]]
+name = "provider-switching"
+path = "examples/01-quickstart/provider-switching.rs"
+
+# 02-core-api/chat
+[[example]]
+name = "simple-chat"
+path = "examples/02-core-api/chat/simple-chat.rs"
+
+[[example]]
+name = "chat-with-tools"
+path = "examples/02-core-api/chat/chat-with-tools.rs"
+
+[[example]]
+name = "chat-request"
+path = "examples/02-core-api/chat/chat-request.rs"
+
+# 02-core-api/streaming
+[[example]]
+name = "basic-stream"
+path = "examples/02-core-api/streaming/basic-stream.rs"
+
+[[example]]
+name = "stream-request"
+path = "examples/02-core-api/streaming/stream-request.rs"
+
+[[example]]
+name = "stream-with-cancel"
+path = "examples/02-core-api/streaming/stream-with-cancel.rs"
+
+# 02-core-api/tools
+[[example]]
+name = "function-calling"
+path = "examples/02-core-api/tools/function-calling.rs"
+
+[[example]]
+name = "tool-loop"
+path = "examples/02-core-api/tools/tool-loop.rs"
+
+# 02-core-api/multimodal
+[[example]]
+name = "vision"
+path = "examples/02-core-api/multimodal/vision.rs"
+
+# 03-advanced-features/provider-params
+[[example]]
+name = "structured-output"
+path = "examples/03-advanced-features/provider-params/structured-output.rs"
+
+[[example]]
+name = "reasoning-effort"
+path = "examples/03-advanced-features/provider-params/reasoning-effort.rs"
+
+# 03-advanced-features/request-building
+[[example]]
+name = "complex-request"
+path = "examples/03-advanced-features/request-building/complex-request.rs"
+
+# 03-advanced-features/middleware
+[[example]]
+name = "http-interceptor"
+path = "examples/03-advanced-features/middleware/http-interceptor.rs"
+
+[[example]]
+name = "advanced-middleware"
+path = "examples/03-advanced-features/middleware/advanced-middleware.rs"
+
+[[example]]
+name = "middleware-builder"
+path = "examples/03-advanced-features/middleware_builder.rs"
+
+# 03-advanced-features/retry
+[[example]]
+name = "retry-config"
+path = "examples/03-advanced-features/retry/retry-config.rs"
+
+# 03-advanced-features/error-handling
+[[example]]
+name = "error-types"
+path = "examples/03-advanced-features/error-handling/error-types.rs"
+
+# 03-advanced-features/orchestrator
+[[example]]
+name = "basic-orchestrator"
+path = "examples/03-advanced-features/orchestrator/basic-orchestrator.rs"
+
+[[example]]
+name = "agent-pattern"
+path = "examples/03-advanced-features/orchestrator/agent-pattern.rs"
+
+[[example]]
+name = "stop-conditions"
+path = "examples/03-advanced-features/orchestrator/stop-conditions.rs"
+
+[[example]]
+name = "tool-approval"
+path = "examples/03-advanced-features/orchestrator/tool-approval.rs"
+
+[[example]]
+name = "streaming-orchestrator"
+path = "examples/03-advanced-features/orchestrator/streaming-orchestrator.rs"
+
+[[example]]
+name = "streaming-tool-execution"
+path = "examples/03-advanced-features/orchestrator/streaming-tool-execution.rs"
+required-features = ["openai"]
+
+# 04-provider-specific/openai
+[[example]]
+name = "responses-api"
+path = "examples/04-provider-specific/openai/responses-api.rs"
+
+# 04-provider-specific/anthropic
+[[example]]
+name = "extended-thinking"
+path = "examples/04-provider-specific/anthropic/extended-thinking.rs"
+
+[[example]]
+name = "prompt-caching"
+path = "examples/04-provider-specific/anthropic/prompt-caching.rs"
+
+# 04-provider-specific/google
+[[example]]
+name = "grounding"
+path = "examples/04-provider-specific/google/grounding.rs"
+
+# 04-provider-specific/ollama
+[[example]]
+name = "local-models"
+path = "examples/04-provider-specific/ollama/local-models.rs"
+
+# 04-provider-specific/xai
+[[example]]
+name = "grok"
+path = "examples/04-provider-specific/xai/grok.rs"
+
+# 05-integrations/registry
+[[example]]
+name = "basic-registry"
+path = "examples/05-integrations/registry/basic-registry.rs"
+
+[[example]]
+name = "registry-with-cache"
+path = "examples/05-integrations/registry/registry-with-cache.rs"
+
+[[example]]
+name = "custom-middleware"
+path = "examples/05-integrations/registry/custom-middleware.rs"
+
+# 05-integrations/mcp
+[[example]]
+name = "stdio-client"
+path = "examples/05-integrations/mcp/stdio-client.rs"
+
+[[example]]
+name = "complete-stdio-example"
+path = "examples/05-integrations/mcp/complete-stdio-example.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "sse-http-examples"
+path = "examples/05-integrations/mcp/sse-http-examples.rs"
+required-features = ["openai"]
+
+# 05-integrations/server-adapters (moved to siumai-extras)
+# example removed; use siumai-extras::server feature examples instead
+
+# 05-integrations/telemetry (moved to siumai-extras)
+# example removed; use siumai-extras::telemetry feature examples instead
+
+# 06-extensibility
+[[example]]
+name = "custom-provider-options"
+path = "examples/06-extensibility/custom-provider-options.rs"
+required-features = ["xai"]
+
+[[example]]
+name = "custom_provider_parameters"
+path = "examples/06-extensibility/custom_provider_parameters.rs"
+required-features = ["xai"]
+
+[[example]]
+name = "custom_provider_implementation"
+path = "examples/06-extensibility/custom_provider_implementation.rs"
+
+# 07-applications
+[[example]]
+name = "chatbot"
+path = "examples/07-applications/chatbot.rs"
+
+[[example]]
+name = "code-assistant"
+path = "examples/07-applications/code-assistant.rs"
+
+# 07-applications/api-server (moved to siumai-extras server adapters)
+# example removed; see siumai-extras for server adapters integration
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

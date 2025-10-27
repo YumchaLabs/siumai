@@ -1,0 +1,3 @@
+event: response.usage
+data: {"response":{"usage":{"inputTokens":7,"outputTokens":5,"totalTokens":12}}}
+

@@ -1,0 +1,12 @@
+event: response.tool_call.delta
+data: {"type":"response.tool_call.delta","delta":{"tool_calls":[{"id":"call_1","function":{"name":"lookup"}}]},"output_index":0}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"{\"q\":\"hello","item_id":"call_1","output_index":0}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":" world\"}","item_id":"call_1","output_index":0}
+
+event: response.completed
+data: {"type":"response.completed"}
+

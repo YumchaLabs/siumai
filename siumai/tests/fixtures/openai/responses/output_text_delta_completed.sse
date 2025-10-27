@@ -1,0 +1,9 @@
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"Hello ","output_index":0}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"world","output_index":0}
+
+event: response.completed
+data: {"type":"response.completed","response":{"output":[{"type":"output_text","text":"Hello world"}]}}
+

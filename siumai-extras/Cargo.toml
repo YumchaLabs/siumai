@@ -1,0 +1,89 @@
+[package]
+name = "siumai-extras"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Optional utilities for siumai: schema validation, telemetry, and server adapters"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-extras"
+readme = "README.md"
+keywords = ["llm", "ai", "validation", "telemetry", "server"]
+categories = ["api-bindings", "web-programming"]
+
+# Use workspace-managed dependency versions
+[dependencies]
+# Core siumai dependency (with default features to include all providers)
+siumai.workspace = true
+
+# Common dependencies
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+
+# Schema validation (optional)
+jsonschema = { workspace = true, optional = true }
+
+# Telemetry (optional)
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+tracing-appender = { workspace = true, optional = true }
+
+# OpenTelemetry (optional)
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+opentelemetry-stdout = { workspace = true, optional = true }
+once_cell = { workspace = true, optional = true }
+
+# Server adapters (optional)
+axum = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+
+# MCP integration (optional)
+rmcp = { version = "0.8", optional = true, features = [
+    "transport-io",
+    "transport-child-process",
+    "transport-sse-client-reqwest",
+    "transport-streamable-http-client-reqwest",
+    "macros",
+    "client",
+] }
+async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["process"] }
+
+[features]
+default = []
+
+# Schema validation feature
+schema = ["dep:jsonschema"]
+
+# Telemetry feature (basic tracing)
+telemetry = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
+
+# OpenTelemetry feature (full observability with traces and metrics)
+opentelemetry = [
+    "telemetry",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-semantic-conventions",
+    "dep:opentelemetry-stdout",
+    "dep:once_cell",
+]
+
+# Server adapters feature
+server = ["dep:axum", "dep:futures"]
+
+# MCP integration feature
+mcp = ["dep:rmcp", "dep:async-trait", "dep:tokio"]
+
+# Convenience feature to enable all extras
+all = ["schema", "telemetry", "opentelemetry", "server", "mcp"]
+
+[dev-dependencies]
+tokio.workspace = true
+tokio-test.workspace = true
