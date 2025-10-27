@@ -433,8 +433,8 @@ impl OpenAiCompatibleBuilder {
         let base_url = if let Some(custom) = self.base_url.clone() {
             let def = adapter.base_url();
             // Extract path part from default (after scheme://host)
-            let def_path = def.splitn(4, '/').skip(3).next().unwrap_or("");
-            let custom_path = custom.splitn(4, '/').skip(3).next().unwrap_or("");
+            let def_path = def.splitn(4, '/').nth(3).unwrap_or("");
+            let custom_path = custom.splitn(4, '/').nth(3).unwrap_or("");
             if custom_path.is_empty() && !def_path.is_empty() {
                 format!(
                     "{}/{}",

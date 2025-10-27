@@ -19,7 +19,6 @@ pub type OverflowHandler = Box<dyn FnMut(&str, usize) + Send + Sync>;
 /// Stream Processor Configuration
 ///
 /// Controls buffer limits and overflow behavior for stream processing.
-#[derive(Default)]
 pub struct StreamProcessorConfig {
     /// Maximum size for content buffer (in bytes)
     pub max_content_buffer_size: Option<usize>,
@@ -52,9 +51,8 @@ impl std::fmt::Debug for StreamProcessorConfig {
     }
 }
 
-impl StreamProcessorConfig {
-    /// Create default configuration with reasonable limits
-    pub fn default() -> Self {
+impl Default for StreamProcessorConfig {
+    fn default() -> Self {
         Self {
             max_content_buffer_size: Some(10 * 1024 * 1024), // 10MB default
             max_thinking_buffer_size: Some(5 * 1024 * 1024), // 5MB default
@@ -117,7 +115,9 @@ impl StreamProcessor {
             ChatStreamEvent::ThinkingDelta { delta } => self.process_thinking_delta(delta),
             ChatStreamEvent::UsageUpdate { usage } => self.process_usage_update(usage),
             ChatStreamEvent::StreamStart { metadata } => ProcessedEvent::StreamStart { metadata },
-            ChatStreamEvent::StreamEnd { response } => ProcessedEvent::StreamEnd { response },
+            ChatStreamEvent::StreamEnd { response } => ProcessedEvent::StreamEnd {
+                response: Box::new(response),
+            },
             ChatStreamEvent::Error { error } => ProcessedEvent::Error {
                 error: LlmError::InternalError(error),
             },
@@ -188,18 +188,19 @@ impl StreamProcessor {
         let is_new_tool_call = !self.tool_calls.contains_key(&tool_id);
 
         // Check tool call limit
-        if let Some(max_tool_calls) = self.config.max_tool_calls {
-            if is_new_tool_call && self.tool_calls.len() >= max_tool_calls {
-                // Too many tool calls, skip this one
-                if let Some(handler) = self.config.overflow_handler.as_mut() {
-                    (handler)("tool_calls", self.tool_calls.len() + 1);
-                }
-                return ProcessedEvent::ToolCallUpdate {
-                    id: tool_id,
-                    current_state: ToolCallBuilder::new(),
-                    index,
-                };
+        if let Some(max_tool_calls) = self.config.max_tool_calls
+            && is_new_tool_call
+            && self.tool_calls.len() >= max_tool_calls
+        {
+            // Too many tool calls, skip this one
+            if let Some(handler) = self.config.overflow_handler.as_mut() {
+                (handler)("tool_calls", self.tool_calls.len() + 1);
             }
+            return ProcessedEvent::ToolCallUpdate {
+                id: tool_id,
+                current_state: ToolCallBuilder::new(),
+                index,
+            };
         }
 
         let builder = self.tool_calls.entry(tool_id.clone()).or_insert_with(|| {
@@ -328,21 +329,19 @@ impl StreamProcessor {
         // Add tool calls if present
         if !self.tool_calls.is_empty() {
             for id in &self.tool_call_order {
-                if let Some(builder) = self.tool_calls.get(id) {
-                    if !builder.name.is_empty() {
-                        // Parse arguments string to JSON Value
-                        let arguments =
-                            serde_json::from_str(&builder.arguments).unwrap_or_else(|_| {
-                                serde_json::Value::String(builder.arguments.clone())
-                            });
+                if let Some(builder) = self.tool_calls.get(id)
+                    && !builder.name.is_empty()
+                {
+                    // Parse arguments string to JSON Value
+                    let arguments = serde_json::from_str(&builder.arguments)
+                        .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()));
 
-                        parts.push(ContentPart::tool_call(
-                            builder.id.clone(),
-                            builder.name.clone(),
-                            arguments,
-                            None,
-                        ));
-                    }
+                    parts.push(ContentPart::tool_call(
+                        builder.id.clone(),
+                        builder.name.clone(),
+                        arguments,
+                        None,
+                    ));
                 }
             }
         }
@@ -409,7 +408,7 @@ pub enum ProcessedEvent {
     /// Stream start event
     StreamStart { metadata: ResponseMetadata },
     /// Stream end event
-    StreamEnd { response: ChatResponse },
+    StreamEnd { response: Box<ChatResponse> },
     /// Error event
     Error { error: LlmError },
     /// Custom provider-specific event (passed through without processing)

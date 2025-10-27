@@ -117,11 +117,11 @@ impl FileManagementCapability for GeminiFiles {
         );
 
         // Handle token_provider if present
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx.http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx.http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let exec = HttpFilesExecutor {
@@ -153,11 +153,11 @@ impl FileManagementCapability for GeminiFiles {
         );
 
         // Handle token_provider if present
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx.http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx.http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let exec = HttpFilesExecutor {
@@ -189,11 +189,11 @@ impl FileManagementCapability for GeminiFiles {
         );
 
         // Handle token_provider if present
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx.http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx.http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let exec = HttpFilesExecutor {
@@ -225,11 +225,11 @@ impl FileManagementCapability for GeminiFiles {
         );
 
         // Handle token_provider if present
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx.http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx.http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let exec = HttpFilesExecutor {
@@ -261,11 +261,11 @@ impl FileManagementCapability for GeminiFiles {
         );
 
         // Handle token_provider if present
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx.http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx.http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let exec = HttpFilesExecutor {

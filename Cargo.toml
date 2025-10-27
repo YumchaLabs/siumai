@@ -3,7 +3,7 @@ resolver = "2"
 members = ["siumai", "siumai-extras"]
 
 [workspace.package]
-version = "0.11.0"
+version = "0.11.0-beta.1"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -54,12 +54,16 @@ rand = "0.8"
 urlencoding = "2.1"
 infer = "0.19"
 
+# Core crate (for workspace consumption)
+siumai = { version = "0.11.0-beta.1", path = "siumai" }
+
 # Security
 secrecy = { version = "0.10", features = ["serde"] }
 
 # Retry mechanism
 backoff = { version = "0.4", features = ["tokio"] }
 lru = "0.16.2"
+base64 = "0.22.1"
 
 # Schema validation (for siumai-extras)
 jsonschema = "0.33"
@@ -67,6 +71,8 @@ jsonschema = "0.33"
 # Telemetry (for siumai-extras)
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "time", "chrono"] }
 tracing-appender = "0.2"
+rmcp = "0.8"
+proptest = "1.5"
 
 # OpenTelemetry (for siumai-extras)
 opentelemetry = { version = "0.27", features = ["trace", "metrics"] }

@@ -135,12 +135,12 @@ impl ChatCapability for GeminiChatCapability {
 
         // Inject token into context if available
         let mut ctx_with_token = ctx.clone();
-        if let Some(tp) = &self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx_with_token
-                    .http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(tp) = &self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx_with_token
+                .http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let spec_wrapper = Arc::new(GeminiSpecWrapper {
@@ -257,12 +257,12 @@ impl ChatCapability for GeminiChatCapability {
 
         // Inject token into context if available
         let mut ctx_with_token = ctx.clone();
-        if let Some(tp) = &self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx_with_token
-                    .http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(tp) = &self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx_with_token
+                .http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let spec_wrapper = Arc::new(GeminiStreamSpecWrapper {

@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 //! Core types for orchestrator module.
 
 use std::sync::Arc;

@@ -78,30 +78,27 @@ impl ProviderSpec for AnthropicSpec {
         } else {
             return None;
         };
-
-        // Check if we have thinking mode to inject
-        if thinking_mode.is_none() {
-            return None;
-        }
+        // Early-exit if no thinking mode
+        thinking_mode.as_ref()?;
 
         let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
             let mut out = body.clone();
 
             // 🎯 Inject thinking mode configuration
             // According to Anthropic API: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
-            if let Some(ref thinking) = thinking_mode {
-                if thinking.enabled {
-                    let mut thinking_config = serde_json::json!({
-                        "type": "enabled"
-                    });
+            if let Some(ref thinking) = thinking_mode
+                && thinking.enabled
+            {
+                let mut thinking_config = serde_json::json!({
+                    "type": "enabled"
+                });
 
-                    // Add budget_tokens if specified (minimum 1024)
-                    if let Some(budget) = thinking.thinking_budget {
-                        thinking_config["budget_tokens"] = serde_json::json!(budget);
-                    }
-
-                    out["thinking"] = thinking_config;
+                // Add budget_tokens if specified (minimum 1024)
+                if let Some(budget) = thinking.thinking_budget {
+                    thinking_config["budget_tokens"] = serde_json::json!(budget);
                 }
+
+                out["thinking"] = thinking_config;
             }
 
             Ok(out)

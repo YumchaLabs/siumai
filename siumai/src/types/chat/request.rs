@@ -167,7 +167,7 @@ impl ChatRequest {
     ///     );
     /// ```
     pub fn with_openai_options(mut self, options: crate::types::OpenAiOptions) -> Self {
-        self.provider_options = crate::types::ProviderOptions::OpenAi(options);
+        self.provider_options = crate::types::ProviderOptions::OpenAi(Box::new(options));
         self
     }
 
@@ -359,7 +359,7 @@ impl ChatRequestBuilder {
 
     /// Convenience: Set OpenAI-specific options
     pub fn openai_options(mut self, options: crate::types::OpenAiOptions) -> Self {
-        self.provider_options = crate::types::ProviderOptions::OpenAi(options);
+        self.provider_options = crate::types::ProviderOptions::OpenAi(Box::new(options));
         self
     }
 

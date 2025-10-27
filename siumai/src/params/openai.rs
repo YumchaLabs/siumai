@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! `OpenAI` Parameter Mapping
 //!
 //! Contains OpenAI-specific parameter mapping and validation logic.

@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::only_used_in_recursion)]
 //! Request transformation traits
 //!
 //! Converts unified request structs into provider-specific JSON bodies or structs.

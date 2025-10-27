@@ -82,11 +82,12 @@ impl RequestTransformer for GeminiRequestTransformer {
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
                 // Add tool_choice if specified
-                if req.tools.is_some() && req.tool_choice.is_some() {
-                    if let Some(choice) = &req.tool_choice {
-                        body["tool_config"] =
-                            crate::providers::gemini::convert::convert_tool_choice(choice);
-                    }
+                if req.tools.is_some()
+                    && req.tool_choice.is_some()
+                    && let Some(choice) = &req.tool_choice
+                {
+                    body["tool_config"] =
+                        crate::providers::gemini::convert::convert_tool_choice(choice);
                 }
 
                 // All provider-specific features are now handled via provider_options

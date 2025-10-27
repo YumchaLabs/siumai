@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! Execution-level telemetry helpers to avoid duplication in executors.
 
 pub mod chat {
@@ -179,12 +180,12 @@ pub mod chat {
                 if cfg.record_outputs {
                     ge = ge.with_output(resp.clone());
                 }
-                if cfg.record_usage {
-                    if let Some(usage) = &resp.usage {
-                        ge = ge.with_usage(usage.clone());
-                    }
+                if cfg.record_usage
+                    && let Some(usage) = &resp.usage
+                {
+                    ge = ge.with_usage(usage.clone());
                 }
-                if let Some(dur) = SystemTime::now().duration_since(started_at).ok() {
+                if let Ok(dur) = SystemTime::now().duration_since(started_at) {
                     ge = ge.with_duration(dur);
                 }
                 if let Some(reason) = &resp.finish_reason {

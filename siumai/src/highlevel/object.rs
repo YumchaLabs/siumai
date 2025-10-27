@@ -1,3 +1,6 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::large_enum_variant)]
 //! High-level structured object generation APIs
 //!
 //! Provides a minimal, provider-agnostic wrapper
@@ -7,6 +10,9 @@
 
 use std::sync::Arc;
 
+/// Type alias for JSON repair function used in object generation APIs.
+type RepairFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 use crate::error::LlmError;
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool, Usage};
@@ -15,9 +21,10 @@ use serde::de::DeserializeOwned;
 use std::pin::Pin;
 
 /// Output kind hints for object generation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum OutputKind {
     /// Expect a JSON object value
+    #[default]
     Object,
     /// Expect a JSON array value
     Array,
@@ -27,25 +34,16 @@ pub enum OutputKind {
     NoSchema,
 }
 
-impl Default for OutputKind {
-    fn default() -> Self {
-        OutputKind::Object
-    }
-}
+// Default is derived on enum (Object)
 
 /// Mode hint for providers to select structured output strategy.
 /// Currently informational at the high-level API; provider mappers may use it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum GenerateMode {
+    #[default]
     Auto,
     Json,
     Tool,
-}
-
-impl Default for GenerateMode {
-    fn default() -> Self {
-        GenerateMode::Auto
-    }
 }
 
 /// Options for object generation.
@@ -63,7 +61,7 @@ pub struct GenerateObjectOptions {
     pub mode: GenerateMode,
     /// Optional repair function to turn imperfect model text into valid JSON.
     /// Return Some(repaired) to retry parsing/validation, None to stop.
-    pub repair_text: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    pub repair_text: Option<RepairFn>,
     /// Number of repair attempts to try when parsing/validation fails.
     pub max_repair_rounds: usize,
 }
@@ -196,7 +194,7 @@ pub struct StreamObjectOptions {
     pub schema_description: Option<String>,
     pub output: OutputKind,
     pub mode: GenerateMode,
-    pub repair_text: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    pub repair_text: Option<RepairFn>,
     pub max_repair_rounds: usize,
     /// Whether to attempt partial JSON parsing on each delta and emit partial updates.
     pub emit_partial_object: bool,
@@ -288,8 +286,8 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                         }
                     }
                 }
-                crate::streaming::ChatStreamEvent::ToolCallDelta { arguments_delta, .. } => {
-                    if let Some(d) = arguments_delta { tool_args_acc.push_str(&d); }
+                crate::streaming::ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
+                    tool_args_acc.push_str(&d);
                 }
                 crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
                     yield StreamObjectEvent::UsageUpdate { usage };

@@ -210,6 +210,7 @@ pub struct HttpBytesResult {
 
 /// Execute an SSE streaming request with explicit base headers (no ProviderSpec).
 /// Returns a ChatStream that converts SSE events via the provided converter.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_sse_stream_request_with_headers<C>(
     http_client: &reqwest::Client,
     provider_id: &str,
@@ -281,6 +282,7 @@ where
 
 /// Execute a JSON streaming request with explicit base headers (no ProviderSpec).
 /// Returns a ChatStream that converts line-delimited JSON via the provided converter.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_json_stream_request_with_headers<C>(
     http_client: &reqwest::Client,
     provider_id: &str,
@@ -666,6 +668,7 @@ where
 ///
 /// This helper is useful for code paths that already have a fully constructed
 /// header map and do not rely on ProviderSpec routing or header building.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_json_request_with_headers(
     http_client: &reqwest::Client,
     provider_id: &str,

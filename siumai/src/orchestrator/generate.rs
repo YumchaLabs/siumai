@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! Non-streaming orchestrator implementation.
 
 use futures::StreamExt;

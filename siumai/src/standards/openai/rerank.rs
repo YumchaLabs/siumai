@@ -188,12 +188,12 @@ impl RerankResponseTransformer for OpenAiRerankResponseTransformer {
                         Some(crate::types::RerankDocument {
                             text: doc.as_str().unwrap().to_string(),
                         })
-                    } else if let Some(text) = doc.get("text").and_then(|t| t.as_str()) {
-                        Some(crate::types::RerankDocument {
-                            text: text.to_string(),
-                        })
                     } else {
-                        None
+                        doc.get("text").and_then(|t| t.as_str()).map(|text| {
+                            crate::types::RerankDocument {
+                                text: text.to_string(),
+                            }
+                        })
                     }
                 } else {
                     None

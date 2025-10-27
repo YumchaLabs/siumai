@@ -21,6 +21,7 @@ pub struct PrepareStepContext<'a> {
 ///
 /// Any field set to `Some` will override the default value for this step.
 /// Fields set to `None` will use the default value from the orchestrator options.
+#[derive(Default)]
 pub struct PrepareStepResult {
     /// Override the tool choice for this step.
     pub tool_choice: Option<ToolChoice>,
@@ -32,16 +33,7 @@ pub struct PrepareStepResult {
     pub messages: Option<Vec<ChatMessage>>,
 }
 
-impl Default for PrepareStepResult {
-    fn default() -> Self {
-        Self {
-            tool_choice: None,
-            active_tools: None,
-            system: None,
-            messages: None,
-        }
-    }
-}
+// Default is derived
 
 impl PrepareStepResult {
     /// Create a new empty PrepareStepResult.

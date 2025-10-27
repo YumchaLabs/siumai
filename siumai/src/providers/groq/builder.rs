@@ -42,7 +42,7 @@ impl GroqBuilder {
     /// Set the base URL
     pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         let custom = base_url.into();
-        let path = custom.splitn(4, '/').skip(3).next().unwrap_or("");
+        let path = custom.splitn(4, '/').nth(3).unwrap_or("");
         if path.is_empty() {
             // If no path provided, append Groq's OpenAI-compatible prefix
             self.config.base_url = format!(
@@ -50,8 +50,7 @@ impl GroqBuilder {
                 custom.trim_end_matches('/'),
                 crate::providers::groq::config::GroqConfig::DEFAULT_BASE_URL
                     .splitn(4, '/')
-                    .skip(3)
-                    .next()
+                    .nth(3)
                     .unwrap_or("openai/v1")
                     .trim_start_matches('/')
             );

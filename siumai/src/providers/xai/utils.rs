@@ -132,10 +132,10 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
 
         // Add tool call ID if present (for tool response messages - extract from content)
         let tool_results = message.tool_results();
-        if let Some(first_result) = tool_results.first() {
-            if let crate::types::ContentPart::ToolResult { tool_call_id, .. } = first_result {
-                msg["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
-            }
+        if let Some(first_result) = tool_results.first()
+            && let crate::types::ContentPart::ToolResult { tool_call_id, .. } = first_result
+        {
+            msg["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
         }
 
         converted.push(msg);

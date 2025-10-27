@@ -493,11 +493,11 @@ pub fn convert_tools_to_anthropic_format(
                     });
 
                     // Merge args into the tool definition
-                    if let serde_json::Value::Object(args_map) = &provider_tool.args {
-                        if let serde_json::Value::Object(tool_map) = &mut anthropic_tool {
-                            for (k, v) in args_map {
-                                tool_map.insert(k.clone(), v.clone());
-                            }
+                    if let serde_json::Value::Object(args_map) = &provider_tool.args
+                        && let serde_json::Value::Object(tool_map) = &mut anthropic_tool
+                    {
+                        for (k, v) in args_map {
+                            tool_map.insert(k.clone(), v.clone());
                         }
                     }
 

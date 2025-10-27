@@ -157,7 +157,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-siumai = "0.11"
+siumai = "0.11.0-beta.1"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -258,7 +258,7 @@ All providers use the `provider:model` format:
 
 ```rust,no_run
 use siumai::registry::{create_provider_registry, RegistryOptions};
-use siumai::middleware::samples::chain_default_and_clamp;
+use siumai::execution::middleware::samples::chain_default_and_clamp;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -269,6 +269,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
+            http_interceptors: Vec::new(),
+            retry_options: None,
             max_cache_entries: Some(100),
             client_ttl: None,
             auto_middleware: true,
@@ -288,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Environment Variables**: Automatic API key loading from env vars
 - **Extensible**: Easy to add custom providers via `ProviderFactory` trait
 
-See `examples/registry_basic.rs` for more examples.
+See `siumai/examples/registry_quickstart.rs` for more examples.
 
 ## Custom OpenAI-Compatible Providers
 
@@ -534,7 +536,7 @@ Siumai provides a powerful middleware system inspired by Cherry Studio and Verce
 Middleware is automatically added based on provider and model:
 
 ```rust
-use siumai::middleware::auto::{build_auto_middlewares, MiddlewareConfig};
+use siumai::execution::middleware::auto::{build_auto_middlewares, MiddlewareConfig};
 
 // Automatic configuration
 let config = MiddlewareConfig::new("openai", "o1-preview");
@@ -548,7 +550,8 @@ let middlewares = builder.build();
 Use the fluent builder API for custom configurations:
 
 ```rust
-use siumai::middleware::{MiddlewareBuilder, presets::ExtractReasoningMiddleware};
+use siumai::execution::middleware::builder::MiddlewareBuilder;
+use siumai::execution::middleware::presets::ExtractReasoningMiddleware;
 use std::sync::Arc;
 
 let mut builder = MiddlewareBuilder::new();
@@ -794,13 +797,13 @@ Enable only what you need to reduce compile time and binary size:
 ```toml
 [dependencies]
 # One provider
-siumai = { version = "0.11", features = ["openai"] }
+siumai = { version = "0.11.0-beta.1", features = ["openai"] }
 
 # Multiple providers
-siumai = { version = "0.11", features = ["openai", "anthropic", "google"] }
+siumai = { version = "0.11.0-beta.1", features = ["openai", "anthropic", "google"] }
 
 # All providers (default)
-siumai = { version = "0.11", features = ["all-providers"] }
+siumai = { version = "0.11.0-beta.1", features = ["all-providers"] }
 ```
 
 | Feature           | Description                                  |
@@ -820,8 +823,8 @@ Optional features for advanced use cases (separate package to keep core lightwei
 
 ```toml
 [dependencies]
-siumai = "0.11"
-siumai-extras = { version = "0.11", features = ["schema", "telemetry", "server"] }
+siumai = "0.11.0-beta.1"
+siumai-extras = { version = "0.11.0-beta.1", features = ["schema", "telemetry", "server"] }
 ```
 
 | Feature      | Description                                           |

@@ -1,3 +1,4 @@
+#![allow(clippy::large_enum_variant)]
 //! Streaming event types for real-time responses
 
 use super::chat::ChatResponse;

@@ -81,14 +81,13 @@ impl RequestTransformer for AnthropicRequestTransformer {
                         body["tools"] = serde_json::Value::Array(arr);
 
                         // Add tool_choice if specified
-                        if let Some(choice) = &req.tool_choice {
-                            if let Some(anthropic_choice) =
+                        if let Some(choice) = &req.tool_choice
+                            && let Some(anthropic_choice) =
                                 crate::providers::anthropic::utils::convert_tool_choice(choice)
-                            {
-                                body["tool_choice"] = anthropic_choice;
-                            }
-                            // If None is returned, tools should be removed (handled by caller if needed)
+                        {
+                            body["tool_choice"] = anthropic_choice;
                         }
+                        // If None is returned, tools should be removed (handled by caller if needed)
                     }
                 }
                 if let Some(spec) = self.specific {
@@ -165,18 +164,18 @@ impl ResponseTransformer for AnthropicResponseTransformer {
         let mut content = parse_response_content_and_tools(&response.content);
 
         // Add thinking/reasoning if present
-        if let Some(thinking) = extract_thinking_content(&response.content) {
-            if !thinking.is_empty() {
-                let mut parts = match content {
-                    MessageContent::Text(ref text) if !text.is_empty() => {
-                        vec![ContentPart::text(text)]
-                    }
-                    MessageContent::MultiModal(ref parts) => parts.clone(),
-                    _ => Vec::new(),
-                };
-                parts.push(ContentPart::reasoning(&thinking));
-                content = MessageContent::MultiModal(parts);
-            }
+        if let Some(thinking) = extract_thinking_content(&response.content)
+            && !thinking.is_empty()
+        {
+            let mut parts = match content {
+                MessageContent::Text(ref text) if !text.is_empty() => {
+                    vec![ContentPart::text(text)]
+                }
+                MessageContent::MultiModal(ref parts) => parts.clone(),
+                _ => Vec::new(),
+            };
+            parts.push(ContentPart::reasoning(&thinking));
+            content = MessageContent::MultiModal(parts);
         }
 
         let usage: Option<Usage> = create_usage_from_response(response.usage.clone());

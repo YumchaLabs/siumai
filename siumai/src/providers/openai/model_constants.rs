@@ -19,6 +19,10 @@ pub mod gpt_4o {
     pub const GPT_4O_MINI_AUDIO_PREVIEW: &str = "gpt-4o-mini-audio-preview";
     /// GPT-4o Mini Audio Preview (2024-12-17)
     pub const GPT_4O_MINI_AUDIO_PREVIEW_2024_12_17: &str = "gpt-4o-mini-audio-preview-2024-12-17";
+    /// GPT-4o dated snapshot (2024-11-20)
+    pub const GPT_4O_2024_11_20: &str = "gpt-4o-2024-11-20";
+    /// GPT-4o dated snapshot (2024-08-06)
+    pub const GPT_4O_2024_08_06: &str = "gpt-4o-2024-08-06";
 
     /// All GPT-4o models
     pub const ALL: &[&str] = &[
@@ -29,7 +33,18 @@ pub mod gpt_4o {
         GPT_4O_AUDIO_PREVIEW_2024_10_01,
         GPT_4O_MINI_AUDIO_PREVIEW,
         GPT_4O_MINI_AUDIO_PREVIEW_2024_12_17,
+        GPT_4O_2024_11_20,
+        GPT_4O_2024_08_06,
     ];
+}
+
+/// GPT-4o mini search preview (specialized)
+pub mod gpt_4o_mini_search {
+    /// GPT-4o mini search preview
+    pub const GPT_4O_MINI_SEARCH_PREVIEW: &str = "gpt-4o-mini-search-preview";
+
+    /// All GPT-4o mini search models
+    pub const ALL: &[&str] = &[GPT_4O_MINI_SEARCH_PREVIEW];
 }
 
 /// GPT-4.1 model family constants (new generation)
@@ -238,6 +253,7 @@ pub mod popular {
 pub fn all_chat_models() -> Vec<&'static str> {
     let mut models = Vec::new();
     models.extend_from_slice(gpt_4o::ALL);
+    models.extend_from_slice(gpt_4o_mini_search::ALL);
     models.extend_from_slice(gpt_4_1::ALL);
     models.extend_from_slice(gpt_4_5::ALL);
     models.extend_from_slice(gpt_4_turbo::ALL);

@@ -206,21 +206,21 @@ impl CommonParams {
         }
 
         // Validate temperature (must be non-negative)
-        if let Some(temp) = self.temperature {
-            if temp < 0.0 {
-                return Err(crate::error::LlmError::InvalidParameter(
-                    "Temperature must be non-negative".to_string(),
-                ));
-            }
+        if let Some(temp) = self.temperature
+            && temp < 0.0
+        {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "Temperature must be non-negative".to_string(),
+            ));
         }
 
         // Validate top_p (must be between 0.0 and 1.0)
-        if let Some(top_p) = self.top_p {
-            if !(0.0..=1.0).contains(&top_p) {
-                return Err(crate::error::LlmError::InvalidParameter(
-                    "top_p must be between 0.0 and 1.0".to_string(),
-                ));
-            }
+        if let Some(top_p) = self.top_p
+            && !(0.0..=1.0).contains(&top_p)
+        {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "top_p must be between 0.0 and 1.0".to_string(),
+            ));
         }
 
         Ok(())

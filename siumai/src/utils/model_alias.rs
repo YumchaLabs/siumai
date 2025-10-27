@@ -27,14 +27,14 @@ pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
         // DeepSeek native (OpenAI-compatible direct). Accept common short aliases.
         // Canonical ids: deepseek-chat, deepseek-reasoner
         "deepseek" => {
-            return match ml.as_str() {
+            match ml.as_str() {
                 // Reasoner aliases
                 "deepseek-r1" | "r1" | "reasoner" => "deepseek-reasoner".to_string(),
                 // V3/chat aliases
                 "deepseek-v3" | "v3" | "chat" => "deepseek-chat".to_string(),
                 // Already canonical or other deepseek-* names
                 _ => m,
-            };
+            }
         }
 
         // SiliconFlow vendor aliases (popular short forms)
@@ -213,7 +213,7 @@ pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
                 return format!("qwen/{m}");
             }
             // Default: return as-is
-            return m;
+            m
         }
 
         _ => m,

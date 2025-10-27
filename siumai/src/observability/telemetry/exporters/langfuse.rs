@@ -1,3 +1,4 @@
+#![allow(clippy::map_flatten)]
 //! Langfuse Exporter
 //!
 //! Export telemetry events to Langfuse for observability and analysis.

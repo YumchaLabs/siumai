@@ -87,6 +87,6 @@ Note: This refactor only changes file organization; public API remains stable. A
   - `openai(api_key, org, project, custom_headers)`
   - `anthropic(api_key, custom_headers)` (supports `anthropic-beta` via custom headers)
   - `groq`, `xai`, `gemini`, `ollama`
-- Always inject tracing headers with `inject_tracing_headers(&mut headers)` to include `X-Trace-Id`, `X-Span-Id`, and optionally `traceparent` (W3C).
+- Tracing headers: prefer OpenTelemetry via `siumai-extras` middleware (W3C traceparent), or use HTTP interceptors to add custom headers when needed.
 - Merge order for custom headers (where applicable): base ProviderHeaders → `http_config.headers` → provider‑specific extras (e.g., adapter/custom maps).
 - Multipart endpoints (files/audio/image uploads) must not force `application/json`; rely on Executors to set `multipart/form-data`.

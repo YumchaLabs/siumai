@@ -41,6 +41,7 @@ pub trait LanguageModelMiddleware: Send + Sync {
     }
 
     /// Wrap non-stream generate call (not used in Iteration A).
+    #[allow(clippy::type_complexity)]
     fn wrap_generate(
         &self,
         _do_generate: &GenerateFn,
@@ -49,6 +50,7 @@ pub trait LanguageModelMiddleware: Send + Sync {
     }
 
     /// Wrap stream call (not used in Iteration A).
+    #[allow(clippy::type_complexity)]
     fn wrap_stream(
         &self,
         _do_stream: &StreamFn,

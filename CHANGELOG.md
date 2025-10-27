@@ -1,6 +1,33 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.0-beta.1]
+
+### Code Quality
+
+- Clippy cleanup across providers and streaming core:
+  - Collapsed nested `if`/`if let` with let-chains where safe.
+  - Replaced `iter.skip(n).next()` with `iter.nth(n)`.
+  - Removed redundant clones on `Copy` types and minor unwrap optimizations.
+  - Implemented `Default` for `StreamProcessorConfig` to reflect intentional defaults.
+- Left `large_enum_variant` and `type_complexity` as-is to avoid breaking shapes; propose boxing/aliases in a follow-up if desired.
+- No functional changes; validated by `cargo clippy --workspace --all-features` with only the two noted categories remaining.
+
+### Breaking (small, internal APIs)
+
+- Boxed large enum variants to satisfy clippy without inflating enum size:
+  - `ProcessedEvent::StreamEnd { response: ChatResponse }` → `ProcessedEvent::StreamEnd { response: Box<ChatResponse> }`
+  - `ProviderOptions::OpenAi(OpenAiOptions)` → `ProviderOptions::OpenAi(Box<OpenAiOptions>)`
+
+Migration tips:
+- Pattern matches adapt naturally; when you need the value, deref the box:
+  - Before: `if let ProcessedEvent::StreamEnd { response } = ev { /* use response */ }`
+  - After: `if let ProcessedEvent::StreamEnd { response } = ev { let response = *response; /* or &*response */ }`
+- Construction calls require `Box::new(...)` for OpenAI options:
+  - Before: `ProviderOptions::OpenAi(opts)`
+  - After: `ProviderOptions::OpenAi(Box::new(opts))`
+
+Notes:
+- All internal call sites and tests updated. Public APIs not using these internals are unaffected.
 
 ### Module Reorganization (v0.11.2)
 
@@ -109,23 +136,95 @@ let client = Client::builder()
 
 ### Architecture Refactoring (v0.11)
 
-**Major code organization improvements** - Reduced code duplication by 425 lines (-8.5%) and established cleaner module structure.
+Major refactor across code organization, providers, and developer ergonomics. Changes derived from a full `git diff` between `main..refactor` (excluding `repo-ref/`).
 
-#### Module Reorganization
+#### Added
 
-- **NEW**: Created `src/core/` module for core abstractions
-  - Moved `provider_spec.rs` to `core/`
-  - Added `core/capabilities.rs` for capability trait re-exports
-  - Added `core/client.rs` for LlmClient trait re-export
-  - Added `core/builder_core.rs` for ProviderCore builder
-  - **DEPRECATED**: `provider_core/` module (now re-exports from `core/`)
+- Provider Registry and Handles
+  - Unified provider registry with aliases and capability records (`siumai/src/registry/`).
+  - New `RegistryOptions` (separator, middlewares, http_interceptors, retry options, cache settings).
+  - Convenience helpers `create_provider_registry(...)` and `create_registry_with_defaults()`; default installs a `LoggingInterceptor`.
+  - Handles: `language_model`, `embedding_model`, `image_model`, `speech_model` (TTS), `transcription_model` (STT).
 
-- **NEW**: Created `src/execution/` module for organized execution layer
-  - `execution/executor/` - Re-exports from `executors/`
-  - `execution/transformer/` - Re-exports from `transformers/`
-  - `execution/middleware/` - Re-exports from `middleware/`
-  - `execution/http/` - HTTP utilities (client, headers, interceptors, retry)
-  - Maintains backward compatibility through re-exports
+- HTTP Interceptors (unified)
+  - Centralized in `execution::http::interceptor` and applied via registry across JSON, multipart, bytes, GET/DELETE, and streaming paths.
+  - Best‑effort injection into provider clients (OpenAI, OpenAI‑compatible, Anthropic, Gemini, Groq, xAI, Ollama, Vertex Anthropic).
+
+- Execution Layer and Middleware
+  - New `execution::executors::{chat, embedding, image, audio, files, rerank}`.
+  - New `execution::transformers::{request,response,stream,hook_builder,...}`.
+  - New `execution::middleware` system with builder, named middlewares, auto‑middleware presets (e.g., reasoning extraction), UTF‑8 safe tag extraction.
+
+- Orchestrator and Tools
+  - Reworked orchestrator with agent pattern, step control, tool approval workflow, and streaming tool execution.
+  - New examples under `siumai/examples/03-advanced-features/orchestrator/*` and application demos under `siumai/examples/07-applications/*`.
+
+- Extras Package (new crate)
+  - Split heavy/development utilities into `siumai-extras` with optional features: `schema`, `telemetry`, `opentelemetry`, `server` (Axum adapters), and `mcp` (Model Context Protocol integration).
+  - OpenTelemetry middleware for W3C trace context injection; comprehensive OTLP setup helpers.
+  - MCP integration utilities to discover and execute tools via rmcp.
+
+- Providers and Capabilities
+  - Vertex Anthropic client added under `providers/anthropic_vertex`.
+  - Unified methods on `ChatCapability`; improved structured output parity and schema validation hooks.
+
+#### Changed
+
+- Workspace split
+  - Converted repository into a workspace with crates `siumai` and `siumai-extras`.
+  - Examples moved from top‑level `examples/` to `siumai/examples/` and restructured by topic.
+  - Tests moved under `siumai/tests/` with expanded fixtures and SSE end‑to‑end tests.
+
+- Module paths
+  - Core abstractions consolidated under `core::*` (moved from `provider_core::*`).
+  - Execution modules moved under `execution::*` (executors, transformers, middleware, http, retry).
+  - Vertex utilities moved to `auth::vertex`.
+
+- Streaming and Responses
+  - Unified SSE streaming with multi‑event emission (start/delta/usage/end) across providers.
+  - Tool call streaming improved and standardized.
+  - JSON parsing in streaming/non‑streaming now uses automatic JSON repair (configurable), improving robustness.
+
+- HTTP/Retry
+  - HTTP helpers consolidated under `execution::http::{client,headers,interceptor,retry}`.
+  - Unified retry facade with idempotency, 401 token refresh retry, and provider defaults.
+  - Disabled `reqwest/blocking` feature for leaner builds.
+
+- README and docs extensively updated to reflect new architecture, registry, middleware builder, retry, and extras.
+
+#### Removed (breaking)
+
+- Deprecated modules removed: `provider_core` and `server_adapters`.
+- Old provider‑specific streaming structs in favor of executor‑based streaming.
+- Large OpenAPI document `docs/openapi.documented.yml` (obsolete).
+- Legacy example paths under top‑level `examples/` (replaced by `siumai/examples/`).
+
+#### Fixed
+
+- Critical: `before_send_hook` now correctly set in all providers to ensure provider‑specific options (e.g., Responses API, Anthropic thinking) are applied.
+- UTF‑8 safety: tag extraction, string slicing, streaming chunk boundaries, and token masking made multibyte‑safe; added tests for tricky cases.
+- Numerous reliability fixes across streaming, headers, and parameter mapping; expanded fixture‑based tests per provider.
+
+#### Migration Notes
+
+- Update imports
+  - `siumai::provider_core::*` → `siumai::core::*`
+  - `siumai::executors::*` → `siumai::execution::executors::*`
+  - `siumai::transformers::*` → `siumai::execution::transformers::*`
+  - `siumai::middleware::*` → `siumai::execution::middleware::*`
+  - `siumai::utils::http_*` → `siumai::execution::http::*`
+  - `siumai::utils::vertex::*` → `siumai::auth::vertex::*`
+
+- Response metadata
+  - `ChatResponse.metadata` is now namespaced by provider. Use `response.get_metadata("provider", "key")` or type‑safe accessors (e.g., `response.openai_metadata()`).
+
+- Registry adoption (recommended)
+  - Prefer constructing clients via provider registry (`create_provider_registry(...)`) and set interceptors/middlewares at the registry level.
+
+- Telemetry/tracing
+  - Tracing initialization and OpenTelemetry exporters moved to `siumai-extras`.
+
+See docs/MIGRATION-v0.11.md for concrete examples and sed‑style one‑liners.
 
 - **REMOVED**: Deleted `src/provider_model/` module (duplicate of ProviderSpec architecture)
   - Removed 200+ lines of duplicate code

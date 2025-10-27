@@ -113,9 +113,15 @@ pub mod gemini_2_0_flash_lite {
     pub const GEMINI_2_0_FLASH_LITE: &str = "gemini-2.0-flash-lite";
     /// Gemini 2.0 Flash-Lite (001)
     pub const GEMINI_2_0_FLASH_LITE_001: &str = "gemini-2.0-flash-lite-001";
+    /// Gemini 2.0 Flash-Lite Preview (02-05)
+    pub const GEMINI_2_0_FLASH_LITE_PREVIEW_02_05: &str = "gemini-2.0-flash-lite-preview-02-05";
 
     /// All Gemini 2.0 Flash-Lite models
-    pub const ALL: &[&str] = &[GEMINI_2_0_FLASH_LITE, GEMINI_2_0_FLASH_LITE_001];
+    pub const ALL: &[&str] = &[
+        GEMINI_2_0_FLASH_LITE,
+        GEMINI_2_0_FLASH_LITE_001,
+        GEMINI_2_0_FLASH_LITE_PREVIEW_02_05,
+    ];
 }
 
 /// Gemini 2.0 Flash Thinking (experimental) model family constants

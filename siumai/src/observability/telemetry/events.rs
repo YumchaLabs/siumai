@@ -1,3 +1,4 @@
+#![allow(clippy::large_enum_variant)]
 //! Telemetry Events
 //!
 //! Structured events for LLM operations, compatible with Langfuse and Helicone.

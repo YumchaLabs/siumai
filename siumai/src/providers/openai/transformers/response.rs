@@ -199,7 +199,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         if !name.is_empty() {
                             // Parse arguments string to JSON Value
                             let args_value = serde_json::from_str(&arguments)
-                                .unwrap_or_else(|_| serde_json::Value::String(arguments));
+                                .unwrap_or(serde_json::Value::String(arguments));
                             content_parts.push(ContentPart::tool_call(id, name, args_value, None));
                         }
                     }

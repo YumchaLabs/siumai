@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! Tracing Module - Logging and Debugging Instrumentation
 //!
 //! Rehomes the tracing subsystem under `crate::observability::tracing`.
@@ -207,14 +208,14 @@ pub fn mask_sensitive_value(value: &str) -> String {
         &s[start..]
     }
 
-    if let Some(token) = value.strip_prefix("Bearer ") {
-        if token.len() > 8 {
-            return format!(
-                "Bearer {}...{}",
-                prefix_at_boundary(token, 4),
-                suffix_at_boundary(token, 4)
-            );
-        }
+    if let Some(token) = value.strip_prefix("Bearer ")
+        && token.len() > 8
+    {
+        return format!(
+            "Bearer {}...{}",
+            prefix_at_boundary(token, 4),
+            suffix_at_boundary(token, 4)
+        );
     }
     if (value.starts_with("sk-") || value.starts_with("sk-ant-") || value.starts_with("gsk-"))
         && value.len() > 12

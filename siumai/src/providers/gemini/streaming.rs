@@ -275,7 +275,16 @@ impl SseEventConverter for GeminiEventConverter {
             }
 
             // Parse the JSON data from the SSE event
-            match crate::streaming::parse_json_with_repair::<GeminiStreamResponse>(&event.data) {
+            // Feature-gated behavior:
+            // - Without `json-repair`: strict parsing to surface errors
+            // - With `json-repair`: tolerant parsing using jsonrepair
+            #[cfg(not(feature = "json-repair"))]
+            let parsed: Result<GeminiStreamResponse, _> = serde_json::from_str(&event.data);
+            #[cfg(feature = "json-repair")]
+            let parsed: Result<GeminiStreamResponse, _> =
+                crate::streaming::parse_json_with_repair::<GeminiStreamResponse>(&event.data);
+
+            match parsed {
                 Ok(gemini_response) => self
                     .convert_gemini_response_async(gemini_response)
                     .await
@@ -407,6 +416,8 @@ mod tests {
         assert!(result.is_empty(), "Empty SSE event should be ignored");
     }
 
+    // In strict mode (no json-repair), invalid JSON should produce a parse error
+    #[cfg(not(feature = "json-repair"))]
     #[tokio::test]
     async fn test_invalid_json_emits_error() {
         let config = create_test_config();
@@ -420,6 +431,23 @@ mod tests {
         let result = converter.convert_event(event).await;
         assert_eq!(result.len(), 1);
         assert!(matches!(result[0], Err(LlmError::ParseError(_))));
+    }
+
+    // In tolerant mode (json-repair enabled), invalid JSON should not error with ParseError
+    #[cfg(feature = "json-repair")]
+    #[tokio::test]
+    async fn test_invalid_json_is_tolerated_with_repair() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+        let event = eventsource_stream::Event {
+            event: "".into(),
+            data: "{ not json".into(),
+            id: "".into(),
+            retry: None,
+        };
+        let result = converter.convert_event(event).await;
+        assert_eq!(result.len(), 1);
+        assert!(!matches!(result[0], Err(LlmError::ParseError(_))));
     }
 
     #[tokio::test]

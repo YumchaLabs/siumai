@@ -160,7 +160,7 @@ impl ResponseTransformer for XaiResponseTransformer {
                 if let Some(function) = call.function {
                     // Parse arguments string to JSON Value
                     let arguments = serde_json::from_str(&function.arguments)
-                        .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
+                        .unwrap_or(serde_json::Value::String(function.arguments.clone()));
 
                     parts.push(ContentPart::tool_call(
                         call.id,
@@ -173,10 +173,10 @@ impl ResponseTransformer for XaiResponseTransformer {
         }
 
         // Add thinking/reasoning
-        if let Some(thinking) = thinking_content {
-            if !thinking.is_empty() {
-                parts.push(ContentPart::reasoning(&thinking));
-            }
+        if let Some(thinking) = thinking_content
+            && !thinking.is_empty()
+        {
+            parts.push(ContentPart::reasoning(&thinking));
         }
 
         final_content = if parts.len() == 1 && parts[0].is_text() {

@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! Helicone Exporter
 //!
 //! Export telemetry via Helicone headers for request tracking.
@@ -95,10 +96,10 @@ impl HeliconeExporter {
         self.add_headers(headers, session_id, user_id);
 
         // Add custom properties
-        if !properties.is_empty() {
-            if let Ok(json) = serde_json::to_string(properties) {
-                headers.insert("Helicone-Property".to_string(), json);
-            }
+        if !properties.is_empty()
+            && let Ok(json) = serde_json::to_string(properties)
+        {
+            headers.insert("Helicone-Property".to_string(), json);
         }
     }
 

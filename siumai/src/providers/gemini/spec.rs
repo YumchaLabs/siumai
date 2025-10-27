@@ -78,46 +78,45 @@ impl ProviderSpec for GeminiSpec {
 
             // 🎯 Inject code execution tool
             // According to Gemini API, code execution is enabled via tools array
-            if let Some(ref code_exec) = code_execution {
-                if code_exec.enabled {
-                    let mut tools = out
-                        .get("tools")
-                        .and_then(|v| v.as_array().cloned())
-                        .unwrap_or_default();
+            if let Some(ref code_exec) = code_execution
+                && code_exec.enabled
+            {
+                let mut tools = out
+                    .get("tools")
+                    .and_then(|v| v.as_array().cloned())
+                    .unwrap_or_default();
 
-                    // Add code execution tool
-                    tools.push(serde_json::json!({
-                        "code_execution": {}
-                    }));
+                // Add code execution tool
+                tools.push(serde_json::json!({
+                    "code_execution": {}
+                }));
 
-                    out["tools"] = serde_json::Value::Array(tools);
-                }
+                out["tools"] = serde_json::Value::Array(tools);
             }
 
             // 🎯 Inject search grounding (Google Search)
             // According to Gemini API, search grounding is enabled via tools array
-            if let Some(ref search) = search_grounding {
-                if search.enabled {
-                    let mut tools = out
-                        .get("tools")
-                        .and_then(|v| v.as_array().cloned())
-                        .unwrap_or_default();
+            if let Some(ref search) = search_grounding
+                && search.enabled
+            {
+                let mut tools = out
+                    .get("tools")
+                    .and_then(|v| v.as_array().cloned())
+                    .unwrap_or_default();
 
-                    let mut google_search_tool = serde_json::json!({
-                        "google_search": {}
-                    });
+                let mut google_search_tool = serde_json::json!({
+                    "google_search": {}
+                });
 
-                    // Add dynamic retrieval config if specified
-                    if let Some(ref dynamic_config) = search.dynamic_retrieval_config {
-                        if let Ok(config_json) = serde_json::to_value(dynamic_config) {
-                            google_search_tool["google_search"]["dynamic_retrieval_config"] =
-                                config_json;
-                        }
-                    }
-
-                    tools.push(google_search_tool);
-                    out["tools"] = serde_json::Value::Array(tools);
+                // Add dynamic retrieval config if specified
+                if let Some(ref dynamic_config) = search.dynamic_retrieval_config
+                    && let Ok(config_json) = serde_json::to_value(dynamic_config)
+                {
+                    google_search_tool["google_search"]["dynamic_retrieval_config"] = config_json;
                 }
+
+                tools.push(google_search_tool);
+                out["tools"] = serde_json::Value::Array(tools);
             }
 
             Ok(out)

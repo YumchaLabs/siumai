@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! Hook Builder for composable request transformers
 //!
 //! This module provides a builder pattern for creating ProviderRequestHooks
@@ -298,12 +299,11 @@ fn anthropic_base_chat_body(req: &ChatRequest) -> Result<Value, LlmError> {
     });
 
     // Add system message if present
-    if !system_messages.is_empty() {
-        if let Some(first_system) = system_messages.first() {
-            if let crate::types::MessageContent::Text(text) = &first_system.content {
-                body["system"] = json!(text);
-            }
-        }
+    if !system_messages.is_empty()
+        && let Some(first_system) = system_messages.first()
+        && let crate::types::MessageContent::Text(text) = &first_system.content
+    {
+        body["system"] = json!(text);
     }
 
     // Add common parameters

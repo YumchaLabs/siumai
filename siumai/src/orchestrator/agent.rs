@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 //! Agent abstraction for reusable multi-step tool calling.
 
 use std::sync::Arc;

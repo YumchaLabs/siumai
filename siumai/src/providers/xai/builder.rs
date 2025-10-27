@@ -41,7 +41,7 @@ impl XaiBuilder {
     /// Set the base URL
     pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         let custom = base_url.into();
-        let path = custom.splitn(4, '/').skip(3).next().unwrap_or("");
+        let path = custom.splitn(4, '/').nth(3).unwrap_or("");
         if path.is_empty() {
             // If no path provided, append xAI's default prefix
             self.config.base_url = format!("{}/{}", custom.trim_end_matches('/'), "v1");

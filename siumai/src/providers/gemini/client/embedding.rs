@@ -15,10 +15,10 @@ impl EmbeddingCapability for GeminiClient {
 
         // Merge Authorization from token_provider if present
         let mut extra_headers = self.config.http_config.headers.clone();
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let spec = crate::providers::gemini::spec::create_embedding_wrapper(
@@ -120,10 +120,10 @@ impl EmbeddingExtensions for GeminiClient {
 
         // Merge Authorization from token_provider if present
         let mut extra_headers = self.config.http_config.headers.clone();
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         let spec = crate::providers::gemini::spec::create_embedding_wrapper(

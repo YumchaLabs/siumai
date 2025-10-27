@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! JSON path read/write helpers for request transformation
 //!
 //! Internal utilities used by the declarative mapping in `request.rs`.

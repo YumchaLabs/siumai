@@ -369,7 +369,7 @@ pub fn global_registry() -> &'static RwLock<ProviderRegistry> {
 /// ```
 pub fn global() -> &'static entry::ProviderRegistryHandle {
     static GLOBAL_HANDLE: OnceLock<entry::ProviderRegistryHandle> = OnceLock::new();
-    GLOBAL_HANDLE.get_or_init(|| helpers::create_registry_with_defaults())
+    GLOBAL_HANDLE.get_or_init(helpers::create_registry_with_defaults)
 }
 
 /// Convenience function to get an adapter for an OpenAI-compatible provider

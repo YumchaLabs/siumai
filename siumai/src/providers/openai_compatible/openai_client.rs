@@ -455,14 +455,12 @@ impl RerankCapability for OpenAiCompatibleClient {
                 Ok(())
             }
             fn transform_response(&self, resp: &mut serde_json::Value) -> Result<(), LlmError> {
-                if self.provider_id == "siliconflow" {
-                    if let Some(meta) = resp.get_mut("meta") {
-                        if let Some(tokens) = meta.get("tokens").cloned() {
-                            if let Some(obj) = resp.as_object_mut() {
-                                obj.insert("usage".to_string(), tokens);
-                            }
-                        }
-                    }
+                if self.provider_id == "siliconflow"
+                    && let Some(tokens) =
+                        resp.get_mut("meta").and_then(|m| m.get("tokens").cloned())
+                    && let Some(obj) = resp.as_object_mut()
+                {
+                    obj.insert("usage".to_string(), tokens);
                 }
                 Ok(())
             }
@@ -801,9 +799,9 @@ impl LlmClient for OpenAiCompatibleClient {
     }
 
     fn as_rerank_capability(&self) -> Option<&dyn RerankCapability> {
-        if self.config.adapter.capabilities().supports("rerank") {
-            Some(self)
-        } else if self.config.model.contains("rerank") || self.config.model.contains("bge-reranker")
+        if self.config.adapter.capabilities().supports("rerank")
+            || self.config.model.contains("rerank")
+            || self.config.model.contains("bge-reranker")
         {
             Some(self)
         } else {

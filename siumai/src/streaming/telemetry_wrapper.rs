@@ -68,10 +68,10 @@ impl Stream for TelemetryStreamWrapper {
                         gen_event = gen_event.with_output(final_response.clone());
                     }
 
-                    if self.telemetry_config.record_usage {
-                        if let Some(usage) = &final_response.usage {
-                            gen_event = gen_event.with_usage(usage.clone());
-                        }
+                    if self.telemetry_config.record_usage
+                        && let Some(usage) = &final_response.usage
+                    {
+                        gen_event = gen_event.with_usage(usage.clone());
                     }
 
                     if let Some(reason) = &final_response.finish_reason {

@@ -501,11 +501,11 @@ impl GeminiClient {
         );
 
         // Inject token into context if available
-        if let Some(tp) = &self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                ctx.http_extra_headers
-                    .insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(tp) = &self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            ctx.http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         ctx
@@ -618,10 +618,10 @@ impl EmbeddingCapability for GeminiClient {
 
         // Get token from token_provider if available
         let mut extra_headers = self.config.http_config.headers.clone();
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         // Create wrapper spec that handles Gemini-specific URL logic
@@ -1059,10 +1059,10 @@ impl crate::traits::ImageGenerationCapability for GeminiClient {
 
         // Get token from token_provider if available
         let mut extra_headers = self.config.http_config.headers.clone();
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
         // Create wrapper spec that handles Gemini-specific URL logic

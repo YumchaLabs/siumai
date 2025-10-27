@@ -94,8 +94,8 @@ pub async fn build_openai_compatible_client(
                 .base_url
                 .clone()
                 .unwrap_or_else(|| adapter.base_url().to_string());
-            let def_path = def.splitn(4, '/').skip(3).next().unwrap_or("");
-            let custom_path = custom.splitn(4, '/').skip(3).next().unwrap_or("");
+            let def_path = def.splitn(4, '/').nth(3).unwrap_or("");
+            let custom_path = custom.splitn(4, '/').nth(3).unwrap_or("");
             if custom_path.is_empty() && !def_path.is_empty() {
                 format!(
                     "{}/{}",

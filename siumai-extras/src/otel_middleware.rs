@@ -82,6 +82,7 @@ use siumai::{
 /// OpenTelemetry middleware for automatic tracing and metrics
 #[derive(Clone)]
 pub struct OpenTelemetryMiddleware {
+    #[allow(dead_code)]
     metrics: LlmMetrics,
 }
 

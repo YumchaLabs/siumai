@@ -266,10 +266,10 @@ impl ResponseTransformer for CompatResponseTransformer {
         }
 
         // Add thinking/reasoning
-        if let Some(thinking) = thinking_content {
-            if !thinking.is_empty() {
-                parts.push(ContentPart::reasoning(&thinking));
-            }
+        if let Some(thinking) = thinking_content
+            && !thinking.is_empty()
+        {
+            parts.push(ContentPart::reasoning(&thinking));
         }
 
         final_content = if parts.len() == 1 && parts[0].is_text() {

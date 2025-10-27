@@ -113,10 +113,10 @@ mockito.workspace = true
 wiremock.workspace = true
 tracing-test.workspace = true
 tempfile.workspace = true
-futures-util = "0.3"
-tokio-util = "0.7"
-proptest = "1.5"
-rmcp = { version = "0.8.0", features = [
+futures-util.workspace = true
+tokio-util.workspace = true
+proptest.workspace = true
+rmcp = { workspace = true, features = [
     "transport-io",
     "transport-child-process",
     "transport-sse-client-reqwest",

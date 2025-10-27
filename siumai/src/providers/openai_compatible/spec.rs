@@ -164,10 +164,10 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string())
                                     });
-                                if let Some(text) = t {
-                                    if let Some(obj) = msg.as_object_mut() {
-                                        obj.insert("thinking".to_string(), serde_json::json!(text));
-                                    }
+                                if let Some(text) = t
+                                    && let Some(obj) = msg.as_object_mut()
+                                {
+                                    obj.insert("thinking".to_string(), serde_json::json!(text));
                                 }
                             }
                         }
@@ -191,10 +191,10 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string())
                                     });
-                                if let Some(text) = t {
-                                    if let Some(obj) = delta.as_object_mut() {
-                                        obj.insert("thinking".to_string(), serde_json::json!(text));
-                                    }
+                                if let Some(text) = t
+                                    && let Some(obj) = delta.as_object_mut()
+                                {
+                                    obj.insert("thinking".to_string(), serde_json::json!(text));
                                 }
                             }
                         }

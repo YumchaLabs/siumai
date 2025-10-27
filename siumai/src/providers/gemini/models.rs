@@ -155,10 +155,10 @@ impl GeminiModels {
 
             // Allow Authorization-based (Bearer) Vertex AI auth via custom headers; otherwise use x-goog-api-key
             let mut extra = self.config.http_config.headers.clone();
-            if let Some(ref tp) = self.config.token_provider {
-                if let Ok(tok) = tp.token().await {
-                    extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-                }
+            if let Some(ref tp) = self.config.token_provider
+                && let Ok(tok) = tp.token().await
+            {
+                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
             }
             use secrecy::ExposeSecret;
             let headers = crate::execution::http::headers::ProviderHeaders::gemini(
@@ -233,10 +233,10 @@ impl ModelListingCapability for GeminiModels {
 
         // Allow Authorization-based (Bearer) Vertex AI auth via custom headers; otherwise use x-goog-api-key
         let mut extra = self.config.http_config.headers.clone();
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
         use secrecy::ExposeSecret;
         let headers = crate::execution::http::headers::ProviderHeaders::gemini(
@@ -329,10 +329,8 @@ pub fn get_model_context_window(model_id: &str) -> u32 {
         || model_id.contains("2.0-flash")
     {
         1_048_576 // 1M tokens for Gemini 2.5 Pro, 2.5 Flash and 2.0 Flash
-    } else if model_id.contains("2.0-pro") {
-        2_097_152 // 2M tokens for Gemini 2.0 Pro experimental
-    } else if model_id.contains("1.5-pro") {
-        2_097_152 // 2M tokens for Gemini 1.5 Pro
+    } else if model_id.contains("2.0-pro") || model_id.contains("1.5-pro") {
+        2_097_152 // 2M tokens for Gemini 2.0 Pro / 1.5 Pro
     } else if model_id.contains("1.5-flash") {
         1_048_576 // 1M tokens for Gemini 1.5 Flash
     } else {
@@ -347,10 +345,9 @@ pub fn get_model_max_output_tokens(model_id: &str) -> u32 {
     } else if model_id.contains("2.0-flash")
         || model_id.contains("1.5-pro")
         || model_id.contains("1.5-flash")
+        || model_id.contains("2.0-pro")
     {
-        8192 // Gemini 2.0 Flash, 1.5 Pro and Flash max output
-    } else if model_id.contains("2.0-pro") {
-        8192 // Gemini 2.0 Pro experimental max output
+        8192 // Gemini 2.0 Flash/Pro, 1.5 Pro and Flash max output
     } else if model_id.contains("tts") {
         16_000 // TTS models have different output limits
     } else {

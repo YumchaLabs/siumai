@@ -86,7 +86,7 @@ pub enum ProviderOptions {
     None,
     /// OpenAI-specific options
     #[serde(rename = "openai")]
-    OpenAi(OpenAiOptions),
+    OpenAi(Box<OpenAiOptions>),
     /// Anthropic-specific options
     #[serde(rename = "anthropic")]
     Anthropic(AnthropicOptions),
@@ -127,7 +127,7 @@ impl ProviderOptions {
 
     /// Check if options match the given provider
     pub fn is_for_provider(&self, provider_id: &str) -> bool {
-        self.provider_id().map_or(false, |id| id == provider_id)
+        self.provider_id() == Some(provider_id)
     }
 
     /// Check if this is None

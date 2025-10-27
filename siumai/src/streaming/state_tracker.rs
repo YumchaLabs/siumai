@@ -35,10 +35,9 @@ impl StreamStateTracker {
     /// Uses `Relaxed` ordering because we only care about the final state,
     /// not the ordering of operations across threads.
     pub fn needs_stream_start(&self) -> bool {
-        !self
-            .started
+        self.started
             .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_err()
+            .is_ok()
     }
 
     /// Mark that StreamEnd has been emitted
@@ -60,10 +59,9 @@ impl StreamStateTracker {
     /// Uses `Relaxed` ordering because we only care about the final state,
     /// not the ordering of operations across threads.
     pub fn needs_stream_end(&self) -> bool {
-        !self
-            .ended
+        self.ended
             .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_err()
+            .is_ok()
     }
 
     /// Reset the tracker (useful for testing)

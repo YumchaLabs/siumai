@@ -154,10 +154,10 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
 
         // Extract tool call ID from tool result
         let tool_results = message.tool_results();
-        if let Some(first_result) = tool_results.first() {
-            if let crate::types::ContentPart::ToolResult { tool_call_id, .. } = first_result {
-                groq_message["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
-            }
+        if let Some(first_result) = tool_results.first()
+            && let crate::types::ContentPart::ToolResult { tool_call_id, .. } = first_result
+        {
+            groq_message["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
         }
 
         groq_messages.push(groq_message);

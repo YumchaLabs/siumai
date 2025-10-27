@@ -134,6 +134,7 @@ impl ExtractReasoningConfig {
 /// // Auto-select based on model
 /// let middleware = Arc::new(ExtractReasoningMiddleware::for_model("gemini-2.5-pro"));
 /// ```
+#[derive(Default)]
 pub struct ExtractReasoningMiddleware {
     config: ExtractReasoningConfig,
 }
@@ -173,15 +174,10 @@ impl ExtractReasoningMiddleware {
     }
 }
 
-impl Default for ExtractReasoningMiddleware {
-    fn default() -> Self {
-        Self {
-            config: ExtractReasoningConfig::default(),
-        }
-    }
-}
+// Default is derived
 
 impl LanguageModelMiddleware for ExtractReasoningMiddleware {
+    #[allow(clippy::collapsible_if)]
     fn post_generate(
         &self,
         _req: &ChatRequest,
@@ -195,26 +191,26 @@ impl LanguageModelMiddleware for ExtractReasoningMiddleware {
         }
 
         // 2. Extract from metadata (Anthropic etc.)
-        if let Some(thinking_value) = resp.get_metadata("anthropic", "thinking") {
-            if let Some(thinking_str) = thinking_value.as_str() {
-                // Add reasoning to content
-                let mut parts = match &resp.content {
-                    MessageContent::Text(text) if !text.is_empty() => {
-                        vec![ContentPart::text(text)]
-                    }
-                    MessageContent::MultiModal(parts) => parts.clone(),
-                    #[cfg(feature = "structured-messages")]
-                    MessageContent::Json(v) => {
-                        vec![ContentPart::text(
-                            &serde_json::to_string(v).unwrap_or_default(),
-                        )]
-                    }
-                    _ => vec![],
-                };
-                parts.push(ContentPart::reasoning(thinking_str));
-                resp.content = MessageContent::MultiModal(parts);
-                return Ok(resp);
-            }
+        if let Some(thinking_value) = resp.get_metadata("anthropic", "thinking")
+            && let Some(thinking_str) = thinking_value.as_str()
+        {
+            // Add reasoning to content
+            let mut parts = match &resp.content {
+                MessageContent::Text(text) if !text.is_empty() => {
+                    vec![ContentPart::text(text)]
+                }
+                MessageContent::MultiModal(parts) => parts.clone(),
+                #[cfg(feature = "structured-messages")]
+                MessageContent::Json(v) => {
+                    vec![ContentPart::text(
+                        serde_json::to_string(v).unwrap_or_default(),
+                    )]
+                }
+                _ => vec![],
+            };
+            parts.push(ContentPart::reasoning(thinking_str));
+            resp.content = MessageContent::MultiModal(parts);
+            return Ok(resp);
         }
 
         // 3. Extract from content using TagExtractor

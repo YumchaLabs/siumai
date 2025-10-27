@@ -151,8 +151,8 @@ impl ProviderSpec for OpenAiSpec {
             (
                 builtins,
                 options.responses_api.clone(),
-                options.reasoning_effort.clone(),
-                options.service_tier.clone(),
+                options.reasoning_effort,
+                options.service_tier,
                 options.modalities.clone(),
                 options.audio.clone(),
                 options.prediction.clone(),
@@ -183,12 +183,10 @@ impl ProviderSpec for OpenAiSpec {
             .as_ref()
             .and_then(|cfg| cfg.max_tool_calls);
         let store = responses_api_config.as_ref().and_then(|cfg| cfg.store);
-        let truncation = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.truncation.clone());
+        let truncation = responses_api_config.as_ref().and_then(|cfg| cfg.truncation);
         let text_verbosity = responses_api_config
             .as_ref()
-            .and_then(|cfg| cfg.text_verbosity.clone());
+            .and_then(|cfg| cfg.text_verbosity);
         let metadata = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.metadata.clone());
@@ -242,39 +240,39 @@ impl ProviderSpec for OpenAiSpec {
             let mut out = body.clone();
 
             // 🎯 Inject built-in tools (merge with existing tools)
-            if let serde_json::Value::Array(bi) = &builtins {
-                if !bi.is_empty() {
-                    let mut arr = out
-                        .get("tools")
-                        .and_then(|v| v.as_array().cloned())
-                        .unwrap_or_default();
-                    for t in bi.iter() {
-                        arr.push(t.clone());
-                    }
-                    // De-dup logic:
-                    // - Keep all "function" tools (they have unique names)
-                    // - For built-in tools (file_search, web_search, computer_use):
-                    //   - Keep all if they have different configurations
-                    //   - Only de-dup exact duplicates
-                    let mut dedup = Vec::new();
-                    let mut seen_builtins: Vec<serde_json::Value> = Vec::new();
+            if let serde_json::Value::Array(bi) = &builtins
+                && !bi.is_empty()
+            {
+                let mut arr = out
+                    .get("tools")
+                    .and_then(|v| v.as_array().cloned())
+                    .unwrap_or_default();
+                for t in bi.iter() {
+                    arr.push(t.clone());
+                }
+                // De-dup logic:
+                // - Keep all "function" tools (they have unique names)
+                // - For built-in tools (file_search, web_search, computer_use):
+                //   - Keep all if they have different configurations
+                //   - Only de-dup exact duplicates
+                let mut dedup = Vec::new();
+                let mut seen_builtins: Vec<serde_json::Value> = Vec::new();
 
-                    for item in arr.into_iter() {
-                        let typ = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                for item in arr.into_iter() {
+                    let typ = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-                        if typ == "function" {
-                            // Always keep function tools (they have unique names)
+                    if typ == "function" {
+                        // Always keep function tools (they have unique names)
+                        dedup.push(item);
+                    } else {
+                        // For built-in tools, check if we've seen an exact duplicate
+                        if !seen_builtins.contains(&item) {
+                            seen_builtins.push(item.clone());
                             dedup.push(item);
-                        } else {
-                            // For built-in tools, check if we've seen an exact duplicate
-                            if !seen_builtins.contains(&item) {
-                                seen_builtins.push(item.clone());
-                                dedup.push(item);
-                            }
                         }
                     }
-                    out["tools"] = serde_json::Value::Array(dedup);
                 }
+                out["tools"] = serde_json::Value::Array(dedup);
             }
 
             // 🎯 Inject Responses API fields
@@ -287,10 +285,10 @@ impl ProviderSpec for OpenAiSpec {
             if let Some(bg) = background {
                 out["background"] = serde_json::Value::Bool(bg);
             }
-            if let Some(ref inc) = include {
-                if let Ok(val) = serde_json::to_value(inc) {
-                    out["include"] = val;
-                }
+            if let Some(ref inc) = include
+                && let Ok(val) = serde_json::to_value(inc)
+            {
+                out["include"] = val;
             }
             if let Some(ref instr) = instructions {
                 out["instructions"] = serde_json::Value::String(instr.clone());
@@ -301,75 +299,75 @@ impl ProviderSpec for OpenAiSpec {
             if let Some(st) = store {
                 out["store"] = serde_json::Value::Bool(st);
             }
-            if let Some(ref trunc) = truncation {
-                if let Ok(val) = serde_json::to_value(trunc) {
-                    out["truncation"] = val;
-                }
+            if let Some(ref trunc) = truncation
+                && let Ok(val) = serde_json::to_value(trunc)
+            {
+                out["truncation"] = val;
             }
-            if let Some(ref verb) = text_verbosity {
-                if let Ok(val) = serde_json::to_value(verb) {
-                    // text_verbosity should be nested under "text.verbosity" in Responses API
-                    if let Some(text_obj) = out.get_mut("text") {
-                        if let Some(text_map) = text_obj.as_object_mut() {
-                            text_map.insert("verbosity".to_string(), val);
-                        }
-                    } else {
-                        // If no "text" field exists, create one with verbosity
-                        out["text"] = serde_json::json!({
-                            "verbosity": val
-                        });
+            if let Some(ref verb) = text_verbosity
+                && let Ok(val) = serde_json::to_value(verb)
+            {
+                // text_verbosity should be nested under "text.verbosity" in Responses API
+                if let Some(text_obj) = out.get_mut("text") {
+                    if let Some(text_map) = text_obj.as_object_mut() {
+                        text_map.insert("verbosity".to_string(), val);
                     }
+                } else {
+                    // If no "text" field exists, create one with verbosity
+                    out["text"] = serde_json::json!({
+                        "verbosity": val
+                    });
                 }
             }
-            if let Some(ref meta) = metadata {
-                if let Ok(val) = serde_json::to_value(meta) {
-                    out["metadata"] = val;
-                }
+            if let Some(ref meta) = metadata
+                && let Ok(val) = serde_json::to_value(meta)
+            {
+                out["metadata"] = val;
             }
             if let Some(ptc) = parallel_tool_calls {
                 out["parallel_tool_calls"] = serde_json::Value::Bool(ptc);
             }
 
             // 🎯 Inject reasoning_effort
-            if let Some(ref effort) = reasoning_effort {
-                if let Ok(val) = serde_json::to_value(effort) {
-                    out["reasoning_effort"] = val;
-                }
+            if let Some(ref effort) = reasoning_effort
+                && let Ok(val) = serde_json::to_value(effort)
+            {
+                out["reasoning_effort"] = val;
             }
 
             // 🎯 Inject service_tier
-            if let Some(ref tier) = service_tier {
-                if let Ok(val) = serde_json::to_value(tier) {
-                    out["service_tier"] = val;
-                }
+            if let Some(ref tier) = service_tier
+                && let Ok(val) = serde_json::to_value(tier)
+            {
+                out["service_tier"] = val;
             }
 
             // 🎯 Inject modalities (for multimodal audio output)
-            if let Some(ref mods) = modalities {
-                if let Ok(val) = serde_json::to_value(mods) {
-                    out["modalities"] = val;
-                }
+            if let Some(ref mods) = modalities
+                && let Ok(val) = serde_json::to_value(mods)
+            {
+                out["modalities"] = val;
             }
 
             // 🎯 Inject audio configuration (voice and format for audio output)
-            if let Some(ref aud) = audio {
-                if let Ok(val) = serde_json::to_value(aud) {
-                    out["audio"] = val;
-                }
+            if let Some(ref aud) = audio
+                && let Ok(val) = serde_json::to_value(aud)
+            {
+                out["audio"] = val;
             }
 
             // 🎯 Inject prediction (Predicted Outputs for faster response times)
-            if let Some(ref pred) = prediction {
-                if let Ok(val) = serde_json::to_value(pred) {
-                    out["prediction"] = val;
-                }
+            if let Some(ref pred) = prediction
+                && let Ok(val) = serde_json::to_value(pred)
+            {
+                out["prediction"] = val;
             }
 
             // 🎯 Inject web_search_options (context size and user location)
-            if let Some(ref ws_opts) = web_search_options {
-                if let Ok(val) = serde_json::to_value(ws_opts) {
-                    out["web_search_options"] = val;
-                }
+            if let Some(ref ws_opts) = web_search_options
+                && let Ok(val) = serde_json::to_value(ws_opts)
+            {
+                out["web_search_options"] = val;
             }
 
             Ok(out)

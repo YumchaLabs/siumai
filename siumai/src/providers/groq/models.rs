@@ -59,6 +59,20 @@ pub mod preview {
     /// Qwen 3 32B - Alibaba's Qwen model
     pub const QWEN3_32B: &str = "qwen/qwen3-32b";
 
+    /// Vision preview models (Llama 3.2 Vision)
+    pub const LLAMA_3_2_11B_VISION_PREVIEW: &str = "llama-3.2-11b-vision-preview";
+    pub const LLAMA_3_2_90B_VISION_PREVIEW: &str = "llama-3.2-90b-vision-preview";
+    /// Tool-use preview models
+    pub const LLAMA3_GROQ_8B_TOOL_USE_PREVIEW: &str = "llama3-groq-8b-8192-tool-use-preview";
+    pub const LLAMA3_GROQ_70B_TOOL_USE_PREVIEW: &str = "llama3-groq-70b-8192-tool-use-preview";
+    /// Mixtral 8x7B 32K
+    pub const MIXTRAL_8X7B_32768: &str = "mixtral-8x7b-32768";
+    /// LLaVA v1.5 7B Vision preview
+    pub const LLAVA_V1_5_7B_4096_PREVIEW: &str = "llava-v1.5-7b-4096-preview";
+    /// Gemma family
+    pub const GEMMA2_9B_IT: &str = "gemma2-9b-it";
+    pub const GEMMA_7B_IT: &str = "gemma-7b-it";
+
     /// All preview models
     pub const ALL: &[&str] = &[
         DEEPSEEK_R1_DISTILL_LLAMA_70B,
@@ -72,6 +86,14 @@ pub mod preview {
         PLAYAI_TTS,
         PLAYAI_TTS_ARABIC,
         QWEN3_32B,
+        LLAMA_3_2_11B_VISION_PREVIEW,
+        LLAMA_3_2_90B_VISION_PREVIEW,
+        LLAMA3_GROQ_8B_TOOL_USE_PREVIEW,
+        LLAMA3_GROQ_70B_TOOL_USE_PREVIEW,
+        MIXTRAL_8X7B_32768,
+        LLAVA_V1_5_7B_4096_PREVIEW,
+        GEMMA2_9B_IT,
+        GEMMA_7B_IT,
     ];
 }
 

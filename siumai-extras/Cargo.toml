@@ -12,9 +12,10 @@ readme = "README.md"
 keywords = ["llm", "ai", "validation", "telemetry", "server"]
 categories = ["api-bindings", "web-programming"]
 
+# Use workspace-managed dependency versions
 [dependencies]
 # Core siumai dependency (with default features to include all providers)
-siumai = { version = "0.11.0", path = "../siumai" }
+siumai.workspace = true
 
 # Common dependencies
 serde.workspace = true
@@ -86,4 +87,3 @@ all = ["schema", "telemetry", "opentelemetry", "server", "mcp"]
 [dev-dependencies]
 tokio.workspace = true
 tokio-test.workspace = true
-

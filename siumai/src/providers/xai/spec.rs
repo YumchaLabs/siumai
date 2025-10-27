@@ -92,10 +92,10 @@ impl ProviderSpec for XaiSpec {
             let mut out = body.clone();
 
             // 🎯 Inject search_parameters
-            if let Some(ref params) = search_parameters {
-                if let Ok(val) = serde_json::to_value(params) {
-                    out["search_parameters"] = val;
-                }
+            if let Some(ref params) = search_parameters
+                && let Ok(val) = serde_json::to_value(params)
+            {
+                out["search_parameters"] = val;
             }
 
             // 🎯 Inject reasoning_effort

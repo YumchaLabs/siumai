@@ -14,7 +14,7 @@ Builder Flow (since 0.11)
 
 Headers & Tracing (all providers)
 - Build headers via `execution::http::headers::ProviderHeaders::*` (OpenAI/Anthropic/Groq/xAI/Gemini/Ollama).
-- Inject tracing headers (`inject_tracing_headers`) for `X-Trace-Id`, `X-Span-Id`, optional `traceparent`.
+- Tracing: prefer OpenTelemetry via `siumai-extras` middleware, or use HTTP interceptors to add headers (the legacy custom `X-Trace-Id`/`X-Span-Id` injection has been removed).
 - Merge `http_config.headers` for custom entries (auth overrides, org/project, feature flags like `anthropic-beta`).
 - For multipart (files/audio/image uploads), do not set `application/json`; the executor sets `multipart/form-data`.
 
@@ -60,7 +60,7 @@ Steps:
 use eventsource_stream::Event;
 use siumai::error::LlmError;
 use siumai::stream::ChatStreamEvent;
-use siumai::transformers::stream::StreamChunkTransformer;
+use siumai::execution::transformers::stream::StreamChunkTransformer;
 use std::future::Future;
 use std::pin::Pin;
 

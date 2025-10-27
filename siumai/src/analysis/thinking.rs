@@ -257,7 +257,7 @@ fn find_pattern_example(content: &str, indicators: &[&str]) -> Option<String> {
             for j in 0..nlen {
                 let hb = slice[j] as char;
                 let nb = nbytes[j] as char;
-                if hb.to_ascii_lowercase() != nb.to_ascii_lowercase() {
+                if !hb.eq_ignore_ascii_case(&nb) {
                     matched = false;
                     break;
                 }
@@ -368,7 +368,7 @@ fn extract_insights(content: &str) -> Vec<String> {
             for j in 0..nlen {
                 let hb = slice[j] as char;
                 let nb = nbytes[j] as char;
-                if hb.to_ascii_lowercase() != nb.to_ascii_lowercase() {
+                if !hb.eq_ignore_ascii_case(&nb) {
                     matched = false;
                     break;
                 }
