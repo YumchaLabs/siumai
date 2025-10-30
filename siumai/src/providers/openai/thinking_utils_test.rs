@@ -97,22 +97,26 @@ mod tests {
     fn test_deepseek_style_thinking() {
         // Test DeepSeek-style thinking content
         let input = r#"<think>
-用户询问了一个关于编程的问题。
-我需要：
-1. 分析问题的核心
-2. 提供清晰的解释
-3. 给出实用的示例
+The user asked a programming question.
+I need to:
+1. Analyze the core of the problem
+2. Provide a clear explanation
+3. Give practical examples
 </think>
 
-这是一个很好的编程问题。让我来解释一下..."#;
+This is a great programming question. Let me explain..."#;
 
         let thinking = extract_thinking_content(input);
         assert!(thinking.is_some());
-        assert!(thinking.unwrap().contains("用户询问了一个关于编程的问题"));
+        assert!(
+            thinking
+                .unwrap()
+                .contains("The user asked a programming question")
+        );
 
         let filtered = filter_thinking_content(input);
         assert!(!filtered.contains("<think>"));
-        assert!(filtered.contains("这是一个很好的编程问题"));
+        assert!(filtered.contains("This is a great programming question"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Embedding Request Types
 
-use std::collections::HashMap;
+// no extra imports
 
 use super::common::{EmbeddingFormat, EmbeddingTaskType};
 use crate::types::HttpConfig;
@@ -18,8 +18,17 @@ pub struct EmbeddingRequest {
     pub encoding_format: Option<EmbeddingFormat>,
     /// User identifier for tracking
     pub user: Option<String>,
-    /// Provider-specific parameters
-    pub provider_params: HashMap<String, serde_json::Value>,
+    /// Optional embedding task type (typed, provider-agnostic)
+    pub task_type: Option<EmbeddingTaskType>,
+    /// Optional title/context hint (used by some providers, e.g., Gemini)
+    pub title: Option<String>,
+    /// Provider-specific typed options (v0.12+).
+    ///
+    /// This mirrors `ChatRequest::provider_options` and allows strongly-typed
+    /// provider features to be used with embeddings. Providers can inject these
+    /// into outbound JSON via `ProviderSpec::embedding_before_send()`.
+    #[allow(clippy::derivable_impls)]
+    pub provider_options: crate::types::ProviderOptions,
     /// Per-request HTTP configuration (headers, timeout, etc.)
     pub http_config: Option<HttpConfig>,
 }
@@ -97,34 +106,23 @@ impl EmbeddingRequest {
         self
     }
 
-    /// Add provider-specific parameter
-    pub fn with_provider_param(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.provider_params.insert(key.into(), value);
+    /// Set provider-specific typed options (v0.12+)
+    ///
+    /// Prefer this over `provider_params` for type safety.
+    pub fn with_provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
+        self.provider_options = options;
         self
     }
 
     /// Set task type for optimization (provider-specific)
     pub fn with_task_type(mut self, task_type: EmbeddingTaskType) -> Self {
-        let task_str = match task_type {
-            EmbeddingTaskType::RetrievalQuery => "RETRIEVAL_QUERY",
-            EmbeddingTaskType::RetrievalDocument => "RETRIEVAL_DOCUMENT",
-            EmbeddingTaskType::SemanticSimilarity => "SEMANTIC_SIMILARITY",
-            EmbeddingTaskType::Classification => "CLASSIFICATION",
-            EmbeddingTaskType::Clustering => "CLUSTERING",
-            EmbeddingTaskType::QuestionAnswering => "QUESTION_ANSWERING",
-            EmbeddingTaskType::FactVerification => "FACT_VERIFICATION",
-            EmbeddingTaskType::Unspecified => "TASK_TYPE_UNSPECIFIED",
-        };
-        self.provider_params.insert(
-            "task_type".to_string(),
-            serde_json::Value::String(task_str.to_string()),
-        );
+        self.task_type = Some(task_type);
         self
     }
 
-    /// Set provider-specific parameters from a map
-    pub fn with_provider_params(mut self, params: HashMap<String, serde_json::Value>) -> Self {
-        self.provider_params.extend(params);
+    /// Set a title/context hint (used by some providers)
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 

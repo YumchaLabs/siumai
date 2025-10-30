@@ -472,13 +472,6 @@ impl<H: ProviderRequestHooks> RequestTransformer for GenericRequestTransformer<H
         // Build via hooks
         let mut body = self.hooks.build_base_embedding_body(req)?;
 
-        // Merge provider-specific params according to profile strategy
-        Self::merge_map(
-            &self.profile.merge_strategy,
-            &mut body,
-            &req.provider_params,
-        );
-
         // Post-process
         self.hooks.post_process_embedding(req, &mut body)?;
 
@@ -537,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_embedding_params_flatten_and_cleanup() {
+    fn embedding_base_body_and_cleanup() {
         let profile = MappingProfile {
             provider_id: "test",
             rules: vec![],
@@ -548,16 +541,14 @@ mod tests {
             hooks: DummyHooks,
         };
 
-        let mut req = EmbeddingRequest::new(vec!["hello".into()]).with_model("m");
-        req = req.with_provider_param("foo", serde_json::json!("bar"));
+        let req = EmbeddingRequest::new(vec!["hello".into()]).with_model("m");
         let body = tx.transform_embedding(&req).unwrap();
-        assert_eq!(body["foo"], serde_json::json!("bar"));
         // top-level nulls removed
         assert!(body.get("nullable").is_none());
     }
 
     #[test]
-    fn merge_embedding_params_namespace() {
+    fn embedding_no_namespace_merge() {
         let profile = MappingProfile {
             provider_id: "test",
             rules: vec![],
@@ -568,11 +559,10 @@ mod tests {
             hooks: DummyHooks,
         };
 
-        let mut req = EmbeddingRequest::new(vec!["hello".into()]).with_model("m");
-        req = req.with_provider_param("alpha", serde_json::json!(1));
+        let req = EmbeddingRequest::new(vec!["hello".into()]).with_model("m");
         let body = tx.transform_embedding(&req).unwrap();
-        assert_eq!(body["ns"]["alpha"], serde_json::json!(1));
-        assert!(body.get("alpha").is_none());
+        // No provider_params merged anymore
+        assert!(body.get("ns").is_none());
     }
 
     #[test]
@@ -587,8 +577,10 @@ mod tests {
             hooks: DummyHooks,
         };
 
-        let mut req = ImageGenerationRequest::default();
-        req.prompt = "draw cat".into();
+        let mut req = ImageGenerationRequest {
+            prompt: "draw cat".into(),
+            ..Default::default()
+        };
         req.extra_params
             .insert("style".into(), serde_json::json!("anime"));
         let body = tx.transform_image(&req).unwrap();

@@ -16,8 +16,12 @@ pub struct WebSearchConfig {
     pub search_prompt: Option<String>,
     /// Web search implementation strategy
     pub strategy: WebSearchStrategy,
-    /// Provider-specific search parameters
-    pub provider_params: HashMap<String, serde_json::Value>,
+    /// Provider-specific typed options (v0.12+).
+    ///
+    /// Prefer strong-typed `ProviderOptions` (e.g., `OpenAiOptions::web_search_options`,
+    /// `XaiOptions::search_parameters`). Raw `provider_params` has been removed.
+    #[serde(skip)]
+    pub provider_options: crate::types::ProviderOptions,
 }
 
 impl Default for WebSearchConfig {
@@ -28,8 +32,16 @@ impl Default for WebSearchConfig {
             context_size: None,
             search_prompt: None,
             strategy: WebSearchStrategy::Auto,
-            provider_params: HashMap::new(),
+            provider_options: crate::types::ProviderOptions::None,
         }
+    }
+}
+
+impl WebSearchConfig {
+    /// Set typed provider options for web search (v0.12+)
+    pub fn with_provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
+        self.provider_options = options;
+        self
     }
 }
 

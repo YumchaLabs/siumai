@@ -35,7 +35,13 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
         // 1. Transform request to JSON
         let mut body = self.request_transformer.transform_embedding(&req)?;
 
-        // 2. Apply before_send hook if present
+        // 2. Apply ProviderSpec-level embedding_before_send, then policy hook
+        if let Some(cb) = self
+            .provider_spec
+            .embedding_before_send(&req, &self.provider_context)
+        {
+            body = cb(&body)?;
+        }
         if let Some(cb) = &self.policy.before_send {
             body = cb(&body)?;
         }
@@ -316,5 +322,120 @@ mod tests {
             headers.get("x-req").unwrap(),
             &HeaderValue::from_static("R")
         );
+    }
+
+    #[tokio::test]
+    async fn spec_before_send_runs_before_policy_hook() {
+        // Spec that sets mark:"spec" via embedding_before_send
+        #[derive(Clone, Copy)]
+        struct SpecWithHook;
+        impl crate::core::ProviderSpec for SpecWithHook {
+            fn id(&self) -> &'static str {
+                "test"
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new().with_embedding()
+            }
+            fn build_headers(
+                &self,
+                _ctx: &crate::core::ProviderContext,
+            ) -> Result<HeaderMap, LlmError> {
+                Ok(HeaderMap::new())
+            }
+            fn chat_url(
+                &self,
+                _s: bool,
+                _r: &crate::types::ChatRequest,
+                _c: &crate::core::ProviderContext,
+            ) -> String {
+                unreachable!()
+            }
+            fn choose_chat_transformers(
+                &self,
+                _r: &crate::types::ChatRequest,
+                _c: &crate::core::ProviderContext,
+            ) -> crate::core::ChatTransformers {
+                unreachable!()
+            }
+            fn embedding_before_send(
+                &self,
+                _req: &EmbeddingRequest,
+                _ctx: &crate::core::ProviderContext,
+            ) -> Option<crate::execution::executors::BeforeSendHook> {
+                Some(Arc::new(|body: &serde_json::Value| {
+                    let mut out = body.clone();
+                    out["mark"] = serde_json::json!("spec");
+                    Ok(out)
+                }))
+            }
+        }
+
+        // Request transformer sets mark:"orig"
+        struct ReqTx;
+        impl crate::execution::transformers::request::RequestTransformer for ReqTx {
+            fn provider_id(&self) -> &str {
+                "test"
+            }
+            fn transform_chat(
+                &self,
+                _req: &crate::types::ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(serde_json::json!({}))
+            }
+            fn transform_embedding(
+                &self,
+                req: &EmbeddingRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                Ok(
+                    serde_json::json!({"model": req.model.clone().unwrap_or_default(), "mark": "orig"}),
+                )
+            }
+        }
+
+        // Response transformer aborts, we only care about hooks order
+        struct AbortResp;
+        impl crate::execution::transformers::response::ResponseTransformer for AbortResp {
+            fn provider_id(&self) -> &str {
+                "test"
+            }
+            fn transform_embedding_response(
+                &self,
+                _raw: &serde_json::Value,
+            ) -> Result<crate::types::EmbeddingResponse, LlmError> {
+                Err(LlmError::InvalidParameter("abort".into()))
+            }
+        }
+
+        // Policy hook captures body mark value then aborts
+        let seen = Arc::new(Mutex::new(None::<String>));
+        let seen2 = seen.clone();
+        let policy_hook: crate::execution::executors::BeforeSendHook =
+            Arc::new(move |body: &serde_json::Value| {
+                *seen2.lock().unwrap() = body
+                    .get("mark")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                Ok(body.clone())
+            });
+
+        let http = reqwest::Client::new();
+        let spec = Arc::new(SpecWithHook);
+        let ctx =
+            crate::core::ProviderContext::new("test", "http://127.0.0.1", None, Default::default());
+        let exec = super::HttpEmbeddingExecutor {
+            provider_id: "test".into(),
+            http_client: http,
+            request_transformer: Arc::new(ReqTx),
+            response_transformer: Arc::new(AbortResp),
+            provider_spec: spec,
+            provider_context: ctx,
+            policy: crate::execution::ExecutionPolicy::new().with_before_send(policy_hook),
+        };
+
+        let _ = exec
+            .execute(EmbeddingRequest::new(vec!["hello".into()]).with_model("m"))
+            .await;
+        let captured = seen.lock().unwrap().clone().unwrap();
+        assert_eq!(captured, "spec");
     }
 }

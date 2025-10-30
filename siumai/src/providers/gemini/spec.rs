@@ -58,18 +58,19 @@ impl ProviderSpec for GeminiSpec {
 
         // 2. Handle Gemini-specific options (code_execution, search_grounding)
         // 🎯 Extract Gemini-specific options from provider_options
-        let (code_execution, search_grounding) =
+        let (code_execution, search_grounding, response_mime_type) =
             if let ProviderOptions::Gemini(ref options) = req.provider_options {
                 (
                     options.code_execution.clone(),
                     options.search_grounding.clone(),
+                    options.response_mime_type.clone(),
                 )
             } else {
                 return None;
             };
 
         // Check if we have anything to inject
-        if code_execution.is_none() && search_grounding.is_none() {
+        if code_execution.is_none() && search_grounding.is_none() && response_mime_type.is_none() {
             return None;
         }
 
@@ -117,6 +118,20 @@ impl ProviderSpec for GeminiSpec {
 
                 tools.push(google_search_tool);
                 out["tools"] = serde_json::Value::Array(tools);
+            }
+
+            // 🎯 Inject response MIME type into generation_config
+            if let Some(ref mime) = response_mime_type {
+                if let Some(obj) = out
+                    .get_mut("generation_config")
+                    .and_then(|v| v.as_object_mut())
+                {
+                    obj.insert("response_mime_type".to_string(), serde_json::json!(mime));
+                } else {
+                    out["generation_config"] = serde_json::json!({
+                        "response_mime_type": mime
+                    });
+                }
             }
 
             Ok(out)

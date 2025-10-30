@@ -229,7 +229,7 @@ impl GeminiEmbeddingOptions {
             request = request.with_task_type(task_type);
         }
         if let Some(title) = self.title {
-            request = request.with_provider_param("title", serde_json::Value::String(title));
+            request = request.with_title(title);
         }
         if let Some(dims) = self.output_dimensionality {
             request.dimensions = Some(dims);
@@ -258,7 +258,7 @@ impl GeminiEmbeddingRequestExt for crate::types::EmbeddingRequest {
         self.with_task_type(task_type)
     }
     fn with_gemini_title(self, title: impl Into<String>) -> Self {
-        self.with_provider_param("title", serde_json::Value::String(title.into()))
+        self.with_title(title)
     }
     fn with_gemini_dimensions(self, dimensions: u32) -> Self {
         let mut request = self;

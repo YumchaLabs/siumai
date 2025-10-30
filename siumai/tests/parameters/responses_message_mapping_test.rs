@@ -18,19 +18,13 @@ fn tool_role_message_maps_to_function_call_output_item() {
     let msg = ChatMessage::tool_result_text("call_1", "some_tool", "result: 42").build();
 
     // Build request
-    let req = ChatRequest {
-        messages: vec![msg.clone()],
-        tools: None,
-        tool_choice: None,
-        common_params: CommonParams {
+    let req = ChatRequest::builder()
+        .messages(vec![msg.clone()])
+        .common_params(CommonParams {
             model: "gpt-4o-mini".into(),
             ..Default::default()
-        },
-        provider_options: siumai::types::ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+        })
+        .build();
     let json = OpenAiResponsesRequestTransformer
         .transform_chat(&req)
         .expect("map");
@@ -55,19 +49,13 @@ fn assistant_tool_calls_map_to_tool_use_parts_and_text() {
     ])
     .build();
 
-    let req = ChatRequest {
-        messages: vec![msg],
-        tools: None,
-        tool_choice: None,
-        common_params: CommonParams {
+    let req = ChatRequest::builder()
+        .messages(vec![msg])
+        .common_params(CommonParams {
             model: "gpt-5-mini".into(),
             ..Default::default()
-        },
-        provider_options: siumai::types::ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+        })
+        .build();
 
     let json = OpenAiResponsesRequestTransformer
         .transform_chat(&req)

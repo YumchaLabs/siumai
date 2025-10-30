@@ -399,7 +399,7 @@ mod tests {
         let condition = has_tool_result();
 
         // No steps yet
-        assert!(!condition.should_stop(&vec![]));
+        assert!(!condition.should_stop(&[]));
 
         // Step with no tool results
         let step_no_results = StepResult {
@@ -410,7 +410,8 @@ mod tests {
             tool_results: vec![],
             warnings: None,
         };
-        assert!(!condition.should_stop(&vec![step_no_results.clone()]));
+        let steps = [step_no_results.clone()];
+        assert!(!condition.should_stop(&steps));
 
         // Step with tool results
         let step_with_results = StepResult {
@@ -423,7 +424,8 @@ mod tests {
             }],
             warnings: None,
         };
-        assert!(condition.should_stop(&vec![step_with_results]));
+        let steps = [step_with_results];
+        assert!(condition.should_stop(&steps));
     }
 
     #[test]
@@ -431,11 +433,12 @@ mod tests {
         let condition = has_no_tool_calls();
 
         // No steps yet
-        assert!(!condition.should_stop(&vec![]));
+        assert!(!condition.should_stop(&[]));
 
         // Step with tool calls
         let step_with_calls = create_step_with_tools(vec!["tool1"]);
-        assert!(!condition.should_stop(&vec![step_with_calls]));
+        let steps = [step_with_calls];
+        assert!(!condition.should_stop(&steps));
 
         // Step with no tool calls
         let step_no_calls = StepResult {
@@ -446,6 +449,7 @@ mod tests {
             tool_results: vec![],
             warnings: None,
         };
-        assert!(condition.should_stop(&vec![step_no_calls]));
+        let steps = [step_no_calls];
+        assert!(condition.should_stop(&steps));
     }
 }

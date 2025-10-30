@@ -391,22 +391,24 @@ impl OllamaEmbeddingOptions {
     /// Ollama-specific parameters.
     pub fn apply_to_request(
         self,
-        mut request: crate::types::EmbeddingRequest,
+        request: crate::types::EmbeddingRequest,
     ) -> crate::types::EmbeddingRequest {
-        if let Some(truncate) = self.truncate {
-            request = request.with_provider_param("truncate", serde_json::Value::Bool(truncate));
-        }
+        let mut opts = match &request.provider_options {
+            crate::types::ProviderOptions::Ollama(o) => o.clone(),
+            _ => crate::types::OllamaOptions::new(),
+        };
         if let Some(keep_alive) = self.keep_alive {
-            request =
-                request.with_provider_param("keep_alive", serde_json::Value::String(keep_alive));
+            opts = opts.with_keep_alive(keep_alive);
         }
-        if let Some(options) = self.options {
-            request = request.with_provider_param(
-                "options",
-                serde_json::Value::Object(options.into_iter().collect()),
-            );
+        if let Some(truncate) = self.truncate {
+            opts = opts.with_param("truncate", serde_json::json!(truncate));
         }
-        request
+        if let Some(map) = self.options {
+            for (k, v) in map.into_iter() {
+                opts = opts.with_param(k, v);
+            }
+        }
+        request.with_provider_options(crate::types::ProviderOptions::Ollama(opts))
     }
 }
 
@@ -444,24 +446,29 @@ impl OllamaEmbeddingRequestExt for crate::types::EmbeddingRequest {
     }
 
     fn with_ollama_truncate(self, truncate: bool) -> Self {
-        self.with_provider_param("truncate", serde_json::Value::Bool(truncate))
+        let mut opts = match &self.provider_options {
+            crate::types::ProviderOptions::Ollama(o) => o.clone(),
+            _ => crate::types::OllamaOptions::new(),
+        };
+        opts = opts.with_param("truncate", serde_json::json!(truncate));
+        self.with_provider_options(crate::types::ProviderOptions::Ollama(opts))
     }
 
     fn with_ollama_keep_alive(self, duration: impl Into<String>) -> Self {
-        self.with_provider_param("keep_alive", serde_json::Value::String(duration.into()))
+        let mut opts = match &self.provider_options {
+            crate::types::ProviderOptions::Ollama(o) => o.clone(),
+            _ => crate::types::OllamaOptions::new(),
+        };
+        opts = opts.with_keep_alive(duration);
+        self.with_provider_options(crate::types::ProviderOptions::Ollama(opts))
     }
 
     fn with_ollama_option(self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        // Get existing options or create new ones
-        let mut options = self
-            .provider_params
-            .get("options")
-            .and_then(|v| v.as_object())
-            .cloned()
-            .unwrap_or_default();
-
-        options.insert(key.into(), value);
-
-        self.with_provider_param("options", serde_json::Value::Object(options))
+        let mut opts = match &self.provider_options {
+            crate::types::ProviderOptions::Ollama(o) => o.clone(),
+            _ => crate::types::OllamaOptions::new(),
+        };
+        opts = opts.with_param(key, value);
+        self.with_provider_options(crate::types::ProviderOptions::Ollama(opts))
     }
 }

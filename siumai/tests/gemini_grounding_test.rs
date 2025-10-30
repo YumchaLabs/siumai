@@ -105,7 +105,7 @@ async fn test_google_search_in_request() {
     let client = LlmBuilder::new()
         .gemini()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("gemini-2.5-flash")
         .build()
         .await
@@ -175,7 +175,7 @@ async fn test_url_context_in_request() {
     let client = LlmBuilder::new()
         .gemini()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("gemini-2.5-flash")
         .build()
         .await

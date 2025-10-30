@@ -133,7 +133,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                     to: "generationConfig.stopSequences",
                 },
             ],
-            // provider_params merged via hooks when needed (function_calling)
+            // Provider options are injected via ProviderSpec::chat_before_send()
             merge_strategy:
                 crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
         };
@@ -180,16 +180,29 @@ impl RequestTransformer for GeminiRequestTransformer {
                     requests: Vec<GeminiEmbeddingRequest>,
                 }
 
-                let task_type = req
-                    .provider_params
-                    .get("task_type")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let title = req
-                    .provider_params
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let task_type = req.task_type.as_ref().map(|tt| match tt {
+                    crate::types::EmbeddingTaskType::RetrievalQuery => {
+                        "RETRIEVAL_QUERY".to_string()
+                    }
+                    crate::types::EmbeddingTaskType::RetrievalDocument => {
+                        "RETRIEVAL_DOCUMENT".to_string()
+                    }
+                    crate::types::EmbeddingTaskType::SemanticSimilarity => {
+                        "SEMANTIC_SIMILARITY".to_string()
+                    }
+                    crate::types::EmbeddingTaskType::Classification => "CLASSIFICATION".to_string(),
+                    crate::types::EmbeddingTaskType::Clustering => "CLUSTERING".to_string(),
+                    crate::types::EmbeddingTaskType::QuestionAnswering => {
+                        "QUESTION_ANSWERING".to_string()
+                    }
+                    crate::types::EmbeddingTaskType::FactVerification => {
+                        "FACT_VERIFICATION".to_string()
+                    }
+                    crate::types::EmbeddingTaskType::Unspecified => {
+                        "TASK_TYPE_UNSPECIFIED".to_string()
+                    }
+                });
+                let title = req.title.clone();
                 let output_dimensionality = req.dimensions;
 
                 if req.input.len() == 1 {
@@ -966,7 +979,7 @@ mod embeddings_tests {
         let req = crate::types::EmbeddingRequest::new(vec!["Hello".to_string()])
             .with_dimensions(768)
             .with_task_type(crate::types::EmbeddingTaskType::RetrievalQuery)
-            .with_provider_param("title", serde_json::Value::String("My Title".into()));
+            .with_title("My Title");
 
         let body = tx.transform_embedding(&req).expect("serialize request");
 

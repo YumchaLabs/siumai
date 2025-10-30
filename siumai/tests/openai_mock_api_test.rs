@@ -68,7 +68,7 @@ async fn test_openai_chat_completion_non_streaming() {
 
     // Create client pointing to mock server
     let config = OpenAiConfig::new("test-api-key")
-        .with_base_url(&mock_server.uri())
+        .with_base_url(mock_server.uri())
         .with_model("gpt-4");
     let client = OpenAiClient::new_with_config(config);
 
@@ -113,7 +113,7 @@ async fn test_openai_error_response() {
         .await;
 
     let config = OpenAiConfig::new("invalid-key")
-        .with_base_url(&mock_server.uri())
+        .with_base_url(mock_server.uri())
         .with_model("gpt-4");
     let client = OpenAiClient::new_with_config(config);
 
@@ -139,7 +139,7 @@ async fn test_openai_request_headers() {
         .await;
 
     let config = OpenAiConfig::new("test-api-key")
-        .with_base_url(&mock_server.uri())
+        .with_base_url(mock_server.uri())
         .with_model("gpt-4");
     let client = OpenAiClient::new_with_config(config);
 
@@ -188,7 +188,7 @@ async fn test_openai_tool_calls_response() {
         .await;
 
     let config = OpenAiConfig::new("test-api-key")
-        .with_base_url(&mock_server.uri())
+        .with_base_url(mock_server.uri())
         .with_model("gpt-4");
     let client = OpenAiClient::new_with_config(config);
 

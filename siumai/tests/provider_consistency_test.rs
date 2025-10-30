@@ -19,9 +19,9 @@ const ALL_PROVIDERS: &[&str] = &["openai", "anthropic", "xai", "gemini", "groq",
 
 /// Helper to create a basic chat request
 fn create_test_request() -> ChatRequest {
-    ChatRequest {
-        messages: vec![ChatMessage::user("test").build()],
-        common_params: CommonParams {
+    ChatRequest::builder()
+        .message(ChatMessage::user("test").build())
+        .common_params(CommonParams {
             model: "test-model".to_string(),
             temperature: Some(0.7),
             max_tokens: Some(100),
@@ -29,14 +29,8 @@ fn create_test_request() -> ChatRequest {
             top_p: None,
             stop_sequences: None,
             seed: None,
-        },
-        tools: None,
-        tool_choice: None,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    }
+        })
+        .build()
 }
 
 /// Test that all providers support CustomProviderOptions

@@ -2,6 +2,11 @@
 
 This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
 
+## [not release]
+
+### Added
+- OrchestratorBuilder documentation and small ergonomic improvements (callbacks annotated to quiet clippy type‑complexity where necessary).
+
 ## [0.11.0-beta.1] - 2025-10-28
 
 This beta delivers a major refactor of module layout, execution/streaming, and provider integration. Design inspired by Cherry Studio’s transformer design and the Vercel AI SDK’s adapter architecture.

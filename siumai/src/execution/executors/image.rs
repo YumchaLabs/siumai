@@ -426,8 +426,10 @@ mod tests {
                 Err(LlmError::InvalidParameter("abort".into()))
             })),
         };
-        let mut req = crate::types::ImageGenerationRequest::default();
-        req.prompt = "hello".into();
+        let req = crate::types::ImageGenerationRequest {
+            prompt: "hello".into(),
+            ..Default::default()
+        };
         let err = exec.execute(req).await.unwrap_err();
         match err {
             LlmError::InvalidParameter(m) => assert_eq!(m, "abort"),
@@ -452,8 +454,10 @@ mod tests {
             provider_context: ctx,
             policy: crate::execution::ExecutionPolicy::new().with_interceptors(vec![interceptor]),
         };
-        let mut req = crate::types::ImageGenerationRequest::default();
-        req.prompt = "hello".into();
+        let mut req = crate::types::ImageGenerationRequest {
+            prompt: "hello".into(),
+            ..Default::default()
+        };
         let mut hc = crate::types::HttpConfig::default();
         hc.headers.insert("x-req".into(), "R".into());
         req.http_config = Some(hc);

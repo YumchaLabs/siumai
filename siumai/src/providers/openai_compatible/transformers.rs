@@ -86,11 +86,7 @@ impl RequestTransformer for CompatRequestTransformer {
         if let Some(user) = &req.user {
             body["user"] = serde_json::json!(user);
         }
-        if let Some(obj) = body.as_object_mut() {
-            for (k, v) in &req.provider_params {
-                obj.insert(k.clone(), v.clone());
-            }
-        }
+        // No additional provider_params merging; prefer typed ProviderOptions per provider
         self.adapter.transform_request_params(
             &mut body,
             &self.config.model,

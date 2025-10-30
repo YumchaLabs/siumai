@@ -34,7 +34,7 @@
 //!     base_url: Option<String>,
 //!     model: Option<String>,
 //!     common_params: CommonParams,
-//!     my_provider_params: MyProviderParams,
+//!     my_provider_options: MyProviderOptions,
 //! }
 //!
 //! impl MyProviderBuilder {
@@ -45,7 +45,7 @@
 //!             base_url: None,
 //!             model: None,
 //!             common_params: CommonParams::default(),
-//!             my_provider_params: MyProviderParams::default(),
+//!             my_provider_options: MyProviderOptions::default(),
 //!         }
 //!     }
 //!
@@ -64,7 +64,7 @@
 //!
 //!     // Add provider-specific methods here
 //!     pub fn my_custom_param(mut self, value: String) -> Self {
-//!         self.my_provider_params.custom = Some(value);
+//!         self.my_provider_options.custom = Some(value);
 //!         self
 //!     }
 //!

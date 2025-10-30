@@ -3,7 +3,7 @@
 //! Tests to ensure all providers handle max_tokens defaults correctly.
 
 use siumai::execution::transformers::request::RequestTransformer;
-use siumai::types::{ChatRequest, CommonParams, ProviderOptions};
+use siumai::types::{ChatRequest, CommonParams};
 
 #[test]
 fn test_anthropic_max_tokens_default() {
@@ -21,16 +21,10 @@ fn test_anthropic_max_tokens_default() {
         seed: None,
     };
 
-    let req = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_without_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_without_max_tokens)
+        .build();
     let mapped = transformer.transform_chat(&req).unwrap();
 
     // Anthropic should automatically set default max_tokens
@@ -47,16 +41,10 @@ fn test_anthropic_max_tokens_default() {
         seed: None,
     };
 
-    let req2 = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_with_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req2 = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_with_max_tokens)
+        .build();
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
     // Should use the explicit value
@@ -78,16 +66,10 @@ fn test_openai_max_tokens_optional() {
         seed: None,
     };
 
-    let req = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_without_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_without_max_tokens)
+        .build();
     let mapped = transformer.transform_chat(&req).unwrap();
 
     // OpenAI should not have max_tokens if not provided
@@ -104,16 +86,10 @@ fn test_openai_max_tokens_optional() {
         seed: None,
     };
 
-    let req2 = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_with_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req2 = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_with_max_tokens)
+        .build();
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
     // Should use the explicit value
@@ -139,16 +115,10 @@ fn test_gemini_max_tokens_optional() {
         seed: None,
     };
 
-    let req = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_without_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_without_max_tokens)
+        .build();
     let mapped = transformer.transform_chat(&req).unwrap();
 
     // Gemini should not have generationConfig.maxOutputTokens if not provided
@@ -170,16 +140,10 @@ fn test_gemini_max_tokens_optional() {
         seed: None,
     };
 
-    let req2 = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_with_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req2 = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_with_max_tokens)
+        .build();
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
     // Should use the explicit value as generationConfig.maxOutputTokens
@@ -203,16 +167,10 @@ fn test_ollama_max_tokens_optional() {
         seed: None,
     };
 
-    let req = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_without_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_without_max_tokens)
+        .build();
     let mapped = transformer.transform_chat(&req).unwrap();
 
     // Ollama should not have num_predict if not provided (under options)
@@ -234,16 +192,10 @@ fn test_ollama_max_tokens_optional() {
         seed: None,
     };
 
-    let req2 = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_with_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req2 = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_with_max_tokens)
+        .build();
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
     // Should use the explicit value as options.num_predict
@@ -265,16 +217,10 @@ fn test_groq_max_tokens_optional() {
         seed: None,
     };
 
-    let req = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_without_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_without_max_tokens)
+        .build();
     let mapped = transformer.transform_chat(&req).unwrap();
 
     // Groq (OpenAI format) should not have max_tokens if not provided
@@ -291,16 +237,10 @@ fn test_groq_max_tokens_optional() {
         seed: None,
     };
 
-    let req2 = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_with_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req2 = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_with_max_tokens)
+        .build();
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
     // Should use the explicit value
@@ -322,16 +262,10 @@ fn test_xai_max_tokens_optional() {
         seed: None,
     };
 
-    let req = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_without_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_without_max_tokens)
+        .build();
     let mapped = transformer.transform_chat(&req).unwrap();
 
     // XAI (OpenAI format) should not have max_tokens if not provided
@@ -348,16 +282,10 @@ fn test_xai_max_tokens_optional() {
         seed: None,
     };
 
-    let req2 = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_with_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req2 = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_with_max_tokens)
+        .build();
     let mapped_explicit = transformer.transform_chat(&req2).unwrap();
 
     // Should use the explicit value
@@ -381,16 +309,10 @@ async fn test_anthropic_validation_requires_max_tokens() {
     };
 
     // Transform (should add default max_tokens)
-    let req = ChatRequest {
-        messages: vec![],
-        tools: None,
-        tool_choice: None,
-        common_params: params_without_max_tokens,
-        provider_options: ProviderOptions::None,
-        http_config: None,
-        stream: false,
-        telemetry: None,
-    };
+    let req = ChatRequest::builder()
+        .messages(Vec::new())
+        .common_params(params_without_max_tokens)
+        .build();
     let mapped = transformer.transform_chat(&req).unwrap();
 
     // Validation should pass because default max_tokens was added

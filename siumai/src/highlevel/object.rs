@@ -538,47 +538,56 @@ fn build_chat_request_with_hints(
     if !tools_vec.is_empty() {
         req = req.with_tools(tools_vec);
     }
-    // Build structured_output hint
-    let mut hint = serde_json::Map::new();
-    // mode
-    let mode_str = match opts.mode {
-        GenerateMode::Auto => "auto",
-        GenerateMode::Json => "json",
-        GenerateMode::Tool => "tool",
-    };
-    hint.insert("mode".into(), serde_json::Value::String(mode_str.into()));
-    // schema
+    // If a JSON schema is provided, attach OpenAI Responses API options as a best‑effort hint.
+    // Non‑OpenAI providers will simply ignore these options via ProviderSpec logic.
     if let Some(schema) = opts.schema.clone() {
-        hint.insert("schema".into(), schema);
-    }
-    if let Some(name) = opts.schema_name.clone() {
-        hint.insert("schema_name".into(), serde_json::Value::String(name));
-    }
-    if let Some(desc) = opts.schema_description.clone() {
-        hint.insert("schema_description".into(), serde_json::Value::String(desc));
-    }
-    // output
-    match &opts.output {
-        OutputKind::Object => {
-            hint.insert("output".into(), serde_json::Value::String("object".into()));
+        #[cfg(feature = "openai")]
+        {
+            use crate::types::{OpenAiOptions, ResponsesApiConfig};
+            let response_format = if let Some(name) = opts.schema_name.clone() {
+                serde_json::json!({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": name,
+                        "strict": true,
+                        "schema": schema
+                    }
+                })
+            } else {
+                serde_json::json!({
+                    "type": "json_object",
+                    "json_schema": {
+                        "name": "response",
+                        "strict": true,
+                        "schema": schema
+                    }
+                })
+            };
+            req = req.with_openai_options(OpenAiOptions::new().with_responses_api(
+                ResponsesApiConfig::new().with_response_format(response_format),
+            ));
         }
-        OutputKind::Array => {
-            hint.insert("output".into(), serde_json::Value::String("array".into()));
+
+        #[cfg(feature = "anthropic")]
+        {
+            use crate::types::AnthropicOptions;
+            if let Some(name) = opts.schema_name.clone() {
+                let opts_an = AnthropicOptions::new().with_json_schema(name, schema.clone(), true);
+                req = req.with_anthropic_options(opts_an);
+            } else {
+                let opts_an = AnthropicOptions::new().with_json_object();
+                req = req.with_anthropic_options(opts_an);
+            }
         }
-        OutputKind::Enum(vals) => {
-            hint.insert("output".into(), serde_json::Value::String("enum".into()));
-            hint.insert("enum".into(), serde_json::Value::Array(vals.clone()));
-        }
-        OutputKind::NoSchema => {
-            hint.insert(
-                "output".into(),
-                serde_json::Value::String("no-schema".into()),
-            );
+
+        #[cfg(feature = "google")]
+        {
+            use crate::types::GeminiOptions;
+            // Ask Gemini to return JSON by setting the response MIME type
+            let opts_g = GeminiOptions::new().with_response_mime_type("application/json");
+            req = req.with_gemini_options(opts_g);
         }
     }
-    // TODO: Migrate to provider_options
-    // This highlevel API needs to be refactored to use provider-specific options
-    // instead of the deprecated provider_params
     req = req.with_streaming(stream);
     req
 }
@@ -1092,7 +1101,7 @@ mod openai_integration_tests {
             ..Default::default()
         };
         // Invoke; interceptor will abort before network
-        let _ = futures::executor::block_on(async {
+        futures::executor::block_on(async {
             let _ =
                 generate_object_openai::<serde_json::Value>(&client, messages, None, opts).await;
         });
@@ -1122,7 +1131,7 @@ mod openai_integration_tests {
             ..Default::default()
         };
         // Invoke streaming helper; interceptor will abort before HTTP
-        let _ = futures::executor::block_on(async {
+        futures::executor::block_on(async {
             let _ = stream_object_openai::<serde_json::Value>(&client, messages, None, opts).await;
         });
         let body = captured.lock().unwrap().clone().expect("captured body");

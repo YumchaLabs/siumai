@@ -340,13 +340,14 @@ impl OpenAiClient {
     ) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            stream: true,
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
@@ -466,12 +467,13 @@ impl OpenAiClient {
     ) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
@@ -1076,12 +1078,10 @@ mod tests {
         };
 
         // Create a ChatRequest to test the legacy chat method
-        let request = ChatRequest {
-            messages: vec![message],
-            tools: None,
-            common_params: client.common_params.clone(),
-            ..Default::default()
-        };
+        let request = ChatRequest::builder()
+            .messages(vec![message])
+            .common_params(client.common_params.clone())
+            .build();
 
         // Test that the request body includes the correct model (via transformers)
         let tx = transformers::OpenAiRequestTransformer;
@@ -1601,7 +1601,7 @@ mod tests {
         assert_eq!(
             body.get("include")
                 .and_then(|v| v.as_array())
-                .and_then(|arr| arr.get(0))
+                .and_then(|arr| arr.first())
                 .and_then(|v| v.as_str()),
             Some("file_search_call.results")
         );

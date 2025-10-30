@@ -214,7 +214,7 @@ telemetry::add_exporter(Box::new(MyCustomExporter {
 
 ### GenerationEvent
 
-Represents a single LLM generation（chat/embedding 等）。
+Represents a single LLM generation (e.g., chat or embedding).
 
 ```rust
 pub struct GenerationEvent {
@@ -224,8 +224,8 @@ pub struct GenerationEvent {
     pub timestamp: SystemTime,
     pub provider: String,
     pub model: String,
-    pub input: Option<Vec<ChatMessage>>,   // 受 TelemetryConfig.record_inputs 控制
-    pub output: Option<ChatResponse>,      // 受 TelemetryConfig.record_outputs 控制
+    pub input: Option<Vec<ChatMessage>>,   // Controlled by TelemetryConfig.record_inputs
+    pub output: Option<ChatResponse>,      // Controlled by TelemetryConfig.record_outputs
     pub usage: Option<Usage>,
     pub finish_reason: Option<FinishReason>,
     pub duration: Option<Duration>,
@@ -236,7 +236,7 @@ pub struct GenerationEvent {
 
 ### ToolExecutionEvent
 
-表示一次工具调用（函数调用）：
+Represents a tool invocation (function call):
 
 ```rust
 pub struct ToolExecutionEvent {
@@ -256,7 +256,7 @@ pub struct ToolExecutionEvent {
 
 ### OrchestratorEvent
 
-代表多步管弦（编排）事件：
+Represents a multi-step orchestration event:
 
 ```rust
 pub struct OrchestratorEvent {
@@ -274,7 +274,7 @@ pub struct OrchestratorEvent {
 
 ### SpanEvent
 
-代表层级跨度（分布式追踪）：
+Represents a hierarchical span (distributed tracing):
 
 ```rust
 pub struct SpanEvent {

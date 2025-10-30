@@ -38,10 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("AI: {}\n", response1.content_text().unwrap());
     if let Some(usage) = &response1.usage {
         println!("Usage: {:?}", usage);
-        if let Some(anthropic_meta) = response1.anthropic_metadata() {
-            if let Some(cache_creation) = anthropic_meta.cache_creation_input_tokens {
-                println!("Cache creation tokens: {:?}\n", cache_creation);
-            }
+        if let Some(anthropic_meta) = response1.anthropic_metadata()
+            && let Some(cache_creation) = anthropic_meta.cache_creation_input_tokens
+        {
+            println!("Cache creation tokens: {:?}\n", cache_creation);
         }
     }
 
@@ -54,11 +54,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("AI: {}\n", response2.content_text().unwrap());
     if let Some(usage) = &response2.usage {
         println!("Usage: {:?}", usage);
-        if let Some(anthropic_meta) = response2.anthropic_metadata() {
-            if let Some(cache_read) = anthropic_meta.cache_read_input_tokens {
-                println!("Cache read tokens: {:?}", cache_read);
-                println!("💰 Cost savings from caching!");
-            }
+        if let Some(anthropic_meta) = response2.anthropic_metadata()
+            && let Some(cache_read) = anthropic_meta.cache_read_input_tokens
+        {
+            println!("Cache read tokens: {:?}", cache_read);
+            println!("💰 Cost savings from caching!");
         }
     }
 

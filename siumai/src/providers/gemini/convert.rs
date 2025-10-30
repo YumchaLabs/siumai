@@ -282,12 +282,11 @@ mod tests {
             "code_execution",
         )];
         let mapped = convert_tools_to_gemini(&tools).expect("map ok");
-        assert!(matches!(
+        assert!(
             mapped
                 .iter()
-                .any(|t| matches!(t, GeminiTool::CodeExecution { .. })),
-            true
-        ));
+                .any(|t| matches!(t, GeminiTool::CodeExecution { .. }))
+        );
 
         // google_search
         let tools = vec![Tool::provider_defined(
@@ -295,12 +294,11 @@ mod tests {
             "google_search",
         )];
         let mapped = convert_tools_to_gemini(&tools).expect("map ok");
-        assert!(matches!(
+        assert!(
             mapped
                 .iter()
-                .any(|t| matches!(t, GeminiTool::GoogleSearch { .. })),
-            true
-        ));
+                .any(|t| matches!(t, GeminiTool::GoogleSearch { .. }))
+        );
 
         // google_search_retrieval
         let tools = vec![Tool::provider_defined(
@@ -308,22 +306,20 @@ mod tests {
             "google_search_retrieval",
         )];
         let mapped = convert_tools_to_gemini(&tools).expect("map ok");
-        assert!(matches!(
+        assert!(
             mapped
                 .iter()
-                .any(|t| matches!(t, GeminiTool::GoogleSearchRetrieval { .. })),
-            true
-        ));
+                .any(|t| matches!(t, GeminiTool::GoogleSearchRetrieval { .. }))
+        );
 
         // url_context
         let tools = vec![Tool::provider_defined("google.url_context", "url_context")];
         let mapped = convert_tools_to_gemini(&tools).expect("map ok");
-        assert!(matches!(
+        assert!(
             mapped
                 .iter()
-                .any(|t| matches!(t, GeminiTool::UrlContext { .. })),
-            true
-        ));
+                .any(|t| matches!(t, GeminiTool::UrlContext { .. }))
+        );
     }
 }
 

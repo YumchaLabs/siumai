@@ -329,13 +329,14 @@ impl ChatCapability for OpenAiCompatibleClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
         // Build unified ChatRequest
-        let req = ChatRequest {
-            messages,
-            tools,
-            common_params: self.config.common_params.clone(),
-            http_config: Some(self.config.http_config.clone()),
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.config.common_params.clone())
+            .http_config(self.config.http_config.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let req = builder.build();
 
         // Execute via ProviderSpec
         self.chat_request_via_spec(req).await
@@ -347,14 +348,15 @@ impl ChatCapability for OpenAiCompatibleClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
         // Unified ChatRequest
-        let request = crate::types::ChatRequest {
-            messages,
-            tools,
-            common_params: self.config.common_params.clone(),
-            http_config: Some(self.config.http_config.clone()),
-            stream: true,
-            ..Default::default()
-        };
+        let mut builder = crate::types::ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.config.common_params.clone())
+            .http_config(self.config.http_config.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
 
         // Execute via ProviderSpec
         self.chat_stream_request_via_spec(request).await

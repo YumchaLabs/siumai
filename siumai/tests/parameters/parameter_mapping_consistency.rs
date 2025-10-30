@@ -118,15 +118,10 @@ fn test_anthropic_default_max_tokens() {
         ..Default::default()
     };
 
-    let req = siumai::types::ChatRequest {
-        messages: vec![siumai::types::ChatMessage::user("hi").build()],
-        tools: None,
-        common_params: common_params.clone(),
-        provider_params: None,
-        http_config: None,
-        web_search: None,
-        stream: false,
-    };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(vec![siumai::types::ChatMessage::user("hi").build()])
+        .common_params(common_params.clone())
+        .build();
     let mapped = AnthropicRequestTransformer::new(None)
         .transform_chat(&req)
         .expect("map via transformer");
@@ -154,7 +149,10 @@ fn test_openai_parameter_validation() {
         temperature: Some(2.5), // Invalid: > 2.0
         ..Default::default()
     };
-    let req = siumai::types::ChatRequest { messages: messages.clone(), tools: None, common_params: CommonParams { model: "gpt-4".to_string(), temperature: Some(2.5), ..Default::default() }, provider_params: None, http_config: None, web_search: None, stream: false };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(messages.clone())
+        .common_params(CommonParams { model: "gpt-4".to_string(), temperature: Some(2.5), ..Default::default() })
+        .build();
     let result = OpenAiRequestTransformer.transform_chat(&req);
     assert!(result.is_err());
     assert!(
@@ -170,7 +168,10 @@ fn test_openai_parameter_validation() {
         top_p: Some(1.5), // Invalid: > 1.0
         ..Default::default()
     };
-    let req = siumai::types::ChatRequest { messages: messages.clone(), tools: None, common_params: CommonParams { model: "gpt-4".to_string(), top_p: Some(1.5), ..Default::default() }, provider_params: None, http_config: None, web_search: None, stream: false };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(messages.clone())
+        .common_params(CommonParams { model: "gpt-4".to_string(), top_p: Some(1.5), ..Default::default() })
+        .build();
     let result = OpenAiRequestTransformer.transform_chat(&req);
     assert!(result.is_err());
     assert!(
@@ -180,43 +181,19 @@ fn test_openai_parameter_validation() {
             .contains("top_p must be between 0.0 and 1.0")
     );
 
-    // Test invalid frequency_penalty (> 2.0)
-    let invalid_freq_penalty_params = CommonParams {
-        model: "gpt-4".to_string(),
-        ..Default::default()
-    };
-    let invalid_openai_params = OpenAiParams {
-        frequency_penalty: Some(3.0), // Invalid: > 2.0
-        ..Default::default()
-    };
-    let req = siumai::types::ChatRequest { messages: messages.clone(), tools: None, common_params: CommonParams { model: "gpt-4".to_string(), ..Default::default() }, provider_params: Some(siumai::types::ProviderParams::openai().with_param("frequency_penalty", 3.0)), http_config: None, web_search: None, stream: false };
-    let result = OpenAiRequestTransformer.transform_chat(&req);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("frequency_penalty must be between -2.0 and 2.0")
-    );
+    // Test invalid frequency_penalty (> 2.0) via typed OpenAiParams builder
+    let freq_err = OpenAiParams::builder().frequency_penalty(3.0).unwrap_err();
+    assert!(freq_err
+        .to_string()
+        .to_lowercase()
+        .contains("frequency penalty must be between -2.0 and 2.0"));
 
-    // Test invalid presence_penalty (< -2.0)
-    let invalid_pres_penalty_params = CommonParams {
-        model: "gpt-4".to_string(),
-        ..Default::default()
-    };
-    let invalid_openai_params = OpenAiParams {
-        presence_penalty: Some(-3.0), // Invalid: < -2.0
-        ..Default::default()
-    };
-    let req = siumai::types::ChatRequest { messages: messages.clone(), tools: None, common_params: CommonParams { model: "gpt-4".to_string(), ..Default::default() }, provider_params: Some(siumai::types::ProviderParams::openai().with_param("presence_penalty", -3.0)), http_config: None, web_search: None, stream: false };
-    let result = OpenAiRequestTransformer.transform_chat(&req);
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("presence_penalty must be between -2.0 and 2.0")
-    );
+    // Test invalid presence_penalty (< -2.0) via typed OpenAiParams builder
+    let pres_err = OpenAiParams::builder().presence_penalty(-3.0).unwrap_err();
+    assert!(pres_err
+        .to_string()
+        .to_lowercase()
+        .contains("presence penalty must be between -2.0 and 2.0"));
 
     // Test with validation disabled (default) - should succeed even with invalid values
     let default_config = RequestBuilderConfig::default();
@@ -225,7 +202,8 @@ fn test_openai_parameter_validation() {
         temperature: Some(5.0), // Invalid but should pass when validation disabled
         ..Default::default()
     };
-    // 新架构：Transformers 始终执行 Provider 校验（不支持关闭），因此此处应返回错误
+    // New architecture: Transformers always perform provider validation (cannot be disabled),
+    // so this should return an error
     let req = siumai::types::ChatRequest::builder()
         .messages(messages.clone())
         .common_params(CommonParams { model: "gpt-4".to_string(), temperature: Some(5.0), ..Default::default() })
@@ -314,7 +292,7 @@ fn test_anthropic_parameter_validation() {
         temperature: Some(2.0), // Invalid but should pass when validation disabled
         ..Default::default()
     };
-    // 新架构：始终执行 Provider 校验，不支持关闭
+    // New architecture: provider validation always runs and cannot be disabled
     let req = siumai::types::ChatRequest::builder()
         .messages(messages.clone())
         .common_params(CommonParams { model: "claude-3-5-sonnet-20241022".to_string(), temperature: Some(2.0), ..Default::default() })
@@ -464,7 +442,10 @@ fn test_gemini_parameter_validation() {
         ..Default::default()
     };
     let cfg = GeminiConfig { api_key: String::new(), base_url: String::new(), model: "gemini-1.5-pro".to_string(), generation_config: None, safety_settings: None, timeout: None };
-    let req = siumai::types::ChatRequest { messages: messages.clone(), tools: None, common_params: CommonParams { model: cfg.model.clone(), top_p: Some(1.5), ..Default::default() }, provider_params: None, http_config: None, web_search: None, stream: false };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(messages.clone())
+        .common_params(CommonParams { model: cfg.model.clone(), top_p: Some(1.5), ..Default::default() })
+        .build();
     let result = GeminiRequestTransformer { config: cfg }.transform_chat(&req);
     assert!(result.is_err());
     assert!(
@@ -474,9 +455,13 @@ fn test_gemini_parameter_validation() {
             .contains("topP must be between 0.0 and 1.0")
     );
 
-    // 新架构：Transformers 始终执行 Provider 校验（不支持关闭），因此此处应返回错误
+    // New architecture: Transformers always perform provider validation (cannot be disabled),
+    // so this should return an error
     let cfg = GeminiConfig { api_key: String::new(), base_url: String::new(), model: "gemini-1.5-pro".to_string(), generation_config: None, safety_settings: None, timeout: None };
-    let req = siumai::types::ChatRequest { messages: messages.clone(), tools: None, common_params: CommonParams { model: cfg.model.clone(), temperature: Some(3.0), ..Default::default() }, provider_params: None, http_config: None, web_search: None, stream: false };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(messages.clone())
+        .common_params(CommonParams { model: cfg.model.clone(), temperature: Some(3.0), ..Default::default() })
+        .build();
     let result = GeminiRequestTransformer { config: cfg }.transform_chat(&req);
     assert!(result.is_err());
 
@@ -489,7 +474,10 @@ fn test_gemini_parameter_validation() {
         ..Default::default()
     };
     let cfg = GeminiConfig { api_key: String::new(), base_url: String::new(), model: "gemini-1.5-pro".to_string(), generation_config: None, safety_settings: None, timeout: None };
-    let req = siumai::types::ChatRequest { messages, tools: None, common_params: CommonParams { model: cfg.model.clone(), temperature: Some(0.7), top_p: Some(0.9), max_tokens: Some(1000), ..Default::default() }, provider_params: None, http_config: None, web_search: None, stream: false };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(messages)
+        .common_params(CommonParams { model: cfg.model.clone(), temperature: Some(0.7), top_p: Some(0.9), max_tokens: Some(1000), ..Default::default() })
+        .build();
     let result = GeminiRequestTransformer { config: cfg }.transform_chat(&req);
     assert!(result.is_ok());
 }
@@ -507,7 +495,10 @@ fn test_groq_openai_compatibility() {
         seed: Some(123),
     };
 
-    let req = siumai::types::ChatRequest { messages: vec![siumai::types::ChatMessage::user("hi").build()], tools: None, common_params: common_params.clone(), provider_params: None, http_config: None, web_search: None, stream: false };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(vec![siumai::types::ChatMessage::user("hi").build()])
+        .common_params(common_params.clone())
+        .build();
     let openai_mapped = OpenAiRequestTransformer.transform_chat(&req).unwrap();
 
     // Groq should produce identical parameter mapping to OpenAI
@@ -540,7 +531,10 @@ fn test_groq_openai_compatibility() {
         tool_call_id: None,
     }];
 
-    let req = siumai::types::ChatRequest { messages, tools: None, common_params: invalid_temp_params, provider_params: None, http_config: None, web_search: None, stream: false };
+    let req = siumai::types::ChatRequest::builder()
+        .messages(messages)
+        .common_params(invalid_temp_params)
+        .build();
     let result = OpenAiRequestTransformer.transform_chat(&req);
     assert!(result.is_err());
     assert!(

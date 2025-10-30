@@ -26,12 +26,13 @@ impl AnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
         self.chat_request_via_spec(request).await
     }
 }
@@ -63,13 +64,14 @@ impl ChatCapability for AnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            stream: true,
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
         self.chat_stream_request_via_spec(request).await
     }
 

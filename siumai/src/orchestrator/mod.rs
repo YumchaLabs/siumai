@@ -25,6 +25,7 @@
 
 // Public modules
 pub mod agent;
+pub mod builder;
 pub mod prepare_step;
 pub mod stop_condition;
 pub mod types;
@@ -51,5 +52,6 @@ pub use types::{
 };
 
 // Re-export main functions
+pub use builder::OrchestratorBuilder;
 pub use generate::generate;
 pub use stream::{StreamOrchestration, generate_stream, generate_stream_owned};

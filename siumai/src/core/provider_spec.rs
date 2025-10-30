@@ -335,6 +335,18 @@ pub trait ProviderSpec: Send + Sync {
         }
     }
 
+    /// Optional: mutate embedding JSON body before sending.
+    ///
+    /// Default implementation injects `ProviderOptions::Custom` when the
+    /// provider IDs match (same behavior as chat for custom options).
+    fn embedding_before_send(
+        &self,
+        req: &EmbeddingRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
+        default_custom_options_hook_embedding(self.id(), req)
+    }
+
     /// Compute image generation route URL (default OpenAI-compatible)
     fn image_url(&self, _req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
         format!("{}/images/generations", ctx.base_url.trim_end_matches('/'))
@@ -430,22 +442,50 @@ pub fn default_custom_options_hook(
         provider_id: custom_provider_id,
         options,
     } = &req.provider_options
+        && crate::registry::helpers::matches_provider_id(provider_id, custom_provider_id)
     {
-        // Support provider_id matching with aliases (e.g., "gemini" or "google")
-        if crate::registry::helpers::matches_provider_id(provider_id, custom_provider_id) {
-            let custom_options = options.clone();
-            let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-                let mut out = body.clone();
-                if let Some(obj) = out.as_object_mut() {
-                    // Merge custom options into the request body
-                    for (k, v) in &custom_options {
-                        obj.insert(k.clone(), v.clone());
-                    }
+        let custom_options = options.clone();
+        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+            let mut out = body.clone();
+            if let Some(obj) = out.as_object_mut() {
+                // Merge custom options into the request body
+                for (k, v) in &custom_options {
+                    obj.insert(k.clone(), v.clone());
                 }
-                Ok(out)
-            };
-            return Some(Arc::new(hook));
-        }
+            }
+            Ok(out)
+        };
+        return Some(Arc::new(hook));
+    }
+    None
+}
+
+/// Default hook for injecting Custom provider options into embedding requests.
+///
+/// Mirrors `default_custom_options_hook` for chat, but reads from
+/// `EmbeddingRequest::provider_options`. This enables user-defined provider
+/// options to be merged into the outbound JSON body for embeddings.
+pub fn default_custom_options_hook_embedding(
+    provider_id: &str,
+    req: &EmbeddingRequest,
+) -> Option<crate::execution::executors::BeforeSendHook> {
+    if let ProviderOptions::Custom {
+        provider_id: custom_provider_id,
+        options,
+    } = &req.provider_options
+        && crate::registry::helpers::matches_provider_id(provider_id, custom_provider_id)
+    {
+        let custom_options = options.clone();
+        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+            let mut out = body.clone();
+            if let Some(obj) = out.as_object_mut() {
+                for (k, v) in &custom_options {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+            Ok(out)
+        };
+        return Some(Arc::new(hook));
     }
     None
 }

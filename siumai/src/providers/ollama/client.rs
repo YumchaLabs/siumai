@@ -369,12 +369,13 @@ impl ChatCapability for OllamaClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
         let call = || {
-            let req = ChatRequest {
-                messages: messages.clone(),
-                tools: tools.clone(),
-                common_params: self.common_params.clone(),
-                ..Default::default()
-            };
+            let mut builder = ChatRequest::builder()
+                .messages(messages.clone())
+                .common_params(self.common_params.clone());
+            if let Some(ts) = tools.clone() {
+                builder = builder.tools(ts);
+            }
+            let req = builder.build();
             async move { self.chat_request_via_spec(req).await }
         };
 
@@ -392,13 +393,14 @@ impl ChatCapability for OllamaClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
         // Route via HttpChatExecutor with JSON streaming converter
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            stream: true,
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
 
         use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         let http = self.http_client.clone();

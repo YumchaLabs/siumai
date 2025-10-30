@@ -317,19 +317,11 @@ fn test_simple_verification() {
 
     println!("   ✅ CommonParams creation and access works");
 
-    // Test that ProviderParams can be created
-    use siumai::types::ProviderParams;
-    let provider_params = ProviderParams::openai()
-        .with_param("frequency_penalty", 0.1)
-        .with_param("presence_penalty", 0.2);
-
-    println!("   ✅ ProviderParams creation works");
-
-    // Test that we can get values back
-    let freq_penalty: Option<f64> = provider_params.get("frequency_penalty");
-    assert_eq!(freq_penalty, Some(0.1));
-
-    println!("   ✅ ProviderParams value retrieval works");
+    // Prefer typed ProviderOptions over legacy ProviderParams
+    use siumai::types::provider_options::openai::{OpenAiOptions, ReasoningEffort};
+    let opts = OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::High);
+    assert_eq!(opts.reasoning_effort, Some(ReasoningEffort::High));
+    println!("   ✅ OpenAiOptions creation and access works");
     println!("   🎯 Parameter handling is working correctly!");
 }
 

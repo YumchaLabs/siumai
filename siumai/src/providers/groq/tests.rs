@@ -299,15 +299,13 @@ mod groq_tests {
         assert_eq!(tx.provider_id(), "groq");
 
         // Basic transform should work with minimal request
-        let req = ChatRequest {
-            messages: vec![],
-            tools: None,
-            common_params: CommonParams {
+        let req = ChatRequest::builder()
+            .messages(Vec::new())
+            .common_params(CommonParams {
                 model: "llama-3.3-70b-versatile".into(),
                 ..Default::default()
-            },
-            ..Default::default()
-        };
+            })
+            .build();
         let body = tx.transform_chat(&req).unwrap();
         assert_eq!(body["model"], "llama-3.3-70b-versatile");
     }

@@ -86,9 +86,11 @@ mod tests {
 
     #[test]
     fn test_build_http_client_with_timeout() {
-        let mut config = HttpConfig::default();
-        config.timeout = Some(Duration::from_secs(30));
-        config.connect_timeout = Some(Duration::from_secs(10));
+        let config = HttpConfig {
+            timeout: Some(Duration::from_secs(30)),
+            connect_timeout: Some(Duration::from_secs(10)),
+            ..Default::default()
+        };
 
         let result = build_http_client_from_config(&config);
         assert!(result.is_ok());
@@ -96,8 +98,10 @@ mod tests {
 
     #[test]
     fn test_build_http_client_with_user_agent() {
-        let mut config = HttpConfig::default();
-        config.user_agent = Some("test-agent/1.0".to_string());
+        let config = HttpConfig {
+            user_agent: Some("test-agent/1.0".to_string()),
+            ..Default::default()
+        };
 
         let result = build_http_client_from_config(&config);
         assert!(result.is_ok());

@@ -1,4 +1,5 @@
 //! Chat executor traits
+#![allow(clippy::items_after_test_module)]
 //!
 //! Defines the abstraction that will drive chat operations using transformers
 //! and HTTP. For now this is an interface stub for the refactor.

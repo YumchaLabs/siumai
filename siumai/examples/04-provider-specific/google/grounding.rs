@@ -41,11 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}\n", response.content_text().unwrap());
 
     // Check for grounding metadata via typed helper
-    if let Some(meta) = response.gemini_metadata() {
-        if let Some(grounding) = &meta.grounding_metadata {
-            println!("🔍 Grounding metadata:");
-            println!("{}", serde_json::to_string_pretty(grounding).unwrap());
-        }
+    if let Some(meta) = response.gemini_metadata()
+        && let Some(grounding) = &meta.grounding_metadata
+    {
+        println!("🔍 Grounding metadata:");
+        println!("{}", serde_json::to_string_pretty(grounding).unwrap());
     }
 
     Ok(())

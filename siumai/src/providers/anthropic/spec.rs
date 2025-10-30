@@ -71,34 +71,58 @@ impl ProviderSpec for AnthropicSpec {
             return Some(hook);
         }
 
-        // 2. Handle Anthropic-specific options (thinking_mode)
+        // 2. Handle Anthropic-specific options (thinking_mode, response_format)
         // 🎯 Extract Anthropic-specific options from provider_options
-        let thinking_mode = if let ProviderOptions::Anthropic(ref options) = req.provider_options {
-            options.thinking_mode.clone()
-        } else {
+        let (thinking_mode, response_format) =
+            if let ProviderOptions::Anthropic(ref options) = req.provider_options {
+                (
+                    options.thinking_mode.clone(),
+                    options.response_format.clone(),
+                )
+            } else {
+                return None;
+            };
+
+        // If neither thinking nor response format configured, nothing to inject
+        if thinking_mode.is_none() && response_format.is_none() {
             return None;
-        };
-        // Early-exit if no thinking mode
-        thinking_mode.as_ref()?;
+        }
 
         let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
             let mut out = body.clone();
 
             // 🎯 Inject thinking mode configuration
-            // According to Anthropic API: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
             if let Some(ref thinking) = thinking_mode
                 && thinking.enabled
             {
-                let mut thinking_config = serde_json::json!({
-                    "type": "enabled"
-                });
-
-                // Add budget_tokens if specified (minimum 1024)
+                let mut thinking_config = serde_json::json!({ "type": "enabled" });
                 if let Some(budget) = thinking.thinking_budget {
                     thinking_config["budget_tokens"] = serde_json::json!(budget);
                 }
-
                 out["thinking"] = thinking_config;
+            }
+
+            // 🎯 Inject structured output if configured
+            if let Some(ref rf) = response_format {
+                match rf {
+                    crate::types::AnthropicResponseFormat::JsonObject => {
+                        out["response_format"] = serde_json::json!({ "type": "json_object" });
+                    }
+                    crate::types::AnthropicResponseFormat::JsonSchema {
+                        name,
+                        schema,
+                        strict,
+                    } => {
+                        out["response_format"] = serde_json::json!({
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": name,
+                                "strict": strict,
+                                "schema": schema
+                            }
+                        });
+                    }
+                }
             }
 
             Ok(out)

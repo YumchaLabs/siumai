@@ -12,7 +12,7 @@ fn moderation_accepts_array_input_and_maps_to_input_array() {
 
     let req = ModerationRequest {
         input: String::new(),
-        inputs: Some(vec!["你好".into(), "Hello".into()]),
+        inputs: Some(vec!["Hello".into(), "World".into()]),
         model: None,
     };
 
@@ -24,6 +24,6 @@ fn moderation_accepts_array_input_and_maps_to_input_array() {
     assert!(json["input"].is_array());
     let arr = json["input"].as_array().unwrap();
     assert_eq!(arr.len(), 2);
-    assert_eq!(arr[0], "你好");
-    assert_eq!(arr[1], "Hello");
+    assert_eq!(arr[0], "Hello");
+    assert_eq!(arr[1], "World");
 }

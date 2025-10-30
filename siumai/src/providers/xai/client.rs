@@ -307,20 +307,12 @@ impl XaiClient {
     pub async fn chat_with_reasoning(
         &self,
         messages: Vec<ChatMessage>,
-        reasoning_effort: &str,
+        _reasoning_effort: &str,
     ) -> Result<ChatResponse, LlmError> {
-        let mut provider_params = std::collections::HashMap::new();
-        provider_params.insert(
-            "reasoning_effort".to_string(),
-            serde_json::Value::String(reasoning_effort.to_string()),
-        );
-
-        let request = ChatRequest {
-            messages,
-            tools: None,
-            common_params: self.common_params.clone(),
-            ..Default::default()
-        };
+        let request = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .build();
 
         self.chat_capability.chat_request(request).await
     }
@@ -330,12 +322,10 @@ impl XaiClient {
         &self,
         messages: Vec<ChatMessage>,
     ) -> Result<String, LlmError> {
-        let request = ChatRequest {
-            messages,
-            tools: None,
-            common_params: self.common_params.clone(),
-            ..Default::default()
-        };
+        let request = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .build();
 
         // This would return a request_id instead of a full response
         // Implementation would need to handle the deferred response format

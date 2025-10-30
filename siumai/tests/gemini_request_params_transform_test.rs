@@ -17,12 +17,10 @@ fn gemini_transformer_moves_common_params_into_generation_config() {
         stop_sequences: Some(vec!["END".to_string()]),
         seed: None,
     };
-    let req = ChatRequest {
-        messages: vec![siumai::user!("Hello")],
-        tools: None,
-        common_params: cp,
-        ..Default::default()
-    };
+    let req = ChatRequest::builder()
+        .messages(vec![siumai::user!("Hello")])
+        .common_params(cp)
+        .build();
 
     // Transform via provider request transformer
     let tx = siumai::providers::gemini::transformers::GeminiRequestTransformer { config: cfg };

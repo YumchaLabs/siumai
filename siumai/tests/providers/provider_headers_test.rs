@@ -766,15 +766,10 @@ fn test_headers_integration() {
 
     // Build headers and construct a ChatRequest struct
     let _headers = ProviderHeaders::openai("test-key", None, None, &HashMap::new()).unwrap();
-    let _request = ChatRequest {
-        messages,
-        tools: None,
-        common_params,
-        provider_params: None,
-        http_config: None,
-        web_search: None,
-        stream: false,
-    };
+    let _request = ChatRequest::builder()
+        .messages(messages)
+        .common_params(common_params)
+        .build();
 
     println!("  ✅ Headers integration test passed");
 }

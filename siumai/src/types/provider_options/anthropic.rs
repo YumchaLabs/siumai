@@ -13,6 +13,8 @@ pub struct AnthropicOptions {
     pub prompt_caching: Option<PromptCachingConfig>,
     /// Thinking mode (extended thinking)
     pub thinking_mode: Option<ThinkingModeConfig>,
+    /// Structured output configuration (JSON object or JSON schema)
+    pub response_format: Option<AnthropicResponseFormat>,
 }
 
 impl AnthropicOptions {
@@ -30,6 +32,27 @@ impl AnthropicOptions {
     /// Enable thinking mode
     pub fn with_thinking_mode(mut self, config: ThinkingModeConfig) -> Self {
         self.thinking_mode = Some(config);
+        self
+    }
+
+    /// Configure structured output as a plain JSON object
+    pub fn with_json_object(mut self) -> Self {
+        self.response_format = Some(AnthropicResponseFormat::JsonObject);
+        self
+    }
+
+    /// Configure structured output using a JSON schema
+    pub fn with_json_schema(
+        mut self,
+        name: impl Into<String>,
+        schema: serde_json::Value,
+        strict: bool,
+    ) -> Self {
+        self.response_format = Some(AnthropicResponseFormat::JsonSchema {
+            name: name.into(),
+            schema,
+            strict,
+        });
         self
     }
 }
@@ -85,4 +108,17 @@ impl Default for ThinkingModeConfig {
             thinking_budget: None,
         }
     }
+}
+
+/// Anthropic structured output configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AnthropicResponseFormat {
+    /// Plain JSON object output
+    JsonObject,
+    /// JSON schema output with name and strict flag
+    JsonSchema {
+        name: String,
+        schema: serde_json::Value,
+        strict: bool,
+    },
 }

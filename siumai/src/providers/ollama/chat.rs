@@ -204,15 +204,16 @@ impl ChatCapability for OllamaChatCapability {
     ) -> Result<ChatResponse, LlmError> {
         // Create a default ChatRequest with empty common_params
         // This allows the capability to work independently
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: CommonParams {
-                model: "llama3.2".to_string(), // Default model
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
                 ..Default::default()
-            },
-            ..Default::default()
-        };
+            });
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
 
         self.chat(request).await
     }
@@ -301,16 +302,10 @@ mod tests {
             ..Default::default()
         };
 
-        let request = ChatRequest {
-            messages: vec![ChatMessage {
-                role: crate::types::MessageRole::User,
-                content: crate::types::MessageContent::Text("Hello".to_string()),
-                metadata: crate::types::MessageMetadata::default(),
-            }],
-            tools: None,
-            common_params,
-            ..Default::default()
-        };
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .common_params(common_params)
+            .build();
 
         let body = capability.build_chat_request_body(&request).unwrap();
         assert_eq!(body.model, "llama3.2");

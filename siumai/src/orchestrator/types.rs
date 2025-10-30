@@ -415,6 +415,7 @@ impl Default for OrchestratorOptions {
 }
 
 /// Orchestrator options for streaming generate.
+#[derive(Clone)]
 pub struct OrchestratorStreamOptions {
     pub max_steps: usize,
     pub on_chunk: Option<Arc<dyn Fn(&ChatStreamEvent) + Send + Sync>>,

@@ -798,6 +798,7 @@ impl LlmClient for TestProvClient {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)]
     use super::*;
     use crate::execution::http::interceptor::LoggingInterceptor;
     use std::sync::{Mutex, OnceLock};

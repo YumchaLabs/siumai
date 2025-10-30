@@ -66,12 +66,13 @@ impl ChatCapability for XaiChatCapability {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
         // Create a ChatRequest from messages and tools
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
         use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;
         let ctx = crate::core::ProviderContext::new(
@@ -107,13 +108,14 @@ impl ChatCapability for XaiChatCapability {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
         // Create a ChatRequest from messages and tools
-        let request = ChatRequest {
-            messages,
-            tools,
-            common_params: self.common_params.clone(),
-            stream: true,
-            ..Default::default()
-        };
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
 
         use crate::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
         use secrecy::ExposeSecret;

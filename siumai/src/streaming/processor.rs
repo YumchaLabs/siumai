@@ -459,8 +459,10 @@ mod tests {
 
     #[test]
     fn tool_arguments_respect_max_size() {
-        let mut cfg = StreamProcessorConfig::default();
-        cfg.max_tool_arguments_size = Some(8);
+        let mut cfg = StreamProcessorConfig {
+            max_tool_arguments_size: Some(8),
+            ..Default::default()
+        };
         let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let called_for_cb = called.clone();
         cfg.overflow_handler = Some(Box::new(move |name, size| {

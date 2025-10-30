@@ -145,16 +145,17 @@ impl ChatCapability for VertexAnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<crate::types::Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let req = ChatRequest {
-            messages,
-            tools,
-            common_params: crate::types::CommonParams {
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(crate::types::CommonParams {
                 model: self.config.model.clone(),
                 ..Default::default()
-            },
-            http_config: Some(self.config.http_config.clone()),
-            ..Default::default()
-        };
+            })
+            .http_config(self.config.http_config.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let req = builder.build();
 
         self.chat_request_via_spec(req).await
     }
@@ -164,17 +165,18 @@ impl ChatCapability for VertexAnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<crate::types::Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        let req = ChatRequest {
-            messages,
-            tools,
-            common_params: crate::types::CommonParams {
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(crate::types::CommonParams {
                 model: self.config.model.clone(),
                 ..Default::default()
-            },
-            http_config: Some(self.config.http_config.clone()),
-            stream: true,
-            ..Default::default()
-        };
+            })
+            .http_config(self.config.http_config.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let req = builder.build();
 
         self.chat_stream_request_via_spec(req).await
     }

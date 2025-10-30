@@ -103,7 +103,7 @@ async fn test_gemini_generate_content_non_streaming() {
     let client = LlmBuilder::new()
         .gemini()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("gemini-1.5-flash")
         .build()
         .await
@@ -150,7 +150,7 @@ async fn test_gemini_error_response() {
     let client = LlmBuilder::new()
         .gemini()
         .api_key("invalid-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("gemini-1.5-flash")
         .build()
         .await
@@ -180,7 +180,7 @@ async fn test_gemini_request_headers() {
     let client = LlmBuilder::new()
         .gemini()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("gemini-1.5-flash")
         .build()
         .await
@@ -210,7 +210,7 @@ async fn test_gemini_function_calling_response() {
     let client = LlmBuilder::new()
         .gemini()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("gemini-1.5-flash")
         .build()
         .await

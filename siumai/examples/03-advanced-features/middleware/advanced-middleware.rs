@@ -100,15 +100,14 @@ struct CachingMiddleware {
 impl LanguageModelMiddleware for CachingMiddleware {
     fn pre_generate(&self, req: &ChatRequest) -> Option<Result<ChatResponse, LlmError>> {
         // Check if this request matches our cache key
-        if let Some(last_msg) = req.messages.last() {
-            if let Some(text) = last_msg.content.text() {
-                if text.contains(&self.cache_key) {
-                    println!("💾 [Cache] Cache hit! Returning cached response");
-                    return Some(Ok(ChatResponse::new(MessageContent::Text(
-                        self.cached_response.clone(),
-                    ))));
-                }
-            }
+        if let Some(last_msg) = req.messages.last()
+            && let Some(text) = last_msg.content.text()
+            && text.contains(&self.cache_key)
+        {
+            println!("💾 [Cache] Cache hit! Returning cached response");
+            return Some(Ok(ChatResponse::new(MessageContent::Text(
+                self.cached_response.clone(),
+            ))));
         }
         None // Cache miss, continue to HTTP
     }

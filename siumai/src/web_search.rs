@@ -72,9 +72,22 @@ impl WebSearchProvider {
             );
         }
 
-        // Add provider-specific parameters
-        for (key, value) in &self.config.provider_params {
-            params.insert(key.clone(), value.clone());
+        // Merge typed ProviderOptions if present (OpenAI)
+        if let crate::types::ProviderOptions::OpenAi(ref boxed) = self.config.provider_options
+            && let Some(ws) = &boxed.web_search_options
+        {
+            // Map fields to equivalent key/value pairs
+            if let Some(sz) = &ws.search_context_size {
+                params.insert(
+                    "search_context_size".into(),
+                    serde_json::Value::String(sz.clone()),
+                );
+            }
+            if let Some(loc) = &ws.user_location
+                && let Ok(v) = serde_json::to_value(loc)
+            {
+                params.insert("user_location".into(), v);
+            }
         }
 
         params
@@ -96,9 +109,14 @@ impl WebSearchProvider {
             );
         }
 
-        // Add provider-specific parameters
-        for (key, value) in &self.config.provider_params {
-            params.insert(key.clone(), value.clone());
+        // Merge typed ProviderOptions if present (xAI)
+        if let crate::types::ProviderOptions::Xai(ref xai) = self.config.provider_options
+            && let Some(sp) = &xai.search_parameters
+            && let Ok(v) = serde_json::to_value(sp)
+        {
+            // xAI expects a structured object under search_parameters; when building
+            // key-value params, flatten into a single key for downstream code to serialize.
+            params.insert("search_parameters".into(), v);
         }
 
         params
@@ -120,11 +138,6 @@ impl WebSearchProvider {
             );
         }
 
-        // Add provider-specific parameters
-        for (key, value) in &self.config.provider_params {
-            params.insert(key.clone(), value.clone());
-        }
-
         params
     }
 
@@ -142,11 +155,6 @@ impl WebSearchProvider {
                 "max_results".to_string(),
                 serde_json::Value::Number(max_results.into()),
             );
-        }
-
-        // Add provider-specific parameters
-        for (key, value) in &self.config.provider_params {
-            params.insert(key.clone(), value.clone());
         }
 
         params
@@ -167,11 +175,6 @@ impl WebSearchProvider {
                 "search_prompt".to_string(),
                 serde_json::Value::String(format!("Search for information about: {query}")),
             );
-        }
-
-        // Add provider-specific parameters
-        for (key, value) in &self.config.provider_params {
-            params.insert(key.clone(), value.clone());
         }
 
         params
@@ -345,7 +348,7 @@ mod tests {
             context_size: Some(WebSearchContextSize::Medium),
             search_prompt: Some("Custom search prompt".to_string()),
             strategy: WebSearchStrategy::Auto,
-            provider_params: HashMap::new(),
+            provider_options: crate::types::ProviderOptions::None,
         };
 
         assert!(config.enabled);

@@ -302,33 +302,30 @@ impl EmbeddingExtensions for OllamaEmbeddings {
             return Err(LlmError::InvalidInput("Input cannot be empty".to_string()));
         }
 
-        // Extract Ollama-specific parameters
-        let truncate = request
-            .provider_params
-            .get("truncate")
-            .and_then(|v| v.as_bool());
-
-        let keep_alive = request
-            .provider_params
-            .get("keep_alive")
-            .and_then(|v| v.as_str());
-
-        let options = request
-            .provider_params
-            .get("options")
-            .and_then(|v| v.as_object())
-            .map(|obj| {
-                obj.iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect::<HashMap<String, serde_json::Value>>()
-            });
+        // Extract Ollama-specific parameters from typed ProviderOptions
+        let mut truncate: Option<bool> = None;
+        let mut keep_alive: Option<String> = None;
+        let mut options: Option<HashMap<String, serde_json::Value>> = None;
+        if let crate::types::ProviderOptions::Ollama(ref opts) = request.provider_options {
+            keep_alive = opts.keep_alive.clone();
+            // Truncate may be provided via extra_params["truncate"].
+            if let Some(b) = opts.extra_params.get("truncate").and_then(|v| v.as_bool()) {
+                truncate = Some(b);
+            }
+            if !opts.extra_params.is_empty() {
+                let mut map = opts.extra_params.clone();
+                // Do not pass control flags inside options
+                map.remove("truncate");
+                options = Some(map);
+            }
+        }
 
         let ollama_request = self.build_request(
             &request.input,
             request.model.as_deref(),
             truncate,
             options.as_ref(),
-            keep_alive,
+            keep_alive.as_deref(),
         )?;
 
         let response = self.make_request(ollama_request).await?;

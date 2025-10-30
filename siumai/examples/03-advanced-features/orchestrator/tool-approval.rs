@@ -132,13 +132,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Modify sensitive file reads
                 "read_file" => {
-                    if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                        if path.contains("/etc/") || path.contains("passwd") {
-                            println!("  ⚠️  MODIFIED: Redirecting sensitive file read");
-                            let mut modified = args.clone();
-                            modified["path"] = serde_json::json!("/tmp/safe_file.txt");
-                            return ToolApproval::Modify(modified);
-                        }
+                    if let Some(path) = args.get("path").and_then(|v| v.as_str())
+                        && (path.contains("/etc/") || path.contains("passwd"))
+                    {
+                        println!("  ⚠️  MODIFIED: Redirecting sensitive file read");
+                        let mut modified = args.clone();
+                        modified["path"] = serde_json::json!("/tmp/safe_file.txt");
+                        return ToolApproval::Modify(modified);
                     }
                     println!("  ✅ APPROVED");
                     ToolApproval::Approve(args.clone())
@@ -153,7 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             println!("  ⚠️  MODIFIED: Redirecting write to /tmp");
                             let mut modified = args.clone();
-                            let filename = path.split('/').last().unwrap_or("output.txt");
+                            let filename = path.split('/').next_back().unwrap_or("output.txt");
                             modified["path"] = serde_json::json!(format!("/tmp/{}", filename));
                             ToolApproval::Modify(modified)
                         }

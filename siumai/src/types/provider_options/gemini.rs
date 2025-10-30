@@ -14,6 +14,8 @@ pub struct GeminiOptions {
     pub code_execution: Option<CodeExecutionConfig>,
     /// Search grounding (web search)
     pub search_grounding: Option<SearchGroundingConfig>,
+    /// Preferred MIME type for responses (e.g., "application/json")
+    pub response_mime_type: Option<String>,
 }
 
 impl GeminiOptions {
@@ -31,6 +33,12 @@ impl GeminiOptions {
     /// Enable search grounding
     pub fn with_search_grounding(mut self, config: SearchGroundingConfig) -> Self {
         self.search_grounding = Some(config);
+        self
+    }
+
+    /// Set preferred response MIME type (e.g., application/json)
+    pub fn with_response_mime_type(mut self, mime: impl Into<String>) -> Self {
+        self.response_mime_type = Some(mime.into());
         self
     }
 }

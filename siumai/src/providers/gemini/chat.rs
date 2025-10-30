@@ -68,15 +68,17 @@ impl ChatCapability for GeminiChatCapability {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let req = ChatRequest {
-            messages,
-            tools,
-            common_params: crate::types::CommonParams {
-                model: self.config.common_params.model.clone(),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let mut builder =
+            ChatRequest::builder()
+                .messages(messages)
+                .common_params(crate::types::CommonParams {
+                    model: self.config.common_params.model.clone(),
+                    ..Default::default()
+                });
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let req = builder.build();
 
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;
@@ -171,16 +173,17 @@ impl ChatCapability for GeminiChatCapability {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        let req = ChatRequest {
-            messages,
-            tools,
-            common_params: crate::types::CommonParams {
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(crate::types::CommonParams {
                 model: self.config.common_params.model.clone(),
                 ..Default::default()
-            },
-            stream: true,
-            ..Default::default()
-        };
+            })
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let req = builder.build();
 
         let http = self.http_client.clone();
         let spec = crate::providers::gemini::spec::GeminiSpec;

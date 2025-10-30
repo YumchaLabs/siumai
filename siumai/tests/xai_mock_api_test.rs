@@ -107,7 +107,7 @@ async fn test_xai_chat_non_streaming() {
     let client = LlmBuilder::new()
         .xai()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("grok-beta")
         .build()
         .await
@@ -150,7 +150,7 @@ async fn test_xai_error_response() {
     let client = LlmBuilder::new()
         .xai()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("invalid-model")
         .build()
         .await
@@ -185,7 +185,7 @@ async fn test_xai_request_format() {
     let client = LlmBuilder::new()
         .xai()
         .api_key("test-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("grok-beta")
         .build()
         .await
@@ -216,7 +216,7 @@ async fn test_xai_tool_calling() {
     let client = LlmBuilder::new()
         .xai()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("grok-beta")
         .build()
         .await
@@ -281,7 +281,7 @@ async fn test_xai_system_fingerprint() {
     let client = LlmBuilder::new()
         .xai()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("grok-beta")
         .build()
         .await
