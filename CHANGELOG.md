@@ -6,6 +6,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 - OrchestratorBuilder documentation and small ergonomic improvements (callbacks annotated to quiet clippy type‑complexity where necessary).
+- MiniMaxi provider support with multi-modal capabilities (text, speech, video, image, music generation).
 
 ## [0.11.0-beta.1] - 2025-10-28
 

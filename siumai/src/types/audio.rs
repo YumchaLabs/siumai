@@ -49,6 +49,12 @@ impl TtsRequest {
         self.speed = Some(speed);
         self
     }
+
+    /// Set the model
+    pub fn with_model(mut self, model: String) -> Self {
+        self.model = Some(model);
+        self
+    }
 }
 
 /// Text-to-speech response

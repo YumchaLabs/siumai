@@ -120,6 +120,12 @@ pub use provider_specific::{
 mod audio;
 pub use audio::AudioCapability;
 
+mod video;
+pub use video::VideoGenerationCapability;
+
+mod music;
+pub use music::MusicGenerationCapability;
+
 /// Core provider trait for capability discovery and metadata
 pub trait LlmProvider: Send + Sync {
     /// Canonical provider id (e.g., "openai")

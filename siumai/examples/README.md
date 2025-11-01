@@ -7,14 +7,15 @@ Welcome to the Siumai examples! This directory contains examples organized by co
 ```
 examples/
 ├── 01-quickstart/          # Start here! (3 examples)
-├── 02-core-api/            # Core API methods (9 examples)
+├── 02-core-api/            # Core API methods (10 examples)
 ├── 03-advanced-features/   # Advanced features (12 examples)
-├── 04-provider-specific/   # Provider-unique features (6 examples)
-├── 05-integrations/        # Registry, MCP, telemetry (6 examples)
-└── 06-applications/        # Complete applications (3 examples)
+├── 04-provider-specific/   # Provider-unique features (9 examples)
+├── 05-integrations/        # Registry, MCP, telemetry (7 examples)
+├── 06-extensibility/       # Custom providers (6 examples)
+└── 07-applications/        # Complete applications (3 examples)
 ```
 
-**Total: ~39 focused examples** (down from 54 redundant ones)
+**Total: ~50 focused examples**
 
 ---
 
@@ -87,6 +88,7 @@ Learn the core API methods. Organized by functionality.
 - **simple-chat.rs** - `client.chat()`
 - **chat-with-tools.rs** - `client.chat_with_tools()`
 - **chat-request.rs** - `client.chat_request()` ⭐ Recommended
+- **usage-builder-demo.rs** - Usage statistics builder API
 
 **streaming/**
 - **basic-stream.rs** - `client.chat_stream()`
@@ -96,6 +98,7 @@ Learn the core API methods. Organized by functionality.
 **tools/**
 - **function-calling.rs** - Define and use tools
 - **tool-loop.rs** - Complete tool execution cycle
+- **tool-choice-demo.rs** - Control tool usage strategies
 
 **multimodal/**
 - **vision.rs** - Image understanding
@@ -131,6 +134,7 @@ Provider-specific features that don't have cross-provider equivalents.
 
 **openai/**
 - **responses-api.rs** - Stateful conversations
+- **responses-multi-turn.rs** - Multi-turn conversations
 
 **anthropic/**
 - **extended-thinking.rs** - Deep reasoning
@@ -145,10 +149,16 @@ Provider-specific features that don't have cross-provider equivalents.
 **xai/**
 - **grok.rs** - Using Grok models
 
+**minimaxi/**
+- **basic.rs** - Basic chat with MiniMaxi
+- **music-generation.md** - Music generation guide
+- **video-generation.md** - Video generation guide
+
 ### 05-integrations/ (Ecosystem)
 Integration with the broader ecosystem.
 
 **registry/**
+- **quickstart.rs** - Quick start with registry
 - **basic-registry.rs** - String-driven model resolution
 - **registry-with-cache.rs** - LRU cache for efficiency
 - **custom-middleware.rs** - Transform requests globally
@@ -162,7 +172,17 @@ Integration with the broader ecosystem.
 **telemetry/** (moved to `siumai-extras`)
 - See `siumai-extras` crate for telemetry examples
 
-### 06-applications/ (Complete Apps)
+### 06-extensibility/ (Custom Providers)
+Build your own providers and extend Siumai.
+
+- **complete-custom-provider.rs** - Full custom provider implementation
+- **custom-provider-spec.rs** - Custom ProviderSpec example
+- **executor-testing.rs** - Testing executors with mocks
+- **custom-provider-options.rs** - Custom provider options
+- **custom_provider_implementation.rs** - Provider implementation patterns
+- **custom_provider_parameters.rs** - Custom parameter handling
+
+### 07-applications/ (Complete Apps)
 Full applications demonstrating real-world usage.
 
 - **chatbot.rs** - Interactive conversational AI

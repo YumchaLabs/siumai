@@ -24,6 +24,49 @@ pub trait AudioTransformer: Send + Sync {
     fn tts_endpoint(&self) -> &str;
     fn stt_endpoint(&self) -> &str;
 
+    /// Parse TTS response bytes to audio data
+    ///
+    /// This method allows providers to handle different response formats:
+    /// - For providers that return binary audio directly (like OpenAI),
+    ///   the default implementation returns the bytes as-is.
+    /// - For providers that return JSON with encoded audio (like MiniMaxi),
+    ///   override this method to decode the audio from the response.
+    ///
+    /// # Arguments
+    /// * `response_bytes` - Raw response bytes from the HTTP request
+    ///
+    /// # Returns
+    /// Decoded audio bytes ready to be used
+    fn parse_tts_response(&self, response_bytes: Vec<u8>) -> Result<Vec<u8>, LlmError> {
+        // Default implementation: assume response is binary audio
+        Ok(response_bytes)
+    }
+
+    /// Parse TTS response metadata from JSON
+    ///
+    /// For providers that return JSON responses with metadata (like MiniMaxi),
+    /// this method extracts additional information like duration, sample rate, etc.
+    ///
+    /// # Arguments
+    /// * `json` - JSON response from the provider
+    ///
+    /// # Returns
+    /// Tuple of (duration_seconds, sample_rate_hz)
+    fn parse_tts_metadata(
+        &self,
+        _json: &serde_json::Value,
+    ) -> Result<(Option<f32>, Option<u32>), LlmError> {
+        // Default: no metadata
+        Ok((None, None))
+    }
+
+    /// Indicates whether TTS response is JSON (true) or binary (false)
+    ///
+    /// This helps the executor decide how to parse the HTTP response.
+    fn tts_response_is_json(&self) -> bool {
+        false // Default: binary audio
+    }
+
     /// Parse STT JSON payload to text
     fn parse_stt_response(&self, json: &serde_json::Value) -> Result<String, LlmError>;
 }

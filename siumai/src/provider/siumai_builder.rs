@@ -83,6 +83,7 @@ impl SiumaiBuilder {
             "ollama" => ProviderType::Ollama,
             "xai" => ProviderType::XAI,
             "groq" => ProviderType::Groq,
+            "minimaxi" => ProviderType::MiniMaxi,
             "siliconflow" => ProviderType::Custom("siliconflow".to_string()),
             "deepseek" => ProviderType::Custom("deepseek".to_string()),
             "openrouter" => ProviderType::Custom("openrouter".to_string()),

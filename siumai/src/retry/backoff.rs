@@ -36,6 +36,7 @@ impl BackoffRetryExecutor {
             ProviderType::Ollama => Self::ollama_backoff(),
             ProviderType::XAI => Self::openai_backoff(), // xAI uses OpenAI-compatible API
             ProviderType::Groq => Self::openai_backoff(), // Groq uses OpenAI-compatible API
+            ProviderType::MiniMaxi => Self::openai_backoff(), // MiniMaxi uses OpenAI-compatible API
             ProviderType::Custom(_) => Self::default_backoff(),
         };
 

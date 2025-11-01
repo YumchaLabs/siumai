@@ -37,12 +37,12 @@ impl AudioCapability for GroqClient {
                 .with_interceptors(self.http_interceptors.clone())
                 .with_retry_options(self.retry_options.clone()),
         };
-        let audio_bytes = exec.tts(request).await?;
+        let result = exec.tts(request).await?;
         Ok(crate::types::TtsResponse {
-            audio_data: audio_bytes,
+            audio_data: result.audio_data,
             format: "wav".to_string(),
-            duration: None,
-            sample_rate: None,
+            duration: result.duration,
+            sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
         })
     }

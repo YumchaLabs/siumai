@@ -18,13 +18,13 @@ impl AudioCapability for OpenAiClient {
         use crate::execution::executors::audio::AudioExecutor;
 
         let exec = self.build_audio_executor();
-        let result_bytes = AudioExecutor::tts(&exec, request.clone()).await?;
+        let result = AudioExecutor::tts(&exec, request.clone()).await?;
 
         Ok(crate::types::TtsResponse {
-            audio_data: result_bytes,
+            audio_data: result.audio_data,
             format: request.format.unwrap_or_else(|| "mp3".to_string()),
-            duration: None,
-            sample_rate: None,
+            duration: result.duration,
+            sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
         })
     }

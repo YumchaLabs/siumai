@@ -232,7 +232,13 @@ impl EnhancedParameterValidator {
                     || model.contains("mixtral")
                     || model.contains("gemma")
                     || model.contains("whisper")
-            } // Assume custom providers handle their own validation
+            }
+            ProviderType::MiniMaxi => {
+                model.starts_with("MiniMax-")
+                    || model.starts_with("speech-")
+                    || model.starts_with("hailuo-")
+                    || model.starts_with("music-")
+            }
         }
     }
 
@@ -253,6 +259,7 @@ impl EnhancedParameterValidator {
             ProviderType::Ollama => Some("llama3.2:latest".to_string()),
             ProviderType::Custom(_) => None,
             ProviderType::Groq => Some("llama-3.3-70b-versatile".to_string()),
+            ProviderType::MiniMaxi => Some("MiniMax-M2".to_string()),
         }
     }
 
@@ -265,6 +272,7 @@ impl EnhancedParameterValidator {
             ProviderType::Ollama => 10,
             ProviderType::Custom(_) => 10,
             ProviderType::Groq => 4,
+            ProviderType::MiniMaxi => 4, // OpenAI-compatible
         }
     }
 }

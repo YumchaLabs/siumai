@@ -134,6 +134,7 @@ impl RetryPolicy {
             ProviderType::Ollama => Self::ollama_policy(),
             ProviderType::Custom(_) => Self::default(),
             ProviderType::Groq => Self::default(),
+            ProviderType::MiniMaxi => Self::openai_policy(), // MiniMaxi uses OpenAI-compatible API
         }
     }
 

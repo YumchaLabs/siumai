@@ -8,6 +8,8 @@ pub mod anthropic;
 pub mod gemini;
 #[cfg(feature = "groq")]
 pub mod groq;
+#[cfg(feature = "minimaxi")]
+pub mod minimaxi;
 #[cfg(feature = "ollama")]
 pub mod ollama;
 #[cfg(feature = "openai")]
@@ -36,6 +38,8 @@ pub use ollama::OllamaClient;
 pub use openai::OpenAiClient;
 // Note: OpenAI-compatible providers now use OpenAI client directly
 // Model constants are still available through openai_compatible module
+#[cfg(feature = "minimaxi")]
+pub use minimaxi::MinimaxiClient;
 #[cfg(feature = "xai")]
 pub use xai::XaiClient;
 
@@ -199,6 +203,24 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         capabilities: rec.capabilities.clone(),
                         default_base_url: "https://api.groq.com/openai/v1",
                         supported_models: crate::providers::groq::models::all_models(),
+                    });
+                }
+                #[cfg(feature = "minimaxi")]
+                ProviderType::MiniMaxi => {
+                    out.push(ProviderInfo {
+                        provider_type: ptype,
+                        name: "MiniMaxi",
+                        description: "MiniMaxi models with multi-modal capabilities (text, speech, video, music)",
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: "https://api.minimaxi.com/v1",
+                        supported_models: vec![
+                            "MiniMax-M2",
+                            "speech-2.6-hd",
+                            "speech-2.6-turbo",
+                            "hailuo-2.3",
+                            "hailuo-2.3-fast",
+                            "music-2.0",
+                        ],
                     });
                 }
                 ProviderType::Custom(_) =>
@@ -457,6 +479,8 @@ pub const fn get_default_model(provider_type: &ProviderType) -> Option<&'static 
         ProviderType::XAI => Some("grok-3-latest"),
         #[cfg(feature = "groq")]
         ProviderType::Groq => Some("llama-3.3-70b-versatile"),
+        #[cfg(feature = "minimaxi")]
+        ProviderType::MiniMaxi => Some("MiniMax-M2"),
         ProviderType::Custom(_) => None,
 
         // For disabled features, return None
@@ -472,6 +496,8 @@ pub const fn get_default_model(provider_type: &ProviderType) -> Option<&'static 
         ProviderType::XAI => None,
         #[cfg(not(feature = "groq"))]
         ProviderType::Groq => None,
+        #[cfg(not(feature = "minimaxi"))]
+        ProviderType::MiniMaxi => None,
     }
 }
 
@@ -566,6 +592,17 @@ impl ProviderFactory {
                     .to_string(),
                 temperature: Some(0.7),
                 max_tokens: Some(8192),
+                max_completion_tokens: None,
+                top_p: Some(1.0),
+                stop_sequences: None,
+                seed: None,
+            },
+            ProviderType::MiniMaxi => crate::types::CommonParams {
+                model: get_default_model(provider_type)
+                    .unwrap_or("MiniMax-M2")
+                    .to_string(),
+                temperature: Some(0.7),
+                max_tokens: Some(4096),
                 max_completion_tokens: None,
                 top_p: Some(1.0),
                 stop_sequences: None,

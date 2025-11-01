@@ -83,6 +83,7 @@ pub enum ProviderType {
     Ollama,
     XAI,
     Groq,
+    MiniMaxi,
     Custom(String),
 }
 
@@ -95,6 +96,7 @@ impl std::fmt::Display for ProviderType {
             Self::Ollama => write!(f, "ollama"),
             Self::XAI => write!(f, "xai"),
             Self::Groq => write!(f, "groq"),
+            Self::MiniMaxi => write!(f, "minimaxi"),
             Self::Custom(name) => write!(f, "{name}"),
         }
     }
@@ -111,6 +113,7 @@ impl ProviderType {
             "ollama" => Self::Ollama,
             "xai" => Self::XAI,
             "groq" => Self::Groq,
+            "minimaxi" => Self::MiniMaxi,
             other => Self::Custom(other.to_string()),
         }
     }

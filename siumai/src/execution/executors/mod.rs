@@ -11,6 +11,9 @@ pub mod files;
 pub mod image;
 pub mod rerank;
 
+// Re-export commonly used types
+pub use audio::TtsExecutionResult;
+
 // Shared type aliases to simplify complex executor hook types
 use std::sync::Arc;
 

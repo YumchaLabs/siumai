@@ -177,6 +177,22 @@ impl ProviderRegistry {
                 .with_tools()
                 .with_embedding(),
         );
+
+        // MiniMaxi
+        #[cfg(feature = "minimaxi")]
+        self.register_native(
+            "minimaxi",
+            "MiniMaxi",
+            Some("https://api.minimaxi.com/v1".to_string()),
+            ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools()
+                .with_custom_feature("speech", true)
+                .with_custom_feature("video", true)
+                .with_custom_feature("image", true)
+                .with_custom_feature("music", true),
+        );
     }
 
     /// Register all OpenAI-compatible providers from config

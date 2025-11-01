@@ -7,9 +7,20 @@ use crate::observability::tracing::ProviderTracer;
 use crate::types::{SttRequest, TtsRequest};
 use std::sync::Arc;
 
+/// TTS execution result with audio data and metadata
+#[derive(Debug, Clone)]
+pub struct TtsExecutionResult {
+    /// Audio bytes
+    pub audio_data: Vec<u8>,
+    /// Duration in seconds (if available)
+    pub duration: Option<f32>,
+    /// Sample rate in Hz (if available)
+    pub sample_rate: Option<u32>,
+}
+
 #[async_trait::async_trait]
 pub trait AudioExecutor: Send + Sync {
-    async fn tts(&self, req: TtsRequest) -> Result<Vec<u8>, LlmError>;
+    async fn tts(&self, req: TtsRequest) -> Result<TtsExecutionResult, LlmError>;
     async fn stt(&self, req: SttRequest) -> Result<String, LlmError>;
 }
 
@@ -92,7 +103,7 @@ impl AudioExecutorBuilder {
 
 #[async_trait::async_trait]
 impl AudioExecutor for HttpAudioExecutor {
-    async fn tts(&self, req: TtsRequest) -> Result<Vec<u8>, LlmError> {
+    async fn tts(&self, req: TtsRequest) -> Result<TtsExecutionResult, LlmError> {
         // Capability guard
         let caps = self.provider_spec.capabilities();
         if !caps.supports("audio") {
@@ -117,7 +128,8 @@ impl AudioExecutor for HttpAudioExecutor {
         let tracer = ProviderTracer::new(&self.provider_id);
         tracer.trace_request_start("POST", &url);
         let start = std::time::Instant::now();
-        match body {
+
+        let raw_bytes = match body {
             AudioHttpBody::Json(mut json) => {
                 // Apply before_send if present
                 if let Some(cb) = &self.policy.before_send {
@@ -131,7 +143,7 @@ impl AudioExecutor for HttpAudioExecutor {
                 )
                 .await?;
                 tracer.trace_request_complete(start, result.bytes.len());
-                Ok(result.bytes)
+                result.bytes
             }
             AudioHttpBody::Multipart(_form) => {
                 // Use unified multipart->bytes helper with retry/interceptors
@@ -149,9 +161,32 @@ impl AudioExecutor for HttpAudioExecutor {
                 )
                 .await?;
                 tracer.trace_request_complete(start, result.bytes.len());
-                Ok(result.bytes)
+                result.bytes
             }
-        }
+        };
+
+        // Parse response using transformer
+        // This allows providers to handle different response formats
+        // (e.g., binary audio vs JSON with encoded audio)
+        let audio_data = self.transformer.parse_tts_response(raw_bytes.clone())?;
+
+        // Extract metadata if response is JSON
+        let (duration, sample_rate) = if self.transformer.tts_response_is_json() {
+            // Try to parse as JSON to extract metadata
+            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&raw_bytes) {
+                self.transformer.parse_tts_metadata(&json)?
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+        Ok(TtsExecutionResult {
+            audio_data,
+            duration,
+            sample_rate,
+        })
     }
 
     async fn stt(&self, req: SttRequest) -> Result<String, LlmError> {

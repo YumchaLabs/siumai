@@ -72,12 +72,14 @@ pub mod files;
 pub mod image;
 pub mod models;
 pub mod moderation;
+pub mod music;
 pub mod provider_metadata;
 pub mod provider_options;
 pub mod rerank;
 pub mod schema;
 pub mod streaming;
 pub mod tools;
+pub mod video;
 pub mod web_search;
 
 // Re-export all types for backward compatibility
@@ -90,11 +92,13 @@ pub use files::*;
 pub use image::*;
 pub use models::*;
 pub use moderation::*;
+pub use music::*;
 pub use provider_options::*;
 pub use rerank::*;
 pub use schema::*;
 pub use streaming::*;
 pub use tools::*;
+pub use video::*;
 pub use web_search::*;
 
 // Re-export provider metadata types (not wildcard to avoid conflicts)

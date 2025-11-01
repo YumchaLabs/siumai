@@ -110,6 +110,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             ProviderType::XAI => "grok-beta".to_string(),
             #[cfg(feature = "groq")]
             ProviderType::Groq => "llama-3.1-70b-versatile".to_string(),
+            #[cfg(feature = "minimaxi")]
+            ProviderType::MiniMaxi => "MiniMax-M2".to_string(),
             ProviderType::Custom(ref name) => match name.as_str() {
                 #[cfg(feature = "openai")]
                 "siliconflow" => models::openai_compatible::siliconflow::DEEPSEEK_V3_1.to_string(),
@@ -155,6 +157,12 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             ProviderType::Groq => {
                 return Err(LlmError::UnsupportedOperation(
                     "Groq feature not enabled".to_string(),
+                ));
+            }
+            #[cfg(not(feature = "minimaxi"))]
+            ProviderType::MiniMaxi => {
+                return Err(LlmError::UnsupportedOperation(
+                    "MiniMaxi feature not enabled".to_string(),
                 ));
             }
         };
@@ -454,6 +462,26 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::Groq => {
             return Err(LlmError::UnsupportedOperation(
                 "Groq provider requires the 'groq' feature to be enabled".to_string(),
+            ));
+        }
+        #[cfg(feature = "minimaxi")]
+        ProviderType::MiniMaxi => {
+            let resolved_base =
+                base_url.unwrap_or_else(|| "https://api.minimaxi.com/v1".to_string());
+
+            let client = crate::providers::minimaxi::MinimaxiBuilder::new(crate::LlmBuilder::new())
+                .api_key(api_key)
+                .base_url(resolved_base)
+                .model(common_params.model.clone())
+                .build()
+                .await?;
+
+            Arc::new(client)
+        }
+        #[cfg(not(feature = "minimaxi"))]
+        ProviderType::MiniMaxi => {
+            return Err(LlmError::UnsupportedOperation(
+                "MiniMaxi provider requires the 'minimaxi' feature to be enabled".to_string(),
             ));
         }
     };

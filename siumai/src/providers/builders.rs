@@ -58,6 +58,12 @@ impl LlmBuilder {
         crate::providers::xai::XaiBuilder::new(self)
     }
 
+    /// Create a `MiniMaxi` client builder (native implementation).
+    #[cfg(feature = "minimaxi")]
+    pub fn minimaxi(self) -> crate::providers::minimaxi::MinimaxiBuilder {
+        crate::providers::minimaxi::MinimaxiBuilder::new(self)
+    }
+
     // ========================================================================
     // OpenAI-Compatible Providers
     // ========================================================================
