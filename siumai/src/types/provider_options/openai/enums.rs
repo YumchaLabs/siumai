@@ -6,59 +6,44 @@ use serde::{Deserialize, Serialize};
 ///
 /// Controls how much effort the model puts into reasoning.
 /// Higher effort levels may produce better results but take longer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
     /// Low reasoning effort
     Low,
     /// Medium reasoning effort (default)
+    #[default]
     Medium,
     /// High reasoning effort
     High,
 }
 
-impl Default for ReasoningEffort {
-    fn default() -> Self {
-        Self::Medium
-    }
-}
-
 /// Service tier preference
 ///
 /// Specifies the latency tier to use for processing the request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceTier {
     /// Automatic tier selection (default)
+    #[default]
     Auto,
     /// Default tier (standard latency)
     Default,
 }
 
-impl Default for ServiceTier {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
 /// Text verbosity level for Responses API
 ///
 /// Controls the verbosity of text output in responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TextVerbosity {
     /// Low verbosity
     Low,
     /// Medium verbosity (default)
+    #[default]
     Medium,
     /// High verbosity
     High,
-}
-
-impl Default for TextVerbosity {
-    fn default() -> Self {
-        Self::Medium
-    }
 }
 
 /// Truncation strategy for Responses API

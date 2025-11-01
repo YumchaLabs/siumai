@@ -92,7 +92,7 @@ async fn test_anthropic_messages_non_streaming() {
     let client = LlmBuilder::new()
         .anthropic()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("claude-3-5-sonnet-20241022")
         .build()
         .await
@@ -138,7 +138,7 @@ async fn test_anthropic_error_response() {
     let client = LlmBuilder::new()
         .anthropic()
         .api_key("invalid-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("claude-3-5-sonnet-20241022")
         .build()
         .await
@@ -169,7 +169,7 @@ async fn test_anthropic_request_headers() {
     let client = LlmBuilder::new()
         .anthropic()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("claude-3-5-sonnet-20241022")
         .build()
         .await
@@ -199,7 +199,7 @@ async fn test_anthropic_tool_use_response() {
     let client = LlmBuilder::new()
         .anthropic()
         .api_key("test-api-key")
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("claude-3-5-sonnet-20241022")
         .build()
         .await

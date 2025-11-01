@@ -4,8 +4,7 @@ use siumai::params::AnthropicParams;
 use siumai::providers::anthropic::streaming::AnthropicEventConverter;
 use siumai::streaming::ChatStreamEvent;
 
-#[path = "../support/stream_fixture.rs"]
-mod support;
+use crate::support;
 
 fn make_anthropic_converter() -> AnthropicEventConverter {
     let cfg = AnthropicParams::default();

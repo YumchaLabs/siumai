@@ -7,20 +7,15 @@ use std::path::PathBuf;
 use tracing::Level;
 
 /// Output format for tracing logs
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum OutputFormat {
     /// Human-readable text format
+    #[default]
     Text,
     /// JSON format for structured logging (single line)
     Json,
     /// Compact JSON format (minimal whitespace, no pretty printing)
     JsonCompact,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Text
-    }
 }
 
 /// Tracing configuration

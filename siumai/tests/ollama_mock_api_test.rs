@@ -52,7 +52,7 @@ async fn test_ollama_chat_non_streaming() {
 
     let client = LlmBuilder::new()
         .ollama()
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("llama3.2")
         .build()
         .await
@@ -89,7 +89,7 @@ async fn test_ollama_error_response() {
 
     let client = LlmBuilder::new()
         .ollama()
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("invalid-model")
         .build()
         .await
@@ -118,7 +118,7 @@ async fn test_ollama_request_format() {
 
     let client = LlmBuilder::new()
         .ollama()
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("llama3.2")
         .build()
         .await
@@ -174,7 +174,7 @@ async fn test_ollama_tool_calling() {
 
     let client = LlmBuilder::new()
         .ollama()
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("llama3.2")
         .build()
         .await
@@ -265,7 +265,7 @@ async fn test_ollama_json_mode() {
 
     let client = LlmBuilder::new()
         .ollama()
-        .base_url(&mock_server.uri())
+        .base_url(mock_server.uri())
         .model("llama3.2")
         .format("json")
         .build()

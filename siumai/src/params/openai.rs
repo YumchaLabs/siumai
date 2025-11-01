@@ -7,19 +7,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Truncation strategy for Responses API
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TruncationStrategy {
     /// Automatically truncate to fit context window
     Auto,
     /// Fail if context window is exceeded (default)
+    #[default]
     Disabled,
-}
-
-impl Default for TruncationStrategy {
-    fn default() -> Self {
-        Self::Disabled
-    }
 }
 
 /// Includable items for Responses API
@@ -167,28 +162,24 @@ pub struct OpenAiParams {
 }
 
 /// Verbosity level for responses
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Verbosity {
     /// Low verbosity
     Low,
     /// Medium verbosity (default)
+    #[default]
     Medium,
     /// High verbosity
     High,
 }
 
-impl Default for Verbosity {
-    fn default() -> Self {
-        Self::Medium
-    }
-}
-
 /// Service tier for request processing
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceTier {
     /// Auto-select based on project settings (default)
+    #[default]
     Auto,
     /// Standard pricing and performance
     Default,
@@ -198,12 +189,6 @@ pub enum ServiceTier {
     Scale,
     /// Priority processing
     Priority,
-}
-
-impl Default for ServiceTier {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl super::common::ProviderParamsExt for OpenAiParams {
@@ -572,7 +557,7 @@ pub struct FunctionChoice {
 }
 
 /// Reasoning effort level for reasoning models (o1 series)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
     /// Minimal reasoning effort - fastest responses
@@ -580,15 +565,10 @@ pub enum ReasoningEffort {
     /// Low reasoning effort - faster responses
     Low,
     /// Medium reasoning effort - balanced performance (default)
+    #[default]
     Medium,
     /// High reasoning effort - more thorough reasoning
     High,
-}
-
-impl Default for ReasoningEffort {
-    fn default() -> Self {
-        Self::Medium
-    }
 }
 
 // tests removed; covered by Transformers

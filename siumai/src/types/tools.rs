@@ -284,12 +284,13 @@ pub enum ToolType {
 /// - **Gemini**: `"AUTO"`, `"ANY"`, `"NONE"`, or function calling mode with specific function
 ///
 /// The provider transformers handle these conversions automatically.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolChoice {
     /// Let the model decide whether to call tools (default)
     ///
     /// The model can choose to call zero or more tools, or respond with text only.
+    #[default]
     Auto,
 
     /// Require the model to call at least one tool
@@ -313,12 +314,6 @@ pub enum ToolChoice {
         /// Name of the tool to call
         name: String,
     },
-}
-
-impl Default for ToolChoice {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl ToolChoice {

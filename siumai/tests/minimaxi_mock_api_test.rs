@@ -159,7 +159,7 @@ mod minimaxi_tests {
         let mock_server = MockServer::start().await;
 
         // Mock SSE stream response - using simpler format
-        let sse_data = vec![
+        let sse_data = [
             "data: {\"id\":\"chatcmpl-789\",\"object\":\"chat.completion.chunk\",\"created\":1677652288,\"model\":\"MiniMax-M2\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"你好\"},\"finish_reason\":null}]}\n\n",
             "data: {\"id\":\"chatcmpl-789\",\"object\":\"chat.completion.chunk\",\"created\":1677652288,\"model\":\"MiniMax-M2\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"！\"},\"finish_reason\":null}]}\n\n",
             "data: {\"id\":\"chatcmpl-789\",\"object\":\"chat.completion.chunk\",\"created\":1677652288,\"model\":\"MiniMax-M2\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",

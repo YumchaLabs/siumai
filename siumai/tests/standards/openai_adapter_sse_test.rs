@@ -40,11 +40,11 @@ impl OpenAiChatAdapter for MockOpenAiAdapter {
         // Transform content delta by adding prefix
         if let Some(choices) = event.get_mut("choices").and_then(|v| v.as_array_mut()) {
             for choice in choices {
-                if let Some(delta) = choice.get_mut("delta") {
-                    if let Some(content) = delta.get_mut("content").and_then(|v| v.as_str()) {
-                        let prefixed = format!("{}{}", self.prefix, content);
-                        delta["content"] = serde_json::Value::String(prefixed);
-                    }
+                if let Some(delta) = choice.get_mut("delta")
+                    && let Some(content) = delta.get_mut("content").and_then(|v| v.as_str())
+                {
+                    let prefixed = format!("{}{}", self.prefix, content);
+                    delta["content"] = serde_json::Value::String(prefixed);
                 }
             }
         }
@@ -78,11 +78,11 @@ async fn test_openai_standard_adapter_transforms_sse_events() {
 
     let mut found_transformed = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
-            if delta.starts_with("[TRANSFORMED] ") {
-                found_transformed = true;
-                assert_eq!(delta, "[TRANSFORMED] Hello");
-            }
+        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+            && delta.starts_with("[TRANSFORMED] ")
+        {
+            found_transformed = true;
+            assert_eq!(delta, "[TRANSFORMED] Hello");
         }
     }
 
@@ -226,10 +226,10 @@ async fn test_openai_adapter_multiple_choices() {
     // Should transform all choices
     let mut transformed_count = 0;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
-            if delta.starts_with("[MULTI] ") {
-                transformed_count += 1;
-            }
+        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+            && delta.starts_with("[MULTI] ")
+        {
+            transformed_count += 1;
         }
     }
 
@@ -262,13 +262,13 @@ async fn test_openai_adapter_preserves_other_fields() {
             // Only modify content, preserve role and other fields
             if let Some(choices) = event.get_mut("choices").and_then(|v| v.as_array_mut()) {
                 for choice in choices {
-                    if let Some(delta) = choice.get_mut("delta") {
-                        if let Some(content) = delta.get_mut("content").and_then(|v| v.as_str()) {
-                            delta["content"] =
-                                serde_json::Value::String(format!("MODIFIED:{}", content));
-                        }
-                        // Preserve role if present
+                    if let Some(delta) = choice.get_mut("delta")
+                        && let Some(content) = delta.get_mut("content").and_then(|v| v.as_str())
+                    {
+                        delta["content"] =
+                            serde_json::Value::String(format!("MODIFIED:{}", content));
                     }
+                    // Preserve role if present
                 }
             }
             Ok(())

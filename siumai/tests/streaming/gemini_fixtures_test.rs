@@ -4,8 +4,7 @@ use siumai::providers::gemini::streaming::GeminiEventConverter;
 use siumai::providers::gemini::types::GeminiConfig;
 use siumai::streaming::ChatStreamEvent;
 
-#[path = "../support/stream_fixture.rs"]
-mod support;
+use crate::support;
 
 #[tokio::test]
 async fn gemini_simple_text_then_finish_fixture() {

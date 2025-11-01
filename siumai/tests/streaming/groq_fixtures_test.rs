@@ -7,8 +7,7 @@
 use siumai::providers::groq::streaming::GroqEventConverter;
 use siumai::streaming::ChatStreamEvent;
 
-#[path = "../support/stream_fixture.rs"]
-mod support;
+use crate::support;
 
 fn make_groq_converter() -> GroqEventConverter {
     GroqEventConverter::new()

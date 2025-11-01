@@ -30,3 +30,7 @@ mod groq_fixtures_test;
 #[cfg(feature = "xai")]
 #[path = "streaming/xai_fixtures_test.rs"]
 mod xai_fixtures_test;
+
+// Shared streaming test support utilities (loaded once for this crate)
+#[path = "support/stream_fixture.rs"]
+mod support;

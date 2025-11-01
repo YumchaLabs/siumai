@@ -391,7 +391,7 @@ fn test_core_interface_methods() {
 #[test]
 fn test_builder_pattern_consistency() {
     // Test that all provider builders support method chaining
-    let builders = vec![
+    let builders = [
         SiumaiBuilder::new().openai().api_key("test").model("test"),
         SiumaiBuilder::new()
             .anthropic()
@@ -419,7 +419,7 @@ fn test_builder_pattern_consistency() {
 #[test]
 fn test_provider_type_consistency() {
     // Test that ProviderType enum covers all supported providers
-    let provider_types = vec![
+    let provider_types = [
         ProviderType::OpenAi,
         ProviderType::Anthropic,
         ProviderType::Gemini,

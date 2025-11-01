@@ -22,20 +22,15 @@ use crate::error::{ExtrasError, Result};
 use tracing_appender::non_blocking::WorkerGuard;
 
 /// Output format for tracing logs
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
     /// Human-readable text format
+    #[default]
     Text,
     /// JSON format with pretty printing
     Json,
     /// Compact JSON format
     JsonCompact,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Text
-    }
 }
 
 /// Configuration for tracing subscriber

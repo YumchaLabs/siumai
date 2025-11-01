@@ -36,13 +36,12 @@ impl AnthropicChatAdapter for MockAnthropicAdapter {
 
     fn transform_sse_event(&self, event: &mut serde_json::Value) -> Result<(), LlmError> {
         // Add a custom tag to text deltas
-        if event.get("type").and_then(|v| v.as_str()) == Some("content_block_delta") {
-            if let Some(delta) = event.get_mut("delta") {
-                if let Some(text) = delta.get_mut("text").and_then(|v| v.as_str()) {
-                    let tagged = format!("{}{}", self.tag, text);
-                    delta["text"] = serde_json::Value::String(tagged);
-                }
-            }
+        if event.get("type").and_then(|v| v.as_str()) == Some("content_block_delta")
+            && let Some(delta) = event.get_mut("delta")
+            && let Some(text) = delta.get_mut("text").and_then(|v| v.as_str())
+        {
+            let tagged = format!("{}{}", self.tag, text);
+            delta["text"] = serde_json::Value::String(tagged);
         }
         Ok(())
     }
@@ -75,11 +74,11 @@ async fn test_anthropic_standard_adapter_transforms_sse_events() {
 
     let mut found_transformed = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
-            if delta.starts_with("[ADAPTED] ") {
-                found_transformed = true;
-                assert_eq!(delta, "[ADAPTED] Hello");
-            }
+        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+            && delta.starts_with("[ADAPTED] ")
+        {
+            found_transformed = true;
+            assert_eq!(delta, "[ADAPTED] Hello");
         }
     }
 
@@ -248,17 +247,16 @@ async fn test_anthropic_adapter_thinking_delta() {
 
         fn transform_sse_event(&self, event: &mut serde_json::Value) -> Result<(), LlmError> {
             // Transform both text and thinking deltas
-            if event.get("type").and_then(|v| v.as_str()) == Some("content_block_delta") {
-                if let Some(delta) = event.get_mut("delta") {
-                    // Transform text delta
-                    if let Some(text) = delta.get_mut("text").and_then(|v| v.as_str()) {
-                        delta["text"] = serde_json::Value::String(format!("[TEXT] {}", text));
-                    }
-                    // Transform thinking delta (if present)
-                    if let Some(thinking) = delta.get_mut("thinking").and_then(|v| v.as_str()) {
-                        delta["thinking"] =
-                            serde_json::Value::String(format!("[THINK] {}", thinking));
-                    }
+            if event.get("type").and_then(|v| v.as_str()) == Some("content_block_delta")
+                && let Some(delta) = event.get_mut("delta")
+            {
+                // Transform text delta
+                if let Some(text) = delta.get_mut("text").and_then(|v| v.as_str()) {
+                    delta["text"] = serde_json::Value::String(format!("[TEXT] {}", text));
+                }
+                // Transform thinking delta (if present)
+                if let Some(thinking) = delta.get_mut("thinking").and_then(|v| v.as_str()) {
+                    delta["thinking"] = serde_json::Value::String(format!("[THINK] {}", thinking));
                 }
             }
             Ok(())
@@ -284,10 +282,10 @@ async fn test_anthropic_adapter_thinking_delta() {
     // Verify transformation
     let mut found = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
-            if delta.starts_with("[TEXT] ") {
-                found = true;
-            }
+        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+            && delta.starts_with("[TEXT] ")
+        {
+            found = true;
         }
     }
 

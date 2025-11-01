@@ -3,8 +3,7 @@
 use siumai::providers::openai::responses::OpenAiResponsesEventConverter;
 use siumai::streaming::ChatStreamEvent;
 
-#[path = "../support/stream_fixture.rs"]
-mod support;
+use crate::support;
 
 #[tokio::test]
 async fn responses_output_text_delta_completed_fixture() {

@@ -26,10 +26,10 @@ impl ProviderAdapter for MappingAdapter {
         _model: &str,
         request_type: RequestType,
     ) -> Result<(), siumai::error::LlmError> {
-        if let RequestType::Embedding = request_type {
-            if let Some(obj) = params.as_object_mut() {
-                obj.insert("granularity".to_string(), serde_json::json!("high"));
-            }
+        if let RequestType::Embedding = request_type
+            && let Some(obj) = params.as_object_mut()
+        {
+            obj.insert("granularity".to_string(), serde_json::json!("high"));
         }
         Ok(())
     }

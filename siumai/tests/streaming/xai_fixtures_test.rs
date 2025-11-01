@@ -7,8 +7,7 @@
 use siumai::providers::xai::streaming::XaiEventConverter;
 use siumai::streaming::ChatStreamEvent;
 
-#[path = "../support/stream_fixture.rs"]
-mod support;
+use crate::support;
 
 fn make_xai_converter() -> XaiEventConverter {
     XaiEventConverter::new()

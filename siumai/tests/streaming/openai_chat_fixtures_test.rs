@@ -8,8 +8,7 @@ use siumai::streaming::ChatStreamEvent;
 use siumai::traits::ProviderCapabilities;
 use std::sync::Arc;
 
-#[path = "../support/stream_fixture.rs"]
-mod support;
+use crate::support;
 
 fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     #[derive(Debug, Clone)]

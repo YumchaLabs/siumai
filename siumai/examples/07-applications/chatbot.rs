@@ -80,13 +80,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut full_response = String::new();
         while let Some(event) = stream.next().await {
-            match event? {
-                ChatStreamEvent::ContentDelta { delta, .. } => {
-                    print!("{}", delta);
-                    io::stdout().flush()?;
-                    full_response.push_str(&delta);
-                }
-                _ => {}
+            if let ChatStreamEvent::ContentDelta { delta, .. } = event? {
+                print!("{}", delta);
+                io::stdout().flush()?;
+                full_response.push_str(&delta);
             }
         }
         println!("\n");

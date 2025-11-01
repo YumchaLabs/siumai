@@ -34,18 +34,13 @@ pub use crate::retry::BackoffRetryExecutor;
 pub use crate::retry::RetryPolicy;
 
 /// Retry backend selector
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RetryBackend {
     /// Backoff crate-based executor (recommended default)
+    #[default]
     Backoff,
     /// Simple policy-based executor (`retry.rs`)
     Policy,
-}
-
-impl Default for RetryBackend {
-    fn default() -> Self {
-        Self::Backoff
-    }
 }
 
 /// Unified retry options

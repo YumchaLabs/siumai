@@ -1,7 +1,7 @@
 //! MiniMaxi Provider Tests
 
 #[cfg(test)]
-mod tests {
+mod minimaxi_tests {
     use super::super::*;
 
     #[test]

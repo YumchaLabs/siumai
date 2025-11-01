@@ -7,8 +7,7 @@
 use siumai::providers::ollama::streaming::OllamaEventConverter;
 use siumai::streaming::ChatStreamEvent;
 
-#[path = "../support/stream_fixture.rs"]
-mod support;
+use crate::support;
 
 fn make_ollama_converter() -> OllamaEventConverter {
     OllamaEventConverter::new()
