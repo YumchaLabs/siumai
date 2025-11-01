@@ -71,11 +71,11 @@ async fn audio_tts_bytes_retries_on_401() {
         policy: siumai::execution::ExecutionPolicy::new(),
     };
 
-    let bytes = AudioExecutor::tts(
+    let result = AudioExecutor::tts(
         &exec,
         TtsRequest::new("hello".into()).with_voice("alloy".into()),
     )
     .await
     .unwrap();
-    assert_eq!(bytes, b"WAV");
+    assert_eq!(result.audio_data.as_slice(), b"WAV");
 }
