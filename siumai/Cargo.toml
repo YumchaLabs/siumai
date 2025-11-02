@@ -258,6 +258,12 @@ required-features = ["openai"]
 name = "responses-api"
 path = "examples/04-provider-specific/openai/responses-api.rs"
 
+# 04-provider-specific/minimaxi
+[[example]]
+name = "minimaxi_basic"
+path = "examples/04-provider-specific/minimaxi/minimaxi_basic.rs"
+required-features = ["minimaxi"]
+
 # 04-provider-specific/anthropic
 [[example]]
 name = "extended-thinking"

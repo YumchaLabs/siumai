@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Get music generation endpoint URL
 pub(super) fn music_generation_url(base_url: &str) -> String {
-    format!("{}/v1/music_generation", base_url.trim_end_matches('/'))
+    format!("{}/music_generation", base_url.trim_end_matches('/'))
 }
 
 /// MiniMaxi-specific music generation request

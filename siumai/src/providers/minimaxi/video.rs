@@ -9,13 +9,13 @@ use crate::types::video::{
 
 /// Get video generation endpoint URL
 pub(super) fn video_generation_url(base_url: &str) -> String {
-    format!("{}/v1/video_generation", base_url.trim_end_matches('/'))
+    format!("{}/video_generation", base_url.trim_end_matches('/'))
 }
 
 /// Get video query endpoint URL
 pub(super) fn video_query_url(base_url: &str, task_id: &str) -> String {
     format!(
-        "{}/v1/query/video_generation?task_id={}",
+        "{}/query/video_generation?task_id={}",
         base_url.trim_end_matches('/'),
         task_id
     )

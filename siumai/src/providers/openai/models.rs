@@ -295,7 +295,6 @@ fn determine_model_capabilities(model_id: &str) -> Vec<String> {
     if model_id.contains("dall-e") || model_id == "gpt-image-1" {
         capabilities.clear(); // Image models don't have chat/text capabilities
         capabilities.push("image_generation".to_string());
-        capabilities.push("image".to_string());
     }
 
     // Embedding models

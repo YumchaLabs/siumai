@@ -91,7 +91,7 @@ impl ProviderSpec for MinimaxiSpec {
         _req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
     ) -> String {
-        // MiniMaxi uses /v1/image_generation endpoint
-        format!("{}/v1/image_generation", ctx.base_url.trim_end_matches('/'))
+        // MiniMaxi image generation endpoint (base_url already includes /v1 by default)
+        format!("{}/image_generation", ctx.base_url.trim_end_matches('/'))
     }
 }

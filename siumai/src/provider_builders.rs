@@ -92,6 +92,14 @@ impl SiumaiBuilder {
         self
     }
 
+    /// Create a `MiniMaxi` provider (convenience method)
+    #[cfg(feature = "minimaxi")]
+    pub fn minimaxi(mut self) -> Self {
+        self.provider_type = Some(ProviderType::MiniMaxi);
+        self.provider_id = Some("minimaxi".to_string());
+        self
+    }
+
     // ========================================================================
     // OpenAI-Compatible Providers (generated)
     // ========================================================================

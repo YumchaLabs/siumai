@@ -150,7 +150,7 @@ Provider-specific features that don't have cross-provider equivalents.
 - **grok.rs** - Using Grok models
 
 **minimaxi/**
-- **basic.rs** - Basic chat with MiniMaxi
+- **minimaxi_basic.rs** - Basic chat with MiniMaxi
 - **music-generation.md** - Music generation guide
 - **video-generation.md** - Video generation guide
 

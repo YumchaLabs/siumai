@@ -197,12 +197,12 @@ impl AudioTransformer for MinimaxiAudioTransformer {
     }
 
     fn tts_endpoint(&self) -> &str {
-        "/v1/t2a_v2"
+        "/t2a_v2"
     }
 
     fn stt_endpoint(&self) -> &str {
         // Not implemented yet
-        "/v1/stt"
+        "/stt"
     }
 
     fn parse_stt_response(&self, _json: &serde_json::Value) -> Result<String, LlmError> {

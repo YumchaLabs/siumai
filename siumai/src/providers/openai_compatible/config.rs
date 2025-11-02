@@ -148,6 +148,28 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
     );
 
     // Mistral AI - European AI
+    // MiniMaxi - OpenAI-compatible M2 text API
+    providers.insert(
+        "minimaxi".to_string(),
+        ProviderConfig {
+            id: "minimaxi".to_string(),
+            name: "MiniMaxi".to_string(),
+            base_url: "https://api.minimaxi.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings {
+                thinking_fields: vec![
+                    "reasoning_content".to_string(),
+                    "thinking".to_string(),
+                    "thoughts".to_string(),
+                ],
+                content_field: "content".to_string(),
+                tool_calls_field: "tool_calls".to_string(),
+                role_field: "role".to_string(),
+            },
+            capabilities: vec!["tools".to_string(), "reasoning".to_string()],
+            default_model: Some("MiniMax-M2".to_string()),
+            supports_reasoning: true,
+        },
+    );
     providers.insert(
         "mistral".to_string(),
         ProviderConfig {

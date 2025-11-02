@@ -151,6 +151,14 @@ impl MinimaxiBuilder {
         // Create client
         let mut client = MinimaxiClient::new(config, http_client);
 
+        // Install automatic middlewares (e.g., extract <think> ... </think>)
+        // Use provider_id = "minimaxi" and the selected model id
+        let model_id = client.config().common_params.model.clone();
+        let auto_mws = self.core.get_auto_middlewares("minimaxi", &model_id);
+        if !auto_mws.is_empty() {
+            client = client.with_model_middlewares(auto_mws);
+        }
+
         // Apply tracing configuration
         if let Some(tracing_config) = self.core.tracing_config {
             client = client.with_tracing(tracing_config);

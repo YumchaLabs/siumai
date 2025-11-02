@@ -333,12 +333,25 @@ impl StreamChunkTransformer for OpenAiChatStreamTransformer {
 
         let chat_adapter = self.adapter.clone();
 
-        // Create a minimal config for the converter
+        // Choose a ProviderAdapter based on provider_id; fallback to OpenAI standard
         let provider_adapter: Arc<
             dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
-        > = Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
-            base_url: String::new(),
-        });
+        > = {
+            // Try configurable adapter from builtin providers registry
+            let builtins = crate::providers::openai_compatible::config::get_builtin_providers();
+            if let Some(conf) = builtins.get(&self.provider_id) {
+                Arc::new(
+                    crate::providers::openai_compatible::registry::ConfigurableAdapter::new(
+                        conf.clone(),
+                    ),
+                )
+            } else {
+                Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
+                    base_url: String::new(),
+                })
+            }
+        };
+        // Create a minimal config for the converter
         let config =
             crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig::new(
                 &self.provider_id,

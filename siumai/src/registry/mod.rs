@@ -190,7 +190,7 @@ impl ProviderRegistry {
                 .with_tools()
                 .with_custom_feature("speech", true)
                 .with_custom_feature("video", true)
-                .with_custom_feature("image", true)
+                .with_custom_feature("image_generation", true)
                 .with_custom_feature("music", true),
         );
     }
