@@ -82,8 +82,14 @@ impl ProviderSpec for MinimaxiSpec {
     }
 
     fn audio_base_url(&self, ctx: &ProviderContext) -> String {
-        // MiniMaxi uses the same base URL for audio endpoints
-        ctx.base_url.trim_end_matches('/').to_string()
+        // MiniMaxi TTS/STT endpoints are under /v1 regardless of base_url form
+        // Ensure a single /v1 segment is present
+        let base = ctx.base_url.trim_end_matches('/');
+        if base.ends_with("/v1") {
+            base.to_string()
+        } else {
+            format!("{}/v1", base)
+        }
     }
 
     fn image_url(
