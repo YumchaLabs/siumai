@@ -18,8 +18,8 @@ pub struct MinimaxiConfig {
 }
 
 impl MinimaxiConfig {
-    /// Default base URL for MiniMaxi API
-    pub const DEFAULT_BASE_URL: &'static str = "https://api.minimaxi.com/v1";
+    /// Default base URL for MiniMaxi API (Anthropic-compatible endpoint)
+    pub const DEFAULT_BASE_URL: &'static str = "https://api.minimaxi.com/anthropic";
 
     /// Default model (M2 text model)
     pub const DEFAULT_MODEL: &'static str = "MiniMax-M2";

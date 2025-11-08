@@ -4,7 +4,7 @@ MiniMaxi is a multi-modal AI platform providing text generation, speech synthesi
 
 ## Features
 
-- **Text Generation**: M2 model with OpenAI-compatible API
+- **Text Generation**: M2 model with Anthropic-compatible API (supports thinking blocks, tool use)
 - **Speech Synthesis**: Speech 2.6 HD/Turbo models
 - **Video Generation**: Hailuo 2.3 & 2.3 Fast models
 - **Image Generation**: Image generation capabilities
@@ -228,12 +228,13 @@ let client = LlmBuilder::new()
 
 ## Architecture
 
-The MiniMaxi provider leverages the OpenAI standard layer for request/response transformation, as MiniMaxi's text generation API is OpenAI-compatible. This provides:
+The MiniMaxi provider leverages the Anthropic standard layer for request/response transformation, as MiniMaxi's text generation API is Anthropic-compatible. This provides:
 
 - Consistent API interface with other providers
 - Automatic request/response transformation
-- Built-in streaming support
+- Built-in streaming support with thinking blocks
 - Tool calling (function calling) support
+- Extended thinking capabilities
 
 ## Examples
 
@@ -247,10 +248,10 @@ For more information about MiniMaxi's API, visit:
 
 - [MiniMaxi Platform Documentation](https://platform.minimaxi.com/docs/guides/platform-intro)
 - [Text API Reference](https://platform.minimaxi.com/docs/api-reference/text-intro)
+- [Anthropic-Compatible API](https://platform.minimaxi.com/docs/api-reference/text-anthropic-api)
 - [OpenAI-Compatible API](https://platform.minimaxi.com/docs/api-reference/text-openai-api)
 - [Function Calling Reference](https://platform.minimaxi.com/docs/api-reference/text-m2-function-call-refer)
 
 ## License
 
 This provider implementation is part of the siumai library and follows the same license.
-

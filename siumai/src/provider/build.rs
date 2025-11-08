@@ -466,8 +466,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "minimaxi")]
         ProviderType::MiniMaxi => {
-            let resolved_base =
-                base_url.unwrap_or_else(|| "https://api.minimaxi.com/v1".to_string());
+            // Use Anthropic-compatible endpoint by default
+            let resolved_base = base_url.unwrap_or_else(|| {
+                crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string()
+            });
 
             let client = crate::providers::minimaxi::MinimaxiBuilder::new(crate::LlmBuilder::new())
                 .api_key(api_key)
