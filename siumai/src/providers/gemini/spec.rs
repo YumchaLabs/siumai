@@ -126,23 +126,23 @@ impl ProviderSpec for GeminiSpec {
             }
 
             // 🎯 Inject File Search tool (Gemini File Search)
-            if let Some(ref fs) = file_search {
-                if !fs.file_search_store_names.is_empty() {
-                    let mut tools = out
-                        .get("tools")
-                        .and_then(|v| v.as_array().cloned())
-                        .unwrap_or_default();
+            if let Some(ref fs) = file_search
+                && !fs.file_search_store_names.is_empty()
+            {
+                let mut tools = out
+                    .get("tools")
+                    .and_then(|v| v.as_array().cloned())
+                    .unwrap_or_default();
 
-                    let mut file_search_tool = serde_json::json!({
-                        "file_search": {}
-                    });
+                let mut file_search_tool = serde_json::json!({
+                    "file_search": {}
+                });
 
-                    file_search_tool["file_search"]["file_search_store_names"] =
-                        serde_json::json!(fs.file_search_store_names);
+                file_search_tool["file_search"]["file_search_store_names"] =
+                    serde_json::json!(fs.file_search_store_names);
 
-                    tools.push(file_search_tool);
-                    out["tools"] = serde_json::Value::Array(tools);
-                }
+                tools.push(file_search_tool);
+                out["tools"] = serde_json::Value::Array(tools);
             }
 
             // 🎯 Inject response MIME type into generation_config
@@ -206,69 +206,6 @@ impl ProviderSpec for GeminiSpec {
                 },
             ),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::{ChatMessage, GeminiOptions};
-
-    #[test]
-    fn chat_before_send_injects_file_search_tool() {
-        // Build a ChatRequest with GeminiOptions.file_search configured
-        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_gemini_options(
-            GeminiOptions::new().with_file_search_store_names(vec![
-                "stores/foo".to_string(),
-                "stores/bar".to_string(),
-            ]),
-        );
-
-        // Minimal provider context
-        let ctx = crate::core::ProviderContext::new(
-            "gemini",
-            "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            None,
-            std::collections::HashMap::new(),
-        );
-
-        let spec = GeminiSpec;
-        let hook = spec
-            .chat_before_send(&req, &ctx)
-            .expect("expected before_send hook");
-
-        let base = serde_json::json!({
-            "model": "gemini-2.0-flash-exp",
-            "contents": []
-        });
-
-        let out = hook(&base).expect("hook apply ok");
-        let tools = out
-            .get("tools")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .expect("tools array present");
-
-        let fs = tools
-            .iter()
-            .find_map(|t| t.get("file_search"))
-            .cloned()
-            .expect("file_search tool present");
-
-        let names = fs
-            .get("file_search_store_names")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .expect("store names present");
-
-        let names: Vec<String> = names
-            .into_iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-        assert_eq!(
-            names,
-            vec!["stores/foo".to_string(), "stores/bar".to_string()]
-        );
     }
 }
 
@@ -488,7 +425,64 @@ pub fn create_image_wrapper(base_url: String, model: String) -> Arc<dyn Provider
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use crate::types::{ChatMessage, GeminiOptions};
+
+    #[test]
+    fn chat_before_send_injects_file_search_tool() {
+        // Build a ChatRequest with GeminiOptions.file_search configured
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_gemini_options(
+            GeminiOptions::new().with_file_search_store_names(vec![
+                "stores/foo".to_string(),
+                "stores/bar".to_string(),
+            ]),
+        );
+
+        // Minimal provider context
+        let ctx = crate::core::ProviderContext::new(
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            None,
+            std::collections::HashMap::new(),
+        );
+
+        let spec = GeminiSpec;
+        let hook = spec
+            .chat_before_send(&req, &ctx)
+            .expect("expected before_send hook");
+
+        let base = serde_json::json!({
+            "model": "gemini-2.0-flash-exp",
+            "contents": []
+        });
+
+        let out = hook(&base).expect("hook apply ok");
+        let tools = out
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .expect("tools array present");
+
+        let fs = tools
+            .iter()
+            .find_map(|t| t.get("file_search"))
+            .cloned()
+            .expect("file_search tool present");
+
+        let names = fs
+            .get("file_search_store_names")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .expect("store names present");
+
+        let names: Vec<String> = names
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["stores/foo".to_string(), "stores/bar".to_string()]
+        );
+    }
 
     #[test]
     fn embedding_wrapper_selects_single_vs_batch_url() {
@@ -496,7 +490,12 @@ mod tests {
         let model = "gemini-embedding-001".to_string();
         let spec = create_embedding_wrapper(base.clone(), model.clone());
 
-        let ctx = ProviderContext::new("gemini", base.clone(), Some("KEY".into()), HashMap::new());
+        let ctx = ProviderContext::new(
+            "gemini",
+            base.clone(),
+            Some("KEY".into()),
+            std::collections::HashMap::new(),
+        );
 
         let single = crate::types::EmbeddingRequest::new(vec!["hello".to_string()])
             .with_model(model.clone());
@@ -514,7 +513,12 @@ mod tests {
         let base = "https://example/v1".to_string();
         let model = "gemini-1.5-flash".to_string();
         let spec = create_image_wrapper(base.clone(), model.clone());
-        let ctx = ProviderContext::new("gemini", base.clone(), Some("KEY".into()), HashMap::new());
+        let ctx = ProviderContext::new(
+            "gemini",
+            base.clone(),
+            Some("KEY".into()),
+            std::collections::HashMap::new(),
+        );
 
         let req = crate::types::ImageGenerationRequest::default();
         let url = spec.image_url(&req, &ctx);
@@ -526,7 +530,12 @@ mod tests {
         let base = "https://example".to_string();
         let model = "gemini-1.5-flash".to_string();
         let spec = create_image_wrapper(base.clone(), model.clone());
-        let ctx = ProviderContext::new("gemini", base, Some("APIKEY".into()), HashMap::new());
+        let ctx = ProviderContext::new(
+            "gemini",
+            base,
+            Some("APIKEY".into()),
+            std::collections::HashMap::new(),
+        );
         let headers = spec.build_headers(&ctx).unwrap();
         assert_eq!(headers.get("x-goog-api-key").unwrap(), "APIKEY");
         assert_eq!(headers.get("content-type").unwrap(), "application/json");
@@ -537,7 +546,7 @@ mod tests {
         let base = "https://example".to_string();
         let model = "gemini-1.5-flash".to_string();
         let spec = create_embedding_wrapper(base.clone(), model.clone());
-        let mut extra = HashMap::new();
+        let mut extra = std::collections::HashMap::new();
         extra.insert("Authorization".into(), "Bearer token".into());
         let ctx = ProviderContext::new("gemini", base, Some("APIKEY".into()), extra);
         let headers = spec.build_headers(&ctx).unwrap();

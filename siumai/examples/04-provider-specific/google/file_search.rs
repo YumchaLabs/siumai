@@ -96,14 +96,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         resp.content_text().unwrap_or_default()
     );
 
-    // Optional cleanup (default: delete)
-    let cleanup = std::env::var("CLEANUP").ok().map_or(true, |v| v != "0");
-    if cleanup {
-        println!("🧹 Deleting store {}", store.name);
-        let _ = client.file_search_stores().delete_store(store.name).await;
-    } else {
-        println!("(Skipping cleanup; set CLEANUP=0 explicitly)");
-    }
+    // Cleanup: delete the store
+    println!("🧹 Deleting store {}", store.name);
+    client.file_search_stores().delete_store(store.name).await?;
 
     Ok(())
 }

@@ -180,10 +180,10 @@ impl GeminiFileSearchStores {
         let endpoint = format!("{}:importFile", store_name.trim_end_matches('/'));
         let url = join_url_segments(&[&base, &endpoint]);
         let mut body = serde_json::json!({ "fileName": file_name });
-        if let Some(cfg) = config {
-            if let Ok(v) = serde_json::to_value(cfg) {
-                body["config"] = v;
-            }
+        if let Some(cfg) = config
+            && let Ok(v) = serde_json::to_value(cfg)
+        {
+            body["config"] = v;
         }
         let headers = self.build_headers().await?;
 
@@ -301,10 +301,10 @@ impl GeminiFileSearchStores {
     async fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LlmError> {
         let mut extra = self.config.http_config.headers.clone();
         // If a token provider exists, prefer Bearer auth over API key
-        if let Some(ref tp) = self.config.token_provider {
-            if let Ok(tok) = tp.token().await {
-                extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
-            }
+        if let Some(ref tp) = self.config.token_provider
+            && let Ok(tok) = tp.token().await
+        {
+            extra.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
         let api_key = self.config.api_key.expose_secret();
         ProviderHeaders::gemini(api_key, &extra)

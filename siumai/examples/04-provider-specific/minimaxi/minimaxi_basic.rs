@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("\nAI: {}", text);
                     }
                 } else {
-                    println!("");
+                    println!();
                 }
                 if let Some(usage) = &response.usage {
                     println!(
