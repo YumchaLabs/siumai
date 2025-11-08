@@ -18,8 +18,11 @@ pub struct MinimaxiConfig {
 }
 
 impl MinimaxiConfig {
-    /// Default base URL for MiniMaxi API (Anthropic-compatible endpoint)
+    /// Default base URL for MiniMaxi API (Anthropic-compatible endpoint for chat)
     pub const DEFAULT_BASE_URL: &'static str = "https://api.minimaxi.com/anthropic";
+
+    /// OpenAI-compatible base URL for audio, image, video, and music APIs
+    pub const OPENAI_BASE_URL: &'static str = "https://api.minimaxi.com/v1";
 
     /// Default model (M2 text model)
     pub const DEFAULT_MODEL: &'static str = "MiniMax-M2";

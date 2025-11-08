@@ -51,6 +51,7 @@ pub mod config;
 pub mod spec;
 pub mod transformers;
 pub mod types;
+mod utils;
 
 // Capability modules
 pub mod audio;

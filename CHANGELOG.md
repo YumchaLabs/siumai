@@ -6,7 +6,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
-- MiniMaxi provider support with multi-modal capabilities (text, speech, video, image, music generation).
+- MiniMaxi provider support with multi-modal capabilities (text, speech, image generation).
 - **Gemini File Search (RAG) support** - Provider-specific implementation for Gemini's File Search API
   - File Search Store management (create, list, get, delete)
   - Example: `siumai/examples/04-provider-specific/google/file_search.rs`

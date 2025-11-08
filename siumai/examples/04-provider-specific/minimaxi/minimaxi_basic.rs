@@ -8,6 +8,7 @@
 
 use futures::StreamExt;
 use siumai::prelude::*;
+use siumai::providers::minimaxi::model_constants;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Siumai::builder()
         .minimaxi()
         .api_key(&api_key)
-        .model("MiniMax-M2")
+        .model(model_constants::text::MINIMAX_M2)
         .build()
         .await?;
 
@@ -102,6 +103,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "\nUsage: total={} prompt={} completion={}",
             usage.total_tokens, usage.prompt_tokens, usage.completion_tokens
         );
+    }
+
+    // Test Audio (TTS) functionality
+    println!("\n\n=== Testing Audio (TTS) ===");
+    let mut tts_request = TtsRequest::new("你好，这是一个测试。".to_string());
+    tts_request.voice = Some(model_constants::voice::MALE_QN_QINGSE.to_string());
+    tts_request.model = Some(model_constants::audio::SPEECH_2_6_HD.to_string());
+
+    // Access the underlying client to call audio methods
+    use siumai::traits::AudioCapability;
+    if let Some(minimaxi_client) = client
+        .client()
+        .as_any()
+        .downcast_ref::<siumai::providers::minimaxi::client::MinimaxiClient>(
+    ) {
+        match minimaxi_client.text_to_speech(tts_request).await {
+            Ok(response) => {
+                println!("✅ TTS Success!");
+                println!("Audio data length: {} bytes", response.audio_data.len());
+            }
+            Err(e) => {
+                println!("❌ TTS Error: {:?}", e);
+            }
+        }
+    } else {
+        println!("⚠️  Could not access MiniMaxi client for audio test");
+    }
+
+    // Test Image Generation functionality
+    println!("\n\n=== Testing Image Generation ===");
+    use siumai::traits::ImageGenerationCapability;
+    use siumai::types::ImageGenerationRequest;
+
+    if let Some(minimaxi_client) = client
+        .client()
+        .as_any()
+        .downcast_ref::<siumai::providers::minimaxi::client::MinimaxiClient>(
+    ) {
+        let image_request = ImageGenerationRequest {
+            prompt: "一只可爱的猫咪在花园里玩耍".to_string(),
+            model: Some(model_constants::images::IMAGE_01.to_string()),
+            size: Some("1024x1024".to_string()),
+            count: 1,
+            ..Default::default()
+        };
+
+        match minimaxi_client.generate_images(image_request).await {
+            Ok(response) => {
+                println!("✅ Image Generation Success!");
+                println!("Generated {} image(s)", response.images.len());
+                for (i, img) in response.images.iter().enumerate() {
+                    if let Some(url) = &img.url {
+                        println!("  Image {}: {}", i + 1, url);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("❌ Image Generation Error: {:?}", e);
+            }
+        }
+    } else {
+        println!("⚠️  Could not access MiniMaxi client for image test");
     }
 
     Ok(())

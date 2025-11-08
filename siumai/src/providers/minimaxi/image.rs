@@ -7,7 +7,6 @@ use crate::execution::executors::image::{HttpImageExecutor, ImageExecutorBuilder
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::providers::minimaxi::spec::MinimaxiSpec;
 use crate::retry_api::RetryOptions;
-use crate::standards::openai::image::OpenAiImageStandard;
 use std::sync::Arc;
 
 /// Build image executor for MiniMaxi
@@ -18,11 +17,15 @@ pub(super) fn build_image_executor(
     retry_options: Option<&RetryOptions>,
     http_interceptors: &[Arc<dyn HttpInterceptor>],
 ) -> Arc<HttpImageExecutor> {
+    // MiniMaxi image API uses OpenAI-style Bearer token authentication
+    // We need to inject the Authorization header into http_extra_headers
+    let extra_headers = super::utils::create_openai_auth_headers(api_key);
+
     let ctx = ProviderContext {
         provider_id: "minimaxi".to_string(),
         api_key: Some(api_key.to_string()),
         base_url: base_url.to_string(),
-        http_extra_headers: Default::default(),
+        http_extra_headers: extra_headers,
         organization: None,
         project: None,
         extras: Default::default(),
@@ -30,8 +33,8 @@ pub(super) fn build_image_executor(
 
     let spec = Arc::new(MinimaxiSpec::new());
 
-    // Use OpenAI standard transformers (MiniMaxi is OpenAI-compatible)
-    let image_standard = OpenAiImageStandard::new();
+    // Use OpenAI standard transformers with MiniMaxi adapter
+    let image_standard = super::transformers::image::create_minimaxi_image_standard();
     let transformers = image_standard.create_transformers("minimaxi");
 
     let mut builder = ImageExecutorBuilder::new("minimaxi", http_client.clone())

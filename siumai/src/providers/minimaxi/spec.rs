@@ -46,9 +46,8 @@ impl ProviderSpec for MinimaxiSpec {
             .with_tools()
             .with_audio() // Enable audio capability
             .with_custom_feature("speech", true)
-            .with_custom_feature("video", true)
             .with_custom_feature("image_generation", true) // Enable image generation
-            .with_custom_feature("music", true)
+        // Note: video and music capabilities are planned for future releases
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
@@ -86,7 +85,7 @@ impl ProviderSpec for MinimaxiSpec {
         let base = ctx.base_url.trim_end_matches('/');
         if base.contains("/anthropic") {
             // Switch from Anthropic endpoint to OpenAI endpoint for audio
-            "https://api.minimaxi.com/v1".to_string()
+            super::config::MinimaxiConfig::OPENAI_BASE_URL.to_string()
         } else if base.ends_with("/v1") {
             base.to_string()
         } else {
@@ -103,7 +102,10 @@ impl ProviderSpec for MinimaxiSpec {
         // If using Anthropic base_url, switch to OpenAI base_url for image
         let base = ctx.base_url.trim_end_matches('/');
         if base.contains("/anthropic") {
-            "https://api.minimaxi.com/v1/image_generation".to_string()
+            format!(
+                "{}/image_generation",
+                super::config::MinimaxiConfig::OPENAI_BASE_URL
+            )
         } else {
             format!("{}/image_generation", base)
         }

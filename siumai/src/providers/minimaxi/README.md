@@ -1,14 +1,32 @@
 # MiniMaxi Provider
 
-MiniMaxi is a multi-modal AI platform providing text generation, speech synthesis, video generation, image generation, and music generation capabilities.
+MiniMaxi is a multi-modal AI platform providing text generation, speech synthesis, image generation, and more.
 
 ## Features
 
 - **Text Generation**: M2 model with Anthropic-compatible API (supports thinking blocks, tool use)
 - **Speech Synthesis**: Speech 2.6 HD/Turbo models
-- **Video Generation**: Hailuo 2.3 & 2.3 Fast models
-- **Image Generation**: Image generation capabilities
-- **Music Generation**: Music 2.0 model
+- **Image Generation**: Image-01 and Image-01-Live models
+- **Video Generation**: Coming soon (Hailuo 2.3 models)
+- **Music Generation**: Coming soon (Music 2.0 model)
+
+## API Standards
+
+MiniMaxi uses different API standards for different capabilities:
+
+### Chat API (Anthropic Standard)
+
+- **Endpoint**: `https://api.minimaxi.com/anthropic/v1/messages`
+- **Authentication**: `x-api-key` header
+- **Supported Models**: MiniMax-M2, MiniMax-M2-Stable
+- **Features**: Thinking blocks, tool use, streaming
+
+### Audio/Image APIs (OpenAI Standard)
+
+- **Endpoint**: `https://api.minimaxi.com/v1/*`
+- **Authentication**: `Authorization: Bearer <token>` header
+- **Image Models**: image-01, image-01-live
+- **Audio Models**: speech-2.6-hd, speech-2.6-turbo
 
 ## Setup
 
@@ -160,23 +178,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Available Models
 
+You can use model constants from `siumai::providers::minimaxi::model_constants`:
+
+```rust
+use siumai::providers::minimaxi::model_constants;
+
+// Text models
+model_constants::text::MINIMAX_M2           // "MiniMax-M2"
+model_constants::text::MINIMAX_M2_STABLE    // "MiniMax-M2-Stable"
+
+// Audio models
+model_constants::audio::SPEECH_2_6_HD       // "speech-2.6-hd"
+model_constants::audio::SPEECH_2_6_TURBO    // "speech-2.6-turbo"
+
+// Voice IDs
+model_constants::voice::MALE_QN_QINGSE      // "male-qn-qingse"
+model_constants::voice::FEMALE_SHAONV       // "female-shaonv"
+
+// Image models
+model_constants::images::IMAGE_01           // "image-01"
+model_constants::images::IMAGE_01_LIVE      // "image-01-live"
+```
+
 ### Text Generation
 
-- `MiniMax-M2` - Main text generation model (default)
+- `MiniMax-M2` - Latest model with thinking capabilities
+- `MiniMax-M2-Stable` - Stable version for production use
 
 ### Speech Synthesis
 
 - `speech-2.6-hd` - High-definition speech synthesis
 - `speech-2.6-turbo` - Fast speech synthesis
 
-### Video Generation
+### Image Generation
 
-- `hailuo-2.3` - Video generation model
-- `hailuo-2.3-fast` - Fast video generation
-
-### Music Generation
-
-- `music-2.0` - Music generation model
+- `image-01` - Standard image generation
+- `image-01-live` - Real-time image generation with style control
 
 ## Configuration
 

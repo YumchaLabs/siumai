@@ -223,7 +223,10 @@ pub(crate) fn parse_minimaxi_tts_response(json: &serde_json::Value) -> Result<Ve
         .and_then(|d| d.get("audio"))
         .and_then(|a| a.as_str())
         .ok_or_else(|| {
-            LlmError::ParseError("Missing 'data.audio' field in MiniMaxi TTS response".to_string())
+            LlmError::ParseError(format!(
+                "Missing 'data.audio' field in MiniMaxi TTS response. Response: {}",
+                serde_json::to_string(json).unwrap_or_else(|_| format!("{:?}", json))
+            ))
         })?;
 
     // Decode hex string to bytes

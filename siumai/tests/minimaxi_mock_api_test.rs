@@ -16,30 +16,30 @@ mod minimaxi_tests {
         // Start mock server
         let mock_server = MockServer::start().await;
 
-        // Mock response matching OpenAI format
+        // Mock response matching Anthropic format
         let mock_response = json!({
-            "id": "chatcmpl-123",
-            "object": "chat.completion",
-            "created": 1677652288,
+            "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "你好！我是 MiniMaxi 的 AI 助手。"
+                }
+            ],
             "model": "MiniMax-M2",
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "你好！我是 MiniMaxi 的 AI 助手。"
-                },
-                "finish_reason": "stop"
-            }],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
             "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 20,
-                "total_tokens": 30
+                "input_tokens": 10,
+                "output_tokens": 20
             }
         });
 
         Mock::given(method("POST"))
-            .and(path("/chat/completions"))
-            .and(header("authorization", "Bearer test-api-key"))
+            .and(path("/v1/messages"))
+            .and(header("x-api-key", "test-api-key"))
+            .and(header("anthropic-version", "2023-06-01"))
             .and(header("content-type", "application/json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response))
             .expect(1)
@@ -76,35 +76,33 @@ mod minimaxi_tests {
         let mock_server = MockServer::start().await;
 
         let mock_response = json!({
-            "id": "chatcmpl-456",
-            "object": "chat.completion",
-            "created": 1677652288,
+            "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_123",
+                    "name": "get_weather",
+                    "input": {
+                        "location": "Beijing",
+                        "unit": "celsius"
+                    }
+                }
+            ],
             "model": "MiniMax-M2",
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": null,
-                    "tool_calls": [{
-                        "id": "call_123",
-                        "type": "function",
-                        "function": {
-                            "name": "get_weather",
-                            "arguments": "{\"location\":\"Beijing\",\"unit\":\"celsius\"}"
-                        }
-                    }]
-                },
-                "finish_reason": "tool_calls"
-            }],
+            "stop_reason": "tool_use",
+            "stop_sequence": null,
             "usage": {
-                "prompt_tokens": 50,
-                "completion_tokens": 30,
-                "total_tokens": 80
+                "input_tokens": 50,
+                "output_tokens": 30
             }
         });
 
         Mock::given(method("POST"))
-            .and(path("/chat/completions"))
+            .and(path("/v1/messages"))
+            .and(header("x-api-key", "test-api-key"))
+            .and(header("anthropic-version", "2023-06-01"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response))
             .expect(1)
             .mount(&mock_server)
@@ -158,17 +156,29 @@ mod minimaxi_tests {
     async fn test_minimaxi_streaming_chat() {
         let mock_server = MockServer::start().await;
 
-        // Mock SSE stream response - using simpler format
+        // Mock SSE stream response - using Anthropic format
         let sse_data = [
-            "data: {\"id\":\"chatcmpl-789\",\"object\":\"chat.completion.chunk\",\"created\":1677652288,\"model\":\"MiniMax-M2\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"你好\"},\"finish_reason\":null}]}\n\n",
-            "data: {\"id\":\"chatcmpl-789\",\"object\":\"chat.completion.chunk\",\"created\":1677652288,\"model\":\"MiniMax-M2\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"！\"},\"finish_reason\":null}]}\n\n",
-            "data: {\"id\":\"chatcmpl-789\",\"object\":\"chat.completion.chunk\",\"created\":1677652288,\"model\":\"MiniMax-M2\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",
-            "data: [DONE]\n\n",
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01XFDUDYJgAACzvnptvVoYEL\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"MiniMax-M2\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n",
+            "event: content_block_start\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"你好\"}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"！\"}}\n\n",
+            "event: content_block_stop\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n",
         ]
         .join("");
 
         Mock::given(method("POST"))
-            .and(path("/chat/completions"))
+            .and(path("/v1/messages"))
+            .and(header("x-api-key", "test-api-key"))
+            .and(header("anthropic-version", "2023-06-01"))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_string(sse_data)
@@ -277,27 +287,28 @@ mod minimaxi_tests {
         let mock_server = MockServer::start().await;
 
         let mock_response = json!({
-            "id": "chatcmpl-999",
-            "object": "chat.completion",
-            "created": 1677652288,
+            "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Test response"
+                }
+            ],
             "model": "MiniMax-M2",
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "Test response"
-                },
-                "finish_reason": "stop"
-            }],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
             "usage": {
-                "prompt_tokens": 5,
-                "completion_tokens": 5,
-                "total_tokens": 10
+                "input_tokens": 5,
+                "output_tokens": 5
             }
         });
 
         Mock::given(method("POST"))
-            .and(path("/chat/completions"))
+            .and(path("/v1/messages"))
+            .and(header("x-api-key", "test-key"))
+            .and(header("anthropic-version", "2023-06-01"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response))
             .mount(&mock_server)
             .await;

@@ -24,13 +24,97 @@ mod minimaxi_tests {
     #[test]
     fn test_model_constants() {
         assert_eq!(model_constants::text::MINIMAX_M2, "MiniMax-M2");
+        assert_eq!(
+            model_constants::text::MINIMAX_M2_STABLE,
+            "MiniMax-M2-Stable"
+        );
         assert_eq!(model_constants::audio::SPEECH_2_6_HD, "speech-2.6-hd");
         assert_eq!(model_constants::audio::SPEECH_2_6_TURBO, "speech-2.6-turbo");
+        assert_eq!(model_constants::voice::MALE_QN_QINGSE, "male-qn-qingse");
+        assert_eq!(model_constants::voice::FEMALE_SHAONV, "female-shaonv");
         assert_eq!(model_constants::video::HAILUO_2_3, "hailuo-2.3");
         assert_eq!(model_constants::video::HAILUO_2_3_FAST, "hailuo-2.3-fast");
         assert_eq!(model_constants::music::MUSIC_2_0, "music-2.0");
         assert_eq!(model_constants::images::IMAGE_01, "image-01");
         assert_eq!(model_constants::images::IMAGE_01_LIVE, "image-01-live");
+    }
+
+    #[test]
+    fn test_url_switching_for_audio() {
+        use crate::core::{ProviderContext, ProviderSpec};
+
+        let spec = spec::MinimaxiSpec::new();
+
+        // Test with Anthropic base URL
+        let ctx_anthropic = ProviderContext {
+            provider_id: "minimaxi".to_string(),
+            api_key: Some("test-key".to_string()),
+            base_url: "https://api.minimaxi.com/anthropic".to_string(),
+            http_extra_headers: Default::default(),
+            organization: None,
+            project: None,
+            extras: Default::default(),
+        };
+
+        let audio_url = spec.audio_base_url(&ctx_anthropic);
+        assert_eq!(audio_url, config::MinimaxiConfig::OPENAI_BASE_URL);
+
+        // Test with OpenAI base URL
+        let ctx_openai = ProviderContext {
+            provider_id: "minimaxi".to_string(),
+            api_key: Some("test-key".to_string()),
+            base_url: "https://api.minimaxi.com/v1".to_string(),
+            http_extra_headers: Default::default(),
+            organization: None,
+            project: None,
+            extras: Default::default(),
+        };
+
+        let audio_url = spec.audio_base_url(&ctx_openai);
+        assert_eq!(audio_url, "https://api.minimaxi.com/v1");
+    }
+
+    #[test]
+    fn test_url_switching_for_image() {
+        use crate::core::{ProviderContext, ProviderSpec};
+        use crate::types::ImageGenerationRequest;
+
+        let spec = spec::MinimaxiSpec::new();
+        let request = ImageGenerationRequest::default();
+
+        // Test with Anthropic base URL
+        let ctx_anthropic = ProviderContext {
+            provider_id: "minimaxi".to_string(),
+            api_key: Some("test-key".to_string()),
+            base_url: "https://api.minimaxi.com/anthropic".to_string(),
+            http_extra_headers: Default::default(),
+            organization: None,
+            project: None,
+            extras: Default::default(),
+        };
+
+        let image_url = spec.image_url(&request, &ctx_anthropic);
+        assert_eq!(
+            image_url,
+            format!(
+                "{}/image_generation",
+                config::MinimaxiConfig::OPENAI_BASE_URL
+            )
+        );
+
+        // Test with OpenAI base URL
+        let ctx_openai = ProviderContext {
+            provider_id: "minimaxi".to_string(),
+            api_key: Some("test-key".to_string()),
+            base_url: "https://api.minimaxi.com/v1".to_string(),
+            http_extra_headers: Default::default(),
+            organization: None,
+            project: None,
+            extras: Default::default(),
+        };
+
+        let image_url = spec.image_url(&request, &ctx_openai);
+        assert_eq!(image_url, "https://api.minimaxi.com/v1/image_generation");
     }
 
     #[test]

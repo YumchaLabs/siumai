@@ -20,11 +20,15 @@ pub(super) fn build_audio_executor(
     retry_options: Option<&RetryOptions>,
     http_interceptors: &[Arc<dyn HttpInterceptor>],
 ) -> Arc<HttpAudioExecutor> {
+    // MiniMaxi audio API uses OpenAI-style Bearer token authentication
+    // We need to inject the Authorization header into http_extra_headers
+    let extra_headers = super::utils::create_openai_auth_headers(api_key);
+
     let ctx = ProviderContext {
         provider_id: "minimaxi".to_string(),
         api_key: Some(api_key.to_string()),
         base_url: base_url.to_string(),
-        http_extra_headers: Default::default(),
+        http_extra_headers: extra_headers,
         organization: None,
         project: None,
         extras: Default::default(),

@@ -29,8 +29,20 @@ pub mod text {
     /// - OpenAI and Anthropic API compatibility
     pub const MINIMAX_M2: &str = "MiniMax-M2";
 
+    /// MiniMax M2 Stable - Stable version for production use
+    ///
+    /// Stable version of M2 model optimized for production environments.
+    /// Max tokens: 204,800 (input + output)
+    ///
+    /// Supports:
+    /// - Chat completion
+    /// - Function calling
+    /// - Streaming
+    /// - OpenAI and Anthropic API compatibility
+    pub const MINIMAX_M2_STABLE: &str = "MiniMax-M2-Stable";
+
     /// All text models
-    pub const ALL: &[&str] = &[MINIMAX_M2];
+    pub const ALL: &[&str] = &[MINIMAX_M2, MINIMAX_M2_STABLE];
 }
 
 // ============================================================================
@@ -51,6 +63,22 @@ pub mod audio {
 
     /// All audio models
     pub const ALL: &[&str] = &[SPEECH_2_6_HD, SPEECH_2_6_TURBO];
+}
+
+// ============================================================================
+// Voice IDs (for Text-to-Speech)
+// ============================================================================
+
+/// Voice ID constants for text-to-speech
+pub mod voice {
+    /// Male voice - Qingse (清澈)
+    pub const MALE_QN_QINGSE: &str = "male-qn-qingse";
+
+    /// Female voice - Shaonv (少女)
+    pub const FEMALE_SHAONV: &str = "female-shaonv";
+
+    /// All available voices
+    pub const ALL: &[&str] = &[MALE_QN_QINGSE, FEMALE_SHAONV];
 }
 
 // ============================================================================
@@ -184,16 +212,20 @@ pub mod popular {
 /// Model capabilities by category
 pub mod capabilities {
     /// Models that support function calling
-    pub const FUNCTION_CALLING_MODELS: &[&str] = &[super::text::MINIMAX_M2];
+    pub const FUNCTION_CALLING_MODELS: &[&str] =
+        &[super::text::MINIMAX_M2, super::text::MINIMAX_M2_STABLE];
 
     /// Models that support streaming
-    pub const STREAMING_MODELS: &[&str] = &[super::text::MINIMAX_M2];
+    pub const STREAMING_MODELS: &[&str] =
+        &[super::text::MINIMAX_M2, super::text::MINIMAX_M2_STABLE];
 
     /// Models that support OpenAI API compatibility
-    pub const OPENAI_COMPATIBLE_MODELS: &[&str] = &[super::text::MINIMAX_M2];
+    pub const OPENAI_COMPATIBLE_MODELS: &[&str] =
+        &[super::text::MINIMAX_M2, super::text::MINIMAX_M2_STABLE];
 
     /// Models that support Anthropic API compatibility
-    pub const ANTHROPIC_COMPATIBLE_MODELS: &[&str] = &[super::text::MINIMAX_M2];
+    pub const ANTHROPIC_COMPATIBLE_MODELS: &[&str] =
+        &[super::text::MINIMAX_M2, super::text::MINIMAX_M2_STABLE];
 }
 
 #[cfg(test)]
@@ -203,8 +235,9 @@ mod tests {
     #[test]
     fn test_all_text_models() {
         let models = all_text_models();
-        assert!(!models.is_empty());
+        assert_eq!(models.len(), 2);
         assert!(models.contains(&text::MINIMAX_M2));
+        assert!(models.contains(&text::MINIMAX_M2_STABLE));
     }
 
     #[test]
@@ -241,7 +274,7 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = all_models();
-        assert_eq!(models.len(), 8); // 1 text + 2 audio + 2 video + 1 music + 2 image
+        assert_eq!(models.len(), 9); // 2 text + 2 audio + 2 video + 1 music + 2 image
     }
 
     #[test]
