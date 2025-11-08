@@ -278,6 +278,10 @@ path = "examples/04-provider-specific/anthropic/prompt-caching.rs"
 name = "grounding"
 path = "examples/04-provider-specific/google/grounding.rs"
 
+[[example]]
+name = "file_search"
+path = "examples/04-provider-specific/google/file_search.rs"
+
 # 04-provider-specific/ollama
 [[example]]
 name = "local-models"

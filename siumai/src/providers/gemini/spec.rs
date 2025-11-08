@@ -56,13 +56,14 @@ impl ProviderSpec for GeminiSpec {
             return Some(hook);
         }
 
-        // 2. Handle Gemini-specific options (code_execution, search_grounding)
+        // 2. Handle Gemini-specific options (code_execution, search_grounding, file_search)
         // 🎯 Extract Gemini-specific options from provider_options
-        let (code_execution, search_grounding, response_mime_type) =
+        let (code_execution, search_grounding, file_search, response_mime_type) =
             if let ProviderOptions::Gemini(ref options) = req.provider_options {
                 (
                     options.code_execution.clone(),
                     options.search_grounding.clone(),
+                    options.file_search.clone(),
                     options.response_mime_type.clone(),
                 )
             } else {
@@ -70,7 +71,11 @@ impl ProviderSpec for GeminiSpec {
             };
 
         // Check if we have anything to inject
-        if code_execution.is_none() && search_grounding.is_none() && response_mime_type.is_none() {
+        if code_execution.is_none()
+            && search_grounding.is_none()
+            && file_search.is_none()
+            && response_mime_type.is_none()
+        {
             return None;
         }
 
@@ -118,6 +123,26 @@ impl ProviderSpec for GeminiSpec {
 
                 tools.push(google_search_tool);
                 out["tools"] = serde_json::Value::Array(tools);
+            }
+
+            // 🎯 Inject File Search tool (Gemini File Search)
+            if let Some(ref fs) = file_search {
+                if !fs.file_search_store_names.is_empty() {
+                    let mut tools = out
+                        .get("tools")
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_default();
+
+                    let mut file_search_tool = serde_json::json!({
+                        "file_search": {}
+                    });
+
+                    file_search_tool["file_search"]["file_search_store_names"] =
+                        serde_json::json!(fs.file_search_store_names);
+
+                    tools.push(file_search_tool);
+                    out["tools"] = serde_json::Value::Array(tools);
+                }
             }
 
             // 🎯 Inject response MIME type into generation_config
@@ -181,6 +206,69 @@ impl ProviderSpec for GeminiSpec {
                 },
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ChatMessage, GeminiOptions};
+
+    #[test]
+    fn chat_before_send_injects_file_search_tool() {
+        // Build a ChatRequest with GeminiOptions.file_search configured
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_gemini_options(
+            GeminiOptions::new().with_file_search_store_names(vec![
+                "stores/foo".to_string(),
+                "stores/bar".to_string(),
+            ]),
+        );
+
+        // Minimal provider context
+        let ctx = crate::core::ProviderContext::new(
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            None,
+            std::collections::HashMap::new(),
+        );
+
+        let spec = GeminiSpec;
+        let hook = spec
+            .chat_before_send(&req, &ctx)
+            .expect("expected before_send hook");
+
+        let base = serde_json::json!({
+            "model": "gemini-2.0-flash-exp",
+            "contents": []
+        });
+
+        let out = hook(&base).expect("hook apply ok");
+        let tools = out
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .expect("tools array present");
+
+        let fs = tools
+            .iter()
+            .find_map(|t| t.get("file_search"))
+            .cloned()
+            .expect("file_search tool present");
+
+        let names = fs
+            .get("file_search_store_names")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .expect("store names present");
+
+        let names: Vec<String> = names
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["stores/foo".to_string(), "stores/bar".to_string()]
+        );
     }
 }
 

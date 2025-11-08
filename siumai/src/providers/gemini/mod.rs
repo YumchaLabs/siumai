@@ -37,6 +37,7 @@
 pub mod chat;
 pub mod client;
 pub mod convert;
+pub mod file_search_stores;
 pub mod files;
 pub mod model_constants;
 pub mod models;
@@ -53,6 +54,7 @@ pub mod code_execution;
 pub use builder::GeminiBuilder;
 pub use chat::GeminiChatCapability;
 pub use client::GeminiClient;
+pub use file_search_stores::GeminiFileSearchStores;
 pub use files::GeminiFiles;
 pub use models::GeminiModels;
 pub use types::*;

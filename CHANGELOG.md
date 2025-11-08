@@ -2,11 +2,14 @@
 
 This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
 
-## [not release]
+## [0.11.0-beta.2] - 2025-11-08
 
 ### Added
-- OrchestratorBuilder documentation and small ergonomic improvements (callbacks annotated to quiet clippy type‑complexity where necessary).
+
 - MiniMaxi provider support with multi-modal capabilities (text, speech, video, image, music generation).
+- **Gemini File Search (RAG) support** - Provider-specific implementation for Gemini's File Search API
+  - File Search Store management (create, list, get, delete)
+  - Example: `siumai/examples/04-provider-specific/google/file_search.rs`
 
 ## [0.11.0-beta.1] - 2025-10-28
 

@@ -14,6 +14,8 @@ pub struct GeminiOptions {
     pub code_execution: Option<CodeExecutionConfig>,
     /// Search grounding (web search)
     pub search_grounding: Option<SearchGroundingConfig>,
+    /// File Search configuration (Gemini File Search tool)
+    pub file_search: Option<FileSearchConfig>,
     /// Preferred MIME type for responses (e.g., "application/json")
     pub response_mime_type: Option<String>,
 }
@@ -33,6 +35,19 @@ impl GeminiOptions {
     /// Enable search grounding
     pub fn with_search_grounding(mut self, config: SearchGroundingConfig) -> Self {
         self.search_grounding = Some(config);
+        self
+    }
+
+    /// Enable File Search with given store names
+    pub fn with_file_search_store_names<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let stores: Vec<String> = names.into_iter().map(Into::into).collect();
+        self.file_search = Some(FileSearchConfig {
+            file_search_store_names: stores,
+        });
         self
     }
 
@@ -91,4 +106,12 @@ pub enum DynamicRetrievalMode {
     ModeUnspecified,
     /// Dynamic mode
     ModeDynamic,
+}
+
+/// File Search configuration (Gemini File Search tool)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSearchConfig {
+    /// Names of File Search stores to use for retrieval
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub file_search_store_names: Vec<String>,
 }

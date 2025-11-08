@@ -2,6 +2,7 @@
 
 mod config;
 mod content;
+mod file_search;
 mod generation;
 
 pub use config::{
@@ -58,4 +59,10 @@ pub use content::{
 pub use generation::{
     BlockReason, GenerateContentRequest, GenerateContentResponse, GenerationConfig, PromptFeedback,
     ThinkingConfig, UsageMetadata,
+};
+
+// Provider-specific File Search types
+pub use file_search::{
+    ChunkingConfig, FileSearchOperation, FileSearchStore, FileSearchStoresList,
+    FileSearchUploadConfig, WhiteSpaceChunkingConfig,
 };

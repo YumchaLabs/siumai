@@ -14,6 +14,7 @@ use crate::traits::*;
 use crate::types::*;
 
 use super::chat::GeminiChatCapability;
+use super::file_search_stores::GeminiFileSearchStores;
 use super::files::GeminiFiles;
 use super::models::GeminiModels;
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
@@ -148,6 +149,16 @@ impl GeminiClient {
     pub fn with_api_key(api_key: String) -> Result<Self, LlmError> {
         let config = GeminiConfig::new(api_key);
         Self::new(config)
+    }
+
+    /// Get a provider-specific client for File Search Stores (Gemini-only)
+    pub fn file_search_stores(&self) -> GeminiFileSearchStores {
+        GeminiFileSearchStores::new(
+            self.config.clone(),
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
     }
 
     /// Set the model to use
