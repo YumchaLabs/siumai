@@ -91,3 +91,4 @@ tokio-test.workspace = true
 [[example]]
 name = "opentelemetry_tracing"
 path = "examples/opentelemetry_tracing.rs"
+required-features = ["opentelemetry"]

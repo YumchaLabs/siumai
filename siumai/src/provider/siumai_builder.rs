@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::middleware::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::types::{CommonParams, HttpConfig, ProviderType};
 
@@ -42,6 +43,8 @@ pub struct SiumaiBuilder {
     #[cfg(feature = "google")]
     /// Optional Bearer token provider for Gemini (e.g., Vertex AI).
     pub(crate) gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+    /// Optional model-level middlewares applied before provider mapping
+    pub(crate) model_middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl SiumaiBuilder {
@@ -70,6 +73,7 @@ impl SiumaiBuilder {
             http2_prior_knowledge: None,
             #[cfg(feature = "google")]
             gemini_token_provider: None,
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -193,6 +197,24 @@ impl SiumaiBuilder {
     /// Install a custom HTTP interceptor at the unified interface level.
     pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
         self.http_interceptors.push(interceptor);
+        self
+    }
+
+    /// Add a model-level middleware (applied before provider mapping).
+    pub fn add_model_middleware(
+        mut self,
+        middleware: std::sync::Arc<dyn LanguageModelMiddleware>,
+    ) -> Self {
+        self.model_middlewares.push(middleware);
+        self
+    }
+
+    /// Replace the model-level middleware list (applied before provider mapping).
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 

@@ -3018,7 +3018,7 @@ dependencies = [
 
 [[package]]
 name = "siumai"
-version = "0.11.0-beta.2"
+version = "0.11.0-beta.3"
 dependencies = [
  "actix-web",
  "async-stream",
@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-extras"
-version = "0.11.0-beta.2"
+version = "0.11.0-beta.3"
 dependencies = [
  "async-trait",
  "axum",

@@ -1,6 +1,7 @@
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
+use crate::execution::middleware::LanguageModelMiddleware;
 use crate::traits::ProviderCapabilities;
 use crate::types::ProviderType;
 use std::sync::Arc;
@@ -307,6 +308,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         interceptors.push(Arc::new(LoggingInterceptor));
     }
 
+    // Model-level middlewares provided at unified builder level
+    let user_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>> =
+        builder.model_middlewares.clone();
+
     let client: Arc<dyn LlmClient> = match provider_type {
         #[cfg(feature = "openai")]
         ProviderType::OpenAi => {
@@ -344,6 +349,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 project.clone(),
                 builder.tracing_config.clone(),
                 interceptors.clone(),
+                user_model_middlewares.clone(),
             )
             .await?
         }
@@ -413,6 +419,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     common_params.clone(),
                     http_config.clone(),
                     builder.tracing_config.clone(),
+                    user_model_middlewares.clone(),
                 )
                 .await?
             } else {
@@ -428,6 +435,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     None, // provider_params removed
                     builder.tracing_config.clone(),
                     interceptors.clone(),
+                    user_model_middlewares.clone(),
                 )
                 .await?
             }
@@ -479,6 +487,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 None,
                 builder.tracing_config.clone(),
                 interceptors.clone(),
+                user_model_middlewares.clone(),
             )
             .await?
         }
@@ -494,6 +503,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 None, // provider_params removed
                 builder.tracing_config.clone(),
                 interceptors.clone(),
+                user_model_middlewares.clone(),
             )
             .await?
         }
@@ -507,6 +517,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 http_config.clone(),
                 None, // provider_params removed
                 builder.tracing_config.clone(),
+                interceptors.clone(),
+                user_model_middlewares.clone(),
             )
             .await?
         }
@@ -522,6 +534,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 None, // provider_params removed
                 builder.tracing_config.clone(),
                 interceptors.clone(),
+                user_model_middlewares.clone(),
             )
             .await?
         }
@@ -539,6 +552,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     None, // provider_params removed
                     builder.tracing_config.clone(),
                     interceptors.clone(),
+                    user_model_middlewares.clone(),
                 )
                 .await?
             }
@@ -595,14 +609,17 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string()
             });
 
-            let client = crate::providers::minimaxi::MinimaxiBuilder::new(crate::LlmBuilder::new())
-                .api_key(api_key)
-                .base_url(resolved_base)
-                .model(common_params.model.clone())
-                .build()
-                .await?;
-
-            Arc::new(client)
+            crate::registry::factory::build_minimaxi_client(
+                api_key,
+                resolved_base,
+                built_http_client.clone(),
+                common_params.clone(),
+                http_config.clone(),
+                builder.tracing_config.clone(),
+                interceptors.clone(),
+                user_model_middlewares.clone(),
+            )
+            .await?
         }
         #[cfg(not(feature = "minimaxi"))]
         ProviderType::MiniMaxi => {

@@ -20,9 +20,9 @@
 //!    export OPENAI_API_KEY=sk-...
 //!    ```
 //!
-//! 3. Run the example:
+//! 3. Run the example (enable extras opentelemetry feature):
 //!    ```bash
-//!    cargo run --example opentelemetry_tracing --features otel
+//!    cargo run -p siumai-extras --example opentelemetry_tracing --features opentelemetry
 //!    ```
 //!
 //! 4. View traces in Jaeger UI:
@@ -37,8 +37,8 @@
 //! - How to view distributed traces in Jaeger
 
 use opentelemetry::global;
-use opentelemetry::trace::{Tracer, TracerProvider};
-use siumai::{Client, types::ChatRequest};
+use opentelemetry::trace::{Span as _, TraceContextExt, Tracer};
+use siumai::prelude::*;
 use siumai_extras::otel;
 use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
 use std::sync::Arc;
@@ -51,18 +51,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Initializing OpenTelemetry...");
 
     // Initialize OpenTelemetry with Jaeger OTLP exporter
-    let _guard = otel::init_opentelemetry(
-        "siumai-example",        // Service name
-        "http://localhost:4317", // OTLP endpoint
-    )?;
+    let config = otel::OtelConfig::builder()
+        .service_name("siumai-example")
+        .otlp_endpoint("http://localhost:4317")
+        .build();
+    let _guard = otel::init_opentelemetry(config).await?;
 
     println!("✅ OpenTelemetry initialized");
     println!("📊 Traces will be sent to Jaeger at http://localhost:16686\n");
 
-    // Create client with OpenTelemetry middleware
-    let client = Client::builder()
-        .add_middleware(Arc::new(OpenTelemetryMiddleware::new()))
-        .build()?;
+    // Build an OpenAI client and attach OpenTelemetry middleware
+    let openai_client = Provider::openai()
+        .api_key(&std::env::var("OPENAI_API_KEY")?)
+        .model("gpt-4o-mini")
+        .build()
+        .await?;
+
+    // Keep default auto middlewares and add OpenTelemetry middleware
+    let model_id = openai_client.common_params().model.clone();
+    let mut middlewares =
+        siumai::execution::middleware::build_auto_middlewares_vec("openai", &model_id);
+    middlewares.push(Arc::new(OpenTelemetryMiddleware::new()));
+    let client = openai_client.with_model_middlewares(middlewares);
 
     println!("🔧 Client created with OpenTelemetry middleware\n");
 
@@ -83,17 +93,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Service: siumai-example");
     println!("   - Look for operations: user_request, chat_sequence, llm.chat");
 
-    // Shutdown OpenTelemetry to flush remaining spans
-    opentelemetry::global::shutdown_tracer_provider();
+    // Guard drop will shutdown providers and flush remaining spans
 
     Ok(())
 }
 
 /// Example 1: Simple request with automatic tracing
-async fn simple_request(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
-    let request = ChatRequest::new(vec![("user", "What is 2+2?")]);
+async fn simple_request(client: &impl ChatCapability) -> Result<(), Box<dyn std::error::Error>> {
+    let request = ChatRequest::new(vec![user!("What is 2+2?")]);
 
-    let response = client.chat().model("gpt-3.5-turbo").create(request).await?;
+    let response = client.chat_request(request).await?;
 
     println!(
         "   Response: {}",
@@ -105,7 +114,9 @@ async fn simple_request(client: &Client) -> Result<(), Box<dyn std::error::Error
 }
 
 /// Example 2: Request with parent span for distributed tracing
-async fn request_with_parent_span(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+async fn request_with_parent_span(
+    client: &impl ChatCapability,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Create a parent span for the entire operation
     let tracer = global::tracer("siumai-example");
     let mut span = tracer.start("user_request");
@@ -121,9 +132,9 @@ async fn request_with_parent_span(client: &Client) -> Result<(), Box<dyn std::er
     println!("   🔗 Parent span created: user_request");
 
     // Make LLM request - it will be a child span
-    let request = ChatRequest::new(vec![("user", "What is the capital of France?")]);
+    let request = ChatRequest::new(vec![user!("What is the capital of France?")]);
 
-    let response = client.chat().model("gpt-3.5-turbo").create(request).await?;
+    let response = client.chat_request(request).await?;
 
     println!(
         "   Response: {}",
@@ -136,7 +147,9 @@ async fn request_with_parent_span(client: &Client) -> Result<(), Box<dyn std::er
 }
 
 /// Example 3: Multiple requests in a single trace
-async fn multiple_requests_in_trace(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+async fn multiple_requests_in_trace(
+    client: &impl ChatCapability,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Create a parent span for a sequence of operations
     let tracer = global::tracer("siumai-example");
     let mut span = tracer.start("chat_sequence");
@@ -149,29 +162,21 @@ async fn multiple_requests_in_trace(client: &Client) -> Result<(), Box<dyn std::
 
     // First request
     println!("   📤 Request 1: Asking for a topic");
-    let request1 = ChatRequest::new(vec![("user", "Give me a random topic in one word")]);
+    let request1 = ChatRequest::new(vec![user!("Give me a random topic in one word")]);
 
-    let response1 = client
-        .chat()
-        .model("gpt-3.5-turbo")
-        .create(request1)
-        .await?;
+    let response1 = client.chat_request(request1).await?;
 
     let topic = response1.content_text().unwrap_or_default();
     println!("   📥 Response 1: {}", topic);
 
     // Second request (using the response from the first)
     println!("   📤 Request 2: Asking about the topic");
-    let request2 = ChatRequest::new(vec![(
-        "user",
-        &format!("Tell me one interesting fact about {}", topic),
-    )]);
+    let request2 = ChatRequest::new(vec![user!(format!(
+        "Tell me one interesting fact about {}",
+        topic
+    ))]);
 
-    let response2 = client
-        .chat()
-        .model("gpt-3.5-turbo")
-        .create(request2)
-        .await?;
+    let response2 = client.chat_request(request2).await?;
 
     println!(
         "   📥 Response 2: {}",

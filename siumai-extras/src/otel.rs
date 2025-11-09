@@ -30,8 +30,7 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     Resource,
     metrics::{PeriodicReader, SdkMeterProvider},
-    runtime,
-    trace::{RandomIdGenerator, Sampler, TracerProvider},
+    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
 };
 use std::time::Duration;
 
@@ -141,7 +140,7 @@ impl OtelConfigBuilder {
 
 /// Guard that shuts down OpenTelemetry on drop
 pub struct OtelGuard {
-    _tracer_provider: Option<TracerProvider>,
+    _tracer_provider: Option<SdkTracerProvider>,
     _meter_provider: Option<SdkMeterProvider>,
 }
 
@@ -161,8 +160,7 @@ impl Drop for OtelGuard {
             eprintln!("Error shutting down meter provider: {:?}", e);
         }
 
-        // Shutdown global providers
-        global::shutdown_tracer_provider();
+        // global shutdown_tracer_provider was removed in otel 0.31; explicit shutdowns above suffice
     }
 }
 
@@ -218,7 +216,10 @@ pub async fn init_opentelemetry(config: OtelConfig) -> Result<OtelGuard> {
         resource_kvs.push(KeyValue::new(key.clone(), value.clone()));
     }
 
-    let resource = Resource::new(resource_kvs);
+    // Build Resource via public builder API (Resource::new is private in 0.31)
+    let resource = Resource::builder_empty()
+        .with_attributes(resource_kvs)
+        .build();
 
     // Initialize tracer provider
     let tracer_provider = init_tracer_provider(&config, resource.clone()).await?;
@@ -235,8 +236,11 @@ pub async fn init_opentelemetry(config: OtelConfig) -> Result<OtelGuard> {
 }
 
 /// Initialize tracer provider
-async fn init_tracer_provider(config: &OtelConfig, resource: Resource) -> Result<TracerProvider> {
-    let mut builder = TracerProvider::builder()
+async fn init_tracer_provider(
+    config: &OtelConfig,
+    resource: Resource,
+) -> Result<SdkTracerProvider> {
+    let mut builder = SdkTracerProvider::builder()
         .with_resource(resource)
         .with_id_generator(RandomIdGenerator::default())
         .with_sampler(Sampler::TraceIdRatioBased(config.trace_sample_ratio));
@@ -251,7 +255,7 @@ async fn init_tracer_provider(config: &OtelConfig, resource: Resource) -> Result
                 ExtrasError::TelemetryInit(format!("Failed to create OTLP span exporter: {}", e))
             })?;
 
-        builder = builder.with_batch_exporter(exporter, runtime::Tokio);
+        builder = builder.with_batch_exporter(exporter);
     }
 
     // Add stdout exporter if enabled
@@ -277,7 +281,7 @@ async fn init_meter_provider(config: &OtelConfig, resource: Resource) -> Result<
                 ExtrasError::TelemetryInit(format!("Failed to create OTLP metric exporter: {}", e))
             })?;
 
-        let reader = PeriodicReader::builder(exporter, runtime::Tokio)
+        let reader = PeriodicReader::builder(exporter)
             .with_interval(Duration::from_secs(config.metrics_export_interval_secs))
             .build();
 
@@ -287,7 +291,7 @@ async fn init_meter_provider(config: &OtelConfig, resource: Resource) -> Result<
     // Add stdout exporter if enabled
     if config.enable_stdout {
         let exporter = opentelemetry_stdout::MetricExporter::default();
-        let reader = PeriodicReader::builder(exporter, runtime::Tokio)
+        let reader = PeriodicReader::builder(exporter)
             .with_interval(Duration::from_secs(config.metrics_export_interval_secs))
             .build();
 

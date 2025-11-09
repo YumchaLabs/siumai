@@ -8,6 +8,7 @@
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::middleware::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ pub async fn build_openai_client(
     project: Option<String>,
     _tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
@@ -50,6 +52,13 @@ pub async fn build_openai_client(
     // Users should initialize tracing manually using siumai_extras::telemetry
     // or tracing_subscriber directly before creating the client.
     // The tracing_config parameter is kept for backward compatibility but not used.
+    // Install automatic + user-provided model middlewares
+    let mut auto_mws =
+        crate::execution::middleware::build_auto_middlewares_vec("openai", &common_params.model);
+    auto_mws.extend(middlewares);
+    if !auto_mws.is_empty() {
+        client = client.with_model_middlewares(auto_mws);
+    }
 
     Ok(Arc::new(client))
 }
@@ -66,6 +75,7 @@ pub async fn build_openai_compatible_client(
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Resolve provider adapter and base URL via registry v2
     let registry = crate::registry::global_registry();
@@ -148,6 +158,15 @@ pub async fn build_openai_compatible_client(
         // OpenAI-compatible client doesn’t currently expose tracing guard; keep placeholder for symmetry
         let _ = tc; // avoid unused warning
     }
+    // Auto + user middlewares based on resolved provider id
+    let mut auto_mws = crate::execution::middleware::build_auto_middlewares_vec(
+        &resolved_id,
+        &common_params.model,
+    );
+    auto_mws.extend(middlewares);
+    if !auto_mws.is_empty() {
+        client = client.with_model_middlewares(auto_mws);
+    }
 
     Ok(Arc::new(client))
 }
@@ -163,10 +182,12 @@ pub async fn build_anthropic_client(
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Provider-specific parameters are now handled via provider_options in ChatRequest
     let anthropic_params = crate::params::AnthropicParams::default();
 
+    let model_id_for_mw = common_params.model.clone();
     let mut client = crate::providers::anthropic::AnthropicClient::new(
         api_key,
         base_url,
@@ -183,6 +204,13 @@ pub async fn build_anthropic_client(
     // or tracing_subscriber directly before creating the client.
     if let Some(tc) = tracing_config {
         client.set_tracing_config(Some(tc));
+    }
+    // Auto + user middlewares
+    let mut auto_mws =
+        crate::execution::middleware::build_auto_middlewares_vec("anthropic", &model_id_for_mw);
+    auto_mws.extend(middlewares);
+    if !auto_mws.is_empty() {
+        client = client.with_model_middlewares(auto_mws);
     }
     Ok(Arc::new(client))
 }
@@ -201,6 +229,7 @@ pub async fn build_gemini_client(
     >,
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use crate::providers::gemini::client::GeminiClient;
     use crate::providers::gemini::types::{GeminiConfig, GenerationConfig};
@@ -246,6 +275,13 @@ pub async fn build_gemini_client(
     if let Some(tc) = tracing_config {
         client.set_tracing_config(Some(tc));
     }
+    // Auto + user middlewares
+    let mut auto_mws =
+        crate::execution::middleware::build_auto_middlewares_vec("gemini", &common_params.model);
+    auto_mws.extend(middlewares);
+    if !auto_mws.is_empty() {
+        client = client.with_model_middlewares(auto_mws);
+    }
 
     Ok(Arc::new(client))
 }
@@ -259,19 +295,28 @@ pub async fn build_anthropic_vertex_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     _tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let cfg = crate::providers::anthropic_vertex::client::VertexAnthropicConfig {
         base_url,
         model: common_params.model.clone(),
         http_config,
     };
-    let client =
+    let mut client =
         crate::providers::anthropic_vertex::client::VertexAnthropicClient::new(cfg, http_client);
     // No tracing guard necessary; headers are injected via ProviderHeaders.
+    // Auto + user middlewares (treat as anthropic)
+    let mut auto_mws =
+        crate::execution::middleware::build_auto_middlewares_vec("anthropic", &common_params.model);
+    auto_mws.extend(middlewares);
+    if !auto_mws.is_empty() {
+        client = client.with_model_middlewares(auto_mws);
+    }
     Ok(Arc::new(client))
 }
 
 #[cfg(feature = "ollama")]
+#[allow(clippy::too_many_arguments)]
 pub async fn build_ollama_client(
     base_url: String,
     http_client: reqwest::Client,
@@ -279,6 +324,8 @@ pub async fn build_ollama_client(
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use crate::providers::ollama::OllamaClient;
     use crate::providers::ollama::config::{OllamaConfig, OllamaParams};
@@ -295,11 +342,59 @@ pub async fn build_ollama_client(
     };
 
     let mut client = OllamaClient::new(config, http_client);
+    if !interceptors.is_empty() {
+        client = client.with_http_interceptors(interceptors);
+    }
     // Note: Tracing initialization has been moved to siumai-extras.
     // Users should initialize tracing manually using siumai_extras::telemetry
     // or tracing_subscriber directly before creating the client.
     if let Some(tc) = tracing_config {
         client.set_tracing_config(Some(tc));
     }
+    // Auto + user middlewares
+    let mut auto_mws =
+        crate::execution::middleware::build_auto_middlewares_vec("ollama", &common_params.model);
+    auto_mws.extend(middlewares);
+    if !auto_mws.is_empty() {
+        client = client.with_model_middlewares(auto_mws);
+    }
+    Ok(Arc::new(client))
+}
+
+#[cfg(feature = "minimaxi")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_minimaxi_client(
+    api_key: String,
+    base_url: String,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    _http_config: HttpConfig,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
+    use crate::providers::minimaxi::client::MinimaxiClient;
+    use crate::providers::minimaxi::config::MinimaxiConfig;
+
+    let config = MinimaxiConfig::new(api_key)
+        .with_base_url(base_url)
+        .with_model(common_params.model.clone());
+
+    let mut client = MinimaxiClient::new(config, http_client);
+
+    if let Some(tc) = tracing_config {
+        client = client.with_tracing(tc);
+    }
+    if !interceptors.is_empty() {
+        client = client.with_interceptors(interceptors);
+    }
+
+    let mut auto_mws =
+        crate::execution::middleware::build_auto_middlewares_vec("minimaxi", &common_params.model);
+    auto_mws.extend(middlewares);
+    if !auto_mws.is_empty() {
+        client = client.with_model_middlewares(auto_mws);
+    }
+
     Ok(Arc::new(client))
 }
