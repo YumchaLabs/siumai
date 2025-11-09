@@ -3,6 +3,8 @@
 //! Tests to verify that the Siumai unified interface supports all providers
 //! and provides consistent behavior across different LLM providers.
 
+#![allow(unsafe_code)]
+
 use siumai::error::LlmError;
 use siumai::provider::SiumaiBuilder;
 use siumai::types::{ChatMessage, MessageContent, MessageRole, ProviderType};
@@ -265,6 +267,12 @@ async fn test_reasoning_interface_consistency() {
 /// Test error handling consistency
 #[tokio::test]
 async fn test_error_handling_consistency() {
+    // Save and clear any existing OPENAI_API_KEY to ensure test isolation
+    let original_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe {
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+
     // Test that missing API key produces consistent error
     let result = SiumaiBuilder::new()
         .openai()
@@ -276,6 +284,13 @@ async fn test_error_handling_consistency() {
     assert!(result.is_err());
     if let Err(e) = result {
         assert!(matches!(e, LlmError::ConfigurationError(_)));
+    }
+
+    // Restore original key if it existed
+    if let Some(key) = original_key {
+        unsafe {
+            std::env::set_var("OPENAI_API_KEY", key);
+        }
     }
 
     // Test that missing provider type produces error

@@ -79,31 +79,54 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 crate::utils::builder_helpers::get_api_key_with_env(None, provider_id)?
             } else {
                 // For native providers, check their specific environment variables
-                let env_key = match provider_type {
+                match provider_type {
                     #[cfg(feature = "openai")]
-                    ProviderType::OpenAi => "OPENAI_API_KEY",
+                    ProviderType::OpenAi => std::env::var("OPENAI_API_KEY").ok().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "API key not specified (missing OPENAI_API_KEY or explicit .api_key())"
+                                .to_string(),
+                        )
+                    })?,
                     #[cfg(feature = "anthropic")]
-                    ProviderType::Anthropic => "ANTHROPIC_API_KEY",
+                    ProviderType::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "API key not specified (missing ANTHROPIC_API_KEY or explicit .api_key())"
+                                .to_string(),
+                        )
+                    })?,
                     #[cfg(feature = "google")]
-                    ProviderType::Gemini => "GOOGLE_API_KEY",
+                    ProviderType::Gemini => {
+                        // For unified builder, require explicit .api_key() or Authorization/TokenProvider
+                        return Err(LlmError::ConfigurationError(
+                            "API key not specified (set via .api_key() when Authorization/TokenProvider is not used)"
+                                .to_string(),
+                        ));
+                    }
                     #[cfg(feature = "xai")]
-                    ProviderType::XAI => "XAI_API_KEY",
+                    ProviderType::XAI => std::env::var("XAI_API_KEY").ok().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "API key not specified (missing XAI_API_KEY or explicit .api_key())".to_string(),
+                        )
+                    })?,
                     #[cfg(feature = "groq")]
-                    ProviderType::Groq => "GROQ_API_KEY",
+                    ProviderType::Groq => std::env::var("GROQ_API_KEY").ok().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "API key not specified (missing GROQ_API_KEY or explicit .api_key())".to_string(),
+                        )
+                    })?,
                     #[cfg(feature = "minimaxi")]
-                    ProviderType::MiniMaxi => "MINIMAXI_API_KEY",
+                    ProviderType::MiniMaxi => std::env::var("MINIMAXI_API_KEY").ok().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "API key not specified (missing MINIMAXI_API_KEY or explicit .api_key())"
+                                .to_string(),
+                        )
+                    })?,
                     _ => {
                         return Err(LlmError::ConfigurationError(
                             "API key not specified".to_string(),
                         ));
                     }
-                };
-                std::env::var(env_key).ok().ok_or_else(|| {
-                    LlmError::ConfigurationError(format!(
-                        "API key not specified (missing {} environment variable or explicit .api_key())",
-                        env_key
-                    ))
-                })?
+                }
             }
         }
     } else {

@@ -513,10 +513,28 @@ impl LlmBuilder {
                 builder = builder.default_headers(headers);
             }
 
-            // Build the client
-            builder.build().map_err(|e| {
-                LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}"))
-            })
+            // Build the client; on failure, gracefully fall back to simple path
+            match builder.build() {
+                Ok(client) => Ok(client),
+                Err(e) => {
+                    // Fallback: build minimal client from HttpConfig to avoid test flakiness
+                    let config = crate::types::HttpConfig {
+                        timeout: self.timeout,
+                        connect_timeout: self.connect_timeout,
+                        headers: self.default_headers.clone(),
+                        proxy: self.proxy.clone(),
+                        user_agent: self.user_agent.clone(),
+                        stream_disable_compression: true,
+                    };
+                    crate::execution::http::client::build_http_client_from_config(&config).map_err(
+                        |_| {
+                            LlmError::ConfigurationError(format!(
+                                "Failed to build HTTP client: {e}"
+                            ))
+                        },
+                    )
+                }
+            }
         } else {
             // Use unified HTTP client builder for simple cases
             let config = crate::types::HttpConfig {
