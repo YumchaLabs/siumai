@@ -36,11 +36,11 @@
 //! - How traceparent headers are automatically injected
 //! - How to view distributed traces in Jaeger
 
+use opentelemetry::global;
+use opentelemetry::trace::{Tracer, TracerProvider};
 use siumai::{Client, types::ChatRequest};
 use siumai_extras::otel;
 use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
-use opentelemetry::trace::{Tracer, TracerProvider};
-use opentelemetry::global;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -49,11 +49,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     println!("🚀 Initializing OpenTelemetry...");
-    
+
     // Initialize OpenTelemetry with Jaeger OTLP exporter
     let _guard = otel::init_opentelemetry(
-        "siumai-example",           // Service name
-        "http://localhost:4317",    // OTLP endpoint
+        "siumai-example",        // Service name
+        "http://localhost:4317", // OTLP endpoint
     )?;
 
     println!("✅ OpenTelemetry initialized");
@@ -91,16 +91,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Example 1: Simple request with automatic tracing
 async fn simple_request(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
-    let request = ChatRequest::new(vec![
-        ("user", "What is 2+2?"),
-    ]);
+    let request = ChatRequest::new(vec![("user", "What is 2+2?")]);
 
-    let response = client.chat()
-        .model("gpt-3.5-turbo")
-        .create(request)
-        .await?;
+    let response = client.chat().model("gpt-3.5-turbo").create(request).await?;
 
-    println!("   Response: {}", response.content_text().unwrap_or_default());
+    println!(
+        "   Response: {}",
+        response.content_text().unwrap_or_default()
+    );
     println!("   ✅ Span created automatically by OpenTelemetryMiddleware");
 
     Ok(())
@@ -111,7 +109,7 @@ async fn request_with_parent_span(client: &Client) -> Result<(), Box<dyn std::er
     // Create a parent span for the entire operation
     let tracer = global::tracer("siumai-example");
     let mut span = tracer.start("user_request");
-    
+
     // Add custom attributes to the parent span
     span.set_attribute(opentelemetry::KeyValue::new("user_id", "12345"));
     span.set_attribute(opentelemetry::KeyValue::new("operation", "math_question"));
@@ -123,16 +121,14 @@ async fn request_with_parent_span(client: &Client) -> Result<(), Box<dyn std::er
     println!("   🔗 Parent span created: user_request");
 
     // Make LLM request - it will be a child span
-    let request = ChatRequest::new(vec![
-        ("user", "What is the capital of France?"),
-    ]);
+    let request = ChatRequest::new(vec![("user", "What is the capital of France?")]);
 
-    let response = client.chat()
-        .model("gpt-3.5-turbo")
-        .create(request)
-        .await?;
+    let response = client.chat().model("gpt-3.5-turbo").create(request).await?;
 
-    println!("   Response: {}", response.content_text().unwrap_or_default());
+    println!(
+        "   Response: {}",
+        response.content_text().unwrap_or_default()
+    );
     println!("   ✅ Child span created with traceparent header injected");
     println!("   📊 View the parent-child relationship in Jaeger");
 
@@ -153,11 +149,10 @@ async fn multiple_requests_in_trace(client: &Client) -> Result<(), Box<dyn std::
 
     // First request
     println!("   📤 Request 1: Asking for a topic");
-    let request1 = ChatRequest::new(vec![
-        ("user", "Give me a random topic in one word"),
-    ]);
+    let request1 = ChatRequest::new(vec![("user", "Give me a random topic in one word")]);
 
-    let response1 = client.chat()
+    let response1 = client
+        .chat()
         .model("gpt-3.5-turbo")
         .create(request1)
         .await?;
@@ -167,19 +162,23 @@ async fn multiple_requests_in_trace(client: &Client) -> Result<(), Box<dyn std::
 
     // Second request (using the response from the first)
     println!("   📤 Request 2: Asking about the topic");
-    let request2 = ChatRequest::new(vec![
-        ("user", &format!("Tell me one interesting fact about {}", topic)),
-    ]);
+    let request2 = ChatRequest::new(vec![(
+        "user",
+        &format!("Tell me one interesting fact about {}", topic),
+    )]);
 
-    let response2 = client.chat()
+    let response2 = client
+        .chat()
         .model("gpt-3.5-turbo")
         .create(request2)
         .await?;
 
-    println!("   📥 Response 2: {}", response2.content_text().unwrap_or_default());
+    println!(
+        "   📥 Response 2: {}",
+        response2.content_text().unwrap_or_default()
+    );
     println!("   ✅ Both requests traced as children of chat_sequence");
     println!("   📊 View the complete sequence in Jaeger");
 
     Ok(())
 }
-

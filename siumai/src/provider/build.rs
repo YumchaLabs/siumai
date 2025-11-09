@@ -69,10 +69,42 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     };
 
     let api_key = if requires_api_key {
-        builder
-            .api_key
-            .clone()
-            .ok_or_else(|| LlmError::ConfigurationError("API key not specified".to_string()))?
+        // Try to get API key from builder first, then from environment variable
+        if let Some(key) = builder.api_key.clone() {
+            key
+        } else {
+            // For Custom providers (OpenAI-compatible), use shared helper function
+            if let ProviderType::Custom(ref provider_id) = provider_type {
+                crate::utils::builder_helpers::get_api_key_with_env(None, provider_id)?
+            } else {
+                // For native providers, check their specific environment variables
+                let env_key = match provider_type {
+                    #[cfg(feature = "openai")]
+                    ProviderType::OpenAi => "OPENAI_API_KEY",
+                    #[cfg(feature = "anthropic")]
+                    ProviderType::Anthropic => "ANTHROPIC_API_KEY",
+                    #[cfg(feature = "google")]
+                    ProviderType::Gemini => "GOOGLE_API_KEY",
+                    #[cfg(feature = "xai")]
+                    ProviderType::XAI => "XAI_API_KEY",
+                    #[cfg(feature = "groq")]
+                    ProviderType::Groq => "GROQ_API_KEY",
+                    #[cfg(feature = "minimaxi")]
+                    ProviderType::MiniMaxi => "MINIMAXI_API_KEY",
+                    _ => {
+                        return Err(LlmError::ConfigurationError(
+                            "API key not specified".to_string(),
+                        ));
+                    }
+                };
+                std::env::var(env_key).ok().ok_or_else(|| {
+                    LlmError::ConfigurationError(format!(
+                        "API key not specified (missing {} environment variable or explicit .api_key())",
+                        env_key
+                    ))
+                })?
+            }
+        }
     } else {
         // For providers that don't require API key, use empty string or None
         builder.api_key.clone().unwrap_or_default()
@@ -85,8 +117,83 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     let reasoning_enabled = builder.reasoning_enabled;
     let reasoning_budget = builder.reasoning_budget;
     let http_config = builder.http_config.clone();
+
     // Build one HTTP client for this builder, reuse across providers when possible
-    let built_http_client = build_http_client_from_config(&http_config)?;
+    // Support both basic HTTP config and advanced features (gzip, brotli, cookies, http2, custom client)
+    let built_http_client = if let Some(client) = builder.http_client {
+        // Use custom HTTP client if provided
+        client
+    } else {
+        // Check if we need to use advanced features not in HttpConfig
+        let needs_custom_build = builder.http2_prior_knowledge.is_some()
+            || builder.gzip.is_some()
+            || builder.brotli.is_some()
+            || builder.cookie_store.is_some();
+
+        if needs_custom_build {
+            // Build client manually with all features
+            let mut http_builder = reqwest::Client::builder();
+
+            // Apply compression settings
+            #[cfg(feature = "gzip")]
+            if let Some(enable) = builder.gzip {
+                http_builder = http_builder.gzip(enable);
+            }
+            #[cfg(feature = "brotli")]
+            if let Some(enable) = builder.brotli {
+                http_builder = http_builder.brotli(enable);
+            }
+
+            // Apply HTTP/2 settings
+            #[cfg(feature = "http2")]
+            if let Some(true) = builder.http2_prior_knowledge {
+                http_builder = http_builder.http2_prior_knowledge();
+            }
+
+            // Apply cookie store
+            #[cfg(feature = "cookies")]
+            if let Some(enable) = builder.cookie_store {
+                http_builder = http_builder.cookie_store(enable);
+            }
+
+            // Apply basic HTTP config settings
+            if let Some(timeout) = http_config.timeout {
+                http_builder = http_builder.timeout(timeout);
+            }
+            if let Some(connect_timeout) = http_config.connect_timeout {
+                http_builder = http_builder.connect_timeout(connect_timeout);
+            }
+            if let Some(proxy_url) = &http_config.proxy {
+                let proxy = reqwest::Proxy::all(proxy_url)
+                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
+                http_builder = http_builder.proxy(proxy);
+            }
+            if let Some(user_agent) = &http_config.user_agent {
+                http_builder = http_builder.user_agent(user_agent);
+            }
+            if !http_config.headers.is_empty() {
+                let mut headers = reqwest::header::HeaderMap::new();
+                for (k, v) in &http_config.headers {
+                    let name =
+                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
+                            LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
+                        })?;
+                    let value = reqwest::header::HeaderValue::from_str(v).map_err(|e| {
+                        LlmError::ConfigurationError(format!("Invalid header value for '{k}': {e}"))
+                    })?;
+                    headers.insert(name, value);
+                }
+                http_builder = http_builder.default_headers(headers);
+            }
+
+            http_builder
+                .build()
+                .map_err(|e| LlmError::HttpError(format!("Failed to create HTTP client: {e}")))?
+        } else {
+            // Use unified HTTP client builder for simple cases
+            build_http_client_from_config(&http_config)?
+        }
+    };
 
     // Prepare common parameters with the correct model
     let mut common_params = builder.common_params.clone();
@@ -112,15 +219,17 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             ProviderType::Groq => "llama-3.1-70b-versatile".to_string(),
             #[cfg(feature = "minimaxi")]
             ProviderType::MiniMaxi => "MiniMax-M2".to_string(),
-            ProviderType::Custom(ref name) => match name.as_str() {
+            ProviderType::Custom(ref name) => {
+                // Use shared helper function to get default model from registry
                 #[cfg(feature = "openai")]
-                "siliconflow" => models::openai_compatible::siliconflow::DEEPSEEK_V3_1.to_string(),
-                #[cfg(feature = "openai")]
-                "deepseek" => models::openai_compatible::deepseek::CHAT.to_string(),
-                #[cfg(feature = "openai")]
-                "openrouter" => models::openai_compatible::openrouter::GPT_4O.to_string(),
-                _ => "default-model".to_string(),
-            },
+                {
+                    crate::utils::builder_helpers::get_effective_model("", name)
+                }
+                #[cfg(not(feature = "openai"))]
+                {
+                    "default-model".to_string()
+                }
+            }
 
             // For disabled features, return error
             #[cfg(not(feature = "openai"))]
@@ -166,6 +275,21 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 ));
             }
         };
+    }
+
+    // Normalize model ID for OpenAI-compatible providers (handle aliases)
+    // This ensures that model aliases like "chat" -> "deepseek-chat" are properly resolved
+    if let ProviderType::Custom(ref provider_id) = provider_type {
+        #[cfg(feature = "openai")]
+        {
+            let normalized_model = crate::utils::builder_helpers::normalize_model_id(
+                provider_id,
+                &common_params.model,
+            );
+            if !normalized_model.is_empty() {
+                common_params.model = normalized_model;
+            }
+        }
     }
 
     // Provider-specific parameters are now handled via provider_options in ChatRequest.

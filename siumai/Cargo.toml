@@ -106,6 +106,12 @@ gcp = ["dep:jsonwebtoken", "google"]
 # JSON repair support for handling malformed LLM outputs
 json-repair = ["dep:jsonrepair"]
 
+# HTTP client features (passed through to reqwest)
+gzip = []
+brotli = []
+cookies = []
+http2 = []
+
 # Convenience features for common combinations
 all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
 
@@ -291,6 +297,27 @@ path = "examples/04-provider-specific/ollama/local-models.rs"
 [[example]]
 name = "grok"
 path = "examples/04-provider-specific/xai/grok.rs"
+
+# 04-provider-specific/openai-compatible
+[[example]]
+name = "moonshot-basic"
+path = "examples/04-provider-specific/openai-compatible/moonshot-basic.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "moonshot-tools"
+path = "examples/04-provider-specific/openai-compatible/moonshot-tools.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "moonshot-long-context"
+path = "examples/04-provider-specific/openai-compatible/moonshot-long-context.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "moonshot-siumai-builder"
+path = "examples/04-provider-specific/openai-compatible/moonshot-siumai-builder.rs"
+required-features = ["openai"]
 
 # 05-integrations/registry
 [[example]]

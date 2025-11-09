@@ -564,6 +564,33 @@ pub mod model_constants {
             /// Kolors
             pub const KOLORS: &str = c::siliconflow::KOLORS;
         }
+
+        /// Moonshot AI (Kimi) models
+        pub mod moonshot {
+            use super::c;
+
+            // Kimi K2 series (Latest)
+            pub const KIMI_K2_0905_PREVIEW: &str = c::moonshot::KIMI_K2_0905_PREVIEW;
+            pub const KIMI_K2_0711_PREVIEW: &str = c::moonshot::KIMI_K2_0711_PREVIEW;
+            pub const KIMI_LATEST: &str = c::moonshot::KIMI_LATEST;
+
+            // V1 Chat series
+            pub const MOONSHOT_V1_AUTO: &str = c::moonshot::MOONSHOT_V1_AUTO;
+            pub const MOONSHOT_V1_8K: &str = c::moonshot::MOONSHOT_V1_8K;
+            pub const MOONSHOT_V1_32K: &str = c::moonshot::MOONSHOT_V1_32K;
+            pub const MOONSHOT_V1_128K: &str = c::moonshot::MOONSHOT_V1_128K;
+
+            // Vision models
+            pub const MOONSHOT_V1_8K_VISION: &str = c::moonshot::MOONSHOT_V1_8K_VISION_PREVIEW;
+            pub const MOONSHOT_V1_32K_VISION: &str = c::moonshot::MOONSHOT_V1_32K_VISION_PREVIEW;
+            pub const MOONSHOT_V1_128K_VISION: &str = c::moonshot::MOONSHOT_V1_128K_VISION_PREVIEW;
+
+            // Recommended models
+            pub const CHAT: &str = c::moonshot::recommended::CHAT;
+            pub const LONG_CONTEXT: &str = c::moonshot::recommended::LONG_CONTEXT;
+            pub const COST_EFFECTIVE: &str = c::moonshot::recommended::COST_EFFECTIVE;
+            pub const VISION: &str = c::moonshot::recommended::VISION;
+        }
     }
 
     /// Ollama models with simplified access

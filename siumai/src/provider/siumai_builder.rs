@@ -32,6 +32,13 @@ pub struct SiumaiBuilder {
     pub(crate) http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data)
     pub(crate) http_debug: bool,
+    /// Custom HTTP client (takes precedence over all other HTTP settings)
+    pub(crate) http_client: Option<reqwest::Client>,
+    /// Advanced HTTP features
+    pub(crate) gzip: Option<bool>,
+    pub(crate) brotli: Option<bool>,
+    pub(crate) cookie_store: Option<bool>,
+    pub(crate) http2_prior_knowledge: Option<bool>,
     #[cfg(feature = "google")]
     /// Optional Bearer token provider for Gemini (e.g., Vertex AI).
     pub(crate) gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
@@ -56,6 +63,11 @@ impl SiumaiBuilder {
             retry_options: None,
             http_interceptors: Vec::new(),
             http_debug: false,
+            http_client: None,
+            gzip: None,
+            brotli: None,
+            cookie_store: None,
+            http2_prior_knowledge: None,
             #[cfg(feature = "google")]
             gemini_token_provider: None,
         }
@@ -190,6 +202,12 @@ impl SiumaiBuilder {
         self
     }
 
+    /// Set custom HTTP client (takes precedence over all other HTTP settings)
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.http_client = Some(client);
+        self
+    }
+
     /// Enable audio capability
     pub fn with_audio(self) -> Self {
         self.with_capability("audio")
@@ -238,6 +256,92 @@ impl SiumaiBuilder {
     pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
         self.http_config.stream_disable_compression = disable;
         self
+    }
+
+    // === Advanced HTTP configuration ===
+
+    /// Enable or disable gzip compression
+    #[cfg(feature = "gzip")]
+    pub fn http_gzip(mut self, enable: bool) -> Self {
+        self.gzip = Some(enable);
+        self
+    }
+
+    /// Enable or disable brotli compression
+    #[cfg(feature = "brotli")]
+    pub fn http_brotli(mut self, enable: bool) -> Self {
+        self.brotli = Some(enable);
+        self
+    }
+
+    /// Enable or disable cookie store
+    #[cfg(feature = "cookies")]
+    pub fn http_cookie_store(mut self, enable: bool) -> Self {
+        self.cookie_store = Some(enable);
+        self
+    }
+
+    /// Enable HTTP/2 prior knowledge
+    #[cfg(feature = "http2")]
+    pub fn http_http2_prior_knowledge(mut self, enable: bool) -> Self {
+        self.http2_prior_knowledge = Some(enable);
+        self
+    }
+
+    // === API Consistency Aliases (matching LlmBuilder) ===
+
+    /// Alias for `http_timeout` (API consistency with LlmBuilder)
+    pub fn with_timeout(self, timeout: Duration) -> Self {
+        self.http_timeout(timeout)
+    }
+
+    /// Alias for `http_connect_timeout` (API consistency with LlmBuilder)
+    pub fn with_connect_timeout(self, timeout: Duration) -> Self {
+        self.http_connect_timeout(timeout)
+    }
+
+    /// Alias for `http_user_agent` (API consistency with LlmBuilder)
+    pub fn with_user_agent<S: Into<String>>(self, user_agent: S) -> Self {
+        self.http_user_agent(user_agent)
+    }
+
+    /// Alias for `http_proxy` (API consistency with LlmBuilder)
+    pub fn with_proxy<S: Into<String>>(self, proxy_url: S) -> Self {
+        self.http_proxy(proxy_url)
+    }
+
+    /// Alias for `http_header` (API consistency with LlmBuilder)
+    pub fn with_header<K: Into<String>, V: Into<String>>(self, key: K, value: V) -> Self {
+        self.http_header(key, value)
+    }
+
+    /// Alias for `http_gzip` (API consistency with LlmBuilder)
+    #[cfg(feature = "gzip")]
+    pub fn with_gzip(self, enable: bool) -> Self {
+        self.http_gzip(enable)
+    }
+
+    /// Alias for `http_brotli` (API consistency with LlmBuilder)
+    #[cfg(feature = "brotli")]
+    pub fn with_brotli(self, enable: bool) -> Self {
+        self.http_brotli(enable)
+    }
+
+    /// Alias for `http_cookie_store` (API consistency with LlmBuilder)
+    #[cfg(feature = "cookies")]
+    pub fn with_cookie_store(self, enable: bool) -> Self {
+        self.http_cookie_store(enable)
+    }
+
+    /// Alias for `http_http2_prior_knowledge` (API consistency with LlmBuilder)
+    #[cfg(feature = "http2")]
+    pub fn with_http2_prior_knowledge(self, enable: bool) -> Self {
+        self.http_http2_prior_knowledge(enable)
+    }
+
+    /// Alias for `stop_sequences` (API consistency with LlmBuilder)
+    pub fn stop<S: Into<String>>(self, sequences: Vec<S>) -> Self {
+        self.stop_sequences(sequences.into_iter().map(|s| s.into()).collect())
     }
     pub fn with_x_goog_user_project(mut self, project_id: impl Into<String>) -> Self {
         self.http_config

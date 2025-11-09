@@ -20,7 +20,7 @@ serde_json = "1.0"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart", "http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart", "http2", "gzip", "brotli", "cookies"] }
 
 # Async runtime
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "io-util", "net"] }
@@ -75,14 +75,14 @@ rmcp = "0.8"
 proptest = "1.5"
 
 # OpenTelemetry (for siumai-extras)
-opentelemetry = { version = "0.27", features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.27", features = ["trace", "metrics", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.27", features = ["trace", "metrics", "grpc-tonic", "http-proto"] }
-opentelemetry-semantic-conventions = "0.27"
-opentelemetry-stdout = { version = "0.27", features = ["trace", "metrics"] }
+opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.31", features = ["trace", "metrics", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["trace", "metrics", "grpc-tonic", "http-proto"] }
+opentelemetry-semantic-conventions = "0.31"
+opentelemetry-stdout = { version = "0.31", features = ["trace", "metrics"] }
 
 # Server adapters (for siumai-extras)
-axum = "0.8.4"
+axum = "0.8"
 
 # Dev dependencies
 tokio-test = "0.4"

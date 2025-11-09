@@ -2,6 +2,68 @@
 
 This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
 
+## [Unreleased]
+
+### Added
+
+- **Moonshot AI model constants and examples**
+  - Added comprehensive model constants for Moonshot AI (Kimi) models in `providers/openai_compatible/providers/models.rs`
+  - New `moonshot` module with constants for Kimi K2, V1 chat models, and vision models
+  - Four complete examples in `examples/04-provider-specific/openai-compatible/`:
+    - `moonshot-basic.rs` - Basic chat with different context window models
+    - `moonshot-tools.rs` - Function calling and tool usage
+    - `moonshot-long-context.rs` - Long document processing (up to 256K tokens)
+    - `moonshot-siumai-builder.rs` - Using unified `Siumai::builder()` interface
+  - Comprehensive README for OpenAI-compatible provider examples
+  - Updated default model to `kimi-k2-0905-preview` (latest K2 model)
+
+- **Shared builder utilities**: Created `utils/builder_helpers.rs` with common functions for both `SiumaiBuilder` and provider-specific builders to reduce code duplication and ensure consistent behavior
+  - `get_api_key_with_env()` - Unified API key resolution with environment variable fallback
+  - `get_effective_model()` - Unified default model selection from registry
+  - `normalize_model_id()` - Model alias normalization (e.g., `chat` → `deepseek-chat`)
+  - `resolve_base_url()` / `resolve_base_url_with_adapter()` - Intelligent base URL path handling
+
+- **HTTP client features**: Added optional reqwest features for advanced HTTP configuration
+  - `gzip` - Enable gzip compression support
+  - `brotli` - Enable brotli compression support
+  - `cookies` - Enable cookie store support
+  - `http2` - Enable HTTP/2 support (already enabled by default)
+
+- **Comprehensive HTTP configuration tests**: Added `tests/builder_http_config_test.rs` with 17 test cases covering all HTTP configuration options (gzip, brotli, cookies, http2, proxy, timeouts, custom client, factory methods)
+
+- **SiumaiBuilder advanced HTTP features**: Added full support for advanced HTTP configuration to match `LlmBuilder` functionality
+  - `.http_gzip()` / `.with_gzip()` - Enable/disable gzip compression
+  - `.http_brotli()` / `.with_brotli()` - Enable/disable brotli compression
+  - `.http_cookie_store()` / `.with_cookie_store()` - Enable/disable cookie store
+  - `.http_http2_prior_knowledge()` / `.with_http2_prior_knowledge()` - Enable HTTP/2 prior knowledge
+  - `.with_http_client()` - Use custom reqwest::Client (takes precedence over all other HTTP settings)
+
+- **SiumaiBuilder API consistency aliases**: Added `with_*` method aliases to match `LlmBuilder` API for better consistency
+  - `.with_timeout()` - Alias for `.http_timeout()`
+  - `.with_connect_timeout()` - Alias for `.http_connect_timeout()`
+  - `.with_user_agent()` - Alias for `.http_user_agent()`
+  - `.with_proxy()` - Alias for `.http_proxy()`
+  - `.with_header()` - Alias for `.http_header()`
+  - `.stop()` - Alias for `.stop_sequences()`
+
+- **SiumaiBuilder comprehensive tests**: Added `tests/siumai_builder_http_config_test.rs` with 19 test cases verifying all advanced HTTP features, custom client support, and API consistency aliases
+
+### Fixed
+
+- **Critical: `LlmBuilder` HTTP configuration bug**: Fixed `build_http_client()` method where `gzip`, `brotli`, and `cookie_store` settings were defined but never actually applied when building the HTTP client. These features now work correctly with proper feature flag guards.
+- **OpenAI-compatible providers in `Siumai::builder()`**: Fixed `OpenAiCompatibleConfig.with_model()` to properly set `common_params.model`, enabling `Siumai::builder()` to work correctly with OpenAI-compatible providers (Moonshot, DeepSeek, SiliconFlow, etc.)
+- **Environment variable reading for OpenAI-compatible providers**: Added automatic environment variable reading (`{PROVIDER_ID}_API_KEY`) in `provider/build.rs` for Custom provider types, matching the behavior of `LlmBuilder`
+- **Default model support**: Added default model configuration for Moonshot (`kimi-k2-0905-preview`) in `provider/build.rs` for when no model is explicitly specified
+- **Model alias normalization in `Siumai::builder()`**: Added model ID normalization for OpenAI-compatible providers to handle aliases (e.g., OpenRouter's `openai/gpt-4o`, DeepSeek's `chat`)
+
+### Changed
+
+- **Refactored builder logic**: Both `SiumaiBuilder` and `OpenAiCompatibleBuilder` now use shared utility functions from `utils/builder_helpers.rs`, reducing code duplication and ensuring consistent behavior across both builder systems
+- **Improved default model selection**: `Siumai::builder()` now uses the centralized `default_models` registry instead of hardcoded model names
+- **Enhanced `SiumaiBuilder` HTTP client building**: Updated `provider/build.rs` to support advanced HTTP features (gzip, brotli, cookies, http2) and custom HTTP client, achieving feature parity with `LlmBuilder`
+- **Builder feature parity achieved**: Both `Siumai::builder()` and `LlmBuilder::new()` now support the same set of HTTP configuration options, ensuring consistent behavior regardless of which builder interface is used
+- **Enhanced reqwest dependency**: Added `gzip`, `brotli`, and `cookies` features to workspace `Cargo.toml` for full HTTP client feature support
+
 ## [0.11.0-beta.2] - 2025-11-08
 
 ### Added

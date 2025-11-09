@@ -216,6 +216,7 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
     );
 
     // Moonshot AI - Chinese AI with long context
+    // Reference: https://platform.moonshot.cn/docs/intro
     providers.insert(
         "moonshot".to_string(),
         ProviderConfig {
@@ -224,7 +225,7 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
             base_url: "https://api.moonshot.cn/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
             capabilities: vec!["tools".to_string(), "vision".to_string()],
-            default_model: Some("moonshot-v1-8k".to_string()),
+            default_model: Some("kimi-k2-0905-preview".to_string()), // Updated to latest K2 model
             supports_reasoning: false,
         },
     );

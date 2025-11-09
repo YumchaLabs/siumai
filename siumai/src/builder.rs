@@ -445,44 +445,62 @@ impl LlmBuilder {
             return Ok(client.clone());
         }
 
-        // Convert LlmBuilder fields to HttpConfig and use unified builder
-        let config = crate::types::HttpConfig {
-            timeout: self.timeout,
-            connect_timeout: self.connect_timeout,
-            headers: self.default_headers.clone(),
-            proxy: self.proxy.clone(),
-            user_agent: self.user_agent.clone(),
-            stream_disable_compression: true, // default value
-        };
+        // Check if we need to use advanced features not in HttpConfig
+        let needs_custom_build = self.http2_prior_knowledge.is_some()
+            || self.gzip.is_some()
+            || self.brotli.is_some()
+            || self.cookie_store.is_some();
 
-        // Use unified HTTP client builder
-        let mut client = crate::execution::http::client::build_http_client_from_config(&config)?;
-
-        // Apply http2_prior_knowledge if set (not part of HttpConfig)
-        if self.http2_prior_knowledge.is_some() {
-            // Need to rebuild with http2_prior_knowledge
+        if needs_custom_build {
+            // Build client manually with all features
             let mut builder = reqwest::Client::builder();
 
-            if let Some(timeout) = config.timeout {
+            // Apply timeout settings
+            if let Some(timeout) = self.timeout {
                 builder = builder.timeout(timeout);
             }
-            if let Some(connect_timeout) = config.connect_timeout {
+            if let Some(connect_timeout) = self.connect_timeout {
                 builder = builder.connect_timeout(connect_timeout);
             }
-            if let Some(proxy_url) = &config.proxy {
+
+            // Apply proxy settings
+            if let Some(proxy_url) = &self.proxy {
                 let proxy = reqwest::Proxy::all(proxy_url)
                     .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
                 builder = builder.proxy(proxy);
             }
-            if let Some(user_agent) = &config.user_agent {
+
+            // Apply user agent
+            if let Some(user_agent) = &self.user_agent {
                 builder = builder.user_agent(user_agent);
             }
 
-            builder = builder.http2_prior_knowledge();
+            // Apply compression settings (FIX: previously missing)
+            #[cfg(feature = "gzip")]
+            if let Some(enable) = self.gzip {
+                builder = builder.gzip(enable);
+            }
+            #[cfg(feature = "brotli")]
+            if let Some(enable) = self.brotli {
+                builder = builder.brotli(enable);
+            }
 
-            if !config.headers.is_empty() {
+            // Apply HTTP/2 settings
+            #[cfg(feature = "http2")]
+            if let Some(true) = self.http2_prior_knowledge {
+                builder = builder.http2_prior_knowledge();
+            }
+
+            // Apply cookie store (FIX: previously missing)
+            #[cfg(feature = "cookies")]
+            if let Some(enable) = self.cookie_store {
+                builder = builder.cookie_store(enable);
+            }
+
+            // Apply default headers
+            if !self.default_headers.is_empty() {
                 let mut headers = reqwest::header::HeaderMap::new();
-                for (k, v) in &config.headers {
+                for (k, v) in &self.default_headers {
                     let name =
                         reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
                             LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
@@ -495,12 +513,23 @@ impl LlmBuilder {
                 builder = builder.default_headers(headers);
             }
 
-            client = builder.build().map_err(|e| {
+            // Build the client
+            builder.build().map_err(|e| {
                 LlmError::ConfigurationError(format!("Failed to build HTTP client: {e}"))
-            })?;
-        }
+            })
+        } else {
+            // Use unified HTTP client builder for simple cases
+            let config = crate::types::HttpConfig {
+                timeout: self.timeout,
+                connect_timeout: self.connect_timeout,
+                headers: self.default_headers.clone(),
+                proxy: self.proxy.clone(),
+                user_agent: self.user_agent.clone(),
+                stream_disable_compression: true, // default value
+            };
 
-        Ok(client)
+            crate::execution::http::client::build_http_client_from_config(&config)
+        }
     }
 }
 

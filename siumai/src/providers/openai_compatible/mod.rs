@@ -57,7 +57,7 @@ pub mod types;
 pub mod builder_list;
 
 // Re-export model constants for easy access
-pub use providers::models::{deepseek, groq, openrouter, siliconflow, xai};
+pub use providers::models::{deepseek, groq, moonshot, openrouter, siliconflow, xai};
 
 // Re-export new adapter system
 pub use adapter::{ProviderAdapter, ProviderCompatibility};

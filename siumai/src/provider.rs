@@ -739,6 +739,7 @@ impl<'a> VisionCapabilityProxy<'a> {
 // Debug/Default impl moved to provider/siumai_builder.rs
 
 #[cfg(test)]
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
     use async_trait::async_trait;
@@ -876,8 +877,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_openai_requires_api_key() {
+        // Temporarily remove API key from environment
+        let original_key = std::env::var("OPENAI_API_KEY").ok();
+        unsafe {
+            std::env::remove_var("OPENAI_API_KEY");
+        }
+
         // Test that OpenAI still requires API key
         let result = SiumaiBuilder::new().openai().model("gpt-4o").build().await;
+
+        // Restore original key if it existed
+        if let Some(key) = original_key {
+            unsafe {
+                std::env::set_var("OPENAI_API_KEY", key);
+            }
+        }
 
         // This should fail due to missing API key
         assert!(result.is_err());

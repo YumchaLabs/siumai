@@ -25,6 +25,7 @@
 //! use siumai::auth::vertex::*;
 //! ```
 
+pub mod builder_helpers;
 pub mod cancel;
 pub mod mime;
 pub mod model_alias;

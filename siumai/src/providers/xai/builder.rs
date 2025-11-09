@@ -262,6 +262,7 @@ impl XaiBuilder {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
 
@@ -290,15 +291,36 @@ mod tests {
 
     #[tokio::test]
     async fn test_builder_validation() {
+        // Temporarily remove API key from environment
+        let original_key = std::env::var("XAI_API_KEY").ok();
+        unsafe {
+            std::env::remove_var("XAI_API_KEY");
+        }
+
         let builder = XaiBuilder::new(LlmBuilder::new());
 
         // Should fail without API key
         let result = builder.build().await;
+
+        // Restore original key if it existed
+        if let Some(key) = original_key.clone() {
+            unsafe {
+                std::env::set_var("XAI_API_KEY", key);
+            }
+        }
+
         assert!(result.is_err());
 
         // Should succeed with API key
         let builder = XaiBuilder::new(LlmBuilder::new()).api_key("test-key");
         let result = builder.build().await;
         assert!(result.is_ok());
+
+        // Restore original key if it existed
+        if let Some(key) = original_key {
+            unsafe {
+                std::env::set_var("XAI_API_KEY", key);
+            }
+        }
     }
 }

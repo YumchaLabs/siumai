@@ -87,3 +87,7 @@ all = ["schema", "telemetry", "opentelemetry", "server", "mcp"]
 [dev-dependencies]
 tokio.workspace = true
 tokio-test.workspace = true
+
+[[example]]
+name = "opentelemetry_tracing"
+path = "examples/opentelemetry_tracing.rs"

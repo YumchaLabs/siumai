@@ -51,6 +51,7 @@ impl OpenAiCompatibleConfig {
     /// Set the model
     pub fn with_model(mut self, model: &str) -> Self {
         self.model = model.to_string();
+        self.common_params.model = model.to_string();
         self
     }
 

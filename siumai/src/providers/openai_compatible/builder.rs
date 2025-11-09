@@ -420,41 +420,18 @@ impl OpenAiCompatibleBuilder {
     pub async fn build(
         self,
     ) -> Result<crate::providers::openai_compatible::OpenAiCompatibleClient, LlmError> {
-        // Step 1: Get API key (priority: parameter > environment variable {PROVIDER_ID}_API_KEY)
-        let env_key = format!("{}_API_KEY", self.provider_id.to_uppercase());
-        let api_key = self
-            .api_key
-            .or_else(|| std::env::var(&env_key).ok())
-            .ok_or_else(|| {
-                LlmError::ConfigurationError(format!(
-                    "API key is required for {} (missing {} or explicit .api_key())",
-                    self.provider_id, env_key
-                ))
-            })?;
+        // Step 1: Get API key using shared helper function
+        let api_key =
+            crate::utils::builder_helpers::get_api_key_with_env(self.api_key, &self.provider_id)?;
 
         // Create adapter using the registry (much simpler!)
         let adapter = get_provider_adapter(&self.provider_id)?;
 
-        // Use custom base URL if provided, otherwise use adapter's default.
-        // If a custom base URL lacks a path segment, append the adapter's default path suffix
-        // (e.g., for Groq: "/openai/v1") so tests and users can pass just the origin.
-        let base_url = if let Some(custom) = self.base_url.clone() {
-            let def = adapter.base_url();
-            // Extract path part from default (after scheme://host)
-            let def_path = def.splitn(4, '/').nth(3).unwrap_or("");
-            let custom_path = custom.splitn(4, '/').nth(3).unwrap_or("");
-            if custom_path.is_empty() && !def_path.is_empty() {
-                format!(
-                    "{}/{}",
-                    custom.trim_end_matches('/'),
-                    def_path.trim_start_matches('/')
-                )
-            } else {
-                custom
-            }
-        } else {
-            adapter.base_url().to_string()
-        };
+        // Use shared helper function for base URL resolution
+        let base_url = crate::utils::builder_helpers::resolve_base_url_with_adapter(
+            self.base_url.clone(),
+            &adapter,
+        );
 
         // Create configuration
         let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
@@ -464,19 +441,18 @@ impl OpenAiCompatibleBuilder {
             adapter,
         );
 
-        // Ensure model is set. Prefer common_params.model; otherwise fall back to registry default.
-        let effective_model_raw = if !self.common_params.model.is_empty() {
-            self.common_params.model.clone()
-        } else {
-            crate::providers::openai_compatible::default_models::get_default_chat_model(
-                &self.provider_id,
-            )
-            .unwrap_or("")
-            .to_string()
-        };
-        // Normalize aliases (e.g., OpenRouter vendor prefixes, DeepSeek short ids)
-        let effective_model =
-            crate::utils::model_alias::normalize_model_id(&self.provider_id, &effective_model_raw);
+        // Get effective model using shared helper function
+        let effective_model_raw = crate::utils::builder_helpers::get_effective_model(
+            &self.common_params.model,
+            &self.provider_id,
+        );
+
+        // Normalize aliases using shared helper function
+        let effective_model = crate::utils::builder_helpers::normalize_model_id(
+            &self.provider_id,
+            &effective_model_raw,
+        );
+
         if !effective_model.is_empty() {
             config = config.with_model(&effective_model);
         }

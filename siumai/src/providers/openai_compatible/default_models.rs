@@ -88,6 +88,12 @@ impl DefaultModelRegistry {
         // xAI defaults (when used as OpenAI-compatible)
         configs.insert("xai", DefaultModelConfig::new("grok-2-1212"));
 
+        // Moonshot defaults (using constants from models.rs)
+        configs.insert(
+            "moonshot",
+            DefaultModelConfig::new(super::providers::models::moonshot::KIMI_K2_0905_PREVIEW),
+        );
+
         Self { configs }
     }
 
