@@ -1,3 +1,4 @@
+#![cfg(feature = "google")]
 //! Tests for Gemini grounding tools (Google Search, URL Context)
 //!
 //! These tests verify that grounding tools can be properly configured and sent to the API.

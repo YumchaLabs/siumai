@@ -55,7 +55,8 @@ urlencoding = "2.1"
 infer = "0.19"
 
 # Core crate (for workspace consumption)
-siumai = { version = "0.11.0-beta.3", path = "siumai" }
+# Disable default features; downstream crates must opt-in provider features explicitly
+siumai = { version = "0.11.0-beta.3", path = "siumai", default-features = false }
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }

@@ -1,3 +1,4 @@
+#![cfg(feature = "google")]
 //! Validation: When using Authorization (Bearer) for Vertex AI auth,
 //! Gemini should not be blocked by API key validation.
 

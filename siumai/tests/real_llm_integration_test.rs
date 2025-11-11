@@ -1,3 +1,11 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "xai",
+    feature = "ollama",
+    feature = "groq"
+))]
 //! Real LLM Integration Tests
 //!
 //! These tests use real API keys to test actual LLM provider functionality.

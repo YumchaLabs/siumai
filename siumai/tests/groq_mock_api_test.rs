@@ -1,3 +1,4 @@
+#![cfg(feature = "groq")]
 //! Groq Mock API Tests
 //!
 //! These tests verify the HTTP layer interaction with Groq API using wiremock.

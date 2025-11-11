@@ -1,3 +1,4 @@
+#![cfg(feature = "google")]
 use std::sync::Arc;
 
 use siumai::{auth::StaticTokenProvider, provider::SiumaiBuilder, types::ProviderType};

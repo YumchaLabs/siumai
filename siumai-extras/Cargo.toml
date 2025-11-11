@@ -14,8 +14,8 @@ categories = ["api-bindings", "web-programming"]
 
 # Use workspace-managed dependency versions
 [dependencies]
-# Core siumai dependency (with default features to include all providers)
-siumai.workspace = true
+# Core siumai dependency (disable default provider set; features forwarded below)
+siumai = { workspace = true, default-features = false }
 
 # Common dependencies
 serde.workspace = true
@@ -56,7 +56,18 @@ async-trait = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["process"] }
 
 [features]
-default = []
+# Default to OpenAI only for minimal build; other providers can be enabled explicitly
+default = ["openai"]
+
+# Provider features (pass-through to siumai)
+openai = ["siumai/openai"]
+anthropic = ["siumai/anthropic"]
+google = ["siumai/google"]
+ollama = ["siumai/ollama"]
+xai = ["siumai/xai"]
+groq = ["siumai/groq"]
+minimaxi = ["siumai/minimaxi"]
+all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
 
 # Schema validation feature
 schema = ["dep:jsonschema"]

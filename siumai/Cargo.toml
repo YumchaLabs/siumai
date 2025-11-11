@@ -155,6 +155,7 @@ path = "examples/01-quickstart/streaming.rs"
 [[example]]
 name = "provider-switching"
 path = "examples/01-quickstart/provider-switching.rs"
+required-features = ["openai", "anthropic", "google", "ollama", "xai", "groq"]
 
 # 02-core-api/chat
 [[example]]
@@ -263,6 +264,7 @@ required-features = ["openai"]
 [[example]]
 name = "responses-api"
 path = "examples/04-provider-specific/openai/responses-api.rs"
+required-features = ["openai"]
 
 # 04-provider-specific/minimaxi
 [[example]]
@@ -274,29 +276,35 @@ required-features = ["minimaxi"]
 [[example]]
 name = "extended-thinking"
 path = "examples/04-provider-specific/anthropic/extended-thinking.rs"
+required-features = ["anthropic"]
 
 [[example]]
 name = "prompt-caching"
 path = "examples/04-provider-specific/anthropic/prompt-caching.rs"
+required-features = ["anthropic"]
 
 # 04-provider-specific/google
 [[example]]
 name = "grounding"
 path = "examples/04-provider-specific/google/grounding.rs"
+required-features = ["google"]
 
 [[example]]
 name = "file_search"
 path = "examples/04-provider-specific/google/file_search.rs"
+required-features = ["google"]
 
 # 04-provider-specific/ollama
 [[example]]
 name = "local-models"
 path = "examples/04-provider-specific/ollama/local-models.rs"
+required-features = ["ollama"]
 
 # 04-provider-specific/xai
 [[example]]
 name = "grok"
 path = "examples/04-provider-specific/xai/grok.rs"
+required-features = ["xai"]
 
 # 04-provider-specific/openai-compatible
 [[example]]

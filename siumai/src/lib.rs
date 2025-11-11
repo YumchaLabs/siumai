@@ -430,6 +430,7 @@ mod tests {
     #[test]
     fn test_provider_builder() {
         let _openai_builder = Provider::openai();
+        #[cfg(feature = "anthropic")]
         let _anthropic_builder = Provider::anthropic();
         let _siumai_builder = Siumai::builder();
         // Basic test for builder creation

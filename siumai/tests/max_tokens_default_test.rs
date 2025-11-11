@@ -1,3 +1,9 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "ollama"
+))]
 //! Max Tokens Default Value Tests
 //!
 //! Tests to ensure all providers handle max_tokens defaults correctly.

@@ -846,6 +846,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "ollama")]
     #[tokio::test]
     async fn test_ollama_build_without_api_key() {
         // Test that Ollama can be built without API key

@@ -1,3 +1,11 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "ollama",
+    feature = "xai",
+    feature = "groq"
+))]
 //! Provider Builder API Consistency Tests
 //!
 //! This test suite ensures that all provider builders have consistent APIs

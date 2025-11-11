@@ -621,55 +621,70 @@ mod tests {
         );
 
         // Test Anthropic builder inherits HTTP config
-        let anthropic_builder = base_builder.clone().anthropic();
-        assert_eq!(
-            anthropic_builder.core.base.timeout,
-            Some(Duration::from_secs(60))
-        );
-        assert_eq!(
-            anthropic_builder.core.base.proxy,
-            Some("http://proxy.example.com:8080".to_string())
-        );
+        #[cfg(feature = "anthropic")]
+        {
+            let anthropic_builder = base_builder.clone().anthropic();
+            assert_eq!(
+                anthropic_builder.core.base.timeout,
+                Some(Duration::from_secs(60))
+            );
+            assert_eq!(
+                anthropic_builder.core.base.proxy,
+                Some("http://proxy.example.com:8080".to_string())
+            );
+        }
 
         // Test Gemini builder inherits HTTP config
-        let gemini_builder = base_builder.clone().gemini();
-        assert_eq!(
-            gemini_builder.core.base.timeout,
-            Some(Duration::from_secs(60))
-        );
-        assert_eq!(
-            gemini_builder.core.base.proxy,
-            Some("http://proxy.example.com:8080".to_string())
-        );
+        #[cfg(feature = "google")]
+        {
+            let gemini_builder = base_builder.clone().gemini();
+            assert_eq!(
+                gemini_builder.core.base.timeout,
+                Some(Duration::from_secs(60))
+            );
+            assert_eq!(
+                gemini_builder.core.base.proxy,
+                Some("http://proxy.example.com:8080".to_string())
+            );
+        }
 
         // Test Ollama builder inherits HTTP config
-        let ollama_builder = base_builder.clone().ollama();
-        assert_eq!(
-            ollama_builder.core.base.timeout,
-            Some(Duration::from_secs(60))
-        );
-        assert_eq!(
-            ollama_builder.core.base.proxy,
-            Some("http://proxy.example.com:8080".to_string())
-        );
+        #[cfg(feature = "ollama")]
+        {
+            let ollama_builder = base_builder.clone().ollama();
+            assert_eq!(
+                ollama_builder.core.base.timeout,
+                Some(Duration::from_secs(60))
+            );
+            assert_eq!(
+                ollama_builder.core.base.proxy,
+                Some("http://proxy.example.com:8080".to_string())
+            );
+        }
 
         // Test xAI wrapper inherits HTTP config
-        let xai_wrapper = base_builder.clone().xai();
-        assert_eq!(xai_wrapper.core.base.timeout, Some(Duration::from_secs(60)));
-        assert_eq!(
-            xai_wrapper.core.base.proxy,
-            Some("http://proxy.example.com:8080".to_string())
-        );
+        #[cfg(feature = "xai")]
+        {
+            let xai_wrapper = base_builder.clone().xai();
+            assert_eq!(xai_wrapper.core.base.timeout, Some(Duration::from_secs(60)));
+            assert_eq!(
+                xai_wrapper.core.base.proxy,
+                Some("http://proxy.example.com:8080".to_string())
+            );
+        }
 
         // Test Groq wrapper inherits HTTP config
-        let groq_wrapper = base_builder.groq();
-        assert_eq!(
-            groq_wrapper.core.base.timeout,
-            Some(Duration::from_secs(60))
-        );
-        assert_eq!(
-            groq_wrapper.core.base.proxy,
-            Some("http://proxy.example.com:8080".to_string())
-        );
+        #[cfg(feature = "groq")]
+        {
+            let groq_wrapper = base_builder.groq();
+            assert_eq!(
+                groq_wrapper.core.base.timeout,
+                Some(Duration::from_secs(60))
+            );
+            assert_eq!(
+                groq_wrapper.core.base.proxy,
+                Some("http://proxy.example.com:8080".to_string())
+            );
+        }
     }
 }

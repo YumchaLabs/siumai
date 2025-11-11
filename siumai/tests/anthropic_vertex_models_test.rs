@@ -1,3 +1,4 @@
+#![cfg(feature = "anthropic")]
 use serde_json::json;
 use siumai::providers::anthropic_vertex::client::{VertexAnthropicClient, VertexAnthropicConfig};
 use siumai::traits::ModelListingCapability;

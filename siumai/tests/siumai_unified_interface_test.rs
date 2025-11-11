@@ -1,3 +1,11 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "xai",
+    feature = "ollama",
+    feature = "groq"
+))]
 //! Siumai Unified Interface Tests
 //!
 //! Tests to verify that the Siumai unified interface supports all providers

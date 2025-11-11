@@ -1,3 +1,9 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "ollama"
+))]
 //! URL Compatibility Tests
 //!
 //! Tests to ensure all providers handle base URLs with and without trailing slashes correctly.

@@ -70,6 +70,8 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
         let mut out = Vec::new();
         for rec in g.list_providers() {
             let ptype = ProviderType::from_name(&rec.id);
+            // 当某些 provider feature 未启用时，match 需保持穷尽性
+            #[allow(unreachable_patterns)]
             match ptype {
                 #[cfg(feature = "openai")]
                 ProviderType::OpenAi => {
@@ -241,6 +243,8 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         });
                     }
                 }
+                // 未启用对应 feature 的 provider：忽略（不加入列表）
+                _ => {}
             }
         }
         return out;
@@ -621,26 +625,33 @@ mod tests {
     fn test_get_supported_providers() {
         let providers = get_supported_providers();
         assert!(!providers.is_empty());
-
-        let openai_provider = providers
-            .iter()
-            .find(|p| p.provider_type == ProviderType::OpenAi);
-        assert!(openai_provider.is_some());
-
-        let anthropic_provider = providers
-            .iter()
-            .find(|p| p.provider_type == ProviderType::Anthropic);
-        assert!(anthropic_provider.is_some());
+        #[cfg(feature = "openai")]
+        {
+            let openai_provider = providers
+                .iter()
+                .find(|p| p.provider_type == ProviderType::OpenAi);
+            assert!(openai_provider.is_some());
+        }
+        #[cfg(feature = "anthropic")]
+        {
+            let anthropic_provider = providers
+                .iter()
+                .find(|p| p.provider_type == ProviderType::Anthropic);
+            assert!(anthropic_provider.is_some());
+        }
     }
 
     #[test]
     fn test_model_support() {
         assert!(is_model_supported(&ProviderType::OpenAi, "gpt-4"));
-        assert!(is_model_supported(
-            &ProviderType::Anthropic,
-            "claude-3-5-sonnet-20241022"
-        ));
-        assert!(!is_model_supported(&ProviderType::OpenAi, "claude-3-opus"));
+        #[cfg(feature = "anthropic")]
+        {
+            assert!(is_model_supported(
+                &ProviderType::Anthropic,
+                "claude-3-5-sonnet-20241022"
+            ));
+            assert!(!is_model_supported(&ProviderType::OpenAi, "claude-3-opus"));
+        }
     }
 
     #[test]
@@ -651,14 +662,20 @@ mod tests {
             get_default_model(&ProviderType::OpenAi),
             Some(models::openai::GPT_4O)
         );
-        assert_eq!(
-            get_default_model(&ProviderType::Anthropic),
-            Some(models::anthropic::CLAUDE_SONNET_3_5)
-        );
-        assert_eq!(
-            get_default_model(&ProviderType::Gemini),
-            Some(models::gemini::GEMINI_2_5_FLASH)
-        );
+        #[cfg(feature = "anthropic")]
+        {
+            assert_eq!(
+                get_default_model(&ProviderType::Anthropic),
+                Some(models::anthropic::CLAUDE_SONNET_3_5)
+            );
+        }
+        #[cfg(feature = "google")]
+        {
+            assert_eq!(
+                get_default_model(&ProviderType::Gemini),
+                Some(models::gemini::GEMINI_2_5_FLASH)
+            );
+        }
     }
 
     #[test]

@@ -1,3 +1,11 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "xai",
+    feature = "ollama",
+    feature = "groq"
+))]
 //! Provider Consistency Tests
 //!
 //! This test suite ensures that all providers implement consistent behavior

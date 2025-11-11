@@ -1,3 +1,4 @@
+#![cfg(feature = "google")]
 use siumai::execution::RequestTransformer;
 use siumai::types::{ChatRequest, CommonParams};
 

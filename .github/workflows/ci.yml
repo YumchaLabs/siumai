@@ -58,3 +58,33 @@ jobs:
 
       - name: Build docs
         run: cargo doc --all-features --no-deps
+
+  build-openai-only:
+    name: Build (openai-only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build siumai with openai feature only
+        run: cargo build -p siumai --no-default-features --features openai
+
+      - name: Test siumai with openai feature only
+        run: cargo test -p siumai --no-default-features --features openai
+
+      - name: Clippy siumai (openai-only)
+        run: cargo clippy -p siumai --no-default-features --features openai -- -D warnings
+
+      - name: Build siumai-extras with openai feature only
+        run: cargo build -p siumai-extras --no-default-features --features openai
+
+      - name: Clippy siumai-extras (openai-only)
+        run: cargo clippy -p siumai-extras --no-default-features --features openai -- -D warnings

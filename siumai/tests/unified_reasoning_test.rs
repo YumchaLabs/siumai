@@ -1,3 +1,11 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "xai",
+    feature = "ollama",
+    feature = "groq"
+))]
 //! Unified Reasoning Interface Tests
 //!
 //! This test file specifically validates our recent modifications:

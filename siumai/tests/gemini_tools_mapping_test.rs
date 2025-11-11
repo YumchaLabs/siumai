@@ -1,3 +1,4 @@
+#![cfg(feature = "google")]
 //! Gemini provider-defined tools mapping integration test
 
 use siumai::providers::gemini::convert::build_request_body;

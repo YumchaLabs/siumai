@@ -1,3 +1,4 @@
+#![cfg(feature = "google")]
 use siumai::prelude::*;
 
 #[tokio::test]

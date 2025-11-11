@@ -1,3 +1,4 @@
+#![cfg(feature = "ollama")]
 //! Ollama Mock API tests
 //!
 //! These tests verify that the Ollama provider correctly interacts with the Ollama API
