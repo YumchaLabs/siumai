@@ -347,6 +347,71 @@ pub struct HttpConfig {
     pub stream_disable_compression: bool,
 }
 
+/// Builder for `HttpConfig` to construct configuration in a unified and safe way
+#[derive(Debug, Clone, Default)]
+pub struct HttpConfigBuilder {
+    timeout: Option<Duration>,
+    connect_timeout: Option<Duration>,
+    headers: HashMap<String, String>,
+    proxy: Option<String>,
+    user_agent: Option<String>,
+    stream_disable_compression: Option<bool>,
+}
+
+impl HttpConfigBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
+        self
+    }
+    pub fn connect_timeout(mut self, connect_timeout: Option<Duration>) -> Self {
+        self.connect_timeout = connect_timeout;
+        self
+    }
+    pub fn user_agent<S: Into<String>>(mut self, user_agent: Option<S>) -> Self {
+        self.user_agent = user_agent.map(|s| s.into());
+        self
+    }
+    pub fn proxy<S: Into<String>>(mut self, proxy: Option<S>) -> Self {
+        self.proxy = proxy.map(|s| s.into());
+        self
+    }
+    pub fn header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.headers.insert(key.into(), value.into());
+        self
+    }
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers.extend(headers);
+        self
+    }
+    pub fn stream_disable_compression(mut self, val: bool) -> Self {
+        self.stream_disable_compression = Some(val);
+        self
+    }
+
+    pub fn build(self) -> HttpConfig {
+        let default_sdc = HttpConfig::default().stream_disable_compression;
+        HttpConfig {
+            timeout: self.timeout,
+            connect_timeout: self.connect_timeout,
+            headers: self.headers,
+            proxy: self.proxy,
+            user_agent: self.user_agent,
+            stream_disable_compression: self.stream_disable_compression.unwrap_or(default_sdc),
+        }
+    }
+}
+
+impl HttpConfig {
+    /// Returns a builder for constructing `HttpConfig`
+    pub fn builder() -> HttpConfigBuilder {
+        HttpConfigBuilder::new()
+    }
+}
+
 // Helper module for Duration serialization
 mod duration_option_serde {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};

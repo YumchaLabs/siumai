@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -29,8 +33,13 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Run tests
-        run: cargo test --all-features
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      - name: Run tests (nextest)
+        run: cargo nextest run --all-features --workspace --no-fail-fast
 
       - name: Run clippy (core)
         run: cargo clippy -p siumai --all-features -- -D warnings
@@ -40,6 +49,70 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  feature-build-matrix:
+    name: Feature Build Matrix (core)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - openai
+          - anthropic
+          - google
+          - xai
+          - groq
+          - ollama
+          - minimaxi
+          - google,gcp
+          - openai,json-repair
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo check (siumai)
+        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }}
+
+      - name: Clippy (siumai)
+        run: cargo clippy -p siumai --no-default-features --features ${{ matrix.features }} -- -D warnings
+
+  extras-build-matrix:
+    name: Feature Build Matrix (extras)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - openai,server
+          - openai,schema
+          - openai,telemetry
+          - openai,opentelemetry
+          - openai,mcp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo check (siumai-extras)
+        run: cargo check -p siumai-extras --no-default-features --features ${{ matrix.features }}
+
+      - name: Clippy (siumai-extras)
+        run: cargo clippy -p siumai-extras --no-default-features --features ${{ matrix.features }} -- -D warnings
 
   docs:
     name: Documentation
@@ -59,32 +132,4 @@ jobs:
       - name: Build docs
         run: cargo doc --all-features --no-deps
 
-  build-openai-only:
-    name: Build (openai-only)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build siumai with openai feature only
-        run: cargo build -p siumai --no-default-features --features openai
-
-      - name: Test siumai with openai feature only
-        run: cargo test -p siumai --no-default-features --features openai
-
-      - name: Clippy siumai (openai-only)
-        run: cargo clippy -p siumai --no-default-features --features openai -- -D warnings
-
-      - name: Build siumai-extras with openai feature only
-        run: cargo build -p siumai-extras --no-default-features --features openai
-
-      - name: Clippy siumai-extras (openai-only)
-        run: cargo clippy -p siumai-extras --no-default-features --features openai -- -D warnings
+  # Removed openai-only build job; covered by feature-build-matrix

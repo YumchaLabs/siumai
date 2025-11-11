@@ -223,20 +223,91 @@ let text = client
 - HTTP interceptors (request/response hooks, SSE observation)
 - Retry options and backoff
 
-HTTP configuration example:
+### HTTP configuration
+
+You have three practical ways to control HTTP behavior, from simple to advanced.
+
+1) Per‑builder toggles (most common)
 
 ```rust
 use siumai::prelude::*;
-let http = reqwest::Client::builder().build()?;
+
+// Provider-specific builder (LlmBuilder)
 let client = LlmBuilder::new()
-    .with_http_client(http)
+    .with_timeout(std::time::Duration::from_secs(30))
+    .with_connect_timeout(std::time::Duration::from_secs(10))
     .with_user_agent("my-app/1.0")
     .with_header("X-User-Project", "acme")
+    .with_proxy("http://proxy.example.com:8080") // optional
+    .openai()
+    .model("gpt-4o-mini")
+    .build()
+    .await?;
+
+// Unified builder (Siumai::builder) with SSE stability control
+let client = Siumai::builder()
+    .openai()
+    .api_key(std::env::var("OPENAI_API_KEY")?)
+    .model("gpt-4o-mini")
+    .http_timeout(std::time::Duration::from_secs(30))
+    .http_connect_timeout(std::time::Duration::from_secs(10))
+    .http_user_agent("my-app/1.0")
+    .http_header("X-User-Project", "acme")
+    .http_stream_disable_compression(true) // keep SSE stable; default can be controlled by env
+    .build()
+    .await?;
+```
+
+2) HttpConfig builder + shared client builder (centralized configuration)
+
+```rust
+use siumai::execution::http::client::build_http_client_from_config;
+use siumai::types::HttpConfig;
+use siumai::prelude::*;
+
+// Construct a reusable HTTP config
+let http_cfg = HttpConfig::builder()
+    .timeout(Some(std::time::Duration::from_secs(30)))
+    .connect_timeout(Some(std::time::Duration::from_secs(10)))
+    .user_agent(Some("my-app/1.0"))
+    .proxy(Some("http://proxy.example.com:8080"))
+    .header("X-User-Project", "acme")
+    .stream_disable_compression(true) // explicit SSE stability
+    .build();
+
+// Build reqwest client using the shared helper
+let http = build_http_client_from_config(&http_cfg)?;
+
+// Inject it into a builder (takes precedence over other HTTP settings)
+let client = LlmBuilder::new()
+    .with_http_client(http)
     .openai()
     .model("gpt-4o-mini")
     .build()
     .await?;
 ```
+
+3) Fully custom reqwest client (maximum control)
+
+```rust
+use siumai::prelude::*;
+
+let http = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(30))
+    // .danger_accept_invalid_certs(true) // if needed for dev
+    .build()?;
+
+let client = LlmBuilder::new()
+    .with_http_client(http)
+    .openai()
+    .model("gpt-4o-mini")
+    .build()
+    .await?;
+```
+
+Notes:
+- Streaming stability: By default, `stream_disable_compression` is derived from `SIUMAI_STREAM_DISABLE_COMPRESSION` (true unless set to `false|0|off|no`). You can override it per request via the unified builder method `http_stream_disable_compression`.
+- When a custom `reqwest::Client` is provided via `.with_http_client(..)`, it takes precedence over any other HTTP settings on the builder.
 
 Registry with custom middleware and interceptors:
 

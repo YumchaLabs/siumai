@@ -143,80 +143,12 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     let http_config = builder.http_config.clone();
 
     // Build one HTTP client for this builder, reuse across providers when possible
-    // Support both basic HTTP config and advanced features (gzip, brotli, cookies, http2, custom client)
     let built_http_client = if let Some(client) = builder.http_client {
         // Use custom HTTP client if provided
         client
     } else {
-        // Check if we need to use advanced features not in HttpConfig
-        let needs_custom_build = builder.http2_prior_knowledge.is_some()
-            || builder.gzip.is_some()
-            || builder.brotli.is_some()
-            || builder.cookie_store.is_some();
-
-        if needs_custom_build {
-            // Build client manually with all features
-            let mut http_builder = reqwest::Client::builder();
-
-            // Apply compression settings
-            #[cfg(feature = "gzip")]
-            if let Some(enable) = builder.gzip {
-                http_builder = http_builder.gzip(enable);
-            }
-            #[cfg(feature = "brotli")]
-            if let Some(enable) = builder.brotli {
-                http_builder = http_builder.brotli(enable);
-            }
-
-            // Apply HTTP/2 settings
-            #[cfg(feature = "http2")]
-            if let Some(true) = builder.http2_prior_knowledge {
-                http_builder = http_builder.http2_prior_knowledge();
-            }
-
-            // Apply cookie store
-            #[cfg(feature = "cookies")]
-            if let Some(enable) = builder.cookie_store {
-                http_builder = http_builder.cookie_store(enable);
-            }
-
-            // Apply basic HTTP config settings
-            if let Some(timeout) = http_config.timeout {
-                http_builder = http_builder.timeout(timeout);
-            }
-            if let Some(connect_timeout) = http_config.connect_timeout {
-                http_builder = http_builder.connect_timeout(connect_timeout);
-            }
-            if let Some(proxy_url) = &http_config.proxy {
-                let proxy = reqwest::Proxy::all(proxy_url)
-                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
-                http_builder = http_builder.proxy(proxy);
-            }
-            if let Some(user_agent) = &http_config.user_agent {
-                http_builder = http_builder.user_agent(user_agent);
-            }
-            if !http_config.headers.is_empty() {
-                let mut headers = reqwest::header::HeaderMap::new();
-                for (k, v) in &http_config.headers {
-                    let name =
-                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-                            LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
-                        })?;
-                    let value = reqwest::header::HeaderValue::from_str(v).map_err(|e| {
-                        LlmError::ConfigurationError(format!("Invalid header value for '{k}': {e}"))
-                    })?;
-                    headers.insert(name, value);
-                }
-                http_builder = http_builder.default_headers(headers);
-            }
-
-            http_builder
-                .build()
-                .map_err(|e| LlmError::HttpError(format!("Failed to create HTTP client: {e}")))?
-        } else {
-            // Use unified HTTP client builder for simple cases
-            build_http_client_from_config(&http_config)?
-        }
+        // Use unified HTTP client builder for all cases
+        build_http_client_from_config(&http_config)?
     };
 
     // Prepare common parameters with the correct model

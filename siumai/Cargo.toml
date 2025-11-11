@@ -109,8 +109,6 @@ json-repair = ["dep:jsonrepair"]
 # HTTP client features (passed through to reqwest)
 gzip = []
 brotli = []
-cookies = []
-http2 = []
 
 # Convenience features for common combinations
 all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]

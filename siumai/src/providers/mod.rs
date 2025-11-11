@@ -70,7 +70,8 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
         let mut out = Vec::new();
         for rec in g.list_providers() {
             let ptype = ProviderType::from_name(&rec.id);
-            // 当某些 provider feature 未启用时，match 需保持穷尽性
+            // When some provider features are disabled via cargo features,
+            // keep the match exhaustive to avoid compile errors.
             #[allow(unreachable_patterns)]
             match ptype {
                 #[cfg(feature = "openai")]
@@ -243,7 +244,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         });
                     }
                 }
-                // 未启用对应 feature 的 provider：忽略（不加入列表）
+                // Provider feature not enabled: ignore (do not include in the list)
                 _ => {}
             }
         }

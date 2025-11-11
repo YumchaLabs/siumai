@@ -231,16 +231,8 @@ pub struct LlmBuilder {
         Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     /// Enable a built-in LoggingInterceptor for lightweight HTTP debug
     pub(crate) http_debug: bool,
-    /// Enable HTTP/2
-    pub(crate) http2_prior_knowledge: Option<bool>,
-    /// Enable gzip compression
-    pub(crate) gzip: Option<bool>,
-    /// Enable brotli compression
-    pub(crate) brotli: Option<bool>,
     /// Proxy URL
     pub(crate) proxy: Option<String>,
-    /// Enable cookies
-    pub(crate) cookie_store: Option<bool>,
     // Note: redirect policy removed due to Clone constraint issues
 }
 
@@ -255,11 +247,7 @@ impl LlmBuilder {
             default_headers: HashMap::new(),
             http_interceptors: Vec::new(),
             http_debug: false,
-            http2_prior_knowledge: None,
-            gzip: None,
-            brotli: None,
             proxy: None,
-            cookie_store: None,
             // redirect_policy removed
         }
     }
@@ -272,8 +260,6 @@ impl LlmBuilder {
             .with_timeout(crate::defaults::timeouts::STANDARD)
             .with_connect_timeout(crate::defaults::http::CONNECT_TIMEOUT)
             .with_user_agent(crate::defaults::http::USER_AGENT)
-            .with_gzip(true)
-            .with_brotli(true)
     }
 
     /// Create a builder optimized for fast responses.
@@ -384,48 +370,12 @@ impl LlmBuilder {
         self
     }
 
-    /// Enable or disable HTTP/2 prior knowledge.
-    ///
-    /// # Arguments
-    /// * `enabled` - Whether to enable HTTP/2 prior knowledge
-    pub const fn with_http2_prior_knowledge(mut self, enabled: bool) -> Self {
-        self.http2_prior_knowledge = Some(enabled);
-        self
-    }
-
-    /// Enable or disable gzip compression.
-    ///
-    /// # Arguments
-    /// * `enabled` - Whether to enable gzip compression
-    pub const fn with_gzip(mut self, enabled: bool) -> Self {
-        self.gzip = Some(enabled);
-        self
-    }
-
-    /// Enable or disable brotli compression.
-    ///
-    /// # Arguments
-    /// * `enabled` - Whether to enable brotli compression
-    pub const fn with_brotli(mut self, enabled: bool) -> Self {
-        self.brotli = Some(enabled);
-        self
-    }
-
     /// Set a proxy URL.
     ///
     /// # Arguments
     /// * `proxy_url` - The proxy URL (e.g., "<http://proxy.example.com:8080>")
     pub fn with_proxy<S: Into<String>>(mut self, proxy_url: S) -> Self {
         self.proxy = Some(proxy_url.into());
-        self
-    }
-
-    /// Enable or disable cookie store.
-    ///
-    /// # Arguments
-    /// * `enabled` - Whether to enable cookie storage
-    pub const fn with_cookie_store(mut self, enabled: bool) -> Self {
-        self.cookie_store = Some(enabled);
         self
     }
 
@@ -439,115 +389,22 @@ impl LlmBuilder {
     /// Build the HTTP client with the configured settings.
     ///
     /// This is used internally by provider builders to create the HTTP client.
+    /// Implementation unified via the shared HTTP client builder.
     pub(crate) fn build_http_client(&self) -> Result<reqwest::Client, LlmError> {
         // If a custom client was provided, use it
         if let Some(client) = &self.http_client {
             return Ok(client.clone());
         }
 
-        // Check if we need to use advanced features not in HttpConfig
-        let needs_custom_build = self.http2_prior_knowledge.is_some()
-            || self.gzip.is_some()
-            || self.brotli.is_some()
-            || self.cookie_store.is_some();
-
-        if needs_custom_build {
-            // Build client manually with all features
-            let mut builder = reqwest::Client::builder();
-
-            // Apply timeout settings
-            if let Some(timeout) = self.timeout {
-                builder = builder.timeout(timeout);
-            }
-            if let Some(connect_timeout) = self.connect_timeout {
-                builder = builder.connect_timeout(connect_timeout);
-            }
-
-            // Apply proxy settings
-            if let Some(proxy_url) = &self.proxy {
-                let proxy = reqwest::Proxy::all(proxy_url)
-                    .map_err(|e| LlmError::ConfigurationError(format!("Invalid proxy URL: {e}")))?;
-                builder = builder.proxy(proxy);
-            }
-
-            // Apply user agent
-            if let Some(user_agent) = &self.user_agent {
-                builder = builder.user_agent(user_agent);
-            }
-
-            // Apply compression settings (FIX: previously missing)
-            #[cfg(feature = "gzip")]
-            if let Some(enable) = self.gzip {
-                builder = builder.gzip(enable);
-            }
-            #[cfg(feature = "brotli")]
-            if let Some(enable) = self.brotli {
-                builder = builder.brotli(enable);
-            }
-
-            // Apply HTTP/2 settings
-            #[cfg(feature = "http2")]
-            if let Some(true) = self.http2_prior_knowledge {
-                builder = builder.http2_prior_knowledge();
-            }
-
-            // Apply cookie store (FIX: previously missing)
-            #[cfg(feature = "cookies")]
-            if let Some(enable) = self.cookie_store {
-                builder = builder.cookie_store(enable);
-            }
-
-            // Apply default headers
-            if !self.default_headers.is_empty() {
-                let mut headers = reqwest::header::HeaderMap::new();
-                for (k, v) in &self.default_headers {
-                    let name =
-                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-                            LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
-                        })?;
-                    let value = reqwest::header::HeaderValue::from_str(v).map_err(|e| {
-                        LlmError::ConfigurationError(format!("Invalid header value for '{k}': {e}"))
-                    })?;
-                    headers.insert(name, value);
-                }
-                builder = builder.default_headers(headers);
-            }
-
-            // Build the client; on failure, gracefully fall back to simple path
-            match builder.build() {
-                Ok(client) => Ok(client),
-                Err(e) => {
-                    // Fallback: build minimal client from HttpConfig to avoid test flakiness
-                    let config = crate::types::HttpConfig {
-                        timeout: self.timeout,
-                        connect_timeout: self.connect_timeout,
-                        headers: self.default_headers.clone(),
-                        proxy: self.proxy.clone(),
-                        user_agent: self.user_agent.clone(),
-                        stream_disable_compression: true,
-                    };
-                    crate::execution::http::client::build_http_client_from_config(&config).map_err(
-                        |_| {
-                            LlmError::ConfigurationError(format!(
-                                "Failed to build HTTP client: {e}"
-                            ))
-                        },
-                    )
-                }
-            }
-        } else {
-            // Use unified HTTP client builder for simple cases
-            let config = crate::types::HttpConfig {
-                timeout: self.timeout,
-                connect_timeout: self.connect_timeout,
-                headers: self.default_headers.clone(),
-                proxy: self.proxy.clone(),
-                user_agent: self.user_agent.clone(),
-                stream_disable_compression: true, // default value
-            };
-
-            crate::execution::http::client::build_http_client_from_config(&config)
-        }
+        // Build from HttpConfig using the shared helper (via HttpConfig builder)
+        let config = crate::types::HttpConfig::builder()
+            .timeout(self.timeout)
+            .connect_timeout(self.connect_timeout)
+            .headers(self.default_headers.clone())
+            .proxy(self.proxy.clone())
+            .user_agent(self.user_agent.clone())
+            .build();
+        crate::execution::http::client::build_http_client_from_config(&config)
     }
 }
 
@@ -559,11 +416,7 @@ impl fmt::Debug for LlmBuilder {
             .field("connect_timeout", &self.connect_timeout)
             .field("user_agent", &self.user_agent)
             .field("default_headers_len", &self.default_headers.len())
-            .field("http2_prior_knowledge", &self.http2_prior_knowledge)
-            .field("gzip", &self.gzip)
-            .field("brotli", &self.brotli)
             .field("proxy", &self.proxy)
-            .field("cookie_store", &self.cookie_store)
             .field("http_debug", &self.http_debug)
             .finish()
     }
