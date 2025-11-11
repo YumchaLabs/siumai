@@ -4,6 +4,7 @@
 //! to reduce code duplication and ensure consistent behavior.
 
 use crate::error::LlmError;
+#[cfg(feature = "openai")]
 use std::sync::Arc;
 
 /// Get API key with environment variable fallback
@@ -54,13 +55,13 @@ pub fn get_api_key_with_env(
 /// let model = get_effective_model("", "moonshot");
 /// // Returns "kimi-k2-0905-preview" (default for moonshot)
 /// ```
-pub fn get_effective_model(model: &str, provider_id: &str) -> String {
+pub fn get_effective_model(model: &str, _provider_id: &str) -> String {
     if !model.is_empty() {
         model.to_string()
     } else {
         #[cfg(feature = "openai")]
         {
-            crate::providers::openai_compatible::default_models::get_default_chat_model(provider_id)
+            crate::providers::openai_compatible::default_models::get_default_chat_model(_provider_id)
                 .unwrap_or("")
                 .to_string()
         }

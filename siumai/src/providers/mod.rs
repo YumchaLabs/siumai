@@ -64,6 +64,7 @@ pub struct ProviderInfo {
 }
 
 /// Get information for all supported providers
+#[allow(clippy::vec_init_then_push)]
 pub fn get_supported_providers() -> Vec<ProviderInfo> {
     // Unified source: derive providers from the Registry
     if let Ok(g) = crate::registry::global_registry().read() {

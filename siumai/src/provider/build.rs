@@ -2,6 +2,7 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::execution::middleware::LanguageModelMiddleware;
+#[allow(unused_imports)]
 use crate::traits::ProviderCapabilities;
 use crate::types::ProviderType;
 use std::sync::Arc;
@@ -136,7 +137,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Extract all needed values to avoid borrow checker issues
     let base_url = builder.base_url.clone();
+    #[cfg(feature = "openai")]
     let organization = builder.organization.clone();
+    #[cfg(feature = "openai")]
     let project = builder.project.clone();
     let reasoning_enabled = builder.reasoning_enabled;
     let reasoning_budget = builder.reasoning_budget;
@@ -235,11 +238,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Normalize model ID for OpenAI-compatible providers (handle aliases)
     // This ensures that model aliases like "chat" -> "deepseek-chat" are properly resolved
-    if let ProviderType::Custom(ref provider_id) = provider_type {
+    if let ProviderType::Custom(ref _provider_id) = provider_type {
         #[cfg(feature = "openai")]
         {
             let normalized_model = crate::utils::builder_helpers::normalize_model_id(
-                provider_id,
+                _provider_id,
                 &common_params.model,
             );
             if !normalized_model.is_empty() {
@@ -448,19 +451,25 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "xai")]
         ProviderType::XAI => {
-            crate::registry::factory::build_openai_compatible_client(
-                "xai_openai_compatible".to_string(),
-                api_key.clone(),
-                base_url.clone(),
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                None, // provider_params removed
-                builder.tracing_config.clone(),
-                interceptors.clone(),
-                user_model_middlewares.clone(),
-            )
-            .await?
+            // Build a native xAI client (avoid requiring the OpenAI-compatible layer)
+            use crate::providers::xai::{XaiClient, XaiConfig};
+            let resolved_base = base_url.unwrap_or_else(|| "https://api.x.ai/v1".to_string());
+            let xai_cfg = XaiConfig::new(api_key)
+                .with_base_url(resolved_base)
+                .with_model(common_params.model.clone());
+
+            let mut client = XaiClient::with_http_client(xai_cfg, built_http_client.clone()).await?;
+            if !interceptors.is_empty() {
+                client = client.with_http_interceptors(interceptors.clone());
+            }
+            // Auto + user middlewares
+            let mut auto_mws =
+                crate::execution::middleware::build_auto_middlewares_vec("xai", &common_params.model);
+            auto_mws.extend(user_model_middlewares.clone());
+            if !auto_mws.is_empty() {
+                client = client.with_model_middlewares(auto_mws);
+            }
+            Ok::<Arc<dyn LlmClient>, LlmError>(Arc::new(client))?
         }
         #[cfg(feature = "ollama")]
         ProviderType::Ollama => {

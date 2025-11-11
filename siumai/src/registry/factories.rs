@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+#[allow(unused_imports)]
 use crate::builder::LlmBuilder;
 use crate::client::LlmClient;
 use crate::error::LlmError;

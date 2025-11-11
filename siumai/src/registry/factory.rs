@@ -5,12 +5,12 @@
 //! ProviderRegistry v2. They keep the external API unchanged and reduce
 //! duplication inside the builder.
 
-use crate::client::LlmClient;
-use crate::error::LlmError;
-use crate::execution::http::interceptor::HttpInterceptor;
-use crate::execution::middleware::LanguageModelMiddleware;
-use crate::types::{CommonParams, HttpConfig};
-use std::sync::Arc;
+#[allow(unused_imports)] use crate::client::LlmClient;
+#[allow(unused_imports)] use crate::error::LlmError;
+#[allow(unused_imports)] use crate::execution::http::interceptor::HttpInterceptor;
+#[allow(unused_imports)] use crate::execution::middleware::LanguageModelMiddleware;
+#[allow(unused_imports)] use crate::types::{CommonParams, HttpConfig};
+#[allow(unused_imports)] use std::sync::Arc;
 
 #[cfg(feature = "openai")]
 #[allow(clippy::too_many_arguments)]

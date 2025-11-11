@@ -188,6 +188,7 @@ pub mod constants {
 
     /// Get all available chat models from all providers
     pub fn all_chat_models() -> Vec<&'static str> {
+        #[allow(unused_mut)]
         let mut models = Vec::new();
         #[cfg(feature = "openai")]
         models.extend_from_slice(&openai::all_chat_models());
@@ -200,6 +201,7 @@ pub mod constants {
 
     /// Get all reasoning models from all providers
     pub fn all_reasoning_models() -> Vec<&'static str> {
+        #[allow(unused_mut)]
         let mut models = Vec::new();
         #[cfg(feature = "openai")]
         models.extend_from_slice(&openai::all_reasoning_models());
@@ -212,7 +214,8 @@ pub mod constants {
 
     /// Get all multimodal models from all providers
     pub fn all_multimodal_models() -> Vec<&'static str> {
-        let mut models = Vec::new();
+        #[allow(unused_mut)]
+        let mut models: Vec<&'static str> = Vec::new();
         #[cfg(feature = "openai")]
         models.extend_from_slice(&openai::all_multimodal_models());
         #[cfg(feature = "anthropic")]
@@ -224,7 +227,8 @@ pub mod constants {
 
     /// Get all audio generation models from all providers
     pub fn all_audio_generation_models() -> Vec<&'static str> {
-        let mut models = Vec::new();
+        #[allow(unused_mut)]
+        let mut models: Vec<&'static str> = Vec::new();
         #[cfg(feature = "openai")]
         models.extend_from_slice(openai::audio::ALL);
         #[cfg(feature = "google")]
@@ -234,7 +238,8 @@ pub mod constants {
 
     /// Get all image generation models from all providers
     pub fn all_image_generation_models() -> Vec<&'static str> {
-        let mut models = Vec::new();
+        #[allow(unused_mut)]
+        let mut models: Vec<&'static str> = Vec::new();
         #[cfg(feature = "openai")]
         models.extend_from_slice(openai::images::ALL);
         #[cfg(feature = "google")]

@@ -4,9 +4,11 @@
 //! Each provider gets its own builder method that returns the appropriate builder type.
 
 use crate::builder::LlmBuilder;
+#[cfg(feature = "openai")]
 use crate::siumai_for_each_openai_compatible_provider;
 
 // Generate OpenAI-compatible builder methods from a single provider list
+#[cfg(feature = "openai")]
 macro_rules! gen_llmbuilder_method {
     ($name:ident, $id:expr) => {
         #[cfg(feature = "openai")]
@@ -69,6 +71,7 @@ impl LlmBuilder {
     // ========================================================================
 
     // OpenAI-compatible providers (generated)
+    #[cfg(feature = "openai")]
     siumai_for_each_openai_compatible_provider!(gen_llmbuilder_method);
 
     // ========================================================================

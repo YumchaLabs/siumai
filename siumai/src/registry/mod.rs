@@ -5,8 +5,11 @@
 //! single, unified interface inspired by Cherry Studio's design.
 
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+#[cfg(feature = "openai")]
+use std::sync::Arc;
+use std::sync::{OnceLock, RwLock};
 
+#[cfg(feature = "openai")]
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 
@@ -398,7 +401,6 @@ pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter
 }
 
 // Re-export construction helpers for convenience
-#[cfg(feature = "openai")]
 pub mod factory;
 
 /// Provider registry handle - unified access to all providers
