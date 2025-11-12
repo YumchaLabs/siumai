@@ -105,7 +105,8 @@ pub mod provider_features;
     feature = "google",
     feature = "ollama",
     feature = "xai",
-    feature = "groq"
+    feature = "groq",
+    feature = "minimaxi"
 ))]
 pub mod providers;
 pub mod registry;

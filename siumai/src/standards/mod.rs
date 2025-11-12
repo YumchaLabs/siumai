@@ -31,10 +31,10 @@
 //! );
 //! ```
 
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "minimaxi"))]
 pub mod openai;
 
-#[cfg(feature = "anthropic")]
+#[cfg(any(feature = "anthropic", feature = "minimaxi"))]
 pub mod anthropic;
 
 #[cfg(feature = "google")]

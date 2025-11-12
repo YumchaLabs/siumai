@@ -7,9 +7,14 @@ pub mod audio;
 pub mod chat;
 pub mod common;
 pub mod embedding;
+pub mod errors;
 pub mod files;
+pub mod helpers;
+pub mod http_request;
 pub mod image;
 pub mod rerank;
+pub mod stream_json;
+pub mod stream_sse;
 
 // Re-export commonly used types
 pub use audio::TtsExecutionResult;

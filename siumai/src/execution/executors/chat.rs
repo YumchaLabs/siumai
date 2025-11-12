@@ -74,7 +74,7 @@ async fn create_sse_stream_with_middlewares(
         }
     }
 
-    crate::execution::executors::common::execute_sse_stream_request_with_headers(
+    crate::execution::executors::stream_sse::execute_sse_stream_request_with_headers(
         &http,
         &provider_id,
         &url,
@@ -110,7 +110,7 @@ async fn create_json_stream_with_middlewares(
         convert: json_conv.clone(),
     };
     let per_req_headers = req_in.http_config.as_ref().map(|hc| &hc.headers);
-    crate::execution::executors::common::execute_json_stream_request_with_headers(
+    crate::execution::executors::stream_json::execute_json_stream_request_with_headers(
         &http,
         &provider_id,
         &url,

@@ -195,7 +195,7 @@ impl FilesExecutor for HttpFilesExecutor {
             .map(|hc| &hc.headers);
 
         // 4. Execute GET request using common HTTP layer
-        let result = crate::execution::executors::common::execute_get_request(
+        let result = crate::execution::executors::http_request::execute_get_request(
             &config,
             &url,
             per_request_headers,
@@ -229,7 +229,7 @@ impl FilesExecutor for HttpFilesExecutor {
         };
 
         // 3. Execute GET request using common HTTP layer
-        let result = crate::execution::executors::common::execute_get_request(
+        let result = crate::execution::executors::http_request::execute_get_request(
             &config, &url, None, // No per-request headers for retrieve
         )
         .await?;
@@ -261,7 +261,7 @@ impl FilesExecutor for HttpFilesExecutor {
         };
 
         // 3. Execute DELETE request using common HTTP layer
-        let _result = crate::execution::executors::common::execute_delete_request(
+        let _result = crate::execution::executors::http_request::execute_delete_request(
             &config, &url, None, // No per-request headers for delete
         )
         .await?;
@@ -304,7 +304,7 @@ impl FilesExecutor for HttpFilesExecutor {
         };
 
         // 3. Execute GET request for binary content using common HTTP layer
-        let result = crate::execution::executors::common::execute_get_binary(
+        let result = crate::execution::executors::http_request::execute_get_binary(
             &config, &url, None, // No per-request headers for get_content
         )
         .await?;

@@ -98,7 +98,7 @@ google = []
 ollama = []
 xai = []
 groq = []
-minimaxi = ["dep:hex"]
+minimaxi = ["dep:hex", "openai", "anthropic"]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 gcp = ["dep:jsonwebtoken", "google"]

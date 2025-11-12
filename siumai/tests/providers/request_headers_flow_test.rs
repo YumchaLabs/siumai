@@ -3,12 +3,18 @@
 //! Verifies that high-level client/capability code sends expected headers,
 //! including custom headers and provider-specific ones.
 
+// Import test support module (relative path)
+#[path = "../support/mod.rs"]
+mod support;
+
 use mockito::Matcher;
 use reqwest::Client;
 
 #[tokio::test]
 async fn openai_files_list_includes_custom_and_org_project_headers() {
-    let _m = mockito::mock("GET", Matcher::Regex(r"/files\?.*".to_string()))
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("GET", Matcher::Regex(r"/files\?.*".to_string()))
         .match_header("authorization", Matcher::Regex(r"^Bearer test-key$".to_string()))
         .match_header("content-type", "application/json")
         .match_header("OpenAI-Organization", "org-test")
@@ -16,9 +22,10 @@ async fn openai_files_list_includes_custom_and_org_project_headers() {
         .match_header("X-Custom-Header", "custom-value")
         .with_status(200)
         .with_body(r#"{"data":[],"has_more":false}"#)
-        .create();
+        .create_async()
+        .await;
 
-    let base_url = &mockito::server_url();
+    let base_url = &support::mockito::url(&server);
     let config = siumai::providers::openai::OpenAiConfig::new("test-key")
         .with_base_url(base_url)
         .with_organization("org-test")
@@ -38,7 +45,9 @@ async fn openai_files_list_includes_custom_and_org_project_headers() {
 #[tokio::test]
 async fn openai_compatible_chat_includes_http_and_custom_and_adapter_headers() {
     // Mock OpenAI-compatible chat completions endpoint
-    let _m = mockito::mock("POST", "/v1/chat/completions")
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("POST", "/v1/chat/completions")
         .match_header("authorization", Matcher::Regex(r"^Bearer test-key$".to_string()))
         .match_header("content-type", "application/json")
         .match_header("X-Compat-H1", "v1") // from http_config.headers
@@ -55,7 +64,8 @@ async fn openai_compatible_chat_includes_http_and_custom_and_adapter_headers() {
             "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
         }"#,
         )
-        .create();
+        .create_async()
+        .await;
 
     // Define a minimal adapter that injects a custom header
     #[derive(Debug, Clone)]
@@ -92,7 +102,7 @@ async fn openai_compatible_chat_includes_http_and_custom_and_adapter_headers() {
         fn clone_adapter(&self) -> Box<dyn siumai::providers::openai_compatible::adapter::ProviderAdapter> { Box::new(self.clone()) }
     }
 
-    let base_url = format!("{}/v1", mockito::server_url());
+    let base_url = format!("{}/v1", support::mockito::url(&server));
     let adapter = std::sync::Arc::new(TestAdapter);
     let mut http_cfg = siumai::types::HttpConfig::default();
     http_cfg.headers.insert("X-Compat-H1".to_string(), "v1".to_string());
@@ -120,7 +130,9 @@ async fn openai_compatible_chat_includes_http_and_custom_and_adapter_headers() {
 
 #[tokio::test]
 async fn openai_rerank_includes_org_project_and_custom_headers() {
-    let _m = mockito::mock("POST", "/v1/rerank")
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("POST", "/v1/rerank")
         .match_header("authorization", Matcher::Regex(r"^Bearer test-openai$".to_string()))
         .match_header("content-type", "application/json")
         .match_header("OpenAI-Organization", "org-1")
@@ -130,9 +142,10 @@ async fn openai_rerank_includes_org_project_and_custom_headers() {
         .with_body(
             r#"{"id":"rr_1","results":[{"document":null,"index":0,"relevance_score":0.9}],"tokens":{"input_tokens":1,"output_tokens":1}}"#,
         )
-        .create();
+        .create_async()
+        .await;
 
-    let base_url = &mockito::server_url();
+    let base_url = &support::mockito::url(&server);
     let mut cfg = siumai::providers::openai::OpenAiConfig::new("test-openai")
         .with_base_url(base_url)
         .with_organization("org-1")
@@ -154,16 +167,19 @@ async fn openai_rerank_includes_org_project_and_custom_headers() {
 
 #[tokio::test]
 async fn groq_chat_includes_auth_user_agent_and_custom_headers() {
-    let _m = mockito::mock("POST", "/v1/chat/completions")
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("POST", "/v1/chat/completions")
         .match_header("authorization", Matcher::Regex(r"^Bearer test-groq$".to_string()))
         .match_header("content-type", "application/json")
         .match_header("user-agent", Matcher::Any)
         .match_header("X-Custom-Header", "abc")
         .with_status(200)
         .with_body(r#"{"id":"cmpl_1","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"model":"llama-3.1-8b-instant","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#)
-        .create();
+        .create_async()
+        .await;
 
-    let base_url = format!("{}/v1", mockito::server_url());
+    let base_url = format!("{}/v1", support::mockito::url(&server));
     let mut http_cfg = siumai::types::HttpConfig::default();
     http_cfg
         .headers
@@ -181,15 +197,18 @@ async fn groq_chat_includes_auth_user_agent_and_custom_headers() {
 
 #[tokio::test]
 async fn xai_chat_includes_auth_and_custom_headers() {
-    let _m = mockito::mock("POST", "/v1/chat/completions")
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("POST", "/v1/chat/completions")
         .match_header("authorization", Matcher::Regex(r"^Bearer xai-key$".to_string()))
         .match_header("content-type", "application/json")
         .match_header("X-Debug", "1")
         .with_status(200)
         .with_body(r#"{"id":"cmpl_x","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"model":"grok-beta","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#)
-        .create();
+        .create_async()
+        .await;
 
-    let base_url = format!("{}/v1", mockito::server_url());
+    let base_url = format!("{}/v1", support::mockito::url(&server));
     let mut http_cfg = siumai::types::HttpConfig::default();
     http_cfg.headers.insert("X-Debug".to_string(), "1".to_string());
 
@@ -208,16 +227,19 @@ async fn xai_chat_includes_auth_and_custom_headers() {
 #[tokio::test]
 async fn groq_stt_uses_multipart_content_type() {
     // Expect multipart/form-data with boundary
-    let _m = mockito::mock("POST", "/v1/audio/transcriptions")
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("POST", "/v1/audio/transcriptions")
         .match_header(
             "content-type",
             Matcher::Regex(r"^multipart/form-data; boundary=.*".to_string()),
         )
         .with_status(200)
         .with_body(r#"{"text":"hello"}"#)
-        .create();
+        .create_async()
+        .await;
 
-    let base_url = format!("{}/v1", mockito::server_url());
+    let base_url = format!("{}/v1", support::mockito::url(&server));
     let config = siumai::providers::groq::GroqConfig::new("test-groq")
         .with_base_url(base_url)
         .with_model(siumai::providers::groq::models::production::LLAMA_3_1_8B_INSTANT);
@@ -229,16 +251,19 @@ async fn groq_stt_uses_multipart_content_type() {
 
 #[tokio::test]
 async fn openai_file_upload_uses_multipart_content_type() {
-    let _m = mockito::mock("POST", "/v1/files")
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("POST", "/v1/files")
         .match_header(
             "content-type",
             Matcher::Regex(r"^multipart/form-data; boundary=.*".to_string()),
         )
         .with_status(200)
         .with_body(r#"{"id":"file_123","object":"file","bytes":5,"created_at":1710000000,"filename":"hello.txt","purpose":"assistants","status":"uploaded","status_details":null}"#)
-        .create();
+        .create_async()
+        .await;
 
-    let base_url = &mockito::server_url();
+    let base_url = &support::mockito::url(&server);
     let config = siumai::providers::openai::OpenAiConfig::new("test-openai").with_base_url(base_url);
     let files = siumai::providers::openai::files::OpenAiFiles::new(config, Client::new());
     let req = siumai::types::FileUploadRequest {
@@ -255,14 +280,17 @@ async fn openai_file_upload_uses_multipart_content_type() {
 #[tokio::test]
 async fn anthropic_chat_includes_beta_header_when_provided() {
     // Anthropic messages endpoint
-    let _m = mockito::mock("POST", "/v1/messages")
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("POST", "/v1/messages")
         .match_header("x-api-key", "test-key")
         .match_header("content-type", "application/json")
         .match_header("anthropic-version", Matcher::Any)
         .match_header("anthropic-beta", "messages-2023-12-15")
         .with_status(200)
         .with_body(r#"{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-3-opus","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}"#)
-        .create();
+        .create_async()
+        .await;
 
     let http_client = Client::new();
     let mut http_config = siumai::types::HttpConfig::default();
@@ -273,7 +301,7 @@ async fn anthropic_chat_includes_beta_header_when_provided() {
 
     let client = siumai::providers::anthropic::AnthropicClient::new(
         "test-key".to_string(),
-        mockito::server_url(),
+        support::mockito::url(&server),
         http_client,
         siumai::types::CommonParams { model: "claude-3-opus".to_string(), ..Default::default() },
         siumai::params::AnthropicParams::default(),
@@ -288,15 +316,18 @@ async fn anthropic_chat_includes_beta_header_when_provided() {
 #[tokio::test]
 async fn gemini_files_list_includes_api_key_header() {
     // Gemini files list endpoint
-    let _m = mockito::mock("GET", mockito::Matcher::Regex(r"/files\??.*".to_string()))
+    let mut server = support::mockito::start().await;
+    let _m = server
+        .mock("GET", mockito::Matcher::Regex(r"/files\??.*".to_string()))
         .match_header("x-goog-api-key", "test-gemini-key")
         .match_header("content-type", "application/json")
         .with_status(200)
         .with_body(r#"{"files": [], "nextPageToken": null}"#)
-        .create();
+        .create_async()
+        .await;
 
     let config = siumai::providers::gemini::types::GeminiConfig::new("test-gemini-key".to_string())
-        .with_base_url(mockito::server_url())
+        .with_base_url(support::mockito::url(&server))
         .with_model("gemini-1.5-flash".to_string());
     let files = siumai::providers::gemini::files::GeminiFiles::new(config, reqwest::Client::new());
     let resp = files.list_files(None).await.expect("list files should succeed");

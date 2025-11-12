@@ -104,16 +104,14 @@ impl OpenAiCompatibleClient {
         // Merge custom headers from HttpConfig + config.custom_headers + adapter.custom_headers
         let mut extra_headers: std::collections::HashMap<String, String> =
             self.config.http_config.headers.clone();
-        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
-                                hm: &reqwest::header::HeaderMap| {
-            for (name, value) in hm.iter() {
-                if let Ok(val) = value.to_str() {
-                    dst.insert(name.as_str().to_string(), val.to_string());
-                }
-            }
-        };
-        merge_header_map(&mut extra_headers, &self.config.custom_headers);
-        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
+        // Convert HeaderMap -> HashMap<String,String> and extend
+        let cfg_map =
+            crate::execution::http::headers::headermap_to_hashmap(&self.config.custom_headers);
+        extra_headers.extend(cfg_map);
+        let adapter_map = crate::execution::http::headers::headermap_to_hashmap(
+            &self.config.adapter.custom_headers(),
+        );
+        extra_headers.extend(adapter_map);
 
         let ctx = ProviderContext::new(
             self.config.provider_id.clone(),
@@ -162,16 +160,13 @@ impl OpenAiCompatibleClient {
         let spec = crate::providers::openai_compatible::spec::OpenAiCompatibleSpec;
         let mut extra_headers: std::collections::HashMap<String, String> =
             self.config.http_config.headers.clone();
-        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
-                                hm: &reqwest::header::HeaderMap| {
-            for (name, value) in hm.iter() {
-                if let Ok(val) = value.to_str() {
-                    dst.insert(name.as_str().to_string(), val.to_string());
-                }
-            }
-        };
-        merge_header_map(&mut extra_headers, &self.config.custom_headers);
-        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
+        let cfg_map =
+            crate::execution::http::headers::headermap_to_hashmap(&self.config.custom_headers);
+        extra_headers.extend(cfg_map);
+        let adapter_map = crate::execution::http::headers::headermap_to_hashmap(
+            &self.config.adapter.custom_headers(),
+        );
+        extra_headers.extend(adapter_map);
 
         let ctx = ProviderContext::new(
             self.config.provider_id.clone(),
@@ -371,16 +366,13 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
 
         // Build merged extra headers (HttpConfig + custom + adapter)
         let mut extra_headers = self.config.http_config.headers.clone();
-        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
-                                hm: &reqwest::header::HeaderMap| {
-            for (name, value) in hm.iter() {
-                if let Ok(val) = value.to_str() {
-                    dst.insert(name.as_str().to_string(), val.to_string());
-                }
-            }
-        };
-        merge_header_map(&mut extra_headers, &self.config.custom_headers);
-        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
+        let cfg_map =
+            crate::execution::http::headers::headermap_to_hashmap(&self.config.custom_headers);
+        extra_headers.extend(cfg_map);
+        let adapter_map = crate::execution::http::headers::headermap_to_hashmap(
+            &self.config.adapter.custom_headers(),
+        );
+        extra_headers.extend(adapter_map);
 
         let ctx = ProviderContext::new(
             self.config.provider_id.clone(),
@@ -660,16 +652,13 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
 
         // Build merged extra headers (HttpConfig + custom + adapter)
         let mut extra_headers = self.config.http_config.headers.clone();
-        let merge_header_map = |dst: &mut std::collections::HashMap<String, String>,
-                                hm: &reqwest::header::HeaderMap| {
-            for (name, value) in hm.iter() {
-                if let Ok(val) = value.to_str() {
-                    dst.insert(name.as_str().to_string(), val.to_string());
-                }
-            }
-        };
-        merge_header_map(&mut extra_headers, &self.config.custom_headers);
-        merge_header_map(&mut extra_headers, &self.config.adapter.custom_headers());
+        let cfg_map =
+            crate::execution::http::headers::headermap_to_hashmap(&self.config.custom_headers);
+        extra_headers.extend(cfg_map);
+        let adapter_map = crate::execution::http::headers::headermap_to_hashmap(
+            &self.config.adapter.custom_headers(),
+        );
+        extra_headers.extend(adapter_map);
 
         let spec = Arc::new(crate::providers::openai_compatible::spec::OpenAiCompatibleSpec);
         let ctx = ProviderContext::new(

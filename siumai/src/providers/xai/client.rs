@@ -370,7 +370,8 @@ impl XaiClient {
         };
 
         let result =
-            crate::execution::executors::common::execute_get_request(&config, &url, None).await?;
+            crate::execution::executors::http_request::execute_get_request(&config, &url, None)
+                .await?;
 
         match result.status {
             200 => {

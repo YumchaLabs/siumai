@@ -458,13 +458,16 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 .with_base_url(resolved_base)
                 .with_model(common_params.model.clone());
 
-            let mut client = XaiClient::with_http_client(xai_cfg, built_http_client.clone()).await?;
+            let mut client =
+                XaiClient::with_http_client(xai_cfg, built_http_client.clone()).await?;
             if !interceptors.is_empty() {
                 client = client.with_http_interceptors(interceptors.clone());
             }
             // Auto + user middlewares
-            let mut auto_mws =
-                crate::execution::middleware::build_auto_middlewares_vec("xai", &common_params.model);
+            let mut auto_mws = crate::execution::middleware::build_auto_middlewares_vec(
+                "xai",
+                &common_params.model,
+            );
             auto_mws.extend(user_model_middlewares.clone());
             if !auto_mws.is_empty() {
                 client = client.with_model_middlewares(auto_mws);

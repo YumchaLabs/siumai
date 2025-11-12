@@ -61,9 +61,11 @@ pub fn get_effective_model(model: &str, _provider_id: &str) -> String {
     } else {
         #[cfg(feature = "openai")]
         {
-            crate::providers::openai_compatible::default_models::get_default_chat_model(_provider_id)
-                .unwrap_or("")
-                .to_string()
+            crate::providers::openai_compatible::default_models::get_default_chat_model(
+                _provider_id,
+            )
+            .unwrap_or("")
+            .to_string()
         }
         #[cfg(not(feature = "openai"))]
         {

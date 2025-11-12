@@ -27,6 +27,7 @@ fn ensure_provider_available() {
         cfg!(feature = "ollama"),
         cfg!(feature = "xai"),
         cfg!(feature = "groq"),
+        cfg!(feature = "minimaxi"),
     ];
 
     if !providers.iter().any(|&enabled| enabled) {
@@ -58,6 +59,9 @@ fn add_build_info() {
     }
     if cfg!(feature = "groq") {
         enabled_providers.push("groq");
+    }
+    if cfg!(feature = "minimaxi") {
+        enabled_providers.push("minimaxi");
     }
 
     // Set environment variables for runtime access
