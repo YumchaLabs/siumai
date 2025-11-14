@@ -14,7 +14,7 @@ pub mod minimaxi;
 pub mod ollama;
 #[cfg(feature = "openai")]
 pub mod openai;
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 pub mod openai_compatible;
 #[cfg(feature = "xai")]
 pub mod xai;
@@ -229,7 +229,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 }
                 ProviderType::Custom(_) =>
                 {
-                    #[cfg(feature = "openai")]
+                    #[cfg(feature = "openai-compatible")]
                     if rec.id == "openai-compatible" {
                         out.push(ProviderInfo {
                             provider_type: ProviderType::Custom("openai-compatible".to_string()),
@@ -643,6 +643,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "openai")]
     #[test]
     fn test_model_support() {
         assert!(is_model_supported(&ProviderType::OpenAi, "gpt-4"));
@@ -656,6 +657,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "openai")]
     #[test]
     fn test_default_models() {
         use crate::models;
@@ -680,6 +682,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "openai")]
     #[test]
     fn test_config_validation() {
         use crate::models::openai;

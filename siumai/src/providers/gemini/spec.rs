@@ -27,23 +27,241 @@ impl ProviderSpec for GeminiSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        // Delegate to standard headers with adapter hook capability
-        let spec = crate::standards::gemini::GeminiChatStandard::new().create_spec("gemini");
-        spec.build_headers(ctx)
+        let api_key = ctx.api_key.as_deref().unwrap_or("");
+        crate::execution::http::headers::ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        // Delegate to standard spec for URL decision
-        let spec = crate::standards::gemini::GeminiChatStandard::new().create_spec("gemini");
-        spec.chat_url(stream, req, ctx)
+        let base = ctx.base_url.trim_end_matches('/');
+        let model = &req.common_params.model;
+        if stream {
+            format!("{}/models/{}:streamGenerateContent?alt=sse", base, model)
+        } else {
+            format!("{}/models/{}:generateContent", base, model)
+        }
     }
 
     fn choose_chat_transformers(
         &self,
-        _req: &ChatRequest,
+        req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
-        crate::standards::gemini::GeminiChatStandard::new().create_transformers(&ctx.provider_id)
+        #[cfg(feature = "std-gemini-external")]
+        {
+            use siumai_core::execution::chat::{
+                ChatInput, ChatMessageInput, ChatRequestTransformer as CoreChatRequestTransformer,
+                ChatResponseTransformer as CoreChatResponseTransformer, ChatRole,
+            };
+            use siumai_core::execution::streaming::{
+                ChatStreamEventConverterCore, ChatStreamEventCore,
+            };
+            use siumai_std_gemini::gemini::chat::GeminiChatStandard;
+
+            // Minimal mapping from aggregator ChatRequest to core ChatInput.
+            fn to_core_input(req: &crate::types::ChatRequest) -> ChatInput {
+                let messages = req
+                    .messages
+                    .iter()
+                    .map(|m| {
+                        let role = match m.role {
+                            crate::types::MessageRole::System => ChatRole::System,
+                            crate::types::MessageRole::User => ChatRole::User,
+                            crate::types::MessageRole::Assistant => ChatRole::Assistant,
+                            _ => ChatRole::User,
+                        };
+                        let content = m.content.all_text();
+                        ChatMessageInput { role, content }
+                    })
+                    .collect();
+
+                ChatInput {
+                    messages,
+                    model: Some(req.common_params.model.clone()),
+                    max_tokens: req.common_params.max_tokens,
+                    temperature: req.common_params.temperature,
+                    top_p: req.common_params.top_p,
+                    presence_penalty: None,
+                    frequency_penalty: None,
+                    stop: req.common_params.stop_sequences.clone(),
+                    extra: Default::default(),
+                }
+            }
+
+            // Bridge core request transformer into aggregator RequestTransformer.
+            struct ChatRequestBridge(Arc<dyn CoreChatRequestTransformer>);
+            impl crate::execution::transformers::request::RequestTransformer for ChatRequestBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+
+                fn transform_chat(
+                    &self,
+                    req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    let input = to_core_input(req);
+                    self.0.transform_chat(&input)
+                }
+            }
+
+            // Bridge core response transformer into aggregator ResponseTransformer.
+            struct ChatResponseBridge(Arc<dyn CoreChatResponseTransformer>);
+            impl crate::execution::transformers::response::ResponseTransformer for ChatResponseBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+
+                fn transform_chat_response(
+                    &self,
+                    raw: &serde_json::Value,
+                ) -> Result<crate::types::ChatResponse, LlmError> {
+                    let r = self.0.transform_chat_response(raw)?;
+                    let usage = r
+                        .usage
+                        .map(|u| crate::types::Usage::new(u.prompt_tokens, u.completion_tokens));
+
+                    let mut resp = crate::types::ChatResponse {
+                        id: None,
+                        model: None,
+                        content: crate::types::MessageContent::Text(r.content),
+                        usage,
+                        finish_reason: None,
+                        audio: None,
+                        system_fingerprint: None,
+                        service_tier: None,
+                        warnings: None,
+                        provider_metadata: None,
+                    };
+
+                    // Map canonical finish_reason strings into the aggregator enum.
+                    if let Some(fr) = r.finish_reason.as_deref() {
+                        use crate::types::FinishReason as FR;
+                        let mapped = match fr {
+                            "stop" => FR::Stop,
+                            "length" => FR::Length,
+                            "content_filter" => FR::ContentFilter,
+                            other => FR::Other(other.to_string()),
+                        };
+                        resp.finish_reason = Some(mapped);
+                    }
+
+                    Ok(resp)
+                }
+            }
+
+            // Bridge core streaming events into aggregator ChatStreamEvent.
+            struct ChatStreamBridge(Arc<dyn ChatStreamEventConverterCore>);
+            impl crate::execution::transformers::stream::StreamChunkTransformer for ChatStreamBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+
+                fn convert_event(
+                    &self,
+                    event: eventsource_stream::Event,
+                ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
+                    let provider_id = self.provider_id().to_string();
+                    let events = self
+                        .0
+                        .convert_event(event)
+                        .into_iter()
+                        .map(|res| {
+                            res.map(|e| match e {
+                                ChatStreamEventCore::ContentDelta { delta, index } => {
+                                    crate::streaming::ChatStreamEvent::ContentDelta { delta, index }
+                                }
+                                ChatStreamEventCore::ToolCallDelta {
+                                    id,
+                                    function_name,
+                                    arguments_delta,
+                                    index,
+                                } => crate::streaming::ChatStreamEvent::ToolCallDelta {
+                                    id: id.unwrap_or_default(),
+                                    function_name,
+                                    arguments_delta,
+                                    index,
+                                },
+                                ChatStreamEventCore::ThinkingDelta { delta } => {
+                                    crate::streaming::ChatStreamEvent::ThinkingDelta { delta }
+                                }
+                                ChatStreamEventCore::UsageUpdate {
+                                    prompt_tokens,
+                                    completion_tokens,
+                                    ..
+                                } => crate::streaming::ChatStreamEvent::UsageUpdate {
+                                    usage: crate::types::Usage::new(
+                                        prompt_tokens,
+                                        completion_tokens,
+                                    ),
+                                },
+                                ChatStreamEventCore::StreamStart {} => {
+                                    crate::streaming::ChatStreamEvent::StreamStart {
+                                        metadata: crate::types::ResponseMetadata {
+                                            id: None,
+                                            model: None,
+                                            created: None,
+                                            provider: provider_id.clone(),
+                                            request_id: None,
+                                        },
+                                    }
+                                }
+                                ChatStreamEventCore::Custom { event_type, data } => {
+                                    crate::streaming::ChatStreamEvent::Custom { event_type, data }
+                                }
+                                ChatStreamEventCore::Error { error } => {
+                                    crate::streaming::ChatStreamEvent::Error { error }
+                                }
+                            })
+                        })
+                        .collect::<Vec<_>>();
+
+                    Box::pin(async move { events })
+                }
+            }
+
+            let std = GeminiChatStandard::new();
+            let req_tx = std.create_request_transformer(&ctx.provider_id);
+            let resp_tx = std.create_response_transformer(&ctx.provider_id);
+            let stream_tx = std.create_stream_converter(&ctx.provider_id);
+
+            return ChatTransformers {
+                request: Arc::new(ChatRequestBridge(req_tx)),
+                response: Arc::new(ChatResponseBridge(resp_tx)),
+                stream: Some(Arc::new(ChatStreamBridge(stream_tx))),
+                json: None,
+            };
+        }
+
+        #[cfg(not(feature = "std-gemini-external"))]
+        {
+            // Without std-gemini, Gemini provider is not fully supported.
+            // Keep a minimal unsupported transformer to avoid panics.
+            struct UnsupportedReq;
+            impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                fn provider_id(&self) -> &str {
+                    "gemini"
+                }
+                fn transform_chat(
+                    &self,
+                    _req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Gemini chat requires std-gemini-external feature".into(),
+                    ))
+                }
+            }
+            struct UnsupportedResp;
+            impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                fn provider_id(&self) -> &str {
+                    "gemini"
+                }
+            }
+            ChatTransformers {
+                request: Arc::new(UnsupportedReq),
+                response: Arc::new(UnsupportedResp),
+                stream: None,
+                json: None,
+            }
+        }
     }
 
     fn chat_before_send(
@@ -165,8 +383,14 @@ impl ProviderSpec for GeminiSpec {
     }
 
     fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
-        let spec = crate::standards::gemini::GeminiEmbeddingStandard::new().create_spec("gemini");
-        spec.embedding_url(req, ctx)
+        // 默认行为保持不变：根据输入数量选择 embedContent 或 batchEmbedContents。
+        let base = ctx.base_url.trim_end_matches('/');
+        let model = req.model.as_deref().unwrap_or("");
+        if req.input.len() == 1 {
+            format!("{}/models/{}:embedContent", base, model)
+        } else {
+            format!("{}/models/{}:batchEmbedContents", base, model)
+        }
     }
 
     fn choose_embedding_transformers(
@@ -174,7 +398,86 @@ impl ProviderSpec for GeminiSpec {
         _req: &crate::types::EmbeddingRequest,
         _ctx: &ProviderContext,
     ) -> EmbeddingTransformers {
-        crate::standards::gemini::GeminiEmbeddingStandard::new().create_transformers()
+        #[cfg(feature = "std-gemini-external")]
+        {
+            use siumai_core::execution::embedding::{
+                EmbeddingInput, EmbeddingRequestTransformer as CoreEmbReq,
+                EmbeddingResponseTransformer as CoreEmbResp,
+            };
+
+            // 使用 std-gemini 的核心 embedding transformers，并桥接回聚合层类型。
+            let std = siumai_std_gemini::gemini::embedding::GeminiEmbeddingStandard::new();
+            let req_tx: Arc<dyn CoreEmbReq> = std.create_request_transformer("gemini");
+            let resp_tx: Arc<dyn CoreEmbResp> = std.create_response_transformer("gemini");
+
+            struct EmbRequestBridge(Arc<dyn CoreEmbReq>);
+            impl crate::execution::transformers::request::RequestTransformer for EmbRequestBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+
+                fn transform_chat(
+                    &self,
+                    _req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Chat is not supported by Gemini embedding transformer".to_string(),
+                    ))
+                }
+
+                fn transform_embedding(
+                    &self,
+                    req: &crate::types::EmbeddingRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    let fmt = req.encoding_format.as_ref().map(|f| match f {
+                        crate::types::embedding::EmbeddingFormat::Float => "float".to_string(),
+                        crate::types::embedding::EmbeddingFormat::Base64 => "base64".to_string(),
+                    });
+                    let input = EmbeddingInput {
+                        input: req.input.clone(),
+                        model: req.model.clone(),
+                        dimensions: req.dimensions,
+                        encoding_format: fmt,
+                        user: req.user.clone(),
+                        title: req.title.clone(),
+                    };
+                    self.0.transform_embedding(&input)
+                }
+            }
+
+            struct EmbResponseBridge(Arc<dyn CoreEmbResp>);
+            impl crate::execution::transformers::response::ResponseTransformer for EmbResponseBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+
+                fn transform_embedding_response(
+                    &self,
+                    raw: &serde_json::Value,
+                ) -> Result<crate::types::EmbeddingResponse, LlmError> {
+                    let r = self.0.transform_embedding_response(raw)?;
+                    let mut out =
+                        crate::types::EmbeddingResponse::new(r.embeddings, r.model.clone());
+                    if let Some(u) = r.usage {
+                        out = out.with_usage(crate::types::embedding::EmbeddingUsage::new(
+                            u.prompt_tokens,
+                            u.total_tokens,
+                        ));
+                    }
+                    Ok(out)
+                }
+            }
+
+            return EmbeddingTransformers {
+                request: Arc::new(EmbRequestBridge(req_tx)),
+                response: Arc::new(EmbResponseBridge(resp_tx)),
+            };
+        }
+
+        #[cfg(not(feature = "std-gemini-external"))]
+        {
+            crate::standards::gemini::GeminiEmbeddingStandard::new().create_transformers()
+        }
     }
 
     fn image_url(
@@ -182,8 +485,9 @@ impl ProviderSpec for GeminiSpec {
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
     ) -> String {
-        let spec = crate::standards::gemini::GeminiImageStandard::new().create_spec("gemini");
-        spec.image_url(req, ctx)
+        let base = ctx.base_url.trim_end_matches('/');
+        let model = req.model.as_deref().unwrap_or("");
+        format!("{}/models/{}:generateContent", base, model)
     }
 
     fn choose_image_transformers(
@@ -191,7 +495,98 @@ impl ProviderSpec for GeminiSpec {
         _req: &crate::types::ImageGenerationRequest,
         _ctx: &ProviderContext,
     ) -> ImageTransformers {
-        crate::standards::gemini::GeminiImageStandard::new().create_transformers()
+        #[cfg(feature = "std-gemini-external")]
+        {
+            // 直接复用 core Image transformers 的桥接模式（与 openai-compatible 中一致）。
+            let std = siumai_std_gemini::gemini::image::GeminiImageStandard::new();
+            let t = std.create_request_transformer("gemini");
+            let r = std.create_response_transformer("gemini");
+
+            struct ImageOnlyRequestTransformerBridge(
+                Arc<dyn siumai_core::execution::image::ImageRequestTransformer>,
+            );
+            impl crate::execution::transformers::request::RequestTransformer
+                for ImageOnlyRequestTransformerBridge
+            {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+
+                fn transform_chat(
+                    &self,
+                    _req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Chat is not supported by Gemini image transformer".to_string(),
+                    ))
+                }
+
+                fn transform_image(
+                    &self,
+                    req: &crate::types::ImageGenerationRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    self.0.transform_image(req)
+                }
+
+                fn transform_image_edit(
+                    &self,
+                    req: &crate::types::ImageEditRequest,
+                ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError>
+                {
+                    match self.0.transform_image_edit(req)? {
+                        siumai_core::execution::image::ImageHttpBody::Json(v) => {
+                            Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
+                        }
+                        siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
+                            crate::execution::transformers::request::ImageHttpBody::Multipart(f),
+                        ),
+                    }
+                }
+
+                fn transform_image_variation(
+                    &self,
+                    req: &crate::types::ImageVariationRequest,
+                ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError>
+                {
+                    match self.0.transform_image_variation(req)? {
+                        siumai_core::execution::image::ImageHttpBody::Json(v) => {
+                            Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
+                        }
+                        siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
+                            crate::execution::transformers::request::ImageHttpBody::Multipart(f),
+                        ),
+                    }
+                }
+            }
+
+            struct ImageOnlyResponseTransformerBridge(
+                Arc<dyn siumai_core::execution::image::ImageResponseTransformer>,
+            );
+            impl crate::execution::transformers::response::ResponseTransformer
+                for ImageOnlyResponseTransformerBridge
+            {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+
+                fn transform_image_response(
+                    &self,
+                    raw: &serde_json::Value,
+                ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
+                    self.0.transform_image_response(raw)
+                }
+            }
+
+            return ImageTransformers {
+                request: Arc::new(ImageOnlyRequestTransformerBridge(t)),
+                response: Arc::new(ImageOnlyResponseTransformerBridge(r)),
+            };
+        }
+
+        #[cfg(not(feature = "std-gemini-external"))]
+        {
+            crate::standards::gemini::GeminiImageStandard::new().create_transformers()
+        }
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {

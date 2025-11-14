@@ -438,10 +438,10 @@ impl ProviderFactory for OllamaProviderFactory {
 }
 
 /// OpenRouter provider factory (OpenAI-compatible)
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 pub struct OpenRouterProviderFactory;
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 #[async_trait::async_trait]
 impl ProviderFactory for OpenRouterProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -521,10 +521,10 @@ impl ProviderFactory for OpenRouterProviderFactory {
 }
 
 /// DeepSeek provider factory (OpenAI-compatible)
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 pub struct DeepSeekProviderFactory;
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 #[async_trait::async_trait]
 impl ProviderFactory for DeepSeekProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -592,19 +592,19 @@ impl ProviderFactory for DeepSeekProviderFactory {
 }
 
 /// Generic OpenAI-compatible provider factory
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 pub struct OpenAICompatibleProviderFactory {
     provider_id: String,
 }
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 impl OpenAICompatibleProviderFactory {
     pub fn new(provider_id: String) -> Self {
         Self { provider_id }
     }
 }
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAICompatibleProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {

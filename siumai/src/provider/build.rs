@@ -186,6 +186,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 }
                 #[cfg(not(feature = "openai"))]
                 {
+                    let _ = name; // silence unused when openai disabled
                     "default-model".to_string()
                 }
             }
@@ -489,7 +490,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             )
             .await?
         }
-        #[cfg(feature = "groq")]
+        #[cfg(all(feature = "groq", feature = "openai-compatible"))]
         ProviderType::Groq => {
             crate::registry::factory::build_openai_compatible_client(
                 "groq".to_string(),
@@ -506,7 +507,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             .await?
         }
         ProviderType::Custom(name) => {
-            #[cfg(feature = "openai")]
+            #[cfg(feature = "openai-compatible")]
             {
                 // Build via registry/factory for any OpenAI-compatible provider id
                 crate::registry::factory::build_openai_compatible_client(
@@ -523,10 +524,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 )
                 .await?
             }
-            #[cfg(not(feature = "openai"))]
+            #[cfg(not(feature = "openai-compatible"))]
             {
                 return Err(LlmError::UnsupportedOperation(format!(
-                    "Custom provider '{}' requires 'openai' feature",
+                    "Custom provider '{}' requires 'openai-compatible' feature",
                     name
                 )));
             }

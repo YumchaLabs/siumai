@@ -47,8 +47,10 @@
 //!
 //! ## For Library Developers
 //!
-//! This module provides a clean, organized public API. All implementations
-//! are contained within this module for better encapsulation.
+//! This module provides a clean, organized public API for the aggregator crate.
+//! The low-level execution primitives that standards/providers depend on live
+//! in `siumai-core::execution` and are re-exported under the `core` submodule
+//! for advanced use.
 
 // Actual implementation modules
 pub mod executors;
@@ -57,6 +59,16 @@ pub mod middleware;
 pub mod policy;
 pub mod telemetry;
 pub mod transformers;
+
+/// Core execution primitives shared with standards/provider crates.
+///
+/// This re-exports the minimal transformer traits and types from
+/// `siumai-core::execution`. Use this when you need to work directly
+/// with core-level `ChatInput` / `ChatResult` / `ChatStreamEventCore`
+/// instead of the higher-level `siumai` types.
+pub mod core {
+    pub use siumai_core::execution::*;
+}
 
 // Re-export commonly used types for convenience
 pub use executors::{

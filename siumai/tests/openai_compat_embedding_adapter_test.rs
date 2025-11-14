@@ -1,3 +1,5 @@
+#![cfg(feature = "openai-compatible")]
+
 use std::sync::Arc;
 
 use siumai::providers::openai_compatible::adapter::ProviderAdapter;

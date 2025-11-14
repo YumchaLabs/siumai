@@ -83,6 +83,14 @@ lru.workspace = true
 jsonrepair = { version = "0.1", optional = true, features = ["serde"] }
 base64 = "0.22.1"
 hex = { version = "0.4.3", optional = true }
+siumai-core = { path = "../crates/siumai-core" }
+siumai-std-openai = { path = "../crates/siumai-std-openai", optional = true }
+siumai-std-anthropic = { path = "../crates/siumai-std-anthropic", optional = true }
+siumai-std-gemini = { path = "../crates/siumai-std-gemini", optional = true }
+siumai-provider-openai = { path = "../crates/siumai-provider-openai", optional = true }
+siumai-provider-openai-compatible = { path = "../crates/siumai-provider-openai-compatible", optional = true }
+siumai-provider-anthropic = { path = "../crates/siumai-provider-anthropic", optional = true }
+siumai-provider-minimaxi = { path = "../crates/siumai-provider-minimaxi", optional = true }
 
 [features]
 # Default features - include all providers for convenience
@@ -92,13 +100,18 @@ default = ["all-providers"]
 structured-messages = []
 
 # Provider features - each provider can be enabled independently
-openai = []
-anthropic = []
-google = []
+openai = ["std-openai-external"]
+anthropic = ["std-anthropic-external"]
+google = ["std-gemini-external"]
 ollama = []
 xai = []
 groq = []
-minimaxi = ["dep:hex", "openai", "anthropic"]
+minimaxi = ["dep:hex", "std-anthropic-external"]
+
+# OpenAI-compatible providers (generic adapter + vendor presets)
+# This feature does NOT depend on the `openai` provider; it reuses OpenAI standard only.
+# 经去耦后，OpenAI 兼容层不再依赖 openai provider。本地仍使用 OpenAI 标准与适配器完成转换。
+openai-compatible = []
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 gcp = ["dep:jsonwebtoken", "google"]
@@ -106,12 +119,33 @@ gcp = ["dep:jsonwebtoken", "google"]
 # JSON repair support for handling malformed LLM outputs
 json-repair = ["dep:jsonrepair"]
 
+# Use external standard crates (bridged via std_openai/std_anthropic modules).
+std-openai-external = ["dep:siumai-std-openai"]
+std-anthropic-external = ["dep:siumai-std-anthropic"]
+std-gemini-external = ["dep:siumai-std-gemini"]
+provider-openai-external = ["dep:siumai-provider-openai"]
+provider-openai-compatible-external = ["dep:siumai-provider-openai-compatible"]
+provider-anthropic-external = ["dep:siumai-provider-anthropic"]
+provider-minimaxi-external = ["dep:siumai-provider-minimaxi"]
+
 # HTTP client features (passed through to reqwest)
 gzip = []
 brotli = []
 
 # Convenience features for common combinations
-all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
+all-providers = [
+    "openai",
+    "anthropic",
+    "google",
+    "ollama",
+    "xai",
+    "groq",
+    "minimaxi",
+    "openai-compatible",
+    "std-openai-external",
+    "std-anthropic-external",
+    "std-gemini-external",
+]
 
 [dev-dependencies]
 tokio-test.workspace = true
@@ -308,22 +342,22 @@ required-features = ["xai"]
 [[example]]
 name = "moonshot-basic"
 path = "examples/04-provider-specific/openai-compatible/moonshot-basic.rs"
-required-features = ["openai"]
+required-features = ["openai-compatible"]
 
 [[example]]
 name = "moonshot-tools"
 path = "examples/04-provider-specific/openai-compatible/moonshot-tools.rs"
-required-features = ["openai"]
+required-features = ["openai-compatible"]
 
 [[example]]
 name = "moonshot-long-context"
 path = "examples/04-provider-specific/openai-compatible/moonshot-long-context.rs"
-required-features = ["openai"]
+required-features = ["openai-compatible"]
 
 [[example]]
 name = "moonshot-siumai-builder"
 path = "examples/04-provider-specific/openai-compatible/moonshot-siumai-builder.rs"
-required-features = ["openai"]
+required-features = ["openai-compatible"]
 
 # 05-integrations/registry
 [[example]]

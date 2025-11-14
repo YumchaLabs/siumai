@@ -4,7 +4,7 @@
 //! to reduce code duplication and ensure consistent behavior.
 
 use crate::error::LlmError;
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 use std::sync::Arc;
 
 /// Get API key with environment variable fallback
@@ -59,7 +59,7 @@ pub fn get_effective_model(model: &str, _provider_id: &str) -> String {
     if !model.is_empty() {
         model.to_string()
     } else {
-        #[cfg(feature = "openai")]
+        #[cfg(feature = "openai-compatible")]
         {
             crate::providers::openai_compatible::default_models::get_default_chat_model(
                 _provider_id,
@@ -67,7 +67,7 @@ pub fn get_effective_model(model: &str, _provider_id: &str) -> String {
             .unwrap_or("")
             .to_string()
         }
-        #[cfg(not(feature = "openai"))]
+        #[cfg(not(feature = "openai-compatible"))]
         {
             String::new()
         }
@@ -155,7 +155,7 @@ pub fn resolve_base_url(custom_url: Option<String>, default_url: &str) -> String
 ///
 /// # Returns
 /// Resolved base URL
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 pub fn resolve_base_url_with_adapter(
     custom_url: Option<String>,
     adapter: &Arc<dyn crate::providers::openai_compatible::ProviderAdapter>,
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(model, "custom-model");
 
         // Test with empty model (should use default)
-        #[cfg(feature = "openai")]
+        #[cfg(feature = "openai-compatible")]
         {
             let model = get_effective_model("", "moonshot");
             assert!(!model.is_empty()); // Should have a default

@@ -50,6 +50,13 @@ use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Core provider context from the `siumai-core` crate.
+///
+/// This is the minimal context shape that standards/provider crates depend on.
+/// The aggregator-level `ProviderContext` can be converted into this type when
+/// delegating behavior to external provider crates.
+use siumai_core::provider_spec::CoreProviderContext;
+
 // -----------------------------------------------------------------------------
 // Internal fallback transformers that return UnsupportedOperation instead of panic
 // -----------------------------------------------------------------------------
@@ -235,6 +242,23 @@ impl ProviderContext {
     pub fn with_extras(mut self, extras: HashMap<String, serde_json::Value>) -> Self {
         self.extras = extras;
         self
+    }
+
+    /// Convert this aggregator-level context into the core `CoreProviderContext`.
+    ///
+    /// This helper is used by provider specs when delegating header/routing and
+    /// transformer selection logic to external provider crates that operate on
+    /// core-only types.
+    pub fn to_core_context(&self) -> CoreProviderContext {
+        CoreProviderContext {
+            provider_id: self.provider_id.clone(),
+            base_url: self.base_url.clone(),
+            api_key: self.api_key.clone(),
+            http_extra_headers: self.http_extra_headers.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            extras: self.extras.clone(),
+        }
     }
 }
 
@@ -488,4 +512,246 @@ pub fn default_custom_options_hook_embedding(
         return Some(Arc::new(hook));
     }
     None
+}
+
+/// Bridge a core-level chat transformers bundle into aggregator-level transformers.
+///
+/// This helper reduces boilerplate in provider specs that delegate chat
+/// behavior to `siumai-core` / external provider crates. Callers provide:
+/// - `to_core_input`: mapping from aggregator `ChatRequest` to core `ChatInput`
+/// - `map_stream_event`: mapping from core `ChatStreamEventCore` to aggregator `ChatStreamEvent`
+///
+/// The returned `ChatTransformers` can be passed to executors in the
+/// aggregator crate.
+pub fn bridge_core_chat_transformers<F, G>(
+    core_txs: siumai_core::provider_spec::CoreChatTransformers,
+    to_core_input: F,
+    map_stream_event: G,
+) -> ChatTransformers
+where
+    F: Fn(&ChatRequest) -> siumai_core::execution::chat::ChatInput + Send + Sync + 'static,
+    G: Fn(
+            siumai_core::execution::streaming::ChatStreamEventCore,
+        ) -> crate::streaming::ChatStreamEvent
+        + Send
+        + Sync
+        + 'static,
+{
+    use siumai_core::execution::chat::{
+        ChatInput, ChatRequestTransformer, ChatResponseTransformer,
+    };
+
+    struct ChatRequestBridge<F> {
+        inner: Arc<dyn ChatRequestTransformer>,
+        to_core: F,
+    }
+
+    impl<F> RequestTransformer for ChatRequestBridge<F>
+    where
+        F: Fn(&ChatRequest) -> ChatInput + Send + Sync + 'static,
+    {
+        fn provider_id(&self) -> &str {
+            self.inner.provider_id()
+        }
+
+        fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
+            let input = (self.to_core)(req);
+            self.inner.transform_chat(&input)
+        }
+    }
+
+    struct ChatResponseBridge {
+        inner: Arc<dyn ChatResponseTransformer>,
+    }
+
+    impl ResponseTransformer for ChatResponseBridge {
+        fn provider_id(&self) -> &str {
+            self.inner.provider_id()
+        }
+
+        fn transform_chat_response(
+            &self,
+            raw: &serde_json::Value,
+        ) -> Result<crate::types::ChatResponse, LlmError> {
+            use crate::types::{FinishReason, MessageContent, Usage};
+
+            let core_res = self.inner.transform_chat_response(raw)?;
+            let content = MessageContent::Text(core_res.content);
+
+            let usage = core_res
+                .usage
+                .map(|u| Usage::new(u.prompt_tokens, u.completion_tokens));
+
+            Ok(crate::types::ChatResponse {
+                id: None,
+                model: None,
+                content,
+                usage,
+                finish_reason: core_res.finish_reason.map(|s| match s.as_str() {
+                    "stop" => FinishReason::Stop,
+                    "length" => FinishReason::Length,
+                    "content_filter" => FinishReason::ContentFilter,
+                    "tool_calls" => FinishReason::ToolCalls,
+                    other => FinishReason::Other(other.to_string()),
+                }),
+                system_fingerprint: None,
+                service_tier: None,
+                audio: None,
+                warnings: None,
+                provider_metadata: None,
+            })
+        }
+    }
+
+    struct StreamBridge<G> {
+        inner: Arc<dyn siumai_core::execution::streaming::ChatStreamEventConverterCore>,
+        map_evt: G,
+    }
+
+    impl<G> crate::execution::transformers::stream::StreamChunkTransformer for StreamBridge<G>
+    where
+        G: Fn(
+                siumai_core::execution::streaming::ChatStreamEventCore,
+            ) -> crate::streaming::ChatStreamEvent
+            + Send
+            + Sync
+            + 'static,
+    {
+        fn provider_id(&self) -> &str {
+            self.inner.provider_id()
+        }
+
+        fn convert_event(
+            &self,
+            event: eventsource_stream::Event,
+        ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
+            let inner = Arc::clone(&self.inner);
+            let map_evt = &self.map_evt;
+            Box::pin(async move {
+                inner
+                    .convert_event(event)
+                    .into_iter()
+                    .map(|res| res.map(|e| map_evt(e)))
+                    .collect()
+            })
+        }
+
+        fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+            self.inner
+                .handle_stream_end()
+                .map(|res| res.map(|e| (self.map_evt)(e)))
+        }
+    }
+
+    let request = Arc::new(ChatRequestBridge {
+        inner: core_txs.request,
+        to_core: to_core_input,
+    });
+
+    let response = Arc::new(ChatResponseBridge {
+        inner: core_txs.response,
+    });
+
+    let stream = core_txs.stream.map(|inner| {
+        Arc::new(StreamBridge {
+            inner,
+            map_evt: map_stream_event,
+        }) as Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>
+    });
+
+    ChatTransformers {
+        request,
+        response,
+        stream,
+        json: None,
+    }
+}
+
+/// Helper: map an aggregator-level `ChatRequest` into the minimal
+/// `siumai-core` `ChatInput` used by Anthropic-style standards
+/// (Messages API).
+///
+/// This is shared by Anthropic and MiniMaxi providers, and any other
+/// providers that reuse the Anthropic Messages standard.
+pub fn anthropic_like_chat_request_to_core_input(
+    req: &ChatRequest,
+) -> siumai_core::execution::chat::ChatInput {
+    use siumai_core::execution::chat::{ChatInput, ChatMessageInput, ChatRole};
+
+    let messages = req
+        .messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                crate::types::MessageRole::System => ChatRole::System,
+                crate::types::MessageRole::User => ChatRole::User,
+                crate::types::MessageRole::Assistant => ChatRole::Assistant,
+                _ => ChatRole::User,
+            };
+            let content = m.content.all_text();
+            ChatMessageInput { role, content }
+        })
+        .collect::<Vec<_>>();
+
+    ChatInput {
+        messages,
+        model: Some(req.common_params.model.clone()),
+        max_tokens: req.common_params.max_tokens,
+        temperature: req.common_params.temperature,
+        top_p: req.common_params.top_p,
+        presence_penalty: None,
+        frequency_penalty: None,
+        stop: req.common_params.stop_sequences.clone(),
+        extra: Default::default(),
+    }
+}
+
+/// Helper: map a core-level Anthropic-style stream event into the
+/// aggregator's `ChatStreamEvent`, injecting the given provider id
+/// into the StreamStart metadata.
+pub fn anthropic_like_map_core_stream_event(
+    provider: &'static str,
+    evt: siumai_core::execution::streaming::ChatStreamEventCore,
+) -> crate::streaming::ChatStreamEvent {
+    use crate::streaming::ChatStreamEvent;
+    use siumai_core::execution::streaming::ChatStreamEventCore;
+
+    match evt {
+        ChatStreamEventCore::ContentDelta { delta, index } => {
+            ChatStreamEvent::ContentDelta { delta, index }
+        }
+        ChatStreamEventCore::ToolCallDelta {
+            id,
+            function_name,
+            arguments_delta,
+            index,
+        } => ChatStreamEvent::ToolCallDelta {
+            id: id.unwrap_or_default(),
+            function_name,
+            arguments_delta,
+            index,
+        },
+        ChatStreamEventCore::ThinkingDelta { delta } => ChatStreamEvent::ThinkingDelta { delta },
+        ChatStreamEventCore::UsageUpdate {
+            prompt_tokens,
+            completion_tokens,
+            ..
+        } => {
+            let usage = crate::types::Usage::new(prompt_tokens, completion_tokens);
+            ChatStreamEvent::UsageUpdate { usage }
+        }
+        ChatStreamEventCore::StreamStart {} => ChatStreamEvent::StreamStart {
+            metadata: crate::types::ResponseMetadata {
+                id: None,
+                model: None,
+                created: None,
+                provider: provider.to_string(),
+                request_id: None,
+            },
+        },
+        ChatStreamEventCore::Custom { event_type, data } => {
+            ChatStreamEvent::Custom { event_type, data }
+        }
+        ChatStreamEventCore::Error { error } => ChatStreamEvent::Error { error },
+    }
 }

@@ -3,7 +3,7 @@
 //! Adapts MiniMaxi's image generation response format to OpenAI standard format.
 
 use crate::error::LlmError;
-use crate::standards::openai::image::OpenAiImageAdapter;
+use crate::std_openai::openai::image::OpenAiImageAdapter;
 use std::sync::Arc;
 
 /// MiniMaxi Image Adapter
@@ -76,8 +76,8 @@ impl OpenAiImageAdapter for MinimaxiImageAdapter {
 }
 
 /// Create OpenAI Image Standard with MiniMaxi adapter
-pub fn create_minimaxi_image_standard() -> crate::standards::openai::image::OpenAiImageStandard {
-    crate::standards::openai::image::OpenAiImageStandard::with_adapter(Arc::new(
+pub fn create_minimaxi_image_standard() -> crate::std_openai::openai::image::OpenAiImageStandard {
+    crate::std_openai::openai::image::OpenAiImageStandard::with_adapter(Arc::new(
         MinimaxiImageAdapter,
     ))
 }

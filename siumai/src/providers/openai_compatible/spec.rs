@@ -2,6 +2,7 @@ use crate::core::{
     ChatTransformers, EmbeddingTransformers, ImageTransformers, ProviderContext, ProviderSpec,
 };
 use crate::error::LlmError;
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 use crate::execution::http::headers::ProviderHeaders;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
@@ -36,14 +37,28 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         let api_key = ctx.api_key.as_ref().ok_or_else(|| {
             LlmError::MissingApiKey("OpenAI-Compatible API key not provided".into())
         })?;
-        // Use OpenAI-style Bearer with pass-through custom headers; adapter-level custom
-        // headers should have been injected into `ctx.http_extra_headers` by the builder.
-        ProviderHeaders::openai(
-            api_key,
-            ctx.organization.as_deref(),
-            ctx.project.as_deref(),
-            &ctx.http_extra_headers,
-        )
+        #[cfg(feature = "provider-openai-compatible-external")]
+        {
+            // 通过外部 helpers 构建，允许 provider 定制策略（如 OpenRouter 的 HTTP-Referer）。
+            use reqwest::header::HeaderMap as Hm;
+            return siumai_provider_openai_compatible::helpers::build_json_headers_with_provider(
+                &ctx.provider_id,
+                api_key,
+                &ctx.http_extra_headers,
+                &Hm::new(),
+                &Hm::new(),
+            );
+        }
+        #[cfg(not(feature = "provider-openai-compatible-external"))]
+        {
+            // 默认：OpenAI 风格 + 透传 http_extra_headers
+            return ProviderHeaders::openai(
+                api_key,
+                ctx.organization.as_deref(),
+                ctx.project.as_deref(),
+                &ctx.http_extra_headers,
+            );
+        }
     }
 
     fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
@@ -86,8 +101,20 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 )
             }
         };
-        let path = adapter.route_for(crate::providers::openai_compatible::types::RequestType::Chat);
-        format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
+        #[cfg(feature = "provider-openai-compatible-external")]
+        {
+            return siumai_provider_openai_compatible::helpers::build_url(
+                &ctx.base_url,
+                adapter.as_ref(),
+                siumai_provider_openai_compatible::types::RequestType::Chat,
+            );
+        }
+        #[cfg(not(feature = "provider-openai-compatible-external"))]
+        {
+            let path =
+                adapter.route_for(crate::providers::openai_compatible::types::RequestType::Chat);
+            return format!("{}/{}", ctx.base_url.trim_end_matches('/'), path);
+        }
     }
 
     fn choose_chat_transformers(
@@ -137,7 +164,8 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         struct CompatToOpenAiChatAdapter(
             Arc<dyn crate::providers::openai_compatible::adapter::ProviderAdapter>,
         );
-        impl crate::standards::openai::chat::OpenAiChatAdapter for CompatToOpenAiChatAdapter {
+        #[cfg(not(feature = "std-openai-external"))]
+        impl crate::std_openai::openai::chat::OpenAiChatAdapter for CompatToOpenAiChatAdapter {
             fn transform_request(
                 &self,
                 req: &ChatRequest,
@@ -204,10 +232,163 @@ impl ProviderSpec for OpenAiCompatibleSpec {
             }
         }
 
-        let std = crate::standards::openai::chat::OpenAiChatStandard::with_adapter(Arc::new(
+        let std = crate::std_openai::openai::chat::OpenAiChatStandard::with_adapter(Arc::new(
             CompatToOpenAiChatAdapter(adapter),
         ));
-        std.create_transformers(&ctx.provider_id)
+
+        #[cfg(feature = "std-openai-external")]
+        {
+            // Bridge external core-only chat transformers to aggregator ChatTransformers (no streaming)
+            let req_tx = std.create_request_transformer(&ctx.provider_id);
+            let resp_tx = std.create_response_transformer(&ctx.provider_id);
+            let sse_tx = std.create_stream_converter(&ctx.provider_id);
+
+            struct ChatRequestBridge(
+                std::sync::Arc<dyn siumai_core::execution::chat::ChatRequestTransformer>,
+            );
+            impl crate::execution::transformers::request::RequestTransformer for ChatRequestBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+                fn transform_chat(
+                    &self,
+                    req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    let msgs = req
+                        .messages
+                        .iter()
+                        .map(|m| {
+                            let role = match m.role {
+                                crate::types::MessageRole::System => {
+                                    siumai_core::execution::chat::ChatRole::System
+                                }
+                                crate::types::MessageRole::User => {
+                                    siumai_core::execution::chat::ChatRole::User
+                                }
+                                crate::types::MessageRole::Assistant => {
+                                    siumai_core::execution::chat::ChatRole::Assistant
+                                }
+                                _ => siumai_core::execution::chat::ChatRole::User,
+                            };
+                            let content = m.content.all_text();
+                            siumai_core::execution::chat::ChatMessageInput { role, content }
+                        })
+                        .collect::<Vec<_>>();
+                    let input = siumai_core::execution::chat::ChatInput {
+                        messages: msgs,
+                        model: Some(req.common_params.model.clone()),
+                        max_tokens: req.common_params.max_tokens,
+                        temperature: req.common_params.temperature,
+                        top_p: req.common_params.top_p,
+                        presence_penalty: None,
+                        frequency_penalty: None,
+                        stop: req.common_params.stop_sequences.clone(),
+                        extra: Default::default(),
+                    };
+                    self.0.transform_chat(&input)
+                }
+            }
+
+            struct ChatResponseBridge(
+                std::sync::Arc<dyn siumai_core::execution::chat::ChatResponseTransformer>,
+            );
+            impl crate::execution::transformers::response::ResponseTransformer for ChatResponseBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+                fn transform_chat_response(
+                    &self,
+                    raw: &serde_json::Value,
+                ) -> Result<crate::types::ChatResponse, LlmError> {
+                    let r = self.0.transform_chat_response(raw)?;
+                    let mut resp = crate::types::ChatResponse::new(
+                        crate::types::MessageContent::Text(r.content),
+                    );
+                    if let Some(fr) = r.finish_reason.as_deref() {
+                        use crate::types::FinishReason as FR;
+                        let mapped = match fr {
+                            "stop" => FR::Stop,
+                            "length" => FR::Length,
+                            "content_filter" => FR::ContentFilter,
+                            "tool_calls" => FR::ToolCalls,
+                            other => FR::Other(other.to_string()),
+                        };
+                        resp.finish_reason = Some(mapped);
+                    }
+                    if let Some(u) = r.usage {
+                        resp.usage = Some(crate::types::Usage::new(
+                            u.prompt_tokens,
+                            u.completion_tokens,
+                        ));
+                    }
+                    Ok(resp)
+                }
+            }
+
+            // Stream bridge
+            struct ChatStreamBridge(
+                std::sync::Arc<dyn siumai_core::execution::streaming::ChatStreamEventConverterCore>,
+            );
+            impl crate::execution::transformers::stream::StreamChunkTransformer for ChatStreamBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+                fn convert_event(
+                    &self,
+                    event: eventsource_stream::Event,
+                ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
+                    let events = self.0.convert_event(event)
+                        .into_iter()
+                        .map(|r| r.map(|e| match e {
+                            siumai_core::execution::streaming::ChatStreamEventCore::ContentDelta { delta, index } => crate::streaming::ChatStreamEvent::ContentDelta { delta, index },
+                            siumai_core::execution::streaming::ChatStreamEventCore::ToolCallDelta { id, function_name, arguments_delta, index } => crate::streaming::ChatStreamEvent::ToolCallDelta {
+                                id: id.unwrap_or_default(),
+                                function_name,
+                                arguments_delta,
+                                index,
+                            },
+                            siumai_core::execution::streaming::ChatStreamEventCore::ThinkingDelta { delta } => crate::streaming::ChatStreamEvent::ThinkingDelta { delta },
+                            siumai_core::execution::streaming::ChatStreamEventCore::UsageUpdate { prompt_tokens, completion_tokens, .. } => crate::streaming::ChatStreamEvent::UsageUpdate { usage: crate::types::Usage::new(prompt_tokens, completion_tokens) },
+                            siumai_core::execution::streaming::ChatStreamEventCore::StreamStart {} => crate::streaming::ChatStreamEvent::StreamStart { metadata: crate::types::ResponseMetadata { id: None, model: None, created: None, provider: self.provider_id().to_string(), request_id: None } },
+                            siumai_core::execution::streaming::ChatStreamEventCore::Custom { event_type, data } => crate::streaming::ChatStreamEvent::Custom { event_type, data },
+                            siumai_core::execution::streaming::ChatStreamEventCore::Error { error } => crate::streaming::ChatStreamEvent::Error { error },
+                        }))
+                        .collect::<Vec<_>>();
+                    Box::pin(async move { events })
+                }
+            }
+
+            return ChatTransformers {
+                request: std::sync::Arc::new(ChatRequestBridge(req_tx)),
+                response: std::sync::Arc::new(ChatResponseBridge(resp_tx)),
+                stream: Some(std::sync::Arc::new(ChatStreamBridge(sse_tx))),
+                json: None,
+            };
+        }
+        #[cfg(feature = "std-openai-external")]
+        impl crate::std_openai::openai::chat::OpenAiChatAdapter for CompatToOpenAiChatAdapter {
+            fn transform_request(
+                &self,
+                req: &siumai_core::execution::chat::ChatInput,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                self.0.transform_request_params(
+                    body,
+                    req.model.as_deref().unwrap_or(""),
+                    crate::providers::openai_compatible::types::RequestType::Chat,
+                )
+            }
+            fn transform_response(&self, _resp: &mut serde_json::Value) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn chat_endpoint(&self) -> &str {
+                "/chat/completions"
+            }
+        }
+        #[cfg(not(feature = "std-openai-external"))]
+        {
+            std.create_transformers(&ctx.provider_id)
+        }
     }
 
     fn choose_embedding_transformers(
@@ -256,7 +437,9 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         struct CompatToOpenAiEmbeddingAdapter(
             Arc<dyn crate::providers::openai_compatible::adapter::ProviderAdapter>,
         );
-        impl crate::standards::openai::embedding::OpenAiEmbeddingAdapter
+        // For internal standard (not external), the adapter receives aggregator EmbeddingRequest
+        #[cfg(not(feature = "std-openai-external"))]
+        impl crate::std_openai::openai::embedding::OpenAiEmbeddingAdapter
             for CompatToOpenAiEmbeddingAdapter
         {
             fn transform_request(
@@ -271,14 +454,104 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 )
             }
         }
+        // For external standard, the adapter receives core EmbeddingInput
+        #[cfg(feature = "std-openai-external")]
+        impl crate::std_openai::openai::embedding::OpenAiEmbeddingAdapter
+            for CompatToOpenAiEmbeddingAdapter
+        {
+            fn transform_request(
+                &self,
+                req: &siumai_core::execution::embedding::EmbeddingInput,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                self.0.transform_request_params(
+                    body,
+                    req.model.as_deref().unwrap_or(""),
+                    crate::providers::openai_compatible::types::RequestType::Embedding,
+                )
+            }
+        }
 
-        let std = crate::standards::openai::embedding::OpenAiEmbeddingStandard::with_adapter(
+        let std = crate::std_openai::openai::embedding::OpenAiEmbeddingStandard::with_adapter(
             Arc::new(CompatToOpenAiEmbeddingAdapter(adapter)),
         );
 
-        EmbeddingTransformers {
-            request: std.create_request_transformer(&ctx.provider_id),
-            response: std.create_response_transformer(&ctx.provider_id),
+        #[cfg(feature = "std-openai-external")]
+        {
+            // Bridge core embedding-only transformers to aggregator traits
+            struct EmbRequestBridge(
+                std::sync::Arc<dyn siumai_core::execution::embedding::EmbeddingRequestTransformer>,
+            );
+            impl crate::execution::transformers::request::RequestTransformer for EmbRequestBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+                fn transform_chat(
+                    &self,
+                    _req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Chat is not supported by embedding transformer".to_string(),
+                    ))
+                }
+                fn transform_embedding(
+                    &self,
+                    req: &crate::types::EmbeddingRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    let fmt = req.encoding_format.as_ref().map(|f| match f {
+                        crate::types::embedding::EmbeddingFormat::Float => "float".to_string(),
+                        crate::types::embedding::EmbeddingFormat::Base64 => "base64".to_string(),
+                    });
+                    let input = siumai_core::execution::embedding::EmbeddingInput {
+                        input: req.input.clone(),
+                        model: req.model.clone(),
+                        dimensions: req.dimensions,
+                        encoding_format: fmt,
+                        user: req.user.clone(),
+                        title: req.title.clone(),
+                    };
+                    self.0.transform_embedding(&input)
+                }
+            }
+
+            struct EmbResponseBridge(
+                std::sync::Arc<dyn siumai_core::execution::embedding::EmbeddingResponseTransformer>,
+            );
+            impl crate::execution::transformers::response::ResponseTransformer for EmbResponseBridge {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+                fn transform_embedding_response(
+                    &self,
+                    raw: &serde_json::Value,
+                ) -> Result<crate::types::EmbeddingResponse, LlmError> {
+                    let r = self.0.transform_embedding_response(raw)?;
+                    let mut out = crate::types::EmbeddingResponse::new(r.embeddings, r.model);
+                    if let Some(u) = r.usage {
+                        out = out.with_usage(crate::types::embedding::EmbeddingUsage::new(
+                            u.prompt_tokens,
+                            u.total_tokens,
+                        ));
+                    }
+                    Ok(out)
+                }
+            }
+
+            EmbeddingTransformers {
+                request: std::sync::Arc::new(EmbRequestBridge(
+                    std.create_request_transformer(&ctx.provider_id),
+                )),
+                response: std::sync::Arc::new(EmbResponseBridge(
+                    std.create_response_transformer(&ctx.provider_id),
+                )),
+            }
+        }
+        #[cfg(not(feature = "std-openai-external"))]
+        {
+            EmbeddingTransformers {
+                request: std.create_request_transformer(&ctx.provider_id),
+                response: std.create_response_transformer(&ctx.provider_id),
+            }
         }
     }
 
@@ -325,9 +598,20 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 )
             }
         };
-        let path =
-            adapter.route_for(crate::providers::openai_compatible::types::RequestType::Embedding);
-        format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
+        #[cfg(feature = "provider-openai-compatible-external")]
+        {
+            return siumai_provider_openai_compatible::helpers::build_url(
+                &ctx.base_url,
+                adapter.as_ref(),
+                siumai_provider_openai_compatible::types::RequestType::Embedding,
+            );
+        }
+        #[cfg(not(feature = "provider-openai-compatible-external"))]
+        {
+            let path = adapter
+                .route_for(crate::providers::openai_compatible::types::RequestType::Embedding);
+            return format!("{}/{}", ctx.base_url.trim_end_matches('/'), path);
+        }
     }
 
     fn choose_image_transformers(
@@ -375,7 +659,7 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         struct CompatToOpenAiImageAdapter(
             Arc<dyn crate::providers::openai_compatible::adapter::ProviderAdapter>,
         );
-        impl crate::standards::openai::image::OpenAiImageAdapter for CompatToOpenAiImageAdapter {
+        impl crate::std_openai::openai::image::OpenAiImageAdapter for CompatToOpenAiImageAdapter {
             fn transform_generation_request(
                 &self,
                 _req: &crate::types::ImageGenerationRequest,
@@ -396,13 +680,94 @@ impl ProviderSpec for OpenAiCompatibleSpec {
             }
         }
 
-        let std = crate::standards::openai::image::OpenAiImageStandard::with_adapter(Arc::new(
+        let std = crate::std_openai::openai::image::OpenAiImageStandard::with_adapter(Arc::new(
             CompatToOpenAiImageAdapter(adapter),
         ));
         let t = std.create_transformers(&ctx.provider_id);
-        ImageTransformers {
-            request: t.request,
-            response: t.response,
+        #[cfg(feature = "std-openai-external")]
+        {
+            // Bridge core image-only transformers to aggregator traits
+            struct ImageOnlyRequestTransformerBridge(
+                std::sync::Arc<dyn siumai_core::execution::image::ImageRequestTransformer>,
+            );
+            impl crate::execution::transformers::request::RequestTransformer
+                for ImageOnlyRequestTransformerBridge
+            {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+                fn transform_chat(
+                    &self,
+                    _req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Chat is not supported by image transformer".to_string(),
+                    ))
+                }
+                fn transform_image(
+                    &self,
+                    req: &crate::types::ImageGenerationRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    self.0.transform_image(req)
+                }
+                fn transform_image_edit(
+                    &self,
+                    req: &crate::types::ImageEditRequest,
+                ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError>
+                {
+                    match self.0.transform_image_edit(req)? {
+                        siumai_core::execution::image::ImageHttpBody::Json(v) => {
+                            Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
+                        }
+                        siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
+                            crate::execution::transformers::request::ImageHttpBody::Multipart(f),
+                        ),
+                    }
+                }
+                fn transform_image_variation(
+                    &self,
+                    req: &crate::types::ImageVariationRequest,
+                ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError>
+                {
+                    match self.0.transform_image_variation(req)? {
+                        siumai_core::execution::image::ImageHttpBody::Json(v) => {
+                            Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
+                        }
+                        siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
+                            crate::execution::transformers::request::ImageHttpBody::Multipart(f),
+                        ),
+                    }
+                }
+            }
+
+            struct ImageOnlyResponseTransformerBridge(
+                std::sync::Arc<dyn siumai_core::execution::image::ImageResponseTransformer>,
+            );
+            impl crate::execution::transformers::response::ResponseTransformer
+                for ImageOnlyResponseTransformerBridge
+            {
+                fn provider_id(&self) -> &str {
+                    self.0.provider_id()
+                }
+                fn transform_image_response(
+                    &self,
+                    raw: &serde_json::Value,
+                ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
+                    self.0.transform_image_response(raw)
+                }
+            }
+
+            ImageTransformers {
+                request: std::sync::Arc::new(ImageOnlyRequestTransformerBridge(t.request)),
+                response: std::sync::Arc::new(ImageOnlyResponseTransformerBridge(t.response)),
+            }
+        }
+        #[cfg(not(feature = "std-openai-external"))]
+        {
+            ImageTransformers {
+                request: t.request,
+                response: t.response,
+            }
         }
     }
 
@@ -449,8 +814,20 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 )
             }
         };
-        let path = adapter
-            .route_for(crate::providers::openai_compatible::types::RequestType::ImageGeneration);
-        format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
+        #[cfg(feature = "provider-openai-compatible-external")]
+        {
+            return siumai_provider_openai_compatible::helpers::build_url(
+                &ctx.base_url,
+                adapter.as_ref(),
+                siumai_provider_openai_compatible::types::RequestType::ImageGeneration,
+            );
+        }
+        #[cfg(not(feature = "provider-openai-compatible-external"))]
+        {
+            let path = adapter.route_for(
+                crate::providers::openai_compatible::types::RequestType::ImageGeneration,
+            );
+            return format!("{}/{}", ctx.base_url.trim_end_matches('/'), path);
+        }
     }
 }

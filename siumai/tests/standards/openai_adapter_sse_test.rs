@@ -3,10 +3,12 @@
 //! This test verifies that the OpenAI standard layer correctly applies
 //! adapter transformations to SSE events during streaming.
 
+#![cfg(feature = "std-openai-external")]
+
 use eventsource_stream::Event;
 use siumai::error::LlmError;
-use siumai::standards::openai::chat::{OpenAiChatAdapter, OpenAiChatStandard};
 use siumai::streaming::ChatStreamEvent;
+use siumai_std_openai::openai::chat::{OpenAiChatAdapter, OpenAiChatStandard};
 use std::sync::Arc;
 
 /// Mock adapter that transforms SSE events by adding a prefix to content
@@ -26,7 +28,7 @@ impl MockOpenAiAdapter {
 impl OpenAiChatAdapter for MockOpenAiAdapter {
     fn transform_request(
         &self,
-        _req: &siumai::types::ChatRequest,
+        _req: &siumai_core::execution::chat::ChatInput,
         _params: &mut serde_json::Value,
     ) -> Result<(), LlmError> {
         Ok(())

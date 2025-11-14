@@ -1,18 +1,27 @@
-//! MiniMaxi ProviderSpec Implementation
+//! MiniMaxi ProviderSpec implementation
+//!
+//! MiniMaxi exposes an Anthropic-compatible chat API. This Spec wires
+//! MiniMaxi into the shared Anthropic standard so that:
+//! - Non-external mode reuses the in-crate Anthropic transformers.
+//! - External mode delegates to `siumai-provider-minimaxi` via the
+//!   core-only `MinimaxiCoreSpec` and bridges back using
+//!   `crate::core::bridge_core_chat_transformers`.
 
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::execution::http::headers::ProviderHeaders;
-use crate::standards::anthropic::chat::AnthropicChatStandard;
+use crate::std_anthropic::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
+use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
 
 /// MiniMaxi ProviderSpec implementation
 ///
-/// MiniMaxi supports both OpenAI and Anthropic API formats.
-/// We use Anthropic format (recommended by MiniMaxi) for better support of:
+/// MiniMaxi supports both OpenAI and Anthropic API formats. We use the
+/// Anthropic Messages format (recommended by MiniMaxi) to get better
+/// support for:
 /// - Thinking content blocks (reasoning process)
-/// - Tool Use and Interleaved Thinking
+/// - Tool use and interleaved thinking
 /// - Extended thinking capabilities
 #[derive(Clone)]
 pub struct MinimaxiSpec {
@@ -51,13 +60,27 @@ impl ProviderSpec for MinimaxiSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
+        // MiniMaxi Anthropic-compatible Chat API uses x-api-key header.
+        // In external mode, delegate to the core-spec in the provider crate
+        // to avoid duplicating header behavior.
+        #[cfg(feature = "provider-minimaxi-external")]
+        {
+            use siumai_core::provider_spec::CoreProviderSpec;
 
-        // MiniMaxi Anthropic-compatible API uses x-api-key header (Anthropic standard)
-        ProviderHeaders::anthropic(api_key, &ctx.http_extra_headers)
+            let core_ctx = ctx.to_core_context();
+            let core_spec = siumai_provider_minimaxi::MinimaxiCoreSpec::new();
+            return core_spec.build_headers(&core_ctx);
+        }
+
+        // Default: reuse aggregator Anthropic-style header helper.
+        #[cfg(not(feature = "provider-minimaxi-external"))]
+        {
+            let api_key = ctx
+                .api_key
+                .as_ref()
+                .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
+            ProviderHeaders::anthropic(api_key, &ctx.http_extra_headers)
+        }
     }
 
     fn chat_url(
@@ -66,48 +89,92 @@ impl ProviderSpec for MinimaxiSpec {
         _req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> String {
-        // MiniMaxi uses Anthropic-compatible endpoint
-        format!("{}/v1/messages", ctx.base_url.trim_end_matches('/'))
+        #[cfg(feature = "provider-minimaxi-external")]
+        {
+            use siumai_core::provider_spec::CoreProviderSpec;
+
+            let core_ctx = ctx.to_core_context();
+            let core_spec = siumai_provider_minimaxi::MinimaxiCoreSpec::new();
+            return core_spec.chat_url(&core_ctx);
+        }
+
+        #[cfg(not(feature = "provider-minimaxi-external"))]
+        {
+            // MiniMaxi uses Anthropic-compatible endpoint
+            format!("{}/v1/messages", ctx.base_url.trim_end_matches('/'))
+        }
     }
 
     fn choose_chat_transformers(
         &self,
-        _req: &crate::types::ChatRequest,
+        req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
-        // Use Anthropic standard transformers since MiniMaxi is Anthropic-compatible
-        self.chat_standard.create_transformers(&ctx.provider_id)
-    }
+        #[cfg(feature = "provider-minimaxi-external")]
+        {
+            use crate::core::provider_spec::{
+                anthropic_like_chat_request_to_core_input, anthropic_like_map_core_stream_event,
+                bridge_core_chat_transformers,
+            };
+            use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
 
-    fn audio_base_url(&self, ctx: &ProviderContext) -> String {
-        // MiniMaxi TTS/STT endpoints use OpenAI-compatible format under /v1
-        // If using Anthropic base_url, switch to OpenAI base_url for audio
-        let base = ctx.base_url.trim_end_matches('/');
-        if base.contains("/anthropic") {
-            // Switch from Anthropic endpoint to OpenAI endpoint for audio
-            super::config::MinimaxiConfig::OPENAI_BASE_URL.to_string()
-        } else if base.ends_with("/v1") {
-            base.to_string()
-        } else {
-            format!("{}/v1", base)
-        }
-    }
+            let core_ctx = ctx.to_core_context();
+            let core_input = anthropic_like_chat_request_to_core_input(req);
 
-    fn image_url(
-        &self,
-        _req: &crate::types::ImageGenerationRequest,
-        ctx: &ProviderContext,
-    ) -> String {
-        // MiniMaxi image generation uses OpenAI-compatible format
-        // If using Anthropic base_url, switch to OpenAI base_url for image
-        let base = ctx.base_url.trim_end_matches('/');
-        if base.contains("/anthropic") {
-            format!(
-                "{}/image_generation",
-                super::config::MinimaxiConfig::OPENAI_BASE_URL
+            let core_spec = siumai_provider_minimaxi::MinimaxiCoreSpec::new();
+            let core_txs: CoreChatTransformers =
+                core_spec.choose_chat_transformers(&core_input, &core_ctx);
+
+            bridge_core_chat_transformers(
+                core_txs,
+                anthropic_like_chat_request_to_core_input,
+                |evt| anthropic_like_map_core_stream_event("minimaxi", evt),
             )
-        } else {
-            format!("{}/image_generation", base)
+        }
+
+        #[cfg(all(
+            not(feature = "provider-minimaxi-external"),
+            feature = "std-anthropic-external"
+        ))]
+        {
+            use crate::core::provider_spec::{
+                anthropic_like_chat_request_to_core_input, anthropic_like_map_core_stream_event,
+                bridge_core_chat_transformers,
+            };
+            use siumai_core::provider_spec::CoreChatTransformers;
+
+            let core_ctx = ctx.to_core_context();
+            let core_input = anthropic_like_chat_request_to_core_input(req);
+
+            let core_txs: CoreChatTransformers = CoreChatTransformers {
+                request: self
+                    .chat_standard
+                    .create_request_transformer(&core_ctx.provider_id),
+                response: self
+                    .chat_standard
+                    .create_response_transformer(&core_ctx.provider_id),
+                stream: Some(
+                    self.chat_standard
+                        .create_stream_converter(&core_ctx.provider_id),
+                ),
+            };
+
+            bridge_core_chat_transformers(
+                core_txs,
+                anthropic_like_chat_request_to_core_input,
+                |evt| anthropic_like_map_core_stream_event("minimaxi", evt),
+            )
+        }
+
+        #[cfg(all(
+            not(feature = "provider-minimaxi-external"),
+            not(feature = "std-anthropic-external")
+        ))]
+        {
+            // Use the Anthropic Messages standard for MiniMaxi in non-external mode,
+            // backed by the in-crate standards implementation.
+            let spec = self.chat_standard.create_spec("minimaxi");
+            spec.choose_chat_transformers(req, ctx)
         }
     }
 }

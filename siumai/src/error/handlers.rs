@@ -137,29 +137,48 @@ impl ApiErrorHandler {
         error_message: &str,
         error_details: Value,
     ) -> LlmError {
-        match error_type {
-            "authentication_error" => LlmError::AuthenticationError(error_message.to_string()),
-            "permission_error" => {
-                LlmError::AuthenticationError(format!("Permission denied: {error_message}"))
+        // When the external Anthropic provider crate is enabled, delegate to
+        // its shared error mapper so that provider-specific semantics are
+        // defined close to the provider implementation.
+        #[cfg(feature = "provider-anthropic-external")]
+        {
+            return siumai_provider_anthropic::map_anthropic_error(
+                status_code,
+                error_type,
+                error_message,
+                error_details,
+            );
+        }
+
+        // Fallback to the in-crate implementation when the external crate is
+        // not enabled. This preserves existing behavior for users who only rely
+        // on the aggregator crate.
+        #[cfg(not(feature = "provider-anthropic-external"))]
+        {
+            match error_type {
+                "authentication_error" => LlmError::AuthenticationError(error_message.to_string()),
+                "permission_error" => {
+                    LlmError::AuthenticationError(format!("Permission denied: {error_message}"))
+                }
+                "not_found_error" => LlmError::NotFound(error_message.to_string()),
+                "rate_limit_error" => LlmError::RateLimitError(error_message.to_string()),
+                "api_error" => LlmError::ApiError {
+                    code: status_code,
+                    message: format!("Anthropic API error: {error_message}"),
+                    details: Some(error_details),
+                },
+                "overloaded_error" => LlmError::ApiError {
+                    code: 503,
+                    message: format!("Anthropic service overloaded: {error_message}"),
+                    details: Some(error_details),
+                },
+                "invalid_request_error" => LlmError::InvalidInput(error_message.to_string()),
+                _ => LlmError::ApiError {
+                    code: status_code,
+                    message: format!("Anthropic error ({error_type}): {error_message}"),
+                    details: Some(error_details),
+                },
             }
-            "not_found_error" => LlmError::NotFound(error_message.to_string()),
-            "rate_limit_error" => LlmError::RateLimitError(error_message.to_string()),
-            "api_error" => LlmError::ApiError {
-                code: status_code,
-                message: format!("Anthropic API error: {error_message}"),
-                details: Some(error_details),
-            },
-            "overloaded_error" => LlmError::ApiError {
-                code: 503,
-                message: format!("Anthropic service overloaded: {error_message}"),
-                details: Some(error_details),
-            },
-            "invalid_request_error" => LlmError::InvalidInput(error_message.to_string()),
-            _ => LlmError::ApiError {
-                code: status_code,
-                message: format!("Anthropic error ({error_type}): {error_message}"),
-                details: Some(error_details),
-            },
         }
     }
 

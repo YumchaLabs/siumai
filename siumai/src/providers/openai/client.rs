@@ -773,7 +773,7 @@ impl RerankCapability for OpenAiClient {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
         use crate::execution::executors::rerank::{HttpRerankExecutor, RerankExecutor};
         use crate::execution::http::headers::ProviderHeaders;
-        use crate::standards::openai::rerank::OpenAiRerankStandard;
+        use crate::std_openai::openai::rerank::OpenAiRerankStandard;
 
         // Build transformers via OpenAI-style rerank standard
         let standard = OpenAiRerankStandard::new();

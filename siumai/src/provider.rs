@@ -876,6 +876,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "openai")]
     #[tokio::test]
     async fn test_openai_requires_api_key() {
         // Temporarily remove API key from environment

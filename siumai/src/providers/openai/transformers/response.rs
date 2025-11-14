@@ -15,29 +15,96 @@ impl ResponseTransformer for OpenAiResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        // Delegate to OpenAI-compatible response transformer for robust mapping
-        let model = raw
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let adapter: std::sync::Arc<
-            dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
-        > = std::sync::Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
-            base_url: String::new(),
-        });
-        let cfg = crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig::new(
-            "openai",
-            "",
-            "",
-            adapter.clone(),
-        )
-        .with_model(&model);
-        let compat = crate::providers::openai_compatible::transformers::CompatResponseTransformer {
-            config: cfg,
-            adapter,
-        };
-        compat.transform_chat_response(raw)
+        #[cfg(all(feature = "openai-compatible", feature = "std-openai-external"))]
+        {
+            let model = raw
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let adapter: std::sync::Arc<
+                dyn crate::providers::openai_compatible::adapter::ProviderAdapter,
+            > = std::sync::Arc::new(crate::providers::openai::adapter::OpenAiStandardAdapter {
+                base_url: String::new(),
+            });
+            let cfg =
+                crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig::new(
+                    "openai",
+                    "",
+                    "",
+                    adapter.clone(),
+                )
+                .with_model(&model);
+            let compat =
+                crate::providers::openai_compatible::transformers::CompatResponseTransformer {
+                    config: cfg,
+                    adapter,
+                };
+            return compat.transform_chat_response(raw);
+        }
+
+        #[cfg(not(all(feature = "openai-compatible", feature = "std-openai-external")))]
+        {
+            // Fallback: minimal native mapping without compat dependency
+            #[derive(serde::Deserialize)]
+            struct OpenAiMessage {
+                role: String,
+                content: Option<serde_json::Value>,
+            }
+            #[derive(serde::Deserialize)]
+            struct OpenAiChoice {
+                message: OpenAiMessage,
+                finish_reason: Option<String>,
+            }
+            #[derive(serde::Deserialize)]
+            struct OpenAiUsage {
+                prompt_tokens: Option<u32>,
+                completion_tokens: Option<u32>,
+                total_tokens: Option<u32>,
+            }
+            #[derive(serde::Deserialize)]
+            struct Root {
+                id: Option<String>,
+                model: Option<String>,
+                choices: Vec<OpenAiChoice>,
+                usage: Option<OpenAiUsage>,
+            }
+
+            let r: Root = serde_json::from_value(raw.clone())
+                .map_err(|e| LlmError::ParseError(format!("Invalid OpenAI chat response: {e}")))?;
+
+            let mut parts = Vec::new();
+            if let Some(first) = r.choices.first() {
+                if let Some(c) = &first.message.content {
+                    match c {
+                        serde_json::Value::String(s) => {
+                            parts.push(crate::types::ContentPart::text(s))
+                        }
+                        serde_json::Value::Array(arr) => {
+                            for el in arr {
+                                if let Some(text) = el.get("text").and_then(|v| v.as_str()) {
+                                    parts.push(crate::types::ContentPart::text(text));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let mut resp = ChatResponse::new(crate::types::MessageContent::MultiModal(parts));
+            resp.id = r.id;
+            resp.model = r.model;
+            if let Some(u) = r.usage {
+                resp.usage = Some(crate::types::Usage::new(
+                    u.prompt_tokens.unwrap_or(0),
+                    u.completion_tokens.unwrap_or(0),
+                ));
+            }
+            resp.finish_reason = crate::providers::openai::utils::parse_finish_reason(
+                r.choices.first().and_then(|c| c.finish_reason.as_deref()),
+            );
+            Ok(resp)
+        }
     }
 
     fn transform_embedding_response(

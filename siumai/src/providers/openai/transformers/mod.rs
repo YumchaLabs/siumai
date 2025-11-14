@@ -4,6 +4,7 @@ pub mod audio;
 pub mod files;
 pub mod request;
 pub mod response;
+#[cfg(feature = "openai-compatible")]
 pub mod stream;
 
 // Re-export public types to preserve existing import paths
@@ -14,4 +15,5 @@ pub use response::{
     OpenAiResponseTransformer, OpenAiResponsesResponseTransformer,
     extract_thinking_from_multiple_fields,
 };
+#[cfg(feature = "openai-compatible")]
 pub use stream::{OpenAiResponsesStreamChunkTransformer, OpenAiStreamChunkTransformer};

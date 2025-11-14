@@ -28,6 +28,7 @@ fn ensure_provider_available() {
         cfg!(feature = "xai"),
         cfg!(feature = "groq"),
         cfg!(feature = "minimaxi"),
+        cfg!(feature = "openai-compatible"),
     ];
 
     if !providers.iter().any(|&enabled| enabled) {
@@ -62,6 +63,9 @@ fn add_build_info() {
     }
     if cfg!(feature = "minimaxi") {
         enabled_providers.push("minimaxi");
+    }
+    if cfg!(feature = "openai-compatible") {
+        enabled_providers.push("openai-compatible");
     }
 
     // Set environment variables for runtime access

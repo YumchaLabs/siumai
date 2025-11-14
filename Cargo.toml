@@ -1,6 +1,17 @@
 [workspace]
 resolver = "2"
-members = ["siumai", "siumai-extras"]
+members = [
+    "siumai",
+    "siumai-extras",
+    "crates/siumai-core",
+    "crates/siumai-std-openai",
+    "crates/siumai-std-anthropic",
+    "crates/siumai-std-gemini",
+    "crates/siumai-provider-openai",
+    "crates/siumai-provider-openai-compatible",
+    "crates/siumai-provider-anthropic",
+    "crates/siumai-provider-minimaxi",
+]
 
 [workspace.package]
 version = "0.11.0-beta.3"

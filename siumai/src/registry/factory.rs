@@ -69,7 +69,7 @@ pub async fn build_openai_client(
     Ok(Arc::new(client))
 }
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_openai_compatible_client(
     provider_id: String,

@@ -3,10 +3,12 @@
 //! This test verifies that the Anthropic standard layer correctly applies
 //! adapter transformations to SSE events during streaming.
 
+#![cfg(feature = "std-anthropic-external")]
+
 use eventsource_stream::Event;
 use siumai::error::LlmError;
-use siumai::standards::anthropic::chat::{AnthropicChatAdapter, AnthropicChatStandard};
 use siumai::streaming::ChatStreamEvent;
+use siumai_std_anthropic::anthropic::chat::{AnthropicChatAdapter, AnthropicChatStandard};
 use std::sync::Arc;
 
 /// Mock adapter that transforms SSE events by adding metadata
@@ -24,7 +26,7 @@ impl MockAnthropicAdapter {
 impl AnthropicChatAdapter for MockAnthropicAdapter {
     fn transform_request(
         &self,
-        _req: &siumai::types::ChatRequest,
+        _req: &siumai_core::execution::chat::ChatInput,
         _params: &mut serde_json::Value,
     ) -> Result<(), LlmError> {
         Ok(())

@@ -42,19 +42,31 @@
 pub mod providers;
 
 // New adapter system modules
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 pub mod adapter;
+#[cfg(feature = "provider-openai-compatible-external")]
+pub use siumai_provider_openai_compatible::adapter;
 pub mod builder;
 pub mod config;
 pub mod default_models;
 pub mod openai_client;
 pub mod openai_config;
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 pub mod registry;
+#[cfg(feature = "provider-openai-compatible-external")]
+pub use siumai_provider_openai_compatible::registry;
 pub mod spec;
 pub mod streaming;
+#[cfg(feature = "std-openai-external")]
 pub mod transformers;
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 pub mod types;
+#[cfg(feature = "provider-openai-compatible-external")]
+pub use siumai_provider_openai_compatible::types;
 // Macro list for generating builder methods across modules
 pub mod builder_list;
+
+// Note: other submodules keep using internal implementation regardless of external feature
 
 // Re-export model constants for easy access
 pub use providers::models::{deepseek, groq, moonshot, openrouter, siliconflow, xai};

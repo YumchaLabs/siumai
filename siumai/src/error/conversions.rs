@@ -1,26 +1,11 @@
-//! Type Conversions for LlmError
-//!
-//! This module contains From trait implementations for converting
-//! common error types into LlmError.
-
-use super::types::LlmError;
-
-// From implementations
-impl From<reqwest::Error> for LlmError {
-    fn from(err: reqwest::Error) -> Self {
-        Self::HttpError(err.to_string())
-    }
-}
-
-impl From<serde_json::Error> for LlmError {
-    fn from(err: serde_json::Error) -> Self {
-        Self::JsonError(err.to_string())
-    }
-}
+//! Re-export conversions for core LlmError
+#[allow(unused_imports)]
+pub use siumai_core::error::conversions::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::LlmError;
 
     #[test]
     fn test_from_reqwest_error() {

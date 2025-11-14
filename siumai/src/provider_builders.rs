@@ -4,16 +4,16 @@
 //! Each provider gets its own method that sets the appropriate provider type and name.
 
 use crate::provider::SiumaiBuilder;
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 use crate::siumai_for_each_openai_compatible_provider;
 use crate::types::ProviderType;
 
 // Generate SiumaiBuilder methods for all OpenAI-compatible providers
 // Placed at module scope so methods can be expanded inside impl blocks.
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 macro_rules! gen_siumaibuilder_method {
     ($name:ident, $id:expr) => {
-        #[cfg(feature = "openai")]
+        #[cfg(feature = "openai-compatible")]
         pub fn $name(mut self) -> Self {
             self.provider_type = Some(ProviderType::Custom($id.to_string()));
             self.provider_id = Some($id.to_string());
@@ -106,6 +106,6 @@ impl SiumaiBuilder {
     // OpenAI-Compatible Providers (generated)
     // ========================================================================
 
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     siumai_for_each_openai_compatible_provider!(gen_siumaibuilder_method);
 }

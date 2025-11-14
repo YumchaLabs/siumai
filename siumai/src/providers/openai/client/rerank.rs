@@ -10,9 +10,68 @@ impl RerankCapability for OpenAiClient {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
         use crate::execution::executors::rerank::{HttpRerankExecutor, RerankExecutor};
         use crate::execution::http::headers::ProviderHeaders;
-        use crate::standards::openai::rerank::OpenAiRerankStandard;
+        use crate::std_openai::openai::rerank::OpenAiRerankStandard;
 
         let standard = OpenAiRerankStandard::new();
+        #[cfg(feature = "std-openai-external")]
+        let transformers = {
+            struct ReqBridge(
+                std::sync::Arc<dyn siumai_core::execution::rerank::RerankRequestTransformer>,
+            );
+            impl crate::execution::transformers::rerank_request::RerankRequestTransformer for ReqBridge {
+                fn transform(
+                    &self,
+                    req: &crate::types::RerankRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    let input = siumai_core::execution::rerank::RerankInput {
+                        model: Some(req.model.clone()),
+                        query: req.query.clone(),
+                        documents: req.documents.clone(),
+                        top_n: req.top_n,
+                        return_documents: req.return_documents,
+                        extra: Default::default(),
+                    };
+                    self.0.transform(&input)
+                }
+            }
+            struct RespBridge(
+                std::sync::Arc<dyn siumai_core::execution::rerank::RerankResponseTransformer>,
+            );
+            impl crate::execution::transformers::rerank_response::RerankResponseTransformer for RespBridge {
+                fn transform(
+                    &self,
+                    raw: serde_json::Value,
+                ) -> Result<crate::types::RerankResponse, LlmError> {
+                    let out = self.0.transform_response(&raw)?;
+                    let results = out
+                        .results
+                        .into_iter()
+                        .map(|i| crate::types::RerankResult {
+                            document: i.document.map(|text| crate::types::RerankDocument { text }),
+                            index: i.index,
+                            relevance_score: i.relevance_score,
+                        })
+                        .collect::<Vec<_>>();
+                    Ok(crate::types::RerankResponse {
+                        id: out.id.unwrap_or_default(),
+                        results,
+                        tokens: crate::types::RerankTokenUsage {
+                            input_tokens: out.input_tokens,
+                            output_tokens: out.output_tokens,
+                        },
+                    })
+                }
+            }
+            crate::core::RerankTransformers {
+                request: std::sync::Arc::new(ReqBridge(
+                    standard.create_request_transformer("openai"),
+                )),
+                response: std::sync::Arc::new(RespBridge(
+                    standard.create_response_transformer("openai"),
+                )),
+            }
+        };
+        #[cfg(not(feature = "std-openai-external"))]
         let transformers = standard.create_transformers("openai");
 
         let url = format!("{}/rerank", self.base_url.trim_end_matches('/'));

@@ -5,17 +5,17 @@
 //! single, unified interface inspired by Cherry Studio's design.
 
 use std::collections::HashMap;
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 use std::sync::Arc;
 use std::sync::{OnceLock, RwLock};
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 use crate::providers::openai_compatible::adapter::ProviderAdapter;
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 use crate::providers::openai_compatible::registry::{ConfigurableAdapter, ProviderConfig};
 
 /// Unified provider record maintained by the registry
@@ -25,7 +25,7 @@ pub struct ProviderRecord {
     pub name: String,
     pub base_url: Option<String>,
     pub capabilities: ProviderCapabilities,
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     pub adapter: Option<Arc<dyn ProviderAdapter>>, // for OpenAI-compatible
     pub aliases: Vec<String>,
     /// Optional model id prefixes that hint routing for this provider
@@ -86,7 +86,7 @@ impl ProviderRegistry {
         self.register_native_providers();
 
         // Register OpenAI-compatible providers
-        #[cfg(feature = "openai")]
+        #[cfg(feature = "openai-compatible")]
         self.register_openai_compatible_providers();
     }
 
@@ -199,7 +199,7 @@ impl ProviderRegistry {
     }
 
     /// Register all OpenAI-compatible providers from config
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     fn register_openai_compatible_providers(&mut self) {
         let builtin_providers =
             crate::providers::openai_compatible::config::get_builtin_providers();
@@ -225,7 +225,7 @@ impl ProviderRegistry {
     }
 
     /// Register an OpenAI-compatible provider from configuration
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     pub fn register_openai_compatible_from_config(
         &mut self,
         config: ProviderConfig,
@@ -249,7 +249,7 @@ impl ProviderRegistry {
     }
 
     /// Register an OpenAI-compatible provider by id using the built-in config
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     pub fn register_openai_compatible(&mut self, provider_id: &str) -> Result<(), LlmError> {
         let config = crate::providers::openai_compatible::config::get_provider_config(provider_id)
             .ok_or_else(|| {
@@ -275,7 +275,7 @@ impl ProviderRegistry {
             name: name.to_string(),
             base_url,
             capabilities,
-            #[cfg(feature = "openai")]
+            #[cfg(feature = "openai-compatible")]
             adapter: None,
             aliases: vec![],
             model_prefixes: vec![],
@@ -293,7 +293,7 @@ impl ProviderRegistry {
     }
 
     /// Register a custom OpenAI-compatible provider
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     pub fn register_custom_provider(&mut self, config: ProviderConfig) {
         let _ = self.register_openai_compatible_from_config(config);
     }
@@ -314,7 +314,7 @@ impl ProviderRegistry {
     }
 
     /// Get an adapter for an OpenAI-compatible provider
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     pub fn get_adapter(&self, provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
         let record = self.resolve(provider_id).ok_or_else(|| {
             LlmError::ConfigurationError(format!("Unknown provider: {}", provider_id))
@@ -392,7 +392,20 @@ pub fn global() -> &'static entry::ProviderRegistryHandle {
 }
 
 /// Convenience function to get an adapter for an OpenAI-compatible provider
-#[cfg(feature = "openai")]
+#[cfg(all(
+    feature = "openai-compatible",
+    feature = "provider-openai-compatible-external"
+))]
+pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
+    // Delegate to external provider crate (scaffolding)
+    siumai_provider_openai_compatible::registry::get_provider_adapter(provider_id)
+}
+
+/// Convenience function to get an adapter for an OpenAI-compatible provider (internal)
+#[cfg(all(
+    feature = "openai-compatible",
+    not(feature = "provider-openai-compatible-external")
+))]
 pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
     global_registry()
         .read()

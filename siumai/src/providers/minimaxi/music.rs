@@ -84,13 +84,34 @@ pub(super) async fn generate_music(
             )
         })?;
 
-    // Check HTTP status
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
+    // Check HTTP status and parse body
+    let status = response.status();
+    let response_bytes = response.bytes().await.map_err(|e| {
+        LlmError::provider_error("minimaxi", format!("Failed to read response: {}", e))
+    })?;
+
+    if !status.is_success() {
+        let error_text = String::from_utf8_lossy(&response_bytes).to_string();
+
+        // Try to parse MiniMaxi structured error and map via provider crate when available.
+        #[cfg(feature = "provider-minimaxi-external")]
+        {
+            if let Ok(err) = serde_json::from_slice::<
+                crate::providers::minimaxi::types::MinimaxiErrorResponse,
+            >(&response_bytes)
+            {
+                let error_type = err.error.error_type.as_deref().unwrap_or("unknown");
+                let details = serde_json::to_value(&err).unwrap_or_else(|_| serde_json::json!({}));
+                return Err(siumai_provider_minimaxi::map_minimaxi_error(
+                    status.as_u16(),
+                    error_type,
+                    &err.error.message,
+                    details,
+                ));
+            }
+        }
+
+        // Fallback: keep previous generic provider_error behavior.
         return Err(LlmError::provider_error(
             "minimaxi",
             format!(
@@ -100,11 +121,7 @@ pub(super) async fn generate_music(
         ));
     }
 
-    // Parse response
-    let response_bytes = response.bytes().await.map_err(|e| {
-        LlmError::provider_error("minimaxi", format!("Failed to read response: {}", e))
-    })?;
-
+    // Parse successful response
     let music_response: MinimaxiMusicResponse =
         serde_json::from_slice(&response_bytes).map_err(|e| {
             LlmError::provider_error("minimaxi", format!("Failed to parse music response: {}", e))

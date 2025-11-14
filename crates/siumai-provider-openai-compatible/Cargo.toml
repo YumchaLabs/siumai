@@ -1,0 +1,20 @@
+[package]
+name = "siumai-provider-openai-compatible"
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "OpenAI-compatible providers for Siumai (OpenRouter/DeepSeek/...)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+siumai-core = { path = "../siumai-core" }
+siumai-std-openai = { path = "../siumai-std-openai" }
+
+[lib]
+name = "siumai_provider_openai_compatible"
+path = "src/lib.rs"
+

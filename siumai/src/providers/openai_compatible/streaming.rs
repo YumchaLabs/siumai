@@ -72,6 +72,20 @@ pub struct CompletionTokensDetails {
     pub reasoning_tokens: Option<u32>,
 }
 
+fn map_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
+    reason.map(|s| match s {
+        // OpenAI / Responses API style
+        "stop" => FinishReason::Stop,
+        "length" => FinishReason::Length,
+        "content_filter" => FinishReason::ContentFilter,
+        "tool_calls" => FinishReason::ToolCalls,
+        // Catch common aliases used by some OpenAI-compatible providers
+        "stopped" => FinishReason::Stop,
+        "error" => FinishReason::Error,
+        other => FinishReason::Other(other.to_string()),
+    })
+}
+
 /// Event converter for OpenAI-compatible providers
 #[derive(Clone)]
 pub struct OpenAiCompatibleEventConverter {
@@ -236,7 +250,7 @@ impl OpenAiCompatibleEventConverter {
                 model: None,
                 content: MessageContent::Text(text),
                 usage: None,
-                finish_reason: crate::providers::openai::utils::parse_finish_reason(Some(reason)),
+                finish_reason: map_finish_reason(Some(reason)),
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,

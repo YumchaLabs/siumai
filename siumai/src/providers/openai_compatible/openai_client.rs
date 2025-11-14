@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 // removed: HashMap import not needed after legacy removal
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 use crate::execution::http::headers::ProviderHeaders;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
@@ -274,21 +275,36 @@ impl OpenAiCompatibleClient {
 
     /// Build unified JSON headers for OpenAI-compatible providers
     fn build_json_headers(
+        provider_id: &str,
         api_key: &str,
         http_extra: &std::collections::HashMap<String, String>,
         config_headers: &reqwest::header::HeaderMap,
         adapter_headers: &reqwest::header::HeaderMap,
     ) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let mut headers = ProviderHeaders::openai(api_key, None, None, http_extra)?;
-        // Merge config.custom_headers
-        for (k, v) in config_headers.iter() {
-            headers.insert(k, v.clone());
+        #[cfg(feature = "provider-openai-compatible-external")]
+        {
+            // 使用带 provider_id 的外部策略版本
+            return siumai_provider_openai_compatible::helpers::build_json_headers_with_provider(
+                provider_id,
+                api_key,
+                http_extra,
+                config_headers,
+                adapter_headers,
+            );
         }
-        // Merge adapter.custom_headers
-        for (k, v) in adapter_headers.iter() {
-            headers.insert(k, v.clone());
+        #[cfg(not(feature = "provider-openai-compatible-external"))]
+        {
+            let mut headers = ProviderHeaders::openai(api_key, None, None, http_extra)?;
+            // Merge config.custom_headers
+            for (k, v) in config_headers.iter() {
+                headers.insert(k, v.clone());
+            }
+            // Merge adapter.custom_headers
+            for (k, v) in adapter_headers.iter() {
+                headers.insert(k, v.clone());
+            }
+            Ok(headers)
         }
-        Ok(headers)
     }
 
     /// Build HTTP client with configuration
@@ -440,7 +456,9 @@ impl RerankCapability for OpenAiCompatibleClient {
         struct LocalRerankAdapter {
             provider_id: String,
         }
-        impl crate::standards::openai::rerank::OpenAiRerankAdapter for LocalRerankAdapter {
+        #[cfg(not(feature = "std-openai-external"))]
+        #[cfg(not(feature = "std-openai-external"))]
+        impl crate::std_openai::openai::rerank::OpenAiRerankAdapter for LocalRerankAdapter {
             fn transform_request(
                 &self,
                 _req: &RerankRequest,
@@ -459,12 +477,96 @@ impl RerankCapability for OpenAiCompatibleClient {
                 Ok(())
             }
         }
+        #[cfg(feature = "std-openai-external")]
+        impl siumai_std_openai::openai::rerank::OpenAiRerankAdapter for LocalRerankAdapter {
+            fn transform_request(
+                &self,
+                _req: &siumai_core::execution::rerank::RerankInput,
+                _body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn transform_response(&self, resp: &mut serde_json::Value) -> Result<(), LlmError> {
+                if self.provider_id == "siliconflow"
+                    && let Some(tokens) =
+                        resp.get_mut("meta").and_then(|m| m.get("tokens").cloned())
+                    && let Some(obj) = resp.as_object_mut()
+                {
+                    obj.insert("usage".to_string(), tokens);
+                }
+                Ok(())
+            }
+            fn rerank_endpoint(&self) -> &str {
+                "/rerank"
+            }
+        }
 
         let adapter = std::sync::Arc::new(LocalRerankAdapter {
             provider_id: self.config.provider_id.clone(),
         });
         let standard =
-            crate::standards::openai::rerank::OpenAiRerankStandard::with_adapter(adapter);
+            crate::std_openai::openai::rerank::OpenAiRerankStandard::with_adapter(adapter.clone());
+
+        #[cfg(feature = "std-openai-external")]
+        let transformers = {
+            // Bridge core rerank transformers to aggregator transformers
+            struct ReqBridge(
+                std::sync::Arc<dyn siumai_core::execution::rerank::RerankRequestTransformer>,
+            );
+            impl crate::execution::transformers::rerank_request::RerankRequestTransformer for ReqBridge {
+                fn transform(
+                    &self,
+                    req: &crate::types::RerankRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    let input = siumai_core::execution::rerank::RerankInput {
+                        model: Some(req.model.clone()),
+                        query: req.query.clone(),
+                        documents: req.documents.clone(),
+                        top_n: req.top_n,
+                        return_documents: req.return_documents,
+                        extra: Default::default(),
+                    };
+                    self.0.transform(&input)
+                }
+            }
+            struct RespBridge(
+                std::sync::Arc<dyn siumai_core::execution::rerank::RerankResponseTransformer>,
+            );
+            impl crate::execution::transformers::rerank_response::RerankResponseTransformer for RespBridge {
+                fn transform(
+                    &self,
+                    raw: serde_json::Value,
+                ) -> Result<crate::types::RerankResponse, LlmError> {
+                    let out = self.0.transform_response(&raw)?;
+                    let results = out
+                        .results
+                        .into_iter()
+                        .map(|i| crate::types::RerankResult {
+                            document: i.document.map(|text| crate::types::RerankDocument { text }),
+                            index: i.index,
+                            relevance_score: i.relevance_score,
+                        })
+                        .collect::<Vec<_>>();
+                    Ok(crate::types::RerankResponse {
+                        id: out.id.unwrap_or_default(),
+                        results,
+                        tokens: crate::types::RerankTokenUsage {
+                            input_tokens: out.input_tokens,
+                            output_tokens: out.output_tokens,
+                        },
+                    })
+                }
+            }
+            crate::core::RerankTransformers {
+                request: std::sync::Arc::new(ReqBridge(
+                    standard.create_request_transformer(&self.config.provider_id),
+                )),
+                response: std::sync::Arc::new(RespBridge(
+                    standard.create_response_transformer(&self.config.provider_id),
+                )),
+            }
+        };
+        #[cfg(not(feature = "std-openai-external"))]
         let transformers = standard.create_transformers(&self.config.provider_id);
 
         // Build URL via adapter route mapping
@@ -481,6 +583,7 @@ impl RerankCapability for OpenAiCompatibleClient {
         // Build headers similar to JSON request path
         let adapter_headers = self.config.adapter.custom_headers();
         let headers = Self::build_json_headers(
+            &self.config.provider_id,
             &self.config.api_key,
             &self.config.http_config.headers,
             &self.config.custom_headers,
@@ -509,6 +612,7 @@ impl OpenAiCompatibleClient {
         let url = format!("{}/models", self.config.base_url.trim_end_matches('/'));
         let adapter_headers = self.config.adapter.custom_headers();
         let headers = Self::build_json_headers(
+            &self.config.provider_id,
             &self.config.api_key,
             &self.config.http_config.headers,
             &self.config.custom_headers,

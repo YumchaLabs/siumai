@@ -4,6 +4,8 @@
 //! It adopts a trait-separated architectural pattern and provides a type-safe API.
 //!
 #![deny(unsafe_code)]
+#![allow(deprecated)]
+// Internal use of deprecated standards modules is intentional for BC; external crates still see deprecation warnings.
 
 //! ## Features
 //!
@@ -106,12 +108,16 @@ pub mod provider_features;
     feature = "ollama",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "openai-compatible",
 ))]
 pub mod providers;
 pub mod registry;
 pub mod retry;
 pub mod retry_api;
+pub mod std_anthropic;
+pub mod std_gemini;
+pub mod std_openai;
 pub mod streaming;
 pub mod telemetry;
 pub mod traits;
@@ -124,7 +130,6 @@ pub mod web_search;
 pub mod highlevel;
 pub mod orchestrator;
 pub mod provider_tools;
-pub mod standards;
 
 // Re-export main types and traits
 pub use error::LlmError;
@@ -401,7 +406,7 @@ pub use providers::convenience::core::openai;
 pub use providers::convenience::core::xai;
 
 // Re-export all OpenAI-compatible provider functions
-#[cfg(feature = "openai")]
+#[cfg(feature = "openai-compatible")]
 pub use providers::convenience::openai_compatible::*;
 
 #[cfg(test)]
@@ -428,6 +433,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "openai")]
     #[test]
     fn test_provider_builder() {
         let _openai_builder = Provider::openai();

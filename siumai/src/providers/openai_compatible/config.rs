@@ -591,22 +591,58 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
 }
 
 /// Get provider configuration by ID
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 pub fn get_provider_config(provider_id: &str) -> Option<ProviderConfig> {
     get_builtin_providers().get(provider_id).cloned()
 }
 
+#[cfg(feature = "provider-openai-compatible-external")]
+pub fn get_provider_config(provider_id: &str) -> Option<ProviderConfig> {
+    siumai_provider_openai_compatible::registry::get_provider_config(provider_id).map(|ext| {
+        ProviderConfig {
+            id: ext.id,
+            name: ext.name,
+            base_url: ext.base_url,
+            field_mappings: ProviderFieldMappings {
+                thinking_fields: ext.field_mappings.thinking_fields,
+                content_field: ext.field_mappings.content_field,
+                tool_calls_field: ext.field_mappings.tool_calls_field,
+                role_field: ext.field_mappings.role_field,
+            },
+            capabilities: ext.capabilities,
+            default_model: ext.default_model,
+            supports_reasoning: ext.supports_reasoning,
+        }
+    })
+}
+
 /// List all available provider IDs
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 pub fn list_provider_ids() -> Vec<String> {
     get_builtin_providers().keys().cloned().collect()
 }
 
+#[cfg(feature = "provider-openai-compatible-external")]
+pub fn list_provider_ids() -> Vec<String> {
+    siumai_provider_openai_compatible::registry::list_provider_ids()
+}
+
 /// Check if a provider supports a specific capability
+#[cfg(not(feature = "provider-openai-compatible-external"))]
 pub fn provider_supports_capability(provider_id: &str, capability: &str) -> bool {
     if let Some(config) = get_provider_config(provider_id) {
         config.capabilities.contains(&capability.to_string())
     } else {
         false
     }
+}
+
+#[cfg(feature = "provider-openai-compatible-external")]
+pub fn provider_supports_capability(provider_id: &str, capability: &str) -> bool {
+    siumai_provider_openai_compatible::registry::provider_supports_capability(
+        provider_id,
+        capability,
+    )
 }
 
 #[cfg(test)]

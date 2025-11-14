@@ -1,0 +1,20 @@
+[package]
+name = "siumai-provider-anthropic"
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Anthropic provider implementation for Siumai (extracted crate)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+siumai-core = { path = "../siumai-core" }
+siumai-std-anthropic = { path = "../siumai-std-anthropic" }
+
+[lib]
+name = "siumai_provider_anthropic"
+path = "src/lib.rs"
+

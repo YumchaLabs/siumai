@@ -62,24 +62,12 @@ async fn create_sse_stream_with_middlewares(
         },
         convert: mw_wrapped,
     };
-    // Prepare body (OpenAI stream flags) before calling common helper
-    let mut body_for_send = transformed.clone();
-    if provider_id.starts_with("openai") {
-        body_for_send["stream"] = serde_json::Value::Bool(true);
-        if body_for_send.get("stream_options").is_none() {
-            body_for_send["stream_options"] = serde_json::json!({"include_usage": true});
-        } else if let Some(obj) = body_for_send["stream_options"].as_object_mut() {
-            obj.entry("include_usage")
-                .or_insert(serde_json::Value::Bool(true));
-        }
-    }
-
     crate::execution::executors::stream_sse::execute_sse_stream_request_with_headers(
         &http,
         &provider_id,
         &url,
         headers_base,
-        body_for_send,
+        transformed,
         &interceptors,
         retry_options,
         req_in.http_config.as_ref().map(|hc| hc.headers.clone()),

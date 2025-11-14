@@ -64,7 +64,7 @@ pub mod constants {
     pub use crate::providers::gemini::model_constants as gemini;
 
     /// Re-export OpenAI-compatible provider model constants
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     pub use crate::providers::openai_compatible::providers::models as openai_compatible;
 
     /// Re-export Ollama model constants (detailed structure)
@@ -396,7 +396,7 @@ pub mod model_constants {
     }
 
     /// OpenAI-compatible provider models
-    #[cfg(feature = "openai")]
+    #[cfg(feature = "openai-compatible")]
     pub mod openai_compatible {
         use crate::providers::openai_compatible::providers::models as c;
 

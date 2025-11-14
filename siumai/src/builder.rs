@@ -428,7 +428,7 @@ impl Default for LlmBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "openai"))]
 mod tests {
     use super::*;
 

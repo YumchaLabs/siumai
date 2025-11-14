@@ -141,25 +141,41 @@ impl ProviderHeaders {
         api_key: &str,
         custom_headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, LlmError> {
-        let mut builder = HttpHeaderBuilder::new()
-            .with_custom_auth("x-api-key", api_key)?
-            .with_json_content_type()
-            .with_header("anthropic-version", "2023-06-01")?;
-
-        // Handle anthropic-beta header specially
-        if let Some(beta_features) = custom_headers.get("anthropic-beta") {
-            builder = builder.with_header("anthropic-beta", beta_features)?;
+        // When the external Anthropic provider crate is enabled, delegate
+        // header construction to it so that provider-specific details live
+        // close to the provider implementation.
+        #[cfg(feature = "provider-anthropic-external")]
+        {
+            return siumai_provider_anthropic::build_anthropic_json_headers(
+                api_key,
+                custom_headers,
+            );
         }
 
-        // Add other custom headers (excluding anthropic-beta which we handled above)
-        let filtered_headers: HashMap<String, String> = custom_headers
-            .iter()
-            .filter(|(k, _)| k.as_str() != "anthropic-beta")
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        // Fallback to the in-crate implementation when the external crate
+        // is not enabled. This keeps behavior identical for existing users.
+        #[cfg(not(feature = "provider-anthropic-external"))]
+        {
+            let mut builder = HttpHeaderBuilder::new()
+                .with_custom_auth("x-api-key", api_key)?
+                .with_json_content_type()
+                .with_header("anthropic-version", "2023-06-01")?;
 
-        builder = builder.with_custom_headers(&filtered_headers)?;
-        Ok(builder.build())
+            // Handle anthropic-beta header specially
+            if let Some(beta_features) = custom_headers.get("anthropic-beta") {
+                builder = builder.with_header("anthropic-beta", beta_features)?;
+            }
+
+            // Add other custom headers (excluding anthropic-beta which we handled above)
+            let filtered_headers: HashMap<String, String> = custom_headers
+                .iter()
+                .filter(|(k, _)| k.as_str() != "anthropic-beta")
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            builder = builder.with_custom_headers(&filtered_headers)?;
+            Ok(builder.build())
+        }
     }
 
     /// Build headers for Groq API

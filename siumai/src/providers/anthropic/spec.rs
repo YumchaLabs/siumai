@@ -1,7 +1,7 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::execution::http::headers::ProviderHeaders;
-use crate::standards::anthropic::chat::AnthropicChatStandard;
+use crate::std_anthropic::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, ProviderOptions};
 use reqwest::header::HeaderMap;
@@ -9,8 +9,9 @@ use std::sync::Arc;
 
 /// Anthropic ProviderSpec implementation
 ///
-/// This spec uses the Anthropic standard from the standards layer,
-/// with additional support for Anthropic-specific features like Prompt Caching and Thinking Mode.
+/// This Spec uses the Anthropic standard from the standards layer,
+/// with additional support for Anthropic-specific features like
+/// Prompt Caching and Thinking Mode.
 #[derive(Clone, Default)]
 pub struct AnthropicSpec {
     /// Standard Anthropic Chat implementation
@@ -40,15 +41,43 @@ impl ProviderSpec for AnthropicSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("Anthropic API key not provided".into()))?;
-        ProviderHeaders::anthropic(api_key, &ctx.http_extra_headers)
+        // External mode: delegate to provider crate core-spec.
+        #[cfg(feature = "provider-anthropic-external")]
+        {
+            use siumai_core::provider_spec::CoreProviderSpec;
+
+            let core_ctx = ctx.to_core_context();
+            let core_spec = siumai_provider_anthropic::AnthropicCoreSpec::new();
+            return core_spec.build_headers(&core_ctx);
+        }
+
+        // Default: use aggregator Anthropic header helper.
+        #[cfg(not(feature = "provider-anthropic-external"))]
+        {
+            let api_key = ctx
+                .api_key
+                .as_ref()
+                .ok_or_else(|| LlmError::MissingApiKey("Anthropic API key not provided".into()))?;
+            return ProviderHeaders::anthropic(api_key, &ctx.http_extra_headers);
+        }
     }
 
     fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
-        format!("{}/v1/messages", ctx.base_url.trim_end_matches('/'))
+        // External mode: delegate to provider crate core-spec.
+        #[cfg(feature = "provider-anthropic-external")]
+        {
+            use siumai_core::provider_spec::CoreProviderSpec;
+
+            let core_ctx = ctx.to_core_context();
+            let core_spec = siumai_provider_anthropic::AnthropicCoreSpec::new();
+            return core_spec.chat_url(&core_ctx);
+        }
+
+        // Fallback: keep existing in-crate behavior.
+        #[cfg(not(feature = "provider-anthropic-external"))]
+        {
+            format!("{}/v1/messages", ctx.base_url.trim_end_matches('/'))
+        }
     }
 
     fn choose_chat_transformers(
@@ -56,9 +85,71 @@ impl ProviderSpec for AnthropicSpec {
         req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
-        // Use standard Anthropic Messages API from standards layer
-        let spec = self.chat_standard.create_spec("anthropic");
-        spec.choose_chat_transformers(req, ctx)
+        #[cfg(feature = "provider-anthropic-external")]
+        {
+            use crate::core::provider_spec::{
+                anthropic_like_chat_request_to_core_input, anthropic_like_map_core_stream_event,
+                bridge_core_chat_transformers,
+            };
+            use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
+
+            let core_ctx = ctx.to_core_context();
+            let core_input = anthropic_like_chat_request_to_core_input(req);
+
+            let core_spec = siumai_provider_anthropic::AnthropicCoreSpec::new();
+            let core_txs: CoreChatTransformers =
+                core_spec.choose_chat_transformers(&core_input, &core_ctx);
+
+            bridge_core_chat_transformers(
+                core_txs,
+                anthropic_like_chat_request_to_core_input,
+                |evt| anthropic_like_map_core_stream_event("anthropic", evt),
+            )
+        }
+
+        #[cfg(all(
+            not(feature = "provider-anthropic-external"),
+            feature = "std-anthropic-external"
+        ))]
+        {
+            use crate::core::provider_spec::{
+                anthropic_like_chat_request_to_core_input, anthropic_like_map_core_stream_event,
+                bridge_core_chat_transformers,
+            };
+            use siumai_core::provider_spec::CoreChatTransformers;
+
+            let core_ctx = ctx.to_core_context();
+            let core_input = anthropic_like_chat_request_to_core_input(req);
+
+            let core_txs: CoreChatTransformers = CoreChatTransformers {
+                request: self
+                    .chat_standard
+                    .create_request_transformer(&core_ctx.provider_id),
+                response: self
+                    .chat_standard
+                    .create_response_transformer(&core_ctx.provider_id),
+                stream: Some(
+                    self.chat_standard
+                        .create_stream_converter(&core_ctx.provider_id),
+                ),
+            };
+
+            bridge_core_chat_transformers(
+                core_txs,
+                anthropic_like_chat_request_to_core_input,
+                |evt| anthropic_like_map_core_stream_event("anthropic", evt),
+            )
+        }
+
+        #[cfg(all(
+            not(feature = "provider-anthropic-external"),
+            not(feature = "std-anthropic-external")
+        ))]
+        {
+            // Use standard Anthropic Messages API from in-crate standards layer
+            let spec = self.chat_standard.create_spec("anthropic");
+            spec.choose_chat_transformers(req, ctx)
+        }
     }
 
     fn chat_before_send(
@@ -72,7 +163,6 @@ impl ProviderSpec for AnthropicSpec {
         }
 
         // 2. Handle Anthropic-specific options (thinking_mode, response_format)
-        // 🎯 Extract Anthropic-specific options from provider_options
         let (thinking_mode, response_format) =
             if let ProviderOptions::Anthropic(ref options) = req.provider_options {
                 (
@@ -91,7 +181,7 @@ impl ProviderSpec for AnthropicSpec {
         let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
             let mut out = body.clone();
 
-            // 🎯 Inject thinking mode configuration
+            // Inject thinking mode configuration
             if let Some(ref thinking) = thinking_mode
                 && thinking.enabled
             {
@@ -102,7 +192,7 @@ impl ProviderSpec for AnthropicSpec {
                 out["thinking"] = thinking_config;
             }
 
-            // 🎯 Inject structured output if configured
+            // Inject structured output if configured
             if let Some(ref rf) = response_format {
                 match rf {
                     crate::types::AnthropicResponseFormat::JsonObject => {

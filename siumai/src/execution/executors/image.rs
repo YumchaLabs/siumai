@@ -458,7 +458,7 @@ mod tests {
             prompt: "hello".into(),
             ..Default::default()
         };
-        let mut hc = crate::types::HttpConfig::default();
+        let mut hc = siumai_core::types::common::HttpConfig::default();
         hc.headers.insert("x-req".into(), "R".into());
         req.http_config = Some(hc);
         let _ = exec.execute(req).await; // expect abort

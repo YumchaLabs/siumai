@@ -2980,6 +2980,14 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "siumai-core",
+ "siumai-provider-anthropic",
+ "siumai-provider-minimaxi",
+ "siumai-provider-openai",
+ "siumai-provider-openai-compatible",
+ "siumai-std-anthropic",
+ "siumai-std-gemini",
+ "siumai-std-openai",
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
@@ -2990,6 +2998,22 @@ dependencies = [
  "urlencoding",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "siumai-core"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "infer",
+ "once_cell",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -3017,6 +3041,102 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "siumai-provider-anthropic"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-std-anthropic",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "siumai-provider-minimaxi"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-std-anthropic",
+ "siumai-std-openai",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "siumai-provider-openai"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-provider-openai-compatible",
+ "siumai-std-openai",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "siumai-provider-openai-compatible"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-std-openai",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "siumai-std-anthropic"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "siumai-std-gemini"
+version = "0.0.1"
+dependencies = [
+ "eventsource-stream",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "siumai-std-openai"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

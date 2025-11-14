@@ -200,7 +200,13 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 // [DONE] events should not generate any events in the new architecture
                 return vec![];
             }
-            if event_name == "response.completed" {
+            #[cfg(feature = "provider-openai-external")]
+            let is_completed =
+                event_name == siumai_provider_openai::helpers::RESPONSES_EVENT_COMPLETED;
+            #[cfg(not(feature = "provider-openai-external"))]
+            let is_completed = event_name == "response.completed";
+
+            if is_completed {
                 // The completed event often contains the full response payload.
                 // Delegate to centralized ResponseTransformer for final ChatResponse.
                 let json = match serde_json::from_str::<serde_json::Value>(data_raw) {
@@ -237,6 +243,17 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
             // Route by event name first
             match event_name {
+                #[cfg(feature = "provider-openai-external")]
+                e if e == siumai_provider_openai::helpers::RESPONSES_EVENT_OUTPUT_TEXT_DELTA
+                    || e == siumai_provider_openai::helpers::RESPONSES_EVENT_TOOL_CALL_DELTA
+                    || e == siumai_provider_openai::helpers::RESPONSES_EVENT_FUNCTION_CALL_DELTA
+                    || e == siumai_provider_openai::helpers::RESPONSES_EVENT_USAGE =>
+                {
+                    if let Some(evt) = self.convert_responses_event(json) {
+                        return vec![Ok(evt)];
+                    }
+                }
+                #[cfg(not(feature = "provider-openai-external"))]
                 "response.output_text.delta"
                 | "response.tool_call.delta"
                 | "response.function_call.delta"
@@ -245,6 +262,18 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         return vec![Ok(evt)];
                     }
                 }
+                #[cfg(feature = "provider-openai-external")]
+                e if e == siumai_provider_openai::helpers::RESPONSES_EVENT_ERROR => {
+                    // Normalize provider error into ChatStreamEvent::Error
+                    let msg = json
+                        .get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("Unknown error")
+                        .to_string();
+                    return vec![Ok(crate::streaming::ChatStreamEvent::Error { error: msg })];
+                }
+                #[cfg(not(feature = "provider-openai-external"))]
                 "response.error" => {
                     // Normalize provider error into ChatStreamEvent::Error
                     let msg = json
@@ -255,11 +284,27 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         .to_string();
                     return vec![Ok(crate::streaming::ChatStreamEvent::Error { error: msg })];
                 }
+                #[cfg(feature = "provider-openai-external")]
+                e if e
+                    == siumai_provider_openai::helpers::RESPONSES_EVENT_FUNCTION_CALL_ARGUMENTS_DELTA =>
+                {
+                    if let Some(evt) = self.convert_function_call_arguments_delta(json) {
+                        return vec![Ok(evt)];
+                    }
+                }
+                #[cfg(not(feature = "provider-openai-external"))]
                 "response.function_call_arguments.delta" => {
                     if let Some(evt) = self.convert_function_call_arguments_delta(json) {
                         return vec![Ok(evt)];
                     }
                 }
+                #[cfg(feature = "provider-openai-external")]
+                e if e == siumai_provider_openai::helpers::RESPONSES_EVENT_OUTPUT_ITEM_ADDED => {
+                    if let Some(evt) = self.convert_output_item_added(json) {
+                        return vec![Ok(evt)];
+                    }
+                }
+                #[cfg(not(feature = "provider-openai-external"))]
                 "response.output_item.added" => {
                     if let Some(evt) = self.convert_output_item_added(json) {
                         return vec![Ok(evt)];

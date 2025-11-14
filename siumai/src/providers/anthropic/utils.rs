@@ -438,32 +438,51 @@ pub fn map_anthropic_error(
     error_message: &str,
     error_details: serde_json::Value,
 ) -> LlmError {
-    match error_type {
-        "authentication_error" => LlmError::AuthenticationError(error_message.to_string()),
-        "permission_error" => {
-            LlmError::AuthenticationError(format!("Permission denied: {error_message}"))
+    // When the external Anthropic provider crate is enabled, delegate to the
+    // shared error mapper so that provider-specific behavior lives in the
+    // provider crate.
+    #[cfg(feature = "provider-anthropic-external")]
+    {
+        return siumai_provider_anthropic::map_anthropic_error(
+            status_code,
+            error_type,
+            error_message,
+            error_details,
+        );
+    }
+
+    // Fallback to the in-crate implementation when the external crate is not
+    // enabled. This preserves existing behavior for users who only rely on the
+    // aggregator crate.
+    #[cfg(not(feature = "provider-anthropic-external"))]
+    {
+        match error_type {
+            "authentication_error" => LlmError::AuthenticationError(error_message.to_string()),
+            "permission_error" => {
+                LlmError::AuthenticationError(format!("Permission denied: {error_message}"))
+            }
+            "invalid_request_error" => LlmError::InvalidInput(error_message.to_string()),
+            "not_found_error" => LlmError::NotFound(error_message.to_string()),
+            "request_too_large" => {
+                LlmError::InvalidInput(format!("Request too large: {error_message}"))
+            }
+            "rate_limit_error" => LlmError::RateLimitError(error_message.to_string()),
+            "api_error" => LlmError::ProviderError {
+                provider: "anthropic".to_string(),
+                message: format!("Internal API error: {error_message}"),
+                error_code: Some("api_error".to_string()),
+            },
+            "overloaded_error" => LlmError::ProviderError {
+                provider: "anthropic".to_string(),
+                message: format!("API temporarily overloaded: {error_message}"),
+                error_code: Some("overloaded_error".to_string()),
+            },
+            _ => LlmError::ApiError {
+                code: status_code,
+                message: format!("Anthropic API error ({error_type}): {error_message}"),
+                details: Some(error_details),
+            },
         }
-        "invalid_request_error" => LlmError::InvalidInput(error_message.to_string()),
-        "not_found_error" => LlmError::NotFound(error_message.to_string()),
-        "request_too_large" => {
-            LlmError::InvalidInput(format!("Request too large: {error_message}"))
-        }
-        "rate_limit_error" => LlmError::RateLimitError(error_message.to_string()),
-        "api_error" => LlmError::ProviderError {
-            provider: "anthropic".to_string(),
-            message: format!("Internal API error: {error_message}"),
-            error_code: Some("api_error".to_string()),
-        },
-        "overloaded_error" => LlmError::ProviderError {
-            provider: "anthropic".to_string(),
-            message: format!("API temporarily overloaded: {error_message}"),
-            error_code: Some("overloaded_error".to_string()),
-        },
-        _ => LlmError::ApiError {
-            code: status_code,
-            message: format!("Anthropic API error ({error_type}): {error_message}"),
-            details: Some(error_details),
-        },
     }
 }
 

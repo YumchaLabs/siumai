@@ -10,7 +10,6 @@ use crate::error::LlmError;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
-use crate::providers::openai::utils::convert_messages;
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
@@ -18,6 +17,9 @@ use crate::types::{
     ImageGenerationRequest, ImageGenerationResponse, MessageContent, Usage,
 };
 use eventsource_stream::Event;
+use siumai_std_openai::openai::chat::{OpenAiChatAdapter, OpenAiChatStandard};
+use siumai_std_openai::openai::embedding::{OpenAiEmbeddingAdapter, OpenAiEmbeddingStandard};
+use siumai_std_openai::openai::image::{OpenAiImageAdapter, OpenAiImageStandard};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -35,74 +37,166 @@ impl RequestTransformer for CompatRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        // Convert messages into OpenAI-like format
-        let openai_messages = convert_messages(&req.messages)?;
-        let mut body = serde_json::json!({
-            "model": self.config.model,
-            "messages": openai_messages,
-        });
+        // Use the core OpenAI Chat standard to convert into OpenAI-style JSON,
+        // then let the adapter perform provider-specific adjustments.
+        //
+        // Map aggregator ChatRequest -> core ChatInput
+        let messages = req
+            .messages
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    crate::types::MessageRole::System => {
+                        siumai_core::execution::chat::ChatRole::System
+                    }
+                    crate::types::MessageRole::User => siumai_core::execution::chat::ChatRole::User,
+                    crate::types::MessageRole::Assistant => {
+                        siumai_core::execution::chat::ChatRole::Assistant
+                    }
+                    _ => siumai_core::execution::chat::ChatRole::User,
+                };
+                let content = m.content.all_text();
+                siumai_core::execution::chat::ChatMessageInput { role, content }
+            })
+            .collect();
 
-        // Map common params
-        if let Some(temp) = req.common_params.temperature {
-            body["temperature"] = temp.into();
-        }
-        if let Some(max_tokens) = req.common_params.max_tokens {
-            body["max_tokens"] = max_tokens.into();
-        }
-        if let Some(top_p) = req.common_params.top_p {
-            body["top_p"] = top_p.into();
-        }
+        let mut extra = std::collections::HashMap::new();
+        // Map a few common fields into `extra` so the standard transformer can
+        // see them if needed (optional, kept minimal for now).
         if let Some(seed) = req.common_params.seed {
-            body["seed"] = (seed as i64).into();
-        }
-        if let Some(stops) = &req.common_params.stop_sequences {
-            body["stop"] = serde_json::json!(stops);
+            extra.insert("seed".to_string(), serde_json::json!(seed));
         }
 
-        // Tools
-        if let Some(tools) = &req.tools {
-            body["tools"] = serde_json::to_value(tools)?;
+        let input = siumai_core::execution::chat::ChatInput {
+            messages,
+            model: Some(self.config.model.clone()),
+            max_tokens: req.common_params.max_tokens,
+            temperature: req.common_params.temperature,
+            top_p: req.common_params.top_p,
+            presence_penalty: None,
+            frequency_penalty: None,
+            stop: req.common_params.stop_sequences.clone(),
+            extra,
+        };
+
+        // Build OpenAI-style body via std-openai
+        struct CompatAdapter {
+            inner: Arc<dyn ProviderAdapter>,
+            model: String,
         }
+        impl OpenAiChatAdapter for CompatAdapter {
+            fn transform_request(
+                &self,
+                _req: &siumai_core::execution::chat::ChatInput,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                // Delegate to provider adapter for final tweaks
+                self.inner
+                    .transform_request_params(body, &self.model, RequestType::Chat)
+            }
+        }
+
+        let adapter = Arc::new(CompatAdapter {
+            inner: self.adapter.clone(),
+            model: self.config.model.clone(),
+        });
+        let std = OpenAiChatStandard::with_adapter(adapter);
+        let tx = std.create_request_transformer(&self.config.provider_id);
 
         // Structured output is now handled via provider_options in ProviderSpec::chat_before_send()
-
-        // Let adapter transform
-        self.adapter
-            .transform_request_params(&mut body, &self.config.model, RequestType::Chat)?;
-        Ok(body)
+        tx.transform_chat(&input)
     }
 
     fn transform_embedding(&self, req: &EmbeddingRequest) -> Result<serde_json::Value, LlmError> {
-        let mut body = serde_json::json!({
-            "model": req.model.clone().unwrap_or_else(|| self.config.model.clone()),
-            "input": req.input,
+        // Map aggregator EmbeddingRequest -> core EmbeddingInput
+        let input = siumai_core::execution::embedding::EmbeddingInput {
+            input: req.input.clone(),
+            model: Some(
+                req.model
+                    .clone()
+                    .unwrap_or_else(|| self.config.model.clone()),
+            ),
+            dimensions: req.dimensions,
+            encoding_format: req
+                .encoding_format
+                .as_ref()
+                .map(|f| format!("{f:?}").to_lowercase()),
+            user: req.user.clone(),
+            title: req.title.clone(),
+        };
+
+        struct CompatEmbeddingAdapter {
+            inner: Arc<dyn ProviderAdapter>,
+            model: String,
+        }
+        impl OpenAiEmbeddingAdapter for CompatEmbeddingAdapter {
+            fn transform_request(
+                &self,
+                _req: &siumai_core::execution::embedding::EmbeddingInput,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                self.inner
+                    .transform_request_params(body, &self.model, RequestType::Embedding)
+            }
+        }
+
+        let adapter = Arc::new(CompatEmbeddingAdapter {
+            inner: self.adapter.clone(),
+            model: self.config.model.clone(),
         });
-        if let Some(dim) = req.dimensions {
-            body["dimensions"] = serde_json::json!(dim);
-        }
-        if let Some(fmt) = &req.encoding_format {
-            body["encoding_format"] = serde_json::to_value(fmt).unwrap_or(serde_json::Value::Null);
-        }
-        if let Some(user) = &req.user {
-            body["user"] = serde_json::json!(user);
-        }
-        // No additional provider_params merging; prefer typed ProviderOptions per provider
-        self.adapter.transform_request_params(
-            &mut body,
-            &self.config.model,
-            RequestType::Embedding,
-        )?;
-        Ok(body)
+        let std = OpenAiEmbeddingStandard::with_adapter(adapter);
+        let tx = std.create_request_transformer(&self.config.provider_id);
+        tx.transform_embedding(&input)
     }
 
     fn transform_image(
         &self,
         request: &ImageGenerationRequest,
     ) -> Result<serde_json::Value, LlmError> {
-        let mut r = request.clone();
-        self.adapter.transform_image_request(&mut r)?;
-        serde_json::to_value(r)
-            .map_err(|e| LlmError::ParseError(format!("Serialize image request failed: {e}")))
+        // Map aggregator ImageGenerationRequest -> core ImageGenerationRequest
+        let core_req = siumai_core::types::image::ImageGenerationRequest {
+            prompt: request.prompt.clone(),
+            negative_prompt: request.negative_prompt.clone(),
+            size: request.size.clone(),
+            count: request.count,
+            model: request.model.clone(),
+            quality: request.quality.clone(),
+            style: request.style.clone(),
+            seed: request.seed,
+            steps: request.steps,
+            guidance_scale: request.guidance_scale,
+            enhance_prompt: request.enhance_prompt,
+            response_format: request.response_format.clone(),
+            extra_params: request.extra_params.clone(),
+            http_config: None,
+        };
+
+        struct CompatImageAdapter {
+            inner: Arc<dyn ProviderAdapter>,
+        }
+        impl OpenAiImageAdapter for CompatImageAdapter {
+            fn transform_generation_request(
+                &self,
+                req: &siumai_core::types::image::ImageGenerationRequest,
+                body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                // Delegate to provider adapter by first mapping back into a mutable core request
+                let mut r = req.clone();
+                // Reuse provider-level hook for additional tweaks
+                self.inner.transform_image_request(&mut r)?;
+                *body = serde_json::to_value(r).map_err(|e| {
+                    LlmError::ParseError(format!("Serialize image request failed: {e}"))
+                })?;
+                Ok(())
+            }
+        }
+
+        let adapter = Arc::new(CompatImageAdapter {
+            inner: self.adapter.clone(),
+        });
+        let std = OpenAiImageStandard::with_adapter(adapter);
+        let txs = std.create_transformers(&self.config.provider_id);
+        txs.request.transform_image(&core_req)
     }
 
     fn transform_rerank(

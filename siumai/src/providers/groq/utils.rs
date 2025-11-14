@@ -166,15 +166,16 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Valu
     Ok(groq_messages)
 }
 
-/// Parse finish reason from Groq API response
+/// Parse finish reason from Groq API response (normalized via core)
 pub fn parse_finish_reason(reason: Option<&str>) -> FinishReason {
-    match reason {
-        Some("stop") => FinishReason::Stop,
-        Some("length") => FinishReason::Length,
-        Some("tool_calls") => FinishReason::ToolCalls,
-        Some("content_filter") => FinishReason::ContentFilter,
-        Some("function_call") => FinishReason::ToolCalls, // Legacy function_call maps to tool_calls
-        _ => FinishReason::Other("unknown".to_string()),
+    use siumai_core::types::FinishReasonCore;
+    match FinishReasonCore::from_str(reason) {
+        Some(FinishReasonCore::Stop) => FinishReason::Stop,
+        Some(FinishReasonCore::Length) => FinishReason::Length,
+        Some(FinishReasonCore::ContentFilter) => FinishReason::ContentFilter,
+        Some(FinishReasonCore::ToolCalls) => FinishReason::ToolCalls,
+        Some(FinishReasonCore::Other(s)) => FinishReason::Other(s),
+        None => FinishReason::Other("unknown".to_string()),
     }
 }
 

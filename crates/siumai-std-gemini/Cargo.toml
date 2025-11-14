@@ -1,0 +1,18 @@
+[package]
+name = "siumai-std-gemini"
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Gemini standard request/response/streaming transformers for Siumai"
+
+[dependencies]
+siumai-core = { path = "../siumai-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+eventsource-stream = { workspace = true }
+
+[lib]
+name = "siumai_std_gemini"
+path = "src/lib.rs"
+
