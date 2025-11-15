@@ -7,4 +7,6 @@ pub const VERSION: &str = "0.0.1";
 
 pub mod anthropic;
 
-pub use anthropic::chat::{AnthropicChatAdapter, AnthropicChatStandard};
+pub use anthropic::chat::{
+    AnthropicChatAdapter, AnthropicChatStandard, AnthropicDefaultChatAdapter,
+};

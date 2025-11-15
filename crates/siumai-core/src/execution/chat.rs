@@ -1,6 +1,7 @@
 //! Minimal chat transformers for standards
 
 use crate::error::LlmError;
+use crate::types::FinishReasonCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -43,7 +44,7 @@ pub struct ChatUsage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatResult {
     pub content: String,
-    pub finish_reason: Option<String>,
+    pub finish_reason: Option<FinishReasonCore>,
     pub usage: Option<ChatUsage>,
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,

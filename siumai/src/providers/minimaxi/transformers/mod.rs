@@ -4,4 +4,4 @@ pub mod audio;
 pub mod image;
 
 pub use audio::MinimaxiAudioTransformer;
-pub use image::{MinimaxiImageAdapter, create_minimaxi_image_standard};
+pub use image::MinimaxiImageAdapter;

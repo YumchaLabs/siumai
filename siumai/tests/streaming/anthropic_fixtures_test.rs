@@ -1,14 +1,36 @@
 //! Anthropic streaming fixtures tests
 
-use siumai::params::AnthropicParams;
-use siumai::providers::anthropic::streaming::AnthropicEventConverter;
+use siumai::core::{ProviderContext, ProviderSpec};
 use siumai::streaming::ChatStreamEvent;
+use siumai::types::{ChatMessage, ChatRequest, CommonParams};
 
 use crate::support;
 
-fn make_anthropic_converter() -> AnthropicEventConverter {
-    let cfg = AnthropicParams::default();
-    AnthropicEventConverter::new(cfg)
+/// 使用 Anthropic 核心标准 + bridge 后的运行时 streaming transformer。
+fn make_anthropic_converter() -> impl siumai::streaming::SseEventConverter + Clone + 'static {
+    // 构造一个最小的 ChatRequest；具体内容对 streaming 形状不重要。
+    let req = ChatRequest::builder()
+        .messages(vec![ChatMessage::user("hello").build()])
+        .common_params(CommonParams {
+            model: "claude-3-sonnet".to_string(),
+            ..Default::default()
+        })
+        .build();
+
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com".to_string(),
+        None,
+        std::collections::HashMap::new(),
+    );
+
+    let spec = siumai::providers::anthropic::spec::AnthropicSpec::new();
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    siumai::streaming::TransformerConverter(
+        bundle
+            .stream
+            .expect("Anthropic should provide streaming transformers"),
+    )
 }
 
 #[tokio::test]

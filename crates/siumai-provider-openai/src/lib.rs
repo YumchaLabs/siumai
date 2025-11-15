@@ -34,7 +34,8 @@ pub mod spec {
     use siumai_core::execution::streaming::ChatStreamEventCore;
     use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderContext, CoreProviderSpec};
     use siumai_core::traits::ProviderCapabilities;
-    use siumai_std_openai::openai::chat::OpenAiChatStandard;
+    use siumai_std_openai::openai::chat::{OpenAiChatStandard, OpenAiDefaultChatAdapter};
+    use std::sync::Arc;
 
     /// Core OpenAI provider spec backed by the OpenAI standard.
     ///
@@ -52,7 +53,9 @@ pub mod spec {
         /// Create a new core spec using the default OpenAI Chat standard.
         pub fn new() -> Self {
             Self {
-                chat_standard: OpenAiChatStandard::new(),
+                chat_standard: OpenAiChatStandard::with_adapter(Arc::new(
+                    OpenAiDefaultChatAdapter::default(),
+                )),
             }
         }
 

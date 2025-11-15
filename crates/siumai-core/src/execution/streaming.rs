@@ -1,6 +1,7 @@
 //! Core streaming event traits and types (provider-agnostic)
 
 use crate::error::LlmError;
+use crate::types::FinishReasonCore;
 use eventsource_stream::Event;
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +27,9 @@ pub enum ChatStreamEventCore {
         total_tokens: u32,
     },
     StreamStart {},
+    StreamEnd {
+        finish_reason: Option<FinishReasonCore>,
+    },
     Custom {
         event_type: String,
         data: serde_json::Value,

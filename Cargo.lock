@@ -2982,9 +2982,11 @@ dependencies = [
  "serde_json",
  "siumai-core",
  "siumai-provider-anthropic",
+ "siumai-provider-groq",
  "siumai-provider-minimaxi",
  "siumai-provider-openai",
  "siumai-provider-openai-compatible",
+ "siumai-provider-xai",
  "siumai-std-anthropic",
  "siumai-std-gemini",
  "siumai-std-openai",
@@ -3057,6 +3059,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "siumai-provider-groq"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-std-openai",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "siumai-provider-minimaxi"
 version = "0.0.1"
 dependencies = [
@@ -3086,6 +3101,19 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-openai-compatible"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-std-openai",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "siumai-provider-xai"
 version = "0.0.1"
 dependencies = [
  "async-trait",

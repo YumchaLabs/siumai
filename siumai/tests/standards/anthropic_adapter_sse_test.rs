@@ -7,7 +7,7 @@
 
 use eventsource_stream::Event;
 use siumai::error::LlmError;
-use siumai::streaming::ChatStreamEvent;
+use siumai_core::execution::streaming::ChatStreamEventCore;
 use siumai_std_anthropic::anthropic::chat::{AnthropicChatAdapter, AnthropicChatStandard};
 use std::sync::Arc;
 
@@ -55,9 +55,8 @@ async fn test_anthropic_standard_adapter_transforms_sse_events() {
     let adapter = Arc::new(MockAnthropicAdapter::new("[ADAPTED] "));
     let standard = AnthropicChatStandard::with_adapter(adapter);
 
-    // Create transformers
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    // Create stream converter
+    let stream_converter = standard.create_stream_converter("test-provider");
 
     // Create a mock Anthropic SSE event (content_block_delta)
     let event = Event {
@@ -69,14 +68,14 @@ async fn test_anthropic_standard_adapter_transforms_sse_events() {
     };
 
     // Convert event
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_converter.convert_event(event);
 
     // Verify transformation was applied
     assert!(!result.is_empty(), "Should have at least one event");
 
     let mut found_transformed = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result
             && delta.starts_with("[ADAPTED] ")
         {
             found_transformed = true;
@@ -95,9 +94,8 @@ async fn test_anthropic_standard_without_adapter_no_transformation() {
     // Create standard without adapter
     let standard = AnthropicChatStandard::new();
 
-    // Create transformers
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    // Create stream converter
+    let stream_converter = standard.create_stream_converter("test-provider");
 
     // Create a mock SSE event
     let event = Event {
@@ -109,14 +107,14 @@ async fn test_anthropic_standard_without_adapter_no_transformation() {
     };
 
     // Convert event
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_converter.convert_event(event);
 
     // Verify no transformation (original content)
     assert!(!result.is_empty());
 
     let mut found_content = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result {
             found_content = true;
             assert_eq!(delta, "Hello", "Content should not be transformed");
         }
@@ -134,7 +132,7 @@ async fn test_anthropic_adapter_error_handling() {
     impl AnthropicChatAdapter for FailingAdapter {
         fn transform_request(
             &self,
-            _req: &siumai::types::ChatRequest,
+            _req: &siumai_core::execution::chat::ChatInput,
             _params: &mut serde_json::Value,
         ) -> Result<(), LlmError> {
             Ok(())
@@ -153,8 +151,7 @@ async fn test_anthropic_adapter_error_handling() {
 
     let adapter = Arc::new(FailingAdapter);
     let standard = AnthropicChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_converter = standard.create_stream_converter("test-provider");
 
     let event = Event {
         event: "".to_string(),
@@ -164,7 +161,7 @@ async fn test_anthropic_adapter_error_handling() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_converter.convert_event(event);
 
     // Should return error
     assert_eq!(result.len(), 1);
@@ -175,8 +172,7 @@ async fn test_anthropic_adapter_error_handling() {
 async fn test_anthropic_adapter_invalid_json_handling() {
     let adapter = Arc::new(MockAnthropicAdapter::new("[TAG] "));
     let standard = AnthropicChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_converter = standard.create_stream_converter("test-provider");
 
     // Test with truly invalid JSON that even json-repair cannot fix
     // We use a string that violates JSON syntax in a way that cannot be repaired
@@ -189,7 +185,7 @@ async fn test_anthropic_adapter_invalid_json_handling() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_converter.convert_event(event);
 
     // When json-repair is enabled, malformed JSON might be repaired and processed
     // When json-repair is disabled, it should return a parse error
@@ -209,8 +205,7 @@ async fn test_anthropic_adapter_invalid_json_handling() {
 async fn test_anthropic_adapter_message_start_event() {
     let adapter = Arc::new(MockAnthropicAdapter::new("[PREFIX] "));
     let standard = AnthropicChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_converter = standard.create_stream_converter("test-provider");
 
     // message_start event (should not be transformed by our adapter)
     let event = Event {
@@ -221,7 +216,7 @@ async fn test_anthropic_adapter_message_start_event() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_converter.convert_event(event);
 
     // Should process without error (adapter doesn't modify message_start)
     // The actual events depend on the converter implementation
@@ -237,7 +232,7 @@ async fn test_anthropic_adapter_thinking_delta() {
     impl AnthropicChatAdapter for ThinkingAdapter {
         fn transform_request(
             &self,
-            _req: &siumai::types::ChatRequest,
+            _req: &siumai_core::execution::chat::ChatInput,
             _params: &mut serde_json::Value,
         ) -> Result<(), LlmError> {
             Ok(())
@@ -267,8 +262,7 @@ async fn test_anthropic_adapter_thinking_delta() {
 
     let adapter = Arc::new(ThinkingAdapter);
     let standard = AnthropicChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_converter = standard.create_stream_converter("test-provider");
 
     // Event with thinking content
     let event = Event {
@@ -279,12 +273,12 @@ async fn test_anthropic_adapter_thinking_delta() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_converter.convert_event(event);
 
     // Verify transformation
     let mut found = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result
             && delta.starts_with("[TEXT] ")
         {
             found = true;
@@ -303,7 +297,7 @@ async fn test_anthropic_adapter_preserves_event_structure() {
     impl AnthropicChatAdapter for MetadataAdapter {
         fn transform_request(
             &self,
-            _req: &siumai::types::ChatRequest,
+            _req: &siumai_core::execution::chat::ChatInput,
             _params: &mut serde_json::Value,
         ) -> Result<(), LlmError> {
             Ok(())
@@ -322,8 +316,7 @@ async fn test_anthropic_adapter_preserves_event_structure() {
 
     let adapter = Arc::new(MetadataAdapter);
     let standard = AnthropicChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_converter = standard.create_stream_converter("test-provider");
 
     let event = Event {
         event: "".to_string(),
@@ -333,7 +326,7 @@ async fn test_anthropic_adapter_preserves_event_structure() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_converter.convert_event(event);
 
     // Should process without error
     assert!(!result.is_empty() || result.is_empty());

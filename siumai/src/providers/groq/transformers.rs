@@ -1,14 +1,14 @@
-//! Audio transformers for Groq (TTS/STT)
+//! Transformers for Groq provider.
+//!
+//! This module now only contains request/response transformers for the
+//! non-core paths and audio transformers. Streaming for Groq chat is
+//! handled via the external `siumai-provider-groq` crate and the
+//! OpenAI Chat standard in `siumai-std-openai`.
+
 use crate::error::LlmError;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
-use crate::execution::transformers::{
-    request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
-};
-use crate::streaming::SseEventConverter;
+use crate::execution::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::types::{ChatRequest, ChatResponse, ContentPart, MessageContent, Usage};
-use eventsource_stream::Event;
-use std::future::Future;
-use std::pin::Pin;
 
 #[derive(Clone)]
 pub struct GroqAudioTransformer;
@@ -266,35 +266,3 @@ impl ResponseTransformer for GroqResponseTransformer {
         })
     }
 }
-
-/// Stream transformer wrapper for Groq
-#[derive(Clone)]
-pub struct GroqStreamChunkTransformer {
-    pub provider_id: String,
-    pub inner: super::streaming::GroqEventConverter,
-}
-
-impl StreamChunkTransformer for GroqStreamChunkTransformer {
-    fn provider_id(&self) -> &str {
-        &self.provider_id
-    }
-    fn convert_event(
-        &self,
-        event: Event,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>>
-                + Send
-                + Sync
-                + '_,
-        >,
-    > {
-        self.inner.convert_event(event)
-    }
-    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
-        self.inner.handle_stream_end()
-    }
-}
-
-// Tests for structured_output via provider_params have been removed
-// as this functionality is now handled via provider_options in ProviderSpec::chat_before_send()

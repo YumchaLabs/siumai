@@ -44,6 +44,19 @@
     - 覆盖 `openai` / `openai-compatible` / `minimaxi` 单开及 external/std-openai-external 的典型组合。
   - 新增本地脚本 `scripts/check-feature-matrix.sh` 用于快速验证常见组合。
 
+- ProviderOptions 标准化（阶段性完成）
+  - OpenAI：
+    - Chat 路径：`ProviderOptions::OpenAi` 通过 `openai_chat_request_to_core_input` 映射到 `ChatInput::extra`（键名 `openai_*`），由 `siumai-std-openai::OpenAiDefaultChatAdapter` 注入最终 JSON。
+    - Responses 路径：`ResponsesApiConfig` 通过 `ResponsesInput::extra` 传递，由 `OpenAiResponsesStandard` 扁平合并到 body；聚合层仅在 legacy 模式下保留少量 JSON 拼接。
+  - Anthropic：
+    - `AnthropicOptions`（thinking / response_format / prompt_caching）通过 `anthropic_like_chat_request_to_core_input` 映射到 `ChatInput::extra`（键名 `anthropic_*`），由 `AnthropicDefaultChatAdapter` 和标准工具函数注入 Messages JSON / `cache_control`。
+  - xAI：
+    - `XaiOptions` 在聚合层映射为 `ChatInput::extra["xai_search_parameters"]` / `"xai_reasoning_effort"`，由 `XaiOpenAiChatAdapter` 注入 OpenAI-compatible JSON 字段。
+  - Groq：
+    - `GroqOptions.extra_params` 统一落在 `ChatInput::extra["groq_extra_params"]`，由 `GroqOpenAiChatAdapter` merge 到最终请求体。
+  - Gemini：
+    - `GeminiOptions` 通过 `gemini_like_chat_request_to_core_input` 映射为 `ChatInput::extra["gemini_code_execution" | "gemini_search_grounding" | "gemini_file_search" | "gemini_response_mime_type"]`，由 `GeminiDefaultChatAdapter` 注入 `tools` / `generationConfig`。
+
 ## 当前可稳定通过的编译组合
 
 - `cargo check -p siumai`（默认 all-providers）。

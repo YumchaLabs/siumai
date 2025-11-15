@@ -370,7 +370,7 @@ mod tests_openai_rules {
 pub struct OpenAiResponsesRequestTransformer;
 
 impl OpenAiResponsesRequestTransformer {
-    fn convert_message(msg: &crate::types::ChatMessage) -> Result<serde_json::Value, LlmError> {
+    pub fn convert_message(msg: &crate::types::ChatMessage) -> Result<serde_json::Value, LlmError> {
         use crate::types::{ContentPart, MessageContent, MessageRole};
 
         // Tool role message becomes function_call_output item

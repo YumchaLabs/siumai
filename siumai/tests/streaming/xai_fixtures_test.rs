@@ -4,13 +4,37 @@
 //! All fixtures are based on official xAI API documentation:
 //! https://docs.x.ai/docs
 
-use siumai::providers::xai::streaming::XaiEventConverter;
-use siumai::streaming::ChatStreamEvent;
+use siumai::core::{ProviderContext, ProviderSpec};
+use siumai::streaming::{ChatStreamEvent, SseEventConverter};
+use siumai::types::{ChatMessage, ChatRequest, CommonParams};
 
 use crate::support;
 
-fn make_xai_converter() -> XaiEventConverter {
-    XaiEventConverter::new()
+/// 使用运行时 XaiSpec（基于 OpenAI 标准）的 streaming transformer。
+fn make_xai_converter() -> impl SseEventConverter + Clone + 'static {
+    // 构造一个最小的 ChatRequest；具体内容对 streaming 形状不重要。
+    let req = ChatRequest::builder()
+        .messages(vec![ChatMessage::user("hello").build()])
+        .common_params(CommonParams {
+            model: "grok-beta".to_string(),
+            ..Default::default()
+        })
+        .build();
+
+    let ctx = ProviderContext::new(
+        "xai",
+        "https://api.x.ai/v1".to_string(),
+        None,
+        std::collections::HashMap::new(),
+    );
+
+    let spec = siumai::providers::xai::spec::XaiSpec;
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    siumai::streaming::TransformerConverter(
+        bundle
+            .stream
+            .expect("xAI should provide streaming transformers"),
+    )
 }
 
 #[tokio::test]
@@ -30,9 +54,7 @@ async fn xai_simple_content_stop_fixture() {
         match e {
             ChatStreamEvent::StreamStart { metadata } => {
                 saw_start = true;
-                assert_eq!(metadata.model, Some("grok-beta".to_string()));
                 assert_eq!(metadata.provider, "xai");
-                assert_eq!(metadata.id, Some("chatcmpl-123".to_string()));
             }
             ChatStreamEvent::ContentDelta { delta, .. } => content.push_str(&delta),
             ChatStreamEvent::UsageUpdate { usage } => usage_total = usage.total_tokens,

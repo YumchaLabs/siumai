@@ -1,0 +1,19 @@
+[package]
+name = "siumai-provider-groq"
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Groq provider implementation for Siumai (extracted crate)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+siumai-core = { path = "../siumai-core" }
+siumai-std-openai = { path = "../siumai-std-openai" }
+
+[lib]
+name = "siumai_provider_groq"
+path = "src/lib.rs"

@@ -7,7 +7,7 @@
 
 use eventsource_stream::Event;
 use siumai::error::LlmError;
-use siumai::streaming::ChatStreamEvent;
+use siumai_core::execution::streaming::ChatStreamEventCore;
 use siumai_std_openai::openai::chat::{OpenAiChatAdapter, OpenAiChatStandard};
 use std::sync::Arc;
 
@@ -60,9 +60,8 @@ async fn test_openai_standard_adapter_transforms_sse_events() {
     let adapter = Arc::new(MockOpenAiAdapter::new("[TRANSFORMED] "));
     let standard = OpenAiChatStandard::with_adapter(adapter);
 
-    // Create transformers
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    // Create stream converter directly from standard
+    let stream_transformer = standard.create_stream_converter("test-provider");
 
     // Create a mock SSE event with content delta
     let event = Event {
@@ -73,18 +72,18 @@ async fn test_openai_standard_adapter_transforms_sse_events() {
     };
 
     // Convert event
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_transformer.convert_event(event);
 
     // Verify transformation was applied
     assert!(!result.is_empty(), "Should have at least one event");
 
     let mut found_transformed = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
-            && delta.starts_with("[TRANSFORMED] ")
-        {
-            found_transformed = true;
-            assert_eq!(delta, "[TRANSFORMED] Hello");
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result {
+            if delta.starts_with("[TRANSFORMED] ") {
+                found_transformed = true;
+                assert_eq!(delta, "[TRANSFORMED] Hello");
+            }
         }
     }
 
@@ -99,9 +98,8 @@ async fn test_openai_standard_without_adapter_no_transformation() {
     // Create standard without adapter
     let standard = OpenAiChatStandard::new();
 
-    // Create transformers
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    // Create stream converter directly from standard
+    let stream_transformer = standard.create_stream_converter("test-provider");
 
     // Create a mock SSE event
     let event = Event {
@@ -112,14 +110,14 @@ async fn test_openai_standard_without_adapter_no_transformation() {
     };
 
     // Convert event
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_transformer.convert_event(event);
 
     // Verify no transformation (original content)
     assert!(!result.is_empty());
 
     let mut found_content = false;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result {
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result {
             found_content = true;
             assert_eq!(delta, "Hello", "Content should not be transformed");
         }
@@ -137,7 +135,7 @@ async fn test_openai_adapter_error_handling() {
     impl OpenAiChatAdapter for FailingAdapter {
         fn transform_request(
             &self,
-            _req: &siumai::types::ChatRequest,
+            _req: &siumai_core::execution::chat::ChatInput,
             _params: &mut serde_json::Value,
         ) -> Result<(), LlmError> {
             Ok(())
@@ -156,8 +154,7 @@ async fn test_openai_adapter_error_handling() {
 
     let adapter = Arc::new(FailingAdapter);
     let standard = OpenAiChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_transformer = standard.create_stream_converter("test-provider");
 
     let event = Event {
         event: "".to_string(),
@@ -166,7 +163,7 @@ async fn test_openai_adapter_error_handling() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_transformer.convert_event(event);
 
     // Should return error
     assert_eq!(result.len(), 1);
@@ -177,8 +174,7 @@ async fn test_openai_adapter_error_handling() {
 async fn test_openai_adapter_invalid_json_handling() {
     let adapter = Arc::new(MockOpenAiAdapter::new("[PREFIX] "));
     let standard = OpenAiChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_transformer = standard.create_stream_converter("test-provider");
 
     // Test with truly invalid JSON that even json-repair cannot fix
     // We use a string that violates JSON syntax in a way that cannot be repaired
@@ -191,7 +187,7 @@ async fn test_openai_adapter_invalid_json_handling() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_transformer.convert_event(event);
 
     // When json-repair is enabled, malformed JSON might be repaired and processed
     // When json-repair is disabled, it should return a parse error
@@ -211,8 +207,7 @@ async fn test_openai_adapter_invalid_json_handling() {
 async fn test_openai_adapter_multiple_choices() {
     let adapter = Arc::new(MockOpenAiAdapter::new("[MULTI] "));
     let standard = OpenAiChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_transformer = standard.create_stream_converter("test-provider");
 
     // Event with multiple choices
     let event = Event {
@@ -223,15 +218,15 @@ async fn test_openai_adapter_multiple_choices() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_transformer.convert_event(event);
 
     // Should transform all choices
     let mut transformed_count = 0;
     for event_result in result {
-        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event_result
-            && delta.starts_with("[MULTI] ")
-        {
-            transformed_count += 1;
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result {
+            if delta.starts_with("[MULTI] ") {
+                transformed_count += 1;
+            }
         }
     }
 
@@ -250,7 +245,7 @@ async fn test_openai_adapter_preserves_other_fields() {
     impl OpenAiChatAdapter for SelectiveAdapter {
         fn transform_request(
             &self,
-            _req: &siumai::types::ChatRequest,
+            _req: &siumai_core::execution::chat::ChatInput,
             _params: &mut serde_json::Value,
         ) -> Result<(), LlmError> {
             Ok(())
@@ -279,8 +274,7 @@ async fn test_openai_adapter_preserves_other_fields() {
 
     let adapter = Arc::new(SelectiveAdapter);
     let standard = OpenAiChatStandard::with_adapter(adapter);
-    let transformers = standard.create_transformers("test-provider");
-    let stream_transformer = transformers.stream.expect("stream transformer");
+    let stream_transformer = standard.create_stream_converter("test-provider");
 
     // Event with role and content
     let event = Event {
@@ -290,7 +284,7 @@ async fn test_openai_adapter_preserves_other_fields() {
         retry: None,
     };
 
-    let result = stream_transformer.convert_event(event).await;
+    let result = stream_transformer.convert_event(event);
 
     // Verify content was modified but role preserved
     // Note: The actual verification depends on how the converter handles role

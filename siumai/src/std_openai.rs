@@ -13,4 +13,7 @@ pub mod openai {
     pub mod rerank {
         pub use siumai_std_openai::openai::rerank::*;
     }
+    pub mod responses {
+        pub use siumai_std_openai::openai::responses::*;
+    }
 }

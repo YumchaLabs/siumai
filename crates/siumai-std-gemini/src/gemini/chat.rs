@@ -9,7 +9,9 @@ use siumai_core::execution::chat::{
     ChatInput, ChatRequestTransformer, ChatResponseTransformer, ChatResult, ChatRole, ChatUsage,
 };
 use siumai_core::execution::streaming::{ChatStreamEventConverterCore, ChatStreamEventCore};
+use siumai_core::types::FinishReasonCore;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Core-level Gemini Chat standard.
 #[derive(Clone, Default)]
@@ -57,6 +59,7 @@ impl GeminiChatStandard {
         Arc::new(GeminiChatStreamConv {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
+            ended: Arc::new(AtomicBool::new(false)),
         })
     }
 }
@@ -82,6 +85,72 @@ pub trait GeminiChatAdapter: Send + Sync {
 
     /// Transform SSE event payload prior to conversion.
     fn transform_sse_event(&self, _event: &mut serde_json::Value) -> Result<(), LlmError> {
+        Ok(())
+    }
+}
+
+/// 默认 Gemini Chat 适配器
+///
+/// 从 `ChatInput::extra` 中读取 Gemini-specific 配置，并注入最终请求 JSON：
+/// - `gemini_code_execution` → `tools` 里的 `code_execution` entry
+/// - `gemini_search_grounding` → `tools` 里的 `google_search` entry
+/// - `gemini_file_search` → `tools` 里的 `file_search` entry
+/// - `gemini_response_mime_type` → `generationConfig.response_mime_type`
+#[derive(Clone, Default)]
+pub struct GeminiDefaultChatAdapter;
+
+impl GeminiChatAdapter for GeminiDefaultChatAdapter {
+    fn transform_request(
+        &self,
+        input: &ChatInput,
+        body: &mut serde_json::Value,
+    ) -> Result<(), LlmError> {
+        // Tools array
+        let mut tools = body
+            .get("tools")
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+
+        if let Some(v) = input.extra.get("gemini_code_execution") {
+            if v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false) {
+                tools.push(serde_json::json!({ "code_execution": {} }));
+            }
+        }
+
+        if let Some(v) = input.extra.get("gemini_search_grounding") {
+            if v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false) {
+                let mut tool = serde_json::json!({ "google_search": {} });
+                if let Some(dr) = v.get("dynamic_retrieval_config") {
+                    tool["google_search"]["dynamic_retrieval_config"] = dr.clone();
+                }
+                tools.push(tool);
+            }
+        }
+
+        if let Some(v) = input.extra.get("gemini_file_search") {
+            if let Some(stores) = v.get("file_search_store_names")
+                && stores.is_array()
+            {
+                tools.push(serde_json::json!({
+                    "file_search": {
+                        "file_search_store_names": stores.clone()
+                    }
+                }));
+            }
+        }
+
+        if !tools.is_empty() {
+            body["tools"] = serde_json::Value::Array(tools);
+        }
+
+        if let Some(mime) = input
+            .extra
+            .get("gemini_response_mime_type")
+            .and_then(|v| v.as_str())
+        {
+            body["generationConfig"]["response_mime_type"] = serde_json::json!(mime);
+        }
+
         Ok(())
     }
 }
@@ -179,8 +248,9 @@ impl ChatResponseTransformer for GeminiChatResponseTx {
             .unwrap_or("")
             .to_string();
 
-        // Canonicalize finishReason into a minimal string representation.
-        let finish_reason = resp
+        // Canonicalize finishReason into a minimal string representation, then map
+        // into the core-level FinishReasonCore enum.
+        let finish_reason_str = resp
             .get("candidates")
             .and_then(|c| c.as_array())
             .and_then(|arr| arr.first())
@@ -193,6 +263,7 @@ impl ChatResponseTransformer for GeminiChatResponseTx {
                 "SAFETY" | "RECITATION" => "content_filter".to_string(),
                 other => other.to_lowercase(),
             });
+        let finish_reason = FinishReasonCore::from_str(finish_reason_str.as_deref());
 
         let usage = resp.get("usageMetadata").map(|u| ChatUsage {
             prompt_tokens: u
@@ -211,8 +282,6 @@ impl ChatResponseTransformer for GeminiChatResponseTx {
 
         Ok(ChatResult {
             content: text,
-            // The aggregator is responsible for mapping this canonical string
-            // into its own FinishReason enum.
             finish_reason,
             usage,
             metadata: Default::default(),
@@ -224,6 +293,7 @@ impl ChatResponseTransformer for GeminiChatResponseTx {
 struct GeminiChatStreamConv {
     provider_id: String,
     adapter: Option<Arc<dyn GeminiChatAdapter>>,
+    ended: Arc<AtomicBool>,
 }
 
 impl ChatStreamEventConverterCore for GeminiChatStreamConv {
@@ -364,6 +434,24 @@ impl ChatStreamEventConverterCore for GeminiChatStreamConv {
             }));
         }
 
+        // Emit StreamEnd when finishReason is present on the first candidate.
+        if let Some(candidates) = &resp.candidates {
+            if let Some(first) = candidates.first() {
+                if let Some(fr) = &first.finish_reason {
+                    let canon = match fr.as_str() {
+                        "STOP" => "stop".to_string(),
+                        "MAX_TOKENS" => "length".to_string(),
+                        "SAFETY" | "RECITATION" => "content_filter".to_string(),
+                        other => other.to_lowercase(),
+                    };
+                    let finish_reason = FinishReasonCore::from_str(Some(&canon));
+                    // Mark that a StreamEnd has been emitted for this stream.
+                    self.ended.store(true, Ordering::Relaxed);
+                    out.push(Ok(ChatStreamEventCore::StreamEnd { finish_reason }));
+                }
+            }
+        }
+
         if out.is_empty() {
             out.push(Ok(ChatStreamEventCore::Custom {
                 event_type: "gemini:unknown_chunk".into(),
@@ -372,5 +460,20 @@ impl ChatStreamEventConverterCore for GeminiChatStreamConv {
         }
 
         out
+    }
+
+    fn handle_stream_end(&self) -> Option<Result<ChatStreamEventCore, LlmError>> {
+        // Avoid emitting duplicate StreamEnd events.
+        if self
+            .ended
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return None;
+        }
+
+        Some(Ok(ChatStreamEventCore::StreamEnd {
+            finish_reason: None,
+        }))
     }
 }

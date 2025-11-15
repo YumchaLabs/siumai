@@ -1,10 +1,12 @@
 //! Core-level finish reason abstraction (provider-agnostic)
 
+use serde::{Deserialize, Serialize};
+
 /// Minimal finish reasons used by standards and providers.
 ///
 /// This enum is intentionally small; aggregation crates can map it to
 /// richer, provider-specific enums (e.g. `crate::types::FinishReason`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FinishReasonCore {
     Stop,
     Length,

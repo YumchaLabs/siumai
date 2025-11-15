@@ -3,9 +3,8 @@ use crate::error::LlmError;
 use crate::execution::http::headers::ProviderHeaders;
 use crate::std_anthropic::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
-use crate::types::{ChatRequest, ProviderOptions};
+use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
-use std::sync::Arc;
 
 /// Anthropic ProviderSpec implementation
 ///
@@ -118,20 +117,14 @@ impl ProviderSpec for AnthropicSpec {
             };
             use siumai_core::provider_spec::CoreChatTransformers;
 
-            let core_ctx = ctx.to_core_context();
-            let core_input = anthropic_like_chat_request_to_core_input(req);
-
             let core_txs: CoreChatTransformers = CoreChatTransformers {
                 request: self
                     .chat_standard
-                    .create_request_transformer(&core_ctx.provider_id),
+                    .create_request_transformer(&ctx.provider_id),
                 response: self
                     .chat_standard
-                    .create_response_transformer(&core_ctx.provider_id),
-                stream: Some(
-                    self.chat_standard
-                        .create_stream_converter(&core_ctx.provider_id),
-                ),
+                    .create_response_transformer(&ctx.provider_id),
+                stream: Some(self.chat_standard.create_stream_converter(&ctx.provider_id)),
             };
 
             bridge_core_chat_transformers(
@@ -141,14 +134,48 @@ impl ProviderSpec for AnthropicSpec {
             )
         }
 
+        // When neither external provider nor external standard is enabled,
+        // Anthropic chat is not wired through the unified core pipeline.
+        // This configuration is no longer supported, so we return a
+        // transformer set that reports UnsupportedOperation for chat.
         #[cfg(all(
             not(feature = "provider-anthropic-external"),
             not(feature = "std-anthropic-external")
         ))]
         {
-            // Use standard Anthropic Messages API from in-crate standards layer
-            let spec = self.chat_standard.create_spec("anthropic");
-            spec.choose_chat_transformers(req, ctx)
+            use crate::core::provider_spec::ChatTransformers;
+            use crate::execution::transformers::request::RequestTransformer;
+            use crate::execution::transformers::response::ResponseTransformer;
+
+            struct UnsupportedReq;
+            impl RequestTransformer for UnsupportedReq {
+                fn provider_id(&self) -> &str {
+                    "anthropic"
+                }
+                fn transform_chat(
+                    &self,
+                    _req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Anthropic chat is not available without std-anthropic-external or provider-anthropic-external"
+                            .to_string(),
+                    ))
+                }
+            }
+
+            struct UnsupportedResp;
+            impl ResponseTransformer for UnsupportedResp {
+                fn provider_id(&self) -> &str {
+                    "anthropic"
+                }
+            }
+
+            ChatTransformers {
+                request: Arc::new(UnsupportedReq),
+                response: Arc::new(UnsupportedResp),
+                stream: None,
+                json: None,
+            }
         }
     }
 
@@ -162,61 +189,12 @@ impl ProviderSpec for AnthropicSpec {
             return Some(hook);
         }
 
-        // 2. Handle Anthropic-specific options (thinking_mode, response_format)
-        let (thinking_mode, response_format) =
-            if let ProviderOptions::Anthropic(ref options) = req.provider_options {
-                (
-                    options.thinking_mode.clone(),
-                    options.response_format.clone(),
-                )
-            } else {
-                return None;
-            };
-
-        // If neither thinking nor response format configured, nothing to inject
-        if thinking_mode.is_none() && response_format.is_none() {
-            return None;
-        }
-
-        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-            let mut out = body.clone();
-
-            // Inject thinking mode configuration
-            if let Some(ref thinking) = thinking_mode
-                && thinking.enabled
-            {
-                let mut thinking_config = serde_json::json!({ "type": "enabled" });
-                if let Some(budget) = thinking.thinking_budget {
-                    thinking_config["budget_tokens"] = serde_json::json!(budget);
-                }
-                out["thinking"] = thinking_config;
-            }
-
-            // Inject structured output if configured
-            if let Some(ref rf) = response_format {
-                match rf {
-                    crate::types::AnthropicResponseFormat::JsonObject => {
-                        out["response_format"] = serde_json::json!({ "type": "json_object" });
-                    }
-                    crate::types::AnthropicResponseFormat::JsonSchema {
-                        name,
-                        schema,
-                        strict,
-                    } => {
-                        out["response_format"] = serde_json::json!({
-                            "type": "json_schema",
-                            "json_schema": {
-                                "name": name,
-                                "strict": strict,
-                                "schema": schema
-                            }
-                        });
-                    }
-                }
-            }
-
-            Ok(out)
-        };
-        Some(Arc::new(hook))
+        // 2. Anthropic-specific typed options（thinking / response_format）已经在
+        // `anthropic_like_chat_request_to_core_input` 中映射到 `ChatInput::extra`
+        //（键名 `anthropic_thinking` / `anthropic_response_format`），并由
+        // `siumai-std-anthropic` 默认适配器注入最终 JSON。
+        //
+        // 因此这里不再处理这些字段，避免与标准层职责重叠。
+        None
     }
 }

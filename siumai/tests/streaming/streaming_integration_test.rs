@@ -4,7 +4,6 @@
 //! based streaming infrastructure correctly.
 
 use eventsource_stream::Event;
-use siumai::providers::anthropic::streaming::AnthropicEventConverter;
 use siumai::providers::gemini::streaming::GeminiEventConverter;
 use siumai::providers::ollama::streaming::OllamaEventConverter;
 use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
@@ -71,6 +70,33 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
 use siumai::streaming::ChatStreamEvent;
 use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
 
+/// 使用运行时 Anthropic ProviderSpec（含 core 标准）的薄适配器。
+fn make_anthropic_std_converter() -> std::sync::Arc<dyn SseEventConverter> {
+    use siumai::core::{ProviderContext, ProviderSpec};
+    use siumai::types::{ChatMessage, ChatRequest, CommonParams};
+
+    let req = ChatRequest::builder()
+        .messages(vec![ChatMessage::user("hello").build()])
+        .common_params(CommonParams {
+            model: "claude-3-sonnet".to_string(),
+            ..Default::default()
+        })
+        .build();
+
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com".to_string(),
+        None,
+        std::collections::HashMap::new(),
+    );
+
+    let spec = siumai::providers::anthropic::spec::AnthropicSpec::new();
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    bundle
+        .stream
+        .expect("Anthropic should provide streaming transformers")
+}
+
 #[tokio::test]
 async fn test_openai_event_conversion() {
     let converter = make_openai_converter();
@@ -99,8 +125,7 @@ async fn test_openai_event_conversion() {
 
 #[tokio::test]
 async fn test_anthropic_event_conversion() {
-    let config = siumai::params::AnthropicParams::default();
-    let converter = AnthropicEventConverter::new(config);
+    let converter = make_anthropic_std_converter();
 
     // Test content delta
     let event = Event {

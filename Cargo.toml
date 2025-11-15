@@ -11,6 +11,8 @@ members = [
     "crates/siumai-provider-openai-compatible",
     "crates/siumai-provider-anthropic",
     "crates/siumai-provider-minimaxi",
+    "crates/siumai-provider-xai",
+    "crates/siumai-provider-groq",
 ]
 
 [workspace.package]

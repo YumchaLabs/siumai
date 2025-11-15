@@ -6,7 +6,10 @@ use siumai_core::error::LlmError;
 use siumai_core::execution::chat::{
     ChatInput, ChatRequestTransformer, ChatResponseTransformer, ChatResult, ChatRole, ChatUsage,
 };
+use siumai_core::execution::streaming::ChatStreamEventCore;
+use siumai_core::types::FinishReasonCore;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone)]
 pub struct OpenAiChatStandard {
@@ -42,10 +45,10 @@ impl OpenAiChatStandard {
         &self,
         provider_id: &str,
     ) -> Arc<dyn siumai_core::execution::streaming::ChatStreamEventConverterCore> {
-        Arc::new(OpenAiChatStreamConverter {
-            provider_id: provider_id.to_string(),
-            adapter: self.adapter.clone(),
-        })
+        Arc::new(OpenAiChatStreamConverter::new(
+            provider_id.to_string(),
+            self.adapter.clone(),
+        ))
     }
 }
 
@@ -75,10 +78,76 @@ pub trait OpenAiChatAdapter: Send + Sync {
     }
 }
 
+/// Default OpenAI Chat adapter used by the provider crates.
+///
+/// This adapter is intentionally minimal and only consumes a subset of
+/// `ChatInput::extra` keys that are populated by the aggregator:
+/// - `openai_reasoning_effort`: serialized `ReasoningEffort`
+/// - `openai_service_tier`: serialized `ServiceTier`
+///
+/// Additional OpenAI-specific options can be moved here gradually so
+/// that JSON shaping logic lives close to the standard instead of the
+/// aggregator crate.
+#[derive(Clone, Default)]
+pub struct OpenAiDefaultChatAdapter;
+
+impl OpenAiChatAdapter for OpenAiDefaultChatAdapter {
+    fn transform_request(
+        &self,
+        input: &ChatInput,
+        body: &mut serde_json::Value,
+    ) -> Result<(), LlmError> {
+        // Reasoning effort (o1/o3 models)
+        if let Some(v) = input.extra.get("openai_reasoning_effort") {
+            body["reasoning_effort"] = v.clone();
+        }
+
+        // Service tier preference
+        if let Some(v) = input.extra.get("openai_service_tier") {
+            body["service_tier"] = v.clone();
+        }
+
+        // Modalities (e.g., ["text","audio"])
+        if let Some(v) = input.extra.get("openai_modalities") {
+            body["modalities"] = v.clone();
+        }
+
+        // Audio configuration
+        if let Some(v) = input.extra.get("openai_audio") {
+            body["audio"] = v.clone();
+        }
+
+        // Prediction content
+        if let Some(v) = input.extra.get("openai_prediction") {
+            body["prediction"] = v.clone();
+        }
+
+        // Web search options
+        if let Some(v) = input.extra.get("openai_web_search_options") {
+            body["web_search_options"] = v.clone();
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 struct OpenAiChatStreamConverter {
     provider_id: String,
     adapter: Option<Arc<dyn OpenAiChatAdapter>>,
+    started: Arc<AtomicBool>,
+    ended: Arc<AtomicBool>,
+}
+
+impl OpenAiChatStreamConverter {
+    fn new(provider_id: String, adapter: Option<Arc<dyn OpenAiChatAdapter>>) -> Self {
+        Self {
+            provider_id,
+            adapter,
+            started: Arc::new(AtomicBool::new(false)),
+            ended: Arc::new(AtomicBool::new(false)),
+        }
+    }
 }
 
 impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiChatStreamConverter {
@@ -91,10 +160,23 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
     ) -> Vec<Result<siumai_core::execution::streaming::ChatStreamEventCore, LlmError>> {
         let mut out = Vec::new();
         let data = event.data;
-        if data.trim() == "[DONE]" {
+        let trimmed = data.trim();
+        if trimmed == "[DONE]" {
             return out;
         }
-        let mut v: serde_json::Value = match serde_json::from_str(&data) {
+
+        // Emit a StreamStart event once per stream, on the first non-[DONE] chunk.
+        if self
+            .started
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            out.push(Ok(
+                siumai_core::execution::streaming::ChatStreamEventCore::StreamStart {},
+            ));
+        }
+
+        let mut v: serde_json::Value = match serde_json::from_str(trimmed) {
             Ok(v) => v,
             Err(e) => {
                 return vec![Err(LlmError::ParseError(format!(
@@ -112,12 +194,10 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
             for (i, ch) in choices.iter().enumerate() {
                 if let Some(delta) = ch.get("delta") {
                     if let Some(text) = delta.get("content").and_then(|s| s.as_str()) {
-                        out.push(Ok(
-                            siumai_core::execution::streaming::ChatStreamEventCore::ContentDelta {
-                                delta: text.to_string(),
-                                index: Some(i),
-                            },
-                        ));
+                        out.push(Ok(ChatStreamEventCore::ContentDelta {
+                            delta: text.to_string(),
+                            index: Some(i),
+                        }));
                     }
                     if let Some(tc_arr) = delta.get("tool_calls").and_then(|a| a.as_array()) {
                         for tc in tc_arr.iter() {
@@ -131,7 +211,12 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
                                 .get("arguments")
                                 .and_then(|s| s.as_str())
                                 .map(|s| s.to_string());
-                            out.push(Ok(siumai_core::execution::streaming::ChatStreamEventCore::ToolCallDelta { id, function_name: name, arguments_delta: args, index: Some(i) }));
+                            out.push(Ok(ChatStreamEventCore::ToolCallDelta {
+                                id,
+                                function_name: name,
+                                arguments_delta: args,
+                                index: Some(i),
+                            }));
                         }
                     }
                 }
@@ -150,14 +235,25 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
                 .get("total_tokens")
                 .and_then(|n| n.as_u64())
                 .unwrap_or(pt as u64 + ct as u64) as u32;
-            out.push(Ok(
-                siumai_core::execution::streaming::ChatStreamEventCore::UsageUpdate {
-                    prompt_tokens: pt,
-                    completion_tokens: ct,
-                    total_tokens: tt,
-                },
-            ));
+            out.push(Ok(ChatStreamEventCore::UsageUpdate {
+                prompt_tokens: pt,
+                completion_tokens: ct,
+                total_tokens: tt,
+            }));
         }
+
+        // Emit a StreamEnd event when finish_reason is present in the chunk.
+        if let Some(choices) = v.get("choices").and_then(|c| c.as_array()) {
+            if let Some(first) = choices.first() {
+                if let Some(reason_str) = first.get("finish_reason").and_then(|r| r.as_str()) {
+                    let finish_reason = FinishReasonCore::from_str(Some(reason_str));
+                    // Mark that we have emitted a StreamEnd for this stream.
+                    self.ended.store(true, Ordering::Relaxed);
+                    out.push(Ok(ChatStreamEventCore::StreamEnd { finish_reason }));
+                }
+            }
+        }
+
         if out.is_empty() {
             out.push(Ok(
                 siumai_core::execution::streaming::ChatStreamEventCore::Custom {
@@ -167,6 +263,23 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
             ));
         }
         out
+    }
+
+    fn handle_stream_end(
+        &self,
+    ) -> Option<Result<siumai_core::execution::streaming::ChatStreamEventCore, LlmError>> {
+        // If a StreamEnd was already emitted for this stream, do not emit another.
+        if self
+            .ended
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return None;
+        }
+
+        Some(Ok(ChatStreamEventCore::StreamEnd {
+            finish_reason: None,
+        }))
     }
 }
 
@@ -251,9 +364,8 @@ impl ChatResponseTransformer for OpenAiChatResponseTransformer {
             .as_str()
             .unwrap_or("")
             .to_string();
-        let finish_reason = resp["choices"][0]["finish_reason"]
-            .as_str()
-            .map(|s| s.to_string());
+        let finish_reason_str = resp["choices"][0]["finish_reason"].as_str();
+        let finish_reason = FinishReasonCore::from_str(finish_reason_str);
         let usage = if let Some(u) = resp.get("usage") {
             Some(ChatUsage {
                 prompt_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,

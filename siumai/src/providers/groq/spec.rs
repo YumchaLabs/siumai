@@ -1,7 +1,7 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
 use crate::traits::ProviderCapabilities;
+use crate::types::{ChatRequest, ProviderOptions};
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -22,11 +22,13 @@ impl ProviderSpec for GroqSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("Groq API key not provided".into()))?;
-        ProviderHeaders::groq(api_key, &ctx.http_extra_headers)
+        use siumai_core::provider_spec::CoreProviderSpec;
+
+        // Delegate header construction to core-level Groq spec, which in turn
+        // uses the OpenAI Chat standard implementation.
+        let core_ctx = ctx.to_core_context();
+        let core_spec = siumai_provider_groq::GroqCoreSpec::new();
+        core_spec.build_headers(&core_ctx)
     }
 
     fn chat_url(
@@ -35,29 +37,52 @@ impl ProviderSpec for GroqSpec {
         _req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> String {
-        // Base URL already includes "/openai/v1" (see GroqConfig::DEFAULT_BASE_URL).
-        // Append only the operation path to avoid duplicating the prefix.
-        format!("{}/chat/completions", ctx.base_url.trim_end_matches('/'))
+        use siumai_core::provider_spec::CoreProviderSpec;
+
+        // Delegate route resolution to core-level Groq spec.
+        let core_ctx = ctx.to_core_context();
+        let core_spec = siumai_provider_groq::GroqCoreSpec::new();
+        core_spec.chat_url(&core_ctx)
     }
 
     fn choose_chat_transformers(
         &self,
-        _req: &crate::types::ChatRequest,
-        _ctx: &ProviderContext,
+        req: &crate::types::ChatRequest,
+        ctx: &ProviderContext,
     ) -> ChatTransformers {
-        let req_tx = crate::providers::groq::transformers::GroqRequestTransformer;
-        let resp_tx = crate::providers::groq::transformers::GroqResponseTransformer;
-        let inner = crate::providers::groq::streaming::GroqEventConverter::new();
-        let stream_tx = crate::providers::groq::transformers::GroqStreamChunkTransformer {
-            provider_id: "groq".to_string(),
-            inner,
+        use crate::core::provider_spec::{
+            bridge_core_chat_transformers, map_core_stream_event_with_provider,
+            openai_like_chat_request_to_core_input,
         };
-        ChatTransformers {
-            request: Arc::new(req_tx),
-            response: Arc::new(resp_tx),
-            stream: Some(Arc::new(stream_tx)),
-            json: None,
+        use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
+
+        // 将 ChatRequest 映射为带 Groq provider options 的 ChatInput。
+        fn groq_chat_request_to_core_input(
+            req: &ChatRequest,
+        ) -> siumai_core::execution::chat::ChatInput {
+            let mut input = openai_like_chat_request_to_core_input(req);
+
+            if let ProviderOptions::Groq(ref options) = req.provider_options
+                && !options.extra_params.is_empty()
+            {
+                if let Ok(v) = serde_json::to_value(&options.extra_params) {
+                    input.extra.insert("groq_extra_params".to_string(), v);
+                }
+            }
+
+            input
         }
+
+        let core_ctx = ctx.to_core_context();
+        let core_input = groq_chat_request_to_core_input(req);
+
+        let core_spec = siumai_provider_groq::GroqCoreSpec::new();
+        let core_txs: CoreChatTransformers =
+            core_spec.choose_chat_transformers(&core_input, &core_ctx);
+
+        bridge_core_chat_transformers(core_txs, groq_chat_request_to_core_input, |evt| {
+            map_core_stream_event_with_provider("groq", evt)
+        })
     }
 
     fn audio_base_url(&self, ctx: &ProviderContext) -> String {

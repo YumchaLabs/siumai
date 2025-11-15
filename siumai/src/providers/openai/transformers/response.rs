@@ -2,6 +2,8 @@
 
 use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
+#[cfg(feature = "std-openai-external")]
+use crate::std_openai::openai::responses::{OpenAiResponsesStandard, parse_responses_output};
 use crate::types::{
     ChatResponse, EmbeddingResponse, EmbeddingUsage, GeneratedImage, ImageGenerationResponse,
 };
@@ -203,79 +205,117 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
         use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
-        let root = raw.get("response").unwrap_or(raw);
+        #[cfg(feature = "std-openai-external")]
+        let (root, core_usage, core_finish) = {
+            use siumai_core::execution::responses::ResponsesResponseTransformer;
 
-        // Build content parts
-        let mut content_parts = Vec::new();
+            let standard = OpenAiResponsesStandard::new();
+            let tx = standard.create_response_transformer("openai_responses");
+            match tx.transform_responses_response(raw) {
+                Ok(res) => (res.output, res.usage, res.finish_reason),
+                Err(_) => (
+                    raw.get("response").cloned().unwrap_or_else(|| raw.clone()),
+                    None,
+                    None,
+                ),
+            }
+        };
 
-        // Extract text content from output[*].content[*].text
-        let mut text_content = String::new();
-        if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
-            for item in output {
-                if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
-                    for p in parts {
-                        if let Some(t) = p.get("text").and_then(|v| v.as_str()) {
-                            if !text_content.is_empty() {
-                                text_content.push('\n');
+        #[cfg(not(feature = "std-openai-external"))]
+        let (root, core_usage, core_finish) = (
+            raw.get("response").cloned().unwrap_or_else(|| raw.clone()),
+            None,
+            None,
+        );
+
+        let root_ref = &root;
+
+        // Build content parts (text + tool calls)
+        let (text_content, mut content_parts) = {
+            #[cfg(feature = "std-openai-external")]
+            {
+                let parsed = parse_responses_output(root_ref);
+                let mut parts = Vec::new();
+                if !parsed.text.is_empty() {
+                    parts.push(ContentPart::text(&parsed.text));
+                }
+                for tc in parsed.tool_calls {
+                    parts.push(ContentPart::tool_call(tc.id, tc.name, tc.arguments, None));
+                }
+                (parsed.text, parts)
+            }
+            #[cfg(not(feature = "std-openai-external"))]
+            {
+                let mut parts = Vec::new();
+                let mut text = String::new();
+                if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
+                    for item in output {
+                        if let Some(content_parts_arr) =
+                            item.get("content").and_then(|c| c.as_array())
+                        {
+                            for p in content_parts_arr {
+                                if let Some(t) = p.get("text").and_then(|v| v.as_str()) {
+                                    if !text.is_empty() {
+                                        text.push('\n');
+                                    }
+                                    text.push_str(t);
+                                }
                             }
-                            text_content.push_str(t);
                         }
                     }
                 }
-            }
-        }
-
-        // Add text content if present
-        if !text_content.is_empty() {
-            content_parts.push(ContentPart::text(&text_content));
-        }
-
-        // Tool calls (support nested function object or flattened)
-        if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
-            for item in output {
-                if let Some(calls) = item.get("tool_calls").and_then(|tc| tc.as_array()) {
-                    for call in calls {
-                        let id = call
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let (name, arguments) = if let Some(f) = call.get("function") {
-                            (
-                                f.get("name")
+                if !text.is_empty() {
+                    parts.push(ContentPart::text(&text));
+                }
+                if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
+                    for item in output {
+                        if let Some(calls) = item.get("tool_calls").and_then(|tc| tc.as_array()) {
+                            for call in calls {
+                                let id = call
+                                    .get("id")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
-                                    .to_string(),
-                                f.get("arguments")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            )
-                        } else {
-                            (
-                                call.get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                call.get("arguments")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                            )
-                        };
-                        if !name.is_empty() {
-                            // Parse arguments string to JSON Value
-                            let args_value = serde_json::from_str(&arguments)
-                                .unwrap_or(serde_json::Value::String(arguments));
-                            content_parts.push(ContentPart::tool_call(id, name, args_value, None));
+                                    .to_string();
+                                let (name, arguments) = if let Some(f) = call.get("function") {
+                                    (
+                                        f.get("name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        f.get("arguments")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                    )
+                                } else {
+                                    (
+                                        call.get("name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        call.get("arguments")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                    )
+                                };
+                                if !name.is_empty() {
+                                    let args_value = serde_json::from_str(&arguments)
+                                        .unwrap_or(serde_json::Value::String(arguments));
+                                    parts.push(ContentPart::tool_call(id, name, args_value, None));
+                                }
+                            }
                         }
                     }
                 }
+                (text, parts)
             }
-        }
+        };
 
         // Usage
-        let usage = root.get("usage").map(|u| {
+        fn parse_usage_from_root(root: &serde_json::Value) -> Option<Usage> {
+            let u = root.get("usage")?;
+
             let prompt_tokens = u
                 .get("input_tokens")
                 .or_else(|| u.get("prompt_tokens"))
@@ -311,21 +351,88 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 builder = builder.with_reasoning_tokens(reasoning);
             }
 
-            builder.build()
-        });
+            Some(builder.build())
+        }
+
+        let usage = {
+            #[cfg(feature = "std-openai-external")]
+            {
+                core_usage
+                    .map(|u| {
+                        let mut builder = Usage::builder()
+                            .prompt_tokens(u.prompt_tokens)
+                            .completion_tokens(u.completion_tokens)
+                            .total_tokens(u.total_tokens);
+
+                        // Preserve reasoning tokens from the original payload if present.
+                        let reasoning_tokens = root_ref
+                            .get("usage")
+                            .and_then(|u| {
+                                u.get("reasoning_tokens")
+                                    .or_else(|| u.get("reasoningTokens"))
+                            })
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32);
+
+                        if let Some(reasoning) = reasoning_tokens {
+                            builder = builder.with_reasoning_tokens(reasoning);
+                        }
+
+                        builder.build()
+                    })
+                    .or_else(|| parse_usage_from_root(root_ref))
+            }
+            #[cfg(not(feature = "std-openai-external"))]
+            {
+                parse_usage_from_root(root_ref)
+            }
+        };
 
         // Finish reason
-        let finish_reason = root
-            .get("finish_reason")
-            .or_else(|| root.get("stop_reason"))
-            .and_then(|v| v.as_str())
-            .map(|s| match s {
-                "stop" => FinishReason::Stop,
-                "length" | "max_tokens" => FinishReason::Length,
-                "tool_calls" | "tool_use" | "function_call" => FinishReason::ToolCalls,
-                "content_filter" | "safety" => FinishReason::ContentFilter,
-                other => FinishReason::Other(other.to_string()),
-            });
+        let finish_reason = {
+            #[cfg(feature = "std-openai-external")]
+            {
+                use siumai_core::types::FinishReasonCore;
+
+                core_finish
+                    .map(|fr| match fr {
+                        FinishReasonCore::Stop => FinishReason::Stop,
+                        FinishReasonCore::Length => FinishReason::Length,
+                        FinishReasonCore::ContentFilter => FinishReason::ContentFilter,
+                        FinishReasonCore::ToolCalls => FinishReason::ToolCalls,
+                        FinishReasonCore::Other(s) => FinishReason::Other(s),
+                    })
+                    .or_else(|| {
+                        root_ref
+                            .get("finish_reason")
+                            .or_else(|| root_ref.get("stop_reason"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| match s {
+                                "stop" => FinishReason::Stop,
+                                "length" | "max_tokens" => FinishReason::Length,
+                                "tool_calls" | "tool_use" | "function_call" => {
+                                    FinishReason::ToolCalls
+                                }
+                                "content_filter" | "safety" => FinishReason::ContentFilter,
+                                other => FinishReason::Other(other.to_string()),
+                            })
+                    })
+            }
+            #[cfg(not(feature = "std-openai-external"))]
+            {
+                root_ref
+                    .get("finish_reason")
+                    .or_else(|| root_ref.get("stop_reason"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| match s {
+                        "stop" => FinishReason::Stop,
+                        "length" | "max_tokens" => FinishReason::Length,
+                        "tool_calls" | "tool_use" | "function_call" => FinishReason::ToolCalls,
+                        "content_filter" | "safety" => FinishReason::ContentFilter,
+                        other => FinishReason::Other(other.to_string()),
+                    })
+            }
+        };
 
         // Determine final content
         let content = if content_parts.is_empty() {

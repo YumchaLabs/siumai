@@ -490,21 +490,52 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             )
             .await?
         }
-        #[cfg(all(feature = "groq", feature = "openai-compatible"))]
+        #[cfg(feature = "groq")]
         ProviderType::Groq => {
-            crate::registry::factory::build_openai_compatible_client(
-                "groq".to_string(),
-                api_key.clone(),
-                base_url.clone(),
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                None, // provider_params removed
-                builder.tracing_config.clone(),
-                interceptors.clone(),
-                user_model_middlewares.clone(),
-            )
-            .await?
+            use crate::providers::groq::{GroqClient, GroqConfig};
+            use secrecy::SecretString;
+
+            // Resolve base URL (custom or default from GroqConfig)
+            let resolved_base =
+                base_url.unwrap_or_else(|| GroqConfig::DEFAULT_BASE_URL.to_string());
+
+            // Build GroqConfig from unified builder params
+            let mut cfg = GroqConfig::new(api_key.clone()).with_base_url(resolved_base);
+            cfg.common_params = common_params.clone();
+            cfg.http_config = http_config.clone();
+
+            // Validate configuration (mirrors GroqBuilder behavior)
+            cfg.validate()?;
+
+            // Create native Groq client with shared HTTP client
+            let mut client = GroqClient::new(cfg, built_http_client.clone());
+
+            // Apply tracing configuration if present
+            if let Some(ref tc) = builder.tracing_config {
+                client.set_tracing_config(Some(tc.clone()));
+            }
+
+            // Apply unified retry options
+            if let Some(ref opts) = builder.retry_options {
+                client.set_retry_options(Some(opts.clone()));
+            }
+
+            // Install HTTP interceptors
+            if !interceptors.is_empty() {
+                client = client.with_http_interceptors(interceptors.clone());
+            }
+
+            // Auto + user middlewares
+            let mut auto_mws = crate::execution::middleware::build_auto_middlewares_vec(
+                "groq",
+                &common_params.model,
+            );
+            auto_mws.extend(user_model_middlewares.clone());
+            if !auto_mws.is_empty() {
+                client = client.with_model_middlewares(auto_mws);
+            }
+
+            Ok::<Arc<dyn LlmClient>, LlmError>(Arc::new(client))?
         }
         ProviderType::Custom(name) => {
             #[cfg(feature = "openai-compatible")]

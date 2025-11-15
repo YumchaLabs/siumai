@@ -115,8 +115,11 @@ pub mod providers;
 pub mod registry;
 pub mod retry;
 pub mod retry_api;
+#[cfg(feature = "std-anthropic-external")]
 pub mod std_anthropic;
+#[cfg(feature = "std-gemini-external")]
 pub mod std_gemini;
+#[cfg(feature = "std-openai-external")]
 pub mod std_openai;
 pub mod streaming;
 pub mod telemetry;

@@ -54,7 +54,6 @@ pub mod api;
 pub mod chat;
 pub mod models;
 pub mod spec;
-pub mod streaming;
 pub mod transformers;
 
 // Re-export main types for convenience

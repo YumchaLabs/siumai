@@ -4,7 +4,6 @@
 //! using mock data to simulate real streaming scenarios.
 
 use eventsource_stream::Event;
-use siumai::providers::anthropic::streaming::AnthropicEventConverter;
 use siumai::providers::ollama::streaming::OllamaEventConverter;
 use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
 use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
@@ -12,6 +11,7 @@ use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConver
 use siumai::providers::openai_compatible::types::FieldMappings;
 use siumai::traits::ProviderCapabilities;
 use std::sync::Arc;
+use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
 
 fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     #[derive(Debug, Clone)]
@@ -68,7 +68,35 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
 use siumai::streaming::ChatStreamEvent;
-use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
+
+/// 使用运行时 Anthropic ProviderSpec 的 core streaming 转换器。
+fn make_anthropic_std_converter() -> impl SseEventConverter + Clone + 'static {
+    use siumai::core::{ProviderContext, ProviderSpec};
+    use siumai::types::{ChatMessage, ChatRequest, CommonParams};
+
+    let req = ChatRequest::builder()
+        .messages(vec![ChatMessage::user("hello").build()])
+        .common_params(CommonParams {
+            model: "claude-3-sonnet".to_string(),
+            ..Default::default()
+        })
+        .build();
+
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com".to_string(),
+        None,
+        std::collections::HashMap::new(),
+    );
+
+    let spec = siumai::providers::anthropic::spec::AnthropicSpec::new();
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    siumai::streaming::TransformerConverter(
+        bundle
+            .stream
+            .expect("Anthropic should provide streaming transformers"),
+    )
+}
 
 #[tokio::test]
 async fn test_complete_openai_stream_sequence() {
@@ -291,8 +319,7 @@ async fn test_stream_event_ordering() {
 
 #[tokio::test]
 async fn test_complete_anthropic_stream_sequence() {
-    let config = siumai::params::AnthropicParams::default();
-    let converter = AnthropicEventConverter::new(config);
+    let converter = make_anthropic_std_converter();
 
     // Simulate a complete Anthropic streaming sequence
     let events = vec![

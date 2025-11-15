@@ -119,11 +119,11 @@ impl ProviderSpec for MinimaxiSpec {
             use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
 
             let core_ctx = ctx.to_core_context();
-            let core_input = anthropic_like_chat_request_to_core_input(req);
-
             let core_spec = siumai_provider_minimaxi::MinimaxiCoreSpec::new();
-            let core_txs: CoreChatTransformers =
-                core_spec.choose_chat_transformers(&core_input, &core_ctx);
+            let core_txs: CoreChatTransformers = core_spec.choose_chat_transformers(
+                &anthropic_like_chat_request_to_core_input(req),
+                &core_ctx,
+            );
 
             bridge_core_chat_transformers(
                 core_txs,
@@ -143,20 +143,14 @@ impl ProviderSpec for MinimaxiSpec {
             };
             use siumai_core::provider_spec::CoreChatTransformers;
 
-            let core_ctx = ctx.to_core_context();
-            let core_input = anthropic_like_chat_request_to_core_input(req);
-
             let core_txs: CoreChatTransformers = CoreChatTransformers {
                 request: self
                     .chat_standard
-                    .create_request_transformer(&core_ctx.provider_id),
+                    .create_request_transformer(&ctx.provider_id),
                 response: self
                     .chat_standard
-                    .create_response_transformer(&core_ctx.provider_id),
-                stream: Some(
-                    self.chat_standard
-                        .create_stream_converter(&core_ctx.provider_id),
-                ),
+                    .create_response_transformer(&ctx.provider_id),
+                stream: Some(self.chat_standard.create_stream_converter(&ctx.provider_id)),
             };
 
             bridge_core_chat_transformers(
@@ -166,15 +160,48 @@ impl ProviderSpec for MinimaxiSpec {
             )
         }
 
+        // When neither external provider nor external standard is enabled,
+        // MiniMaxi chat is not wired through the unified core pipeline.
+        // This configuration is no longer supported, so we return a
+        // transformer set that reports UnsupportedOperation for chat.
         #[cfg(all(
             not(feature = "provider-minimaxi-external"),
             not(feature = "std-anthropic-external")
         ))]
         {
-            // Use the Anthropic Messages standard for MiniMaxi in non-external mode,
-            // backed by the in-crate standards implementation.
-            let spec = self.chat_standard.create_spec("minimaxi");
-            spec.choose_chat_transformers(req, ctx)
+            use crate::core::provider_spec::ChatTransformers;
+            use crate::execution::transformers::request::RequestTransformer;
+            use crate::execution::transformers::response::ResponseTransformer;
+
+            struct UnsupportedReq;
+            impl RequestTransformer for UnsupportedReq {
+                fn provider_id(&self) -> &str {
+                    "minimaxi"
+                }
+                fn transform_chat(
+                    &self,
+                    _req: &crate::types::ChatRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "MiniMaxi chat is not available without std-anthropic-external or provider-minimaxi-external"
+                            .to_string(),
+                    ))
+                }
+            }
+
+            struct UnsupportedResp;
+            impl ResponseTransformer for UnsupportedResp {
+                fn provider_id(&self) -> &str {
+                    "minimaxi"
+                }
+            }
+
+            ChatTransformers {
+                request: Arc::new(UnsupportedReq),
+                response: Arc::new(UnsupportedResp),
+                stream: None,
+                json: None,
+            }
         }
     }
 }

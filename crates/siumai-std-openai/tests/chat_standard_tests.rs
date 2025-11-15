@@ -1,5 +1,6 @@
 use siumai_core::execution::chat::{ChatInput, ChatMessageInput, ChatRole};
 use siumai_core::execution::streaming::ChatStreamEventCore;
+use siumai_core::types::FinishReasonCore;
 use siumai_std_openai::openai::chat::OpenAiChatStandard;
 
 #[test]
@@ -69,7 +70,7 @@ fn openai_chat_response_transformer_parses_minimal_response() {
         .expect("transform_chat_response should succeed");
 
     assert_eq!(result.content, "Hi there!");
-    assert_eq!(result.finish_reason.as_deref(), Some("stop"));
+    assert!(matches!(result.finish_reason, Some(FinishReasonCore::Stop)));
 
     let usage = result.usage.expect("usage should be present");
     assert_eq!(usage.prompt_tokens, 5);
@@ -105,9 +106,16 @@ fn openai_chat_stream_converter_handles_basic_chunk_and_usage() {
     };
 
     let results = converter.convert_event(event);
-    assert_eq!(results.len(), 2);
+    assert_eq!(results.len(), 3);
 
+    // First event should be StreamStart
     match &results[0] {
+        Ok(ChatStreamEventCore::StreamStart {}) => {}
+        other => panic!("expected StreamStart event, got {:?}", other),
+    }
+
+    // Second event should be content delta
+    match &results[1] {
         Ok(ChatStreamEventCore::ContentDelta { delta, index }) => {
             assert_eq!(delta, "Hello");
             assert_eq!(*index, Some(0));
@@ -115,7 +123,8 @@ fn openai_chat_stream_converter_handles_basic_chunk_and_usage() {
         other => panic!("expected ContentDelta event, got {:?}", other),
     }
 
-    match &results[1] {
+    // Third event should be usage update
+    match &results[2] {
         Ok(ChatStreamEventCore::UsageUpdate {
             prompt_tokens,
             completion_tokens,

@@ -6,6 +6,7 @@
 
 use siumai_core::error::LlmError;
 use siumai_core::execution::chat::{ChatInput, ChatResult, ChatRole, ChatUsage};
+use std::collections::HashMap;
 
 /// 将 ChatInput 转换为 Anthropic Messages payload 与可选 system 提示
 pub fn build_messages_payload(
@@ -14,7 +15,28 @@ pub fn build_messages_payload(
     let mut system: Option<String> = None;
     let mut messages = Vec::new();
 
-    for m in &input.messages {
+    // 构建基于 message index 的缓存控制映射：
+    //
+    // `ChatInput::extra["anthropic_prompt_caching"]` 的形状为：
+    // [
+    //   { "index": 0, "cache_control": { "type": "ephemeral" } },
+    //   ...
+    // ]
+    let mut cache_by_index: HashMap<usize, serde_json::Value> = HashMap::new();
+    if let Some(cfg) = input.extra.get("anthropic_prompt_caching") {
+        if let Some(items) = cfg.as_array() {
+            for item in items {
+                if let (Some(idx), Some(cc)) = (
+                    item.get("index").and_then(|v| v.as_u64()),
+                    item.get("cache_control"),
+                ) {
+                    cache_by_index.insert(idx as usize, cc.clone());
+                }
+            }
+        }
+    }
+
+    for (idx, m) in input.messages.iter().enumerate() {
         match m.role {
             ChatRole::System => {
                 // 多条 system message 简单拼接
@@ -29,16 +51,26 @@ pub fn build_messages_payload(
                 }
             }
             ChatRole::User => {
-                messages.push(serde_json::json!({
+                let mut msg = serde_json::json!({
                     "role": "user",
                     "content": [{ "type": "text", "text": m.content }],
-                }));
+                });
+
+                if let Some(cc) = cache_by_index.get(&idx) {
+                    msg["cache_control"] = cc.clone();
+                }
+                messages.push(msg);
             }
             ChatRole::Assistant => {
-                messages.push(serde_json::json!({
+                let mut msg = serde_json::json!({
                     "role": "assistant",
                     "content": [{ "type": "text", "text": m.content }],
-                }));
+                });
+
+                if let Some(cc) = cache_by_index.get(&idx) {
+                    msg["cache_control"] = cc.clone();
+                }
+                messages.push(msg);
             }
         }
     }

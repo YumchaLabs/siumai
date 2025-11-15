@@ -1,3 +1,8 @@
+#[cfg(feature = "std-gemini-external")]
+use crate::core::provider_spec::{
+    bridge_core_chat_transformers, map_core_stream_event_with_provider,
+    openai_like_chat_request_to_core_input,
+};
 use crate::core::{
     ChatTransformers, EmbeddingTransformers, ImageTransformers, ProviderContext, ProviderSpec,
 };
@@ -48,187 +53,22 @@ impl ProviderSpec for GeminiSpec {
     ) -> ChatTransformers {
         #[cfg(feature = "std-gemini-external")]
         {
-            use siumai_core::execution::chat::{
-                ChatInput, ChatMessageInput, ChatRequestTransformer as CoreChatRequestTransformer,
-                ChatResponseTransformer as CoreChatResponseTransformer, ChatRole,
+            use siumai_core::provider_spec::CoreChatTransformers;
+            use siumai_std_gemini::gemini::chat::{GeminiChatStandard, GeminiDefaultChatAdapter};
+
+            let std =
+                GeminiChatStandard::with_adapter(Arc::new(GeminiDefaultChatAdapter::default()));
+            let core_txs: CoreChatTransformers = CoreChatTransformers {
+                request: std.create_request_transformer(&ctx.provider_id),
+                response: std.create_response_transformer(&ctx.provider_id),
+                stream: Some(std.create_stream_converter(&ctx.provider_id)),
             };
-            use siumai_core::execution::streaming::{
-                ChatStreamEventConverterCore, ChatStreamEventCore,
-            };
-            use siumai_std_gemini::gemini::chat::GeminiChatStandard;
 
-            // Minimal mapping from aggregator ChatRequest to core ChatInput.
-            fn to_core_input(req: &crate::types::ChatRequest) -> ChatInput {
-                let messages = req
-                    .messages
-                    .iter()
-                    .map(|m| {
-                        let role = match m.role {
-                            crate::types::MessageRole::System => ChatRole::System,
-                            crate::types::MessageRole::User => ChatRole::User,
-                            crate::types::MessageRole::Assistant => ChatRole::Assistant,
-                            _ => ChatRole::User,
-                        };
-                        let content = m.content.all_text();
-                        ChatMessageInput { role, content }
-                    })
-                    .collect();
-
-                ChatInput {
-                    messages,
-                    model: Some(req.common_params.model.clone()),
-                    max_tokens: req.common_params.max_tokens,
-                    temperature: req.common_params.temperature,
-                    top_p: req.common_params.top_p,
-                    presence_penalty: None,
-                    frequency_penalty: None,
-                    stop: req.common_params.stop_sequences.clone(),
-                    extra: Default::default(),
-                }
-            }
-
-            // Bridge core request transformer into aggregator RequestTransformer.
-            struct ChatRequestBridge(Arc<dyn CoreChatRequestTransformer>);
-            impl crate::execution::transformers::request::RequestTransformer for ChatRequestBridge {
-                fn provider_id(&self) -> &str {
-                    self.0.provider_id()
-                }
-
-                fn transform_chat(
-                    &self,
-                    req: &crate::types::ChatRequest,
-                ) -> Result<serde_json::Value, LlmError> {
-                    let input = to_core_input(req);
-                    self.0.transform_chat(&input)
-                }
-            }
-
-            // Bridge core response transformer into aggregator ResponseTransformer.
-            struct ChatResponseBridge(Arc<dyn CoreChatResponseTransformer>);
-            impl crate::execution::transformers::response::ResponseTransformer for ChatResponseBridge {
-                fn provider_id(&self) -> &str {
-                    self.0.provider_id()
-                }
-
-                fn transform_chat_response(
-                    &self,
-                    raw: &serde_json::Value,
-                ) -> Result<crate::types::ChatResponse, LlmError> {
-                    let r = self.0.transform_chat_response(raw)?;
-                    let usage = r
-                        .usage
-                        .map(|u| crate::types::Usage::new(u.prompt_tokens, u.completion_tokens));
-
-                    let mut resp = crate::types::ChatResponse {
-                        id: None,
-                        model: None,
-                        content: crate::types::MessageContent::Text(r.content),
-                        usage,
-                        finish_reason: None,
-                        audio: None,
-                        system_fingerprint: None,
-                        service_tier: None,
-                        warnings: None,
-                        provider_metadata: None,
-                    };
-
-                    // Map canonical finish_reason strings into the aggregator enum.
-                    if let Some(fr) = r.finish_reason.as_deref() {
-                        use crate::types::FinishReason as FR;
-                        let mapped = match fr {
-                            "stop" => FR::Stop,
-                            "length" => FR::Length,
-                            "content_filter" => FR::ContentFilter,
-                            other => FR::Other(other.to_string()),
-                        };
-                        resp.finish_reason = Some(mapped);
-                    }
-
-                    Ok(resp)
-                }
-            }
-
-            // Bridge core streaming events into aggregator ChatStreamEvent.
-            struct ChatStreamBridge(Arc<dyn ChatStreamEventConverterCore>);
-            impl crate::execution::transformers::stream::StreamChunkTransformer for ChatStreamBridge {
-                fn provider_id(&self) -> &str {
-                    self.0.provider_id()
-                }
-
-                fn convert_event(
-                    &self,
-                    event: eventsource_stream::Event,
-                ) -> crate::execution::transformers::stream::StreamEventFuture<'_> {
-                    let provider_id = self.provider_id().to_string();
-                    let events = self
-                        .0
-                        .convert_event(event)
-                        .into_iter()
-                        .map(|res| {
-                            res.map(|e| match e {
-                                ChatStreamEventCore::ContentDelta { delta, index } => {
-                                    crate::streaming::ChatStreamEvent::ContentDelta { delta, index }
-                                }
-                                ChatStreamEventCore::ToolCallDelta {
-                                    id,
-                                    function_name,
-                                    arguments_delta,
-                                    index,
-                                } => crate::streaming::ChatStreamEvent::ToolCallDelta {
-                                    id: id.unwrap_or_default(),
-                                    function_name,
-                                    arguments_delta,
-                                    index,
-                                },
-                                ChatStreamEventCore::ThinkingDelta { delta } => {
-                                    crate::streaming::ChatStreamEvent::ThinkingDelta { delta }
-                                }
-                                ChatStreamEventCore::UsageUpdate {
-                                    prompt_tokens,
-                                    completion_tokens,
-                                    ..
-                                } => crate::streaming::ChatStreamEvent::UsageUpdate {
-                                    usage: crate::types::Usage::new(
-                                        prompt_tokens,
-                                        completion_tokens,
-                                    ),
-                                },
-                                ChatStreamEventCore::StreamStart {} => {
-                                    crate::streaming::ChatStreamEvent::StreamStart {
-                                        metadata: crate::types::ResponseMetadata {
-                                            id: None,
-                                            model: None,
-                                            created: None,
-                                            provider: provider_id.clone(),
-                                            request_id: None,
-                                        },
-                                    }
-                                }
-                                ChatStreamEventCore::Custom { event_type, data } => {
-                                    crate::streaming::ChatStreamEvent::Custom { event_type, data }
-                                }
-                                ChatStreamEventCore::Error { error } => {
-                                    crate::streaming::ChatStreamEvent::Error { error }
-                                }
-                            })
-                        })
-                        .collect::<Vec<_>>();
-
-                    Box::pin(async move { events })
-                }
-            }
-
-            let std = GeminiChatStandard::new();
-            let req_tx = std.create_request_transformer(&ctx.provider_id);
-            let resp_tx = std.create_response_transformer(&ctx.provider_id);
-            let stream_tx = std.create_stream_converter(&ctx.provider_id);
-
-            return ChatTransformers {
-                request: Arc::new(ChatRequestBridge(req_tx)),
-                response: Arc::new(ChatResponseBridge(resp_tx)),
-                stream: Some(Arc::new(ChatStreamBridge(stream_tx))),
-                json: None,
-            };
+            return bridge_core_chat_transformers(
+                core_txs,
+                crate::core::provider_spec::gemini_like_chat_request_to_core_input,
+                |evt| map_core_stream_event_with_provider("gemini", evt),
+            );
         }
 
         #[cfg(not(feature = "std-gemini-external"))]
@@ -274,112 +114,9 @@ impl ProviderSpec for GeminiSpec {
             return Some(hook);
         }
 
-        // 2. Handle Gemini-specific options (code_execution, search_grounding, file_search)
-        // 🎯 Extract Gemini-specific options from provider_options
-        let (code_execution, search_grounding, file_search, response_mime_type) =
-            if let ProviderOptions::Gemini(ref options) = req.provider_options {
-                (
-                    options.code_execution.clone(),
-                    options.search_grounding.clone(),
-                    options.file_search.clone(),
-                    options.response_mime_type.clone(),
-                )
-            } else {
-                return None;
-            };
-
-        // Check if we have anything to inject
-        if code_execution.is_none()
-            && search_grounding.is_none()
-            && file_search.is_none()
-            && response_mime_type.is_none()
-        {
-            return None;
-        }
-
-        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-            let mut out = body.clone();
-
-            // 🎯 Inject code execution tool
-            // According to Gemini API, code execution is enabled via tools array
-            if let Some(ref code_exec) = code_execution
-                && code_exec.enabled
-            {
-                let mut tools = out
-                    .get("tools")
-                    .and_then(|v| v.as_array().cloned())
-                    .unwrap_or_default();
-
-                // Add code execution tool
-                tools.push(serde_json::json!({
-                    "code_execution": {}
-                }));
-
-                out["tools"] = serde_json::Value::Array(tools);
-            }
-
-            // 🎯 Inject search grounding (Google Search)
-            // According to Gemini API, search grounding is enabled via tools array
-            if let Some(ref search) = search_grounding
-                && search.enabled
-            {
-                let mut tools = out
-                    .get("tools")
-                    .and_then(|v| v.as_array().cloned())
-                    .unwrap_or_default();
-
-                let mut google_search_tool = serde_json::json!({
-                    "google_search": {}
-                });
-
-                // Add dynamic retrieval config if specified
-                if let Some(ref dynamic_config) = search.dynamic_retrieval_config
-                    && let Ok(config_json) = serde_json::to_value(dynamic_config)
-                {
-                    google_search_tool["google_search"]["dynamic_retrieval_config"] = config_json;
-                }
-
-                tools.push(google_search_tool);
-                out["tools"] = serde_json::Value::Array(tools);
-            }
-
-            // 🎯 Inject File Search tool (Gemini File Search)
-            if let Some(ref fs) = file_search
-                && !fs.file_search_store_names.is_empty()
-            {
-                let mut tools = out
-                    .get("tools")
-                    .and_then(|v| v.as_array().cloned())
-                    .unwrap_or_default();
-
-                let mut file_search_tool = serde_json::json!({
-                    "file_search": {}
-                });
-
-                file_search_tool["file_search"]["file_search_store_names"] =
-                    serde_json::json!(fs.file_search_store_names);
-
-                tools.push(file_search_tool);
-                out["tools"] = serde_json::Value::Array(tools);
-            }
-
-            // 🎯 Inject response MIME type into generation_config
-            if let Some(ref mime) = response_mime_type {
-                if let Some(obj) = out
-                    .get_mut("generation_config")
-                    .and_then(|v| v.as_object_mut())
-                {
-                    obj.insert("response_mime_type".to_string(), serde_json::json!(mime));
-                } else {
-                    out["generation_config"] = serde_json::json!({
-                        "response_mime_type": mime
-                    });
-                }
-            }
-
-            Ok(out)
-        };
-        Some(Arc::new(hook))
+        // Gemini-specific typed options 已迁移到 `gemini_like_chat_request_to_core_input`
+        // → `ChatInput::extra` → `GeminiDefaultChatAdapter`，此处仅保留 CustomProviderOptions。
+        None
     }
 
     fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {

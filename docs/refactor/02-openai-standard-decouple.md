@@ -61,6 +61,55 @@
 - `cargo check -p siumai --no-default-features --features minimaxi`：通过。
 - `cargo check -p siumai`（默认 all-providers）：通过。
 
+## Responses API 标准化（补充说明，已接入 Phase 2 架构）
+
+在 Phase 2 的 core/std/provider 拆分中，OpenAI Responses API 也已接入标准层与 core 抽象，具体包括：
+
+- Core 抽象：`crates/siumai-core/src/execution/responses.rs`
+  - `ResponsesInput { model, input, extra }`：统一请求入口；
+  - `ResponsesResult { output, usage, finish_reason, metadata }`：
+    - `output`：标准化为嵌套的 `response` 对象（由 std-openai 负责）；
+    - `usage`：包含 `prompt_tokens/completion_tokens/total_tokens`；
+    - `finish_reason: Option<FinishReasonCore>`：核心结束原因（`Stop/Length/ToolCalls/ContentFilter/Other`）。
+
+- 标准层实现：`crates/siumai-std-openai/src/openai/responses.rs`
+  - Request：
+    - `OpenAiResponsesStandard::create_request_transformer` 负责把 `ResponsesInput` 展平为 OpenAI `/responses` JSON body（`model + input[] + extra`）。
+  - Response：
+    - `OpenAiResponsesStandard::create_response_transformer` 负责：
+      - 将顶层 JSON 归一化为 `ResponsesResult.output = raw["response"]`；
+      - 从 `usage`（支持 snake/camel 命名）解析出 `ResponsesUsage`；
+      - 从 `stop_reason/finish_reason` 解析并规范化 `ResponsesResult.finish_reason`：
+        - `"max_tokens"` → `FinishReasonCore::Length`
+        - `"tool_use" | "function_call"` → `FinishReasonCore::ToolCalls`
+        - `"safety"` → `FinishReasonCore::ContentFilter`
+        - 其它字符串 → `FinishReasonCore::Other(String)`。
+  - Streaming：
+    - `OpenAiResponsesStandard::create_stream_converter` 返回的 `OpenAiResponsesStreamConverter`：
+      - 把 Responses SSE 事件映射到 `ChatStreamEventCore`：
+        - `response.output_text.delta` → `ContentDelta`
+        - `response.tool_call.delta` / `response.function_call.delta` / `response.function_call_arguments.delta` / `response.output_item.added` → `ToolCallDelta`
+        - `response.usage` → `UsageUpdate`
+        - `response.error` → `Error`
+        - 首个事件发出 `StreamStart`；
+        - `response.completed` → `StreamEnd { finish_reason: Option<FinishReasonCore> }`（与非流式的 finish_reason 解析规则一致）。
+
+- 聚合层适配：`siumai/src/providers/openai/spec.rs` 与 `.../transformers/response.rs`
+  - 在启用 `std-openai-external` 时：
+    - 请求：
+      - Responses 分支经 `ResponsesRequestBridge` 构造 `ResponsesInput`，交给 `OpenAiResponsesStandard` 构建请求体；
+    - 响应：
+      - 使用 `OpenAiResponsesStandard` 解析 `ResponsesResult`，然后：
+        - `output` → 经 `parse_responses_output` 标准化为 `{ text, tool_calls }`，再映射为聚合层的 `ContentPart`；
+        - `usage` → 转为聚合层 `Usage`（并从原始 JSON 补充 reasoning_tokens）；
+        - `finish_reason: Option<FinishReasonCore>` → 映射为聚合层 `FinishReason`，若为空则退回旧字符串逻辑。
+    - Streaming：
+      - Responses 的 SSE 通过 `OpenAiResponsesStreamConverter` 先生成 `ChatStreamEventCore`，再由一个小桥接器使用 `map_core_stream_event_with_provider("openai", ..)` 转为聚合层的 `ChatStreamEvent`。
+  - 未启用 `std-openai-external` 时：
+    - 保留原有聚合层的 `OpenAiResponsesRequestTransformer` / `OpenAiResponsesResponseTransformer` / `OpenAiResponsesEventConverter` 行为，避免破坏已有调用。
+
+通过这一步，OpenAI Responses API 的「请求/usage/finish_reason/streaming 事件」语义已经在 core/std 层集中管理，聚合层只做轻适配。这也为后续多语言客户端、独立 provider crate（如 `siumai-provider-openai`）共享同一套 Responses 语义打下基础。
+
 兼容性与注意事项
 - 当未启用 `openai-compatible` 时：
   - OpenAI 原生 Chat/Embedding 仍可用；
@@ -72,4 +121,3 @@
 - 按蓝图抽离多 crate：`siumai-core`、`siumai-std-openai`、`siumai-std-anthropic`、`siumai-provider-*`、`siumai` 聚合。
 - 将 openai-compatible 完全依赖 `siumai-std-openai`，不再引用聚合 crate 内部模块。
 - 完善 OpenAI 标准层的原生响应/流式映射（减少针对 compat 的分支）。
-

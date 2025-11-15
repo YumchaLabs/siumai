@@ -574,6 +574,7 @@ where
             raw: &serde_json::Value,
         ) -> Result<crate::types::ChatResponse, LlmError> {
             use crate::types::{FinishReason, MessageContent, Usage};
+            use siumai_core::types::FinishReasonCore;
 
             let core_res = self.inner.transform_chat_response(raw)?;
             let content = MessageContent::Text(core_res.content);
@@ -582,18 +583,20 @@ where
                 .usage
                 .map(|u| Usage::new(u.prompt_tokens, u.completion_tokens));
 
+            let finish_reason = core_res.finish_reason.map(|fr| match fr {
+                FinishReasonCore::Stop => FinishReason::Stop,
+                FinishReasonCore::Length => FinishReason::Length,
+                FinishReasonCore::ContentFilter => FinishReason::ContentFilter,
+                FinishReasonCore::ToolCalls => FinishReason::ToolCalls,
+                FinishReasonCore::Other(s) => FinishReason::Other(s),
+            });
+
             Ok(crate::types::ChatResponse {
                 id: None,
                 model: None,
                 content,
                 usage,
-                finish_reason: core_res.finish_reason.map(|s| match s.as_str() {
-                    "stop" => FinishReason::Stop,
-                    "length" => FinishReason::Length,
-                    "content_filter" => FinishReason::ContentFilter,
-                    "tool_calls" => FinishReason::ToolCalls,
-                    other => FinishReason::Other(other.to_string()),
-                }),
+                finish_reason,
                 system_fingerprint: None,
                 service_tier: None,
                 audio: None,
@@ -667,13 +670,12 @@ where
     }
 }
 
-/// Helper: map an aggregator-level `ChatRequest` into the minimal
-/// `siumai-core` `ChatInput` used by Anthropic-style standards
-/// (Messages API).
+/// Helper: map an aggregator-level `ChatRequest` into a minimal
+/// `siumai-core` `ChatInput` (OpenAI-style).
 ///
-/// This is shared by Anthropic and MiniMaxi providers, and any other
-/// providers that reuse the Anthropic Messages standard.
-pub fn anthropic_like_chat_request_to_core_input(
+/// This is shared by OpenAI and OpenAI-compatible providers, and any
+/// other providers that reuse the OpenAI Chat Completions standard.
+pub fn openai_like_chat_request_to_core_input(
     req: &ChatRequest,
 ) -> siumai_core::execution::chat::ChatInput {
     use siumai_core::execution::chat::{ChatInput, ChatMessageInput, ChatRole};
@@ -706,15 +708,198 @@ pub fn anthropic_like_chat_request_to_core_input(
     }
 }
 
-/// Helper: map a core-level Anthropic-style stream event into the
-/// aggregator's `ChatStreamEvent`, injecting the given provider id
-/// into the StreamStart metadata.
-pub fn anthropic_like_map_core_stream_event(
-    provider: &'static str,
+/// Helper: map an aggregator-level `ChatRequest` into a minimal
+/// `siumai-core` `ChatInput` (Gemini-style).
+///
+/// 当前实现复用 OpenAI 风格的基础字段映射，仅在 `extra` 中承载
+/// Gemini-specific ProviderOptions；JSON 细节由 std-gemini adapter 注入。
+pub fn gemini_like_chat_request_to_core_input(
+    req: &ChatRequest,
+) -> siumai_core::execution::chat::ChatInput {
+    use siumai_core::execution::chat::{ChatInput, ChatMessageInput, ChatRole};
+    use std::collections::HashMap;
+
+    let messages = req
+        .messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                crate::types::MessageRole::System => ChatRole::System,
+                crate::types::MessageRole::User => ChatRole::User,
+                crate::types::MessageRole::Assistant => ChatRole::Assistant,
+                _ => ChatRole::User,
+            };
+            let content = m.content.all_text();
+            ChatMessageInput { role, content }
+        })
+        .collect::<Vec<_>>();
+
+    let mut extra: HashMap<String, serde_json::Value> = HashMap::new();
+    if let crate::types::ProviderOptions::Gemini(ref options) = req.provider_options {
+        if let Some(ref code) = options.code_execution {
+            if let Ok(v) = serde_json::to_value(code) {
+                extra.insert("gemini_code_execution".to_string(), v);
+            }
+        }
+        if let Some(ref search) = options.search_grounding {
+            if let Ok(v) = serde_json::to_value(search) {
+                extra.insert("gemini_search_grounding".to_string(), v);
+            }
+        }
+        if let Some(ref fs) = options.file_search {
+            if let Ok(v) = serde_json::to_value(fs) {
+                extra.insert("gemini_file_search".to_string(), v);
+            }
+        }
+        if let Some(ref mime) = options.response_mime_type {
+            extra.insert(
+                "gemini_response_mime_type".to_string(),
+                serde_json::json!(mime),
+            );
+        }
+    }
+
+    ChatInput {
+        messages,
+        model: Some(req.common_params.model.clone()),
+        max_tokens: req.common_params.max_tokens,
+        temperature: req.common_params.temperature,
+        top_p: req.common_params.top_p,
+        presence_penalty: None,
+        frequency_penalty: None,
+        stop: req.common_params.stop_sequences.clone(),
+        extra,
+    }
+}
+
+/// Helper: map an aggregator-level `ChatRequest` into the minimal
+/// `siumai-core` `ChatInput` used by Anthropic-style standards
+/// (Messages API).
+///
+/// This is shared by Anthropic and MiniMaxi providers, and any other
+/// providers that reuse the Anthropic Messages standard.
+pub fn anthropic_like_chat_request_to_core_input(
+    req: &ChatRequest,
+) -> siumai_core::execution::chat::ChatInput {
+    use siumai_core::execution::chat::{ChatInput, ChatMessageInput, ChatRole};
+    use std::collections::HashMap;
+
+    let messages = req
+        .messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                crate::types::MessageRole::System => ChatRole::System,
+                crate::types::MessageRole::User => ChatRole::User,
+                crate::types::MessageRole::Assistant => ChatRole::Assistant,
+                _ => ChatRole::User,
+            };
+            let content = m.content.all_text();
+            ChatMessageInput { role, content }
+        })
+        .collect::<Vec<_>>();
+
+    // Map typed Anthropic options into core-level `extra` payload.
+    //
+    // NOTE: We intentionally construct the final protocol JSON shapes here,
+    // and keep only a light renaming responsibility in the std layer
+    // (`AnthropicDefaultChatAdapter`). This follows the ProviderOptions
+    // standard: typed options → serde_json::Value → `ChatInput::extra`.
+    let mut extra: HashMap<String, serde_json::Value> = HashMap::new();
+    if let crate::types::ProviderOptions::Anthropic(ref options) = req.provider_options {
+        // Thinking mode configuration
+        if let Some(ref thinking) = options.thinking_mode {
+            if thinking.enabled {
+                let mut thinking_config = serde_json::json!({ "type": "enabled" });
+                if let Some(budget) = thinking.thinking_budget {
+                    thinking_config["budget_tokens"] = serde_json::json!(budget);
+                }
+                extra.insert("anthropic_thinking".to_string(), thinking_config);
+            }
+        }
+
+        // Structured output configuration
+        if let Some(ref rf) = options.response_format {
+            let value = match rf {
+                crate::types::AnthropicResponseFormat::JsonObject => {
+                    serde_json::json!({ "type": "json_object" })
+                }
+                crate::types::AnthropicResponseFormat::JsonSchema {
+                    name,
+                    schema,
+                    strict,
+                } => serde_json::json!({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": name,
+                        "strict": strict,
+                        "schema": schema,
+                    }
+                }),
+            };
+            extra.insert("anthropic_response_format".to_string(), value);
+        }
+
+        // Prompt caching configuration（v1：按 message_index 进行消息级缓存）。
+        //
+        // 当前只支持将 cache control 应用到 user/assistant 消息，且 cache type
+        // 仅支持 "ephemeral"。更细粒度的 TTL/cache_key 将在后续版本中扩展。
+        if let Some(ref pc) = options.prompt_caching {
+            if pc.enabled && !pc.cache_control.is_empty() {
+                let entries: Vec<serde_json::Value> = pc
+                    .cache_control
+                    .iter()
+                    .map(|ctrl| {
+                        // `AnthropicCacheType` 已经实现 Serialize（lowercase 枚举），
+                        // 这里直接构造最终协议形状。
+                        let cache_type = serde_json::to_value(&ctrl.cache_type)
+                            .unwrap_or_else(|_| serde_json::json!("ephemeral"));
+                        serde_json::json!({
+                            "index": ctrl.message_index,
+                            "cache_control": {
+                                "type": cache_type
+                            }
+                        })
+                    })
+                    .collect();
+
+                if !entries.is_empty() {
+                    extra.insert(
+                        "anthropic_prompt_caching".to_string(),
+                        serde_json::Value::Array(entries),
+                    );
+                }
+            }
+        }
+    }
+
+    ChatInput {
+        messages,
+        model: Some(req.common_params.model.clone()),
+        max_tokens: req.common_params.max_tokens,
+        temperature: req.common_params.temperature,
+        top_p: req.common_params.top_p,
+        presence_penalty: None,
+        frequency_penalty: None,
+        stop: req.common_params.stop_sequences.clone(),
+        extra,
+    }
+}
+
+/// Helper: map a core-level stream event into the aggregator's
+/// `ChatStreamEvent`, injecting the given provider id into the
+/// StreamStart metadata.
+///
+/// This is the generic mapping shared by all providers that reuse the
+/// core streaming event model.
+pub fn map_core_stream_event_with_provider(
+    provider: &str,
     evt: siumai_core::execution::streaming::ChatStreamEventCore,
 ) -> crate::streaming::ChatStreamEvent {
     use crate::streaming::ChatStreamEvent;
+    use crate::types::{ChatResponse, FinishReason};
     use siumai_core::execution::streaming::ChatStreamEventCore;
+    use siumai_core::types::FinishReasonCore;
 
     match evt {
         ChatStreamEventCore::ContentDelta { delta, index } => {
@@ -749,9 +934,34 @@ pub fn anthropic_like_map_core_stream_event(
                 request_id: None,
             },
         },
+        ChatStreamEventCore::StreamEnd { finish_reason } => {
+            let mapped = match finish_reason {
+                Some(FinishReasonCore::Stop) => FinishReason::Stop,
+                Some(FinishReasonCore::Length) => FinishReason::Length,
+                Some(FinishReasonCore::ContentFilter) => FinishReason::ContentFilter,
+                Some(FinishReasonCore::ToolCalls) => FinishReason::ToolCalls,
+                Some(FinishReasonCore::Other(s)) => FinishReason::Other(s),
+                None => FinishReason::Unknown,
+            };
+            let response = ChatResponse::empty_with_finish_reason(mapped);
+            ChatStreamEvent::StreamEnd { response }
+        }
         ChatStreamEventCore::Custom { event_type, data } => {
             ChatStreamEvent::Custom { event_type, data }
         }
         ChatStreamEventCore::Error { error } => ChatStreamEvent::Error { error },
     }
+}
+
+/// Helper: map a core-level Anthropic-style stream event into the
+/// aggregator's `ChatStreamEvent`, injecting the given provider id
+/// into the StreamStart metadata.
+///
+/// Kept for backward-compatibility; internally delegates to the
+/// generic `map_core_stream_event_with_provider`.
+pub fn anthropic_like_map_core_stream_event(
+    provider: &'static str,
+    evt: siumai_core::execution::streaming::ChatStreamEventCore,
+) -> crate::streaming::ChatStreamEvent {
+    map_core_stream_event_with_provider(provider, evt)
 }

@@ -8,7 +8,8 @@ use siumai_core::execution::chat::ChatInput;
 use siumai_core::execution::streaming::ChatStreamEventCore;
 use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderContext, CoreProviderSpec};
 use siumai_core::traits::ProviderCapabilities;
-use siumai_std_anthropic::anthropic::chat::AnthropicChatStandard;
+use siumai_std_anthropic::anthropic::chat::{AnthropicChatStandard, AnthropicDefaultChatAdapter};
+use std::sync::Arc;
 
 /// Anthropic 在 core 层的 ProviderSpec 实现
 #[derive(Clone, Default)]
@@ -20,7 +21,9 @@ impl AnthropicCoreSpec {
     /// 使用默认标准实现构造
     pub fn new() -> Self {
         Self {
-            chat_standard: AnthropicChatStandard::new(),
+            chat_standard: AnthropicChatStandard::with_adapter(Arc::new(
+                AnthropicDefaultChatAdapter::default(),
+            )),
         }
     }
 }

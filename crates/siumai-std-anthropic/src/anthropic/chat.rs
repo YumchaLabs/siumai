@@ -14,7 +14,9 @@ use siumai_core::execution::chat::{
     ChatInput, ChatRequestTransformer, ChatResponseTransformer, ChatResult,
 };
 use siumai_core::execution::streaming::{ChatStreamEventConverterCore, ChatStreamEventCore};
+use siumai_core::types::FinishReasonCore;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Anthropic Chat 标准入口
 #[derive(Clone, Default)]
@@ -60,6 +62,7 @@ impl AnthropicChatStandard {
         Arc::new(AnthropicChatStreamConv {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
+            ended: Arc::new(AtomicBool::new(false)),
         })
     }
 }
@@ -88,6 +91,36 @@ pub trait AnthropicChatAdapter: Send + Sync {
     /// Messages 端点路径（默认 `/v1/messages`）
     fn messages_endpoint(&self) -> &str {
         "/v1/messages"
+    }
+}
+
+/// 默认 Anthropic Chat 适配器
+///
+/// 目前职责非常轻量，仅负责将聚合层通过 `ChatInput::extra`
+/// 注入的 Anthropic 特定配置重命名为协议字段：
+///
+/// - `anthropic_thinking` → `thinking`
+/// - `anthropic_response_format` → `response_format`
+///
+/// 具体 JSON 结构仍由聚合层的 typed options 映射逻辑决定。
+#[derive(Clone, Default)]
+pub struct AnthropicDefaultChatAdapter;
+
+impl AnthropicChatAdapter for AnthropicDefaultChatAdapter {
+    fn transform_request(
+        &self,
+        _input: &ChatInput,
+        body: &mut serde_json::Value,
+    ) -> Result<(), LlmError> {
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(thinking) = obj.remove("anthropic_thinking") {
+                obj.insert("thinking".to_string(), thinking);
+            }
+            if let Some(response_format) = obj.remove("anthropic_response_format") {
+                obj.insert("response_format".to_string(), response_format);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -167,6 +200,7 @@ impl ChatResponseTransformer for AnthropicChatResponseTx {
 struct AnthropicChatStreamConv {
     provider_id: String,
     adapter: Option<Arc<dyn AnthropicChatAdapter>>,
+    ended: Arc<AtomicBool>,
 }
 
 impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
@@ -194,6 +228,8 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
             text: Option<String>,
             #[serde(default)]
             thinking: Option<String>,
+            #[serde(default)]
+            stop_reason: Option<String>,
         }
 
         #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -210,7 +246,8 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
             return out;
         }
 
-        let mut evt: AnthropicStreamEvent = match serde_json::from_str(data) {
+        // 先解析为原始 JSON，便于适配器修改或识别错误事件。
+        let mut raw: serde_json::Value = match serde_json::from_str(data) {
             Ok(v) => v,
             Err(e) => {
                 return vec![Err(LlmError::ParseError(format!(
@@ -222,25 +259,36 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
 
         // 允许 adapter 修改底层 JSON（供代理/变体使用）
         if let Some(adapter) = &self.adapter {
-            let mut raw = serde_json::to_value(&evt).unwrap_or_else(|_| serde_json::json!({}));
             if let Err(e) = adapter.transform_sse_event(&mut raw) {
                 return vec![Err(e)];
             }
-            // 尝试再解析回标准事件结构；失败则以 Custom 事件返回
-            evt = match serde_json::from_value(raw.clone()) {
-                Ok(v) => v,
-                Err(_) => {
-                    return vec![Ok(ChatStreamEventCore::Custom {
-                        event_type: "anthropic:unknown_chunk".into(),
-                        data: raw,
-                    })];
-                }
-            };
         }
+
+        // 若事件为错误（无 type 字段，仅包含 error 对象），直接映射为 Error 事件。
+        if let Some(err_obj) = raw.get("error") {
+            let msg = err_obj
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Anthropic streaming error")
+                .to_string();
+            return vec![Ok(ChatStreamEventCore::Error { error: msg })];
+        }
+
+        // 尝试解析为标准流事件结构；失败则以 Custom 事件返回，便于调试。
+        let evt: AnthropicStreamEvent = match serde_json::from_value(raw.clone()) {
+            Ok(v) => v,
+            Err(_) => {
+                return vec![Ok(ChatStreamEventCore::Custom {
+                    event_type: "anthropic:unknown_chunk".into(),
+                    data: raw,
+                })];
+            }
+        };
 
         match evt.kind.as_str() {
             "message_start" => {
-                // 可以在此处发出 StreamStart，如后续需要
+                // 发出 StreamStart 事件，聚合层会注入 provider 等元数据。
+                out.push(Ok(ChatStreamEventCore::StreamStart {}));
             }
             "message_delta" | "content_block_delta" | "message_delta_input_json_delta" => {
                 if let Some(d) = evt.delta {
@@ -257,6 +305,33 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
                             out.push(Ok(ChatStreamEventCore::ThinkingDelta { delta: th }));
                         }
                     }
+
+                    // 当 delta 中带有 stop_reason 时，发出带具体原因的 StreamEnd。
+                    if let Some(stop_reason) = d.stop_reason.as_deref() {
+                        let finish_reason = match stop_reason {
+                            "end_turn" | "stop_sequence" => FinishReasonCore::Stop,
+                            "max_tokens" => FinishReasonCore::Length,
+                            "tool_use" => FinishReasonCore::ToolCalls,
+                            "refusal" => FinishReasonCore::ContentFilter,
+                            other => FinishReasonCore::Other(other.to_string()),
+                        };
+                        self.ended.store(true, Ordering::Relaxed);
+                        out.push(Ok(ChatStreamEventCore::StreamEnd {
+                            finish_reason: Some(finish_reason),
+                        }));
+                    }
+                }
+
+                // 某些实现会在 message_delta 中携带 usage（例如测试夹具），此时也发出 UsageUpdate。
+                if let Some(u) = evt.usage {
+                    let prompt_tokens = u.input_tokens.unwrap_or(0);
+                    let completion_tokens = u.output_tokens.unwrap_or(0);
+                    let total_tokens = prompt_tokens.saturating_add(completion_tokens);
+                    out.push(Ok(ChatStreamEventCore::UsageUpdate {
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
+                    }));
                 }
             }
             "message_stop" | "message_end" => {
@@ -270,6 +345,13 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
                         total_tokens,
                     }));
                 }
+
+                // message_stop/message_end 也代表一次自然结束；如果之前没有从 delta
+                // 中解析出 stop_reason，这里补一个默认的 Stop。
+                self.ended.store(true, Ordering::Relaxed);
+                out.push(Ok(ChatStreamEventCore::StreamEnd {
+                    finish_reason: Some(FinishReasonCore::Stop),
+                }));
             }
             _ => {}
         }
@@ -284,5 +366,92 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
             }));
         }
         out
+    }
+
+    fn handle_stream_end(&self) -> Option<Result<ChatStreamEventCore, LlmError>> {
+        // 如果已经发过 StreamEnd，则不再发第二个。
+        if self
+            .ended
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return None;
+        }
+
+        Some(Ok(ChatStreamEventCore::StreamEnd {
+            finish_reason: None,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stream_converter_maps_refusal_stop_reason_to_content_filter() {
+        let std = AnthropicChatStandard::new();
+        let conv = std.create_stream_converter("anthropic");
+
+        let evt = eventsource_stream::Event {
+            id: String::new(),
+            event: String::new(),
+            data: r#"{
+                "type": "message_delta",
+                "delta": {
+                    "text": "blocked content",
+                    "stop_reason": "refusal"
+                },
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5
+                }
+            }"#
+            .to_string(),
+            retry: None,
+        };
+
+        let out = conv.convert_event(evt);
+        // Expect at least one StreamEnd with ContentFilter
+        let end = out
+            .into_iter()
+            .find_map(|e| match e {
+                Ok(ChatStreamEventCore::StreamEnd { finish_reason }) => finish_reason,
+                _ => None,
+            })
+            .expect("expected StreamEnd from refusal stop_reason");
+
+        assert_eq!(end, FinishReasonCore::ContentFilter);
+    }
+
+    #[test]
+    fn stream_converter_emits_stop_on_message_stop() {
+        let std = AnthropicChatStandard::new();
+        let conv = std.create_stream_converter("anthropic");
+
+        let evt = eventsource_stream::Event {
+            id: String::new(),
+            event: String::new(),
+            data: r#"{
+                "type": "message_stop",
+                "usage": {
+                    "input_tokens": 2,
+                    "output_tokens": 3
+                }
+            }"#
+            .to_string(),
+            retry: None,
+        };
+
+        let out = conv.convert_event(evt);
+        let end = out
+            .into_iter()
+            .find_map(|e| match e {
+                Ok(ChatStreamEventCore::StreamEnd { finish_reason }) => finish_reason,
+                _ => None,
+            })
+            .expect("expected StreamEnd from message_stop");
+
+        assert_eq!(end, FinishReasonCore::Stop);
     }
 }
