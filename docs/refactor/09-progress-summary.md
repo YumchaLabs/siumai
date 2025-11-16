@@ -1,7 +1,7 @@
 # Phase 2 进度快照（截至 0.11.0-beta.3 重构）
 
 状态：进行中
-更新时间：2025-11-13
+更新时间：2025-11-16
 
 ## 已完成（里程碑）
 
@@ -19,6 +19,7 @@
     - OpenAI JSON headers 构建函数 `build_openai_json_headers`。
     - Responses API SSE 事件名常量 `RESPONSES_EVENT_*`。
   - 聚合侧 `OpenAiSpec` 在启用 `provider-openai-external` 时通过上述 helpers 生成 URL/Headers 与 Responses 判定，未启用特性则保持原逻辑。
+  - 聚合层通用 headers 构建入口 `ProviderHeaders::openai` 已在启用 `provider-openai-external` 时统一委托给 `siumai-provider-openai::helpers::build_openai_json_headers`，实现“就近配置”。
 
 - Anthropic 标准与 MiniMaxi
   - 在聚合内完成 Anthropic 标准去 provider 化，并接入 core 的统一事件模型（ChatStreamEventCore）。
@@ -38,6 +39,16 @@
       - OpenRouter：若存在 `Referer` 且缺少 `HTTP-Referer`，复制 Referer→HTTP-Referer；其余不注入默认值。
       - DeepSeek/SiliconFlow/Groq：仅透传，不做别名注入。
   - 聚合侧在启用 `provider-openai-compatible-external` 时，Spec 与 Client 构建 headers/URL 改用外部 helpers。
+
+- Groq / xAI provider 与 headers 重构
+  - `siumai-provider-groq`：
+    - 提供 `GroqCoreSpec`，在 core 层基于 OpenAI Chat 标准实现 Groq Chat 行为。
+    - 提供 `build_groq_json_headers`，聚合层 `ProviderHeaders::groq` 在启用 `provider-groq-external` 时委托该 helper 构建 headers；未启用时保留原有 `HttpHeaderBuilder` 实现。
+    - Chat 路径：`GroqOptions.extra_params` 统一映射至 `ChatInput::extra["groq_extra_params"]`，由 `GroqOpenAiChatAdapter` 在 std/provider 层 merge 到最终 JSON。
+  - `siumai-provider-xai`：
+    - 提供 `XaiCoreSpec`，在 core 层基于 OpenAI Chat 标准实现 xAI Chat 行为。
+    - 提供 `build_xai_json_headers`，聚合层 `ProviderHeaders::xai` 在启用 `provider-xai-external` 时委托该 helper 构建 headers；未启用时保留原有 `HttpHeaderBuilder` 实现。
+    - Chat 路径：`XaiOptions` 在聚合层映射为 `ChatInput::extra["xai_search_parameters" | "xai_reasoning_effort"]`，由 XAI-specific OpenAI Chat adapter 注入最终 JSON。
 
 - CI 与特性矩阵
   - 新增 GitHub Actions 工作流 `.github/workflows/ci.yml`：

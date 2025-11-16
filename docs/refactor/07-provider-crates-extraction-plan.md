@@ -1,7 +1,7 @@
-# Phase 2d: Provider Crates 提取计划（OpenAI / OpenAI-Compatible / Anthropic / MiniMaxi)
+# Phase 2d: Provider Crates 提取计划（OpenAI / OpenAI-Compatible / Anthropic / MiniMaxi / Groq / xAI)
 
-状态: 进行中（OpenAI / OpenAI-Compatible 已接入外部实现路径）
-更新时间: 2025-11-13
+状态: 进行中（OpenAI / OpenAI-Compatible / Groq / xAI 已接入外部实现路径）
+更新时间: 2025-11-16
 
 ## 目标
 - 将聚合 crate `siumai` 中 `providers/*` 迁出，独立为 provider 子 crate：
@@ -9,11 +9,13 @@
   - `siumai-provider-openai-compatible`
   - `siumai-provider-anthropic`
   - `siumai-provider-minimaxi`
+  - `siumai-provider-xai`
+  - `siumai-provider-groq`
 - Provider 仅依赖 `siumai-core` + 相关标准 crate（`siumai-std-openai`、`siumai-std-anthropic`）。
 - 聚合 crate 通过 feature 门控选择内置实现或外部 provider crate（与 `std-openai-external` 相同策略）。
 
 ## 当前进展
-- 新增 4 个 provider crate：
+- 新增并接入若干 provider crate：
   - `crates/siumai-provider-openai`：
     - VERSION + 标记类型
     - 已外提最小 adapter：`adapter::OpenAiStandardAdapter`（实现统一 ProviderAdapter 接口）
@@ -25,8 +27,17 @@
     - adapter/types/registry/helpers 已抽出
     - helpers 内提供 `build_json_headers_with_provider`（带 provider_id），为 OpenRouter 提供 Referer→HTTP-Referer 保守别名策略，其余 provider 仅透传
     - 聚合侧 Spec 与 Client 在启用 `provider-openai-compatible-external` 时委托外部实现
-  - `crates/siumai-provider-anthropic`（VERSION + Marker，占位，待后续迁移）
+  - `crates/siumai-provider-anthropic`：
+    - VERSION + Marker + `AnthropicCoreSpec`（基于 `siumai-std-anthropic` 的 CoreProviderSpec 实现）
+    - 提供 `build_anthropic_json_headers` helper，聚合层在启用 `provider-anthropic-external` 时委托该 helper 构建 headers。
   - `crates/siumai-provider-minimaxi`（VERSION + Marker，占位，待后续迁移）
+  - `crates/siumai-provider-groq`：
+    - 提供 `GroqCoreSpec`（基于 `siumai-std-openai` 的 CoreProviderSpec 实现），在 core 层复用 OpenAI Chat 标准。
+    - 提供 `headers::build_groq_json_headers`，聚合层 `ProviderHeaders::groq` 在启用 `provider-groq-external` 时委托该 helper 构建 headers。
+    - 在 Chat 路径中通过 `GroqOpenAiChatAdapter` 从 `ChatInput::extra["groq_extra_params"]` 注入 Groq-specific JSON 字段。
+  - `crates/siumai-provider-xai`：
+    - 提供 `XaiCoreSpec`（基于 `siumai-std-openai` 的 CoreProviderSpec 实现），在 core 层复用 OpenAI Chat 标准。
+    - 提供 `headers::build_xai_json_headers`，聚合层 `ProviderHeaders::xai` 在启用 `provider-xai-external` 时委托该 helper 构建 headers。
 
 - 标准层与 provider 桥接：
   - OpenAI：`siumai-std-openai` 通过 `std_openai` 模块桥接到聚合层；OpenAI / openai-compatible provider 在启用 `std-openai-external` 时使用外部标准实现。

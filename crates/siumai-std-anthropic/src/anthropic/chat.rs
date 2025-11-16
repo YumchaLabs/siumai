@@ -1,12 +1,12 @@
-//! Anthropic Messages Chat Standard（初始版本）
+//! Anthropic Messages Chat Standard (initial version)
 //!
-//! 目标：
-//! - 提供 provider 无关的 Anthropic Chat API 标准映射（请求/响应/流式）
-//! - 仅依赖 `siumai-core` 的抽象；具体 provider 通过适配器 trait 注入差异
+//! Goals:
+//! - Provide a provider-agnostic Anthropic Chat API standard mapping (request/response/streaming)
+//! - Depend only on `siumai-core` abstractions; concrete providers inject differences via adapter traits
 //!
-//! 当前实现：
-//! - 仅定义结构与接口（`AnthropicChatStandard` + `AnthropicChatAdapter`），
-//!   内部转换逻辑将逐步从聚合 crate 迁移过来。
+//! Current implementation:
+//! - Only defines structures and interfaces (`AnthropicChatStandard` + `AnthropicChatAdapter`);
+//!   the internal conversion logic will gradually be migrated from the aggregator crate.
 
 use serde::Deserialize;
 use siumai_core::error::LlmError;
@@ -18,7 +18,7 @@ use siumai_core::types::FinishReasonCore;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Anthropic Chat 标准入口
+/// Anthropic Chat standard entrypoint
 #[derive(Clone, Default)]
 pub struct AnthropicChatStandard {
     adapter: Option<Arc<dyn AnthropicChatAdapter>>,
@@ -35,7 +35,7 @@ impl AnthropicChatStandard {
         }
     }
 
-    /// 创建请求转换器（core ChatInput -> Anthropic JSON）
+    /// Create a request transformer (core ChatInput -> Anthropic JSON).
     pub fn create_request_transformer(&self, provider_id: &str) -> Arc<dyn ChatRequestTransformer> {
         Arc::new(AnthropicChatRequestTx {
             provider_id: provider_id.to_string(),
@@ -43,7 +43,7 @@ impl AnthropicChatStandard {
         })
     }
 
-    /// 创建响应转换器（Anthropic JSON -> core ChatResult）
+    /// Create a response transformer (Anthropic JSON -> core ChatResult).
     pub fn create_response_transformer(
         &self,
         provider_id: &str,
@@ -54,7 +54,7 @@ impl AnthropicChatStandard {
         })
     }
 
-    /// 创建流式事件转换器（SSE -> ChatStreamEventCore）
+    /// Create a streaming event transformer (SSE -> ChatStreamEventCore).
     pub fn create_stream_converter(
         &self,
         provider_id: &str,
@@ -67,9 +67,9 @@ impl AnthropicChatStandard {
     }
 }
 
-/// Anthropic Chat provider 适配器，用于注入少量差异
+/// Anthropic Chat provider adapter used to inject small provider-specific differences.
 pub trait AnthropicChatAdapter: Send + Sync {
-    /// 请求 JSON 调整（模型别名、特殊参数等）
+    /// Request JSON adjustments (model aliases, special parameters, etc.).
     fn transform_request(
         &self,
         _input: &ChatInput,
@@ -78,31 +78,32 @@ pub trait AnthropicChatAdapter: Send + Sync {
         Ok(())
     }
 
-    /// 响应 JSON 调整（兼容不同版本字段）
+    /// Response JSON adjustments (compatibility with different versions/fields).
     fn transform_response(&self, _resp: &mut serde_json::Value) -> Result<(), LlmError> {
         Ok(())
     }
 
-    /// SSE 事件 JSON 调整
+    /// SSE event JSON adjustments.
     fn transform_sse_event(&self, _event: &mut serde_json::Value) -> Result<(), LlmError> {
         Ok(())
     }
 
-    /// Messages 端点路径（默认 `/v1/messages`）
+    /// Messages endpoint path (default `/v1/messages`).
     fn messages_endpoint(&self) -> &str {
         "/v1/messages"
     }
 }
 
-/// 默认 Anthropic Chat 适配器
+/// Default Anthropic Chat adapter.
 ///
-/// 目前职责非常轻量，仅负责将聚合层通过 `ChatInput::extra`
-/// 注入的 Anthropic 特定配置重命名为协议字段：
+/// Currently very lightweight: it only renames Anthropic-specific values
+/// injected by the aggregator via `ChatInput::extra` into protocol fields:
 ///
 /// - `anthropic_thinking` → `thinking`
 /// - `anthropic_response_format` → `response_format`
 ///
-/// 具体 JSON 结构仍由聚合层的 typed options 映射逻辑决定。
+/// The concrete JSON structures are still determined by the typed options
+/// mapping logic in the aggregator.
 #[derive(Clone, Default)]
 pub struct AnthropicDefaultChatAdapter;
 
@@ -140,7 +141,7 @@ impl ChatRequestTransformer for AnthropicChatRequestTx {
             return Err(LlmError::InvalidParameter("Model must be specified".into()));
         }
 
-        // 使用 utils 构建 Anthropic Messages 结构 + system
+        // Use utils to build Anthropic Messages structure + optional system prompt.
         let (messages, system) = crate::anthropic::utils::build_messages_payload(input)?;
 
         let mut body = serde_json::json!({
@@ -191,7 +192,7 @@ impl ChatResponseTransformer for AnthropicChatResponseTx {
             adapter.transform_response(&mut resp)?;
         }
 
-        // 使用 utils 解析最小 ChatResult（后续可在 utils 中增强）
+        // Use utils to parse a minimal ChatResult (can be enhanced in utils later).
         Ok(crate::anthropic::utils::parse_minimal_chat_result(&resp))
     }
 }
@@ -246,7 +247,7 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
             return out;
         }
 
-        // 先解析为原始 JSON，便于适配器修改或识别错误事件。
+        // First parse into raw JSON to allow the adapter to modify or detect error events.
         let mut raw: serde_json::Value = match serde_json::from_str(data) {
             Ok(v) => v,
             Err(e) => {
@@ -257,14 +258,15 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
             }
         };
 
-        // 允许 adapter 修改底层 JSON（供代理/变体使用）
+        // Allow the adapter to adjust the underlying JSON (for proxies/variants, etc.).
         if let Some(adapter) = &self.adapter {
             if let Err(e) = adapter.transform_sse_event(&mut raw) {
                 return vec![Err(e)];
             }
         }
 
-        // 若事件为错误（无 type 字段，仅包含 error 对象），直接映射为 Error 事件。
+        // If the event represents an error (no type field, only an error object),
+        // map it directly to an Error event.
         if let Some(err_obj) = raw.get("error") {
             let msg = err_obj
                 .get("message")
@@ -274,7 +276,8 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
             return vec![Ok(ChatStreamEventCore::Error { error: msg })];
         }
 
-        // 尝试解析为标准流事件结构；失败则以 Custom 事件返回，便于调试。
+        // Try to parse into the standard streaming event structure; on failure,
+        // return a Custom event to aid debugging.
         let evt: AnthropicStreamEvent = match serde_json::from_value(raw.clone()) {
             Ok(v) => v,
             Err(_) => {
@@ -287,7 +290,7 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
 
         match evt.kind.as_str() {
             "message_start" => {
-                // 发出 StreamStart 事件，聚合层会注入 provider 等元数据。
+                // Emit a StreamStart event; the aggregator will inject provider metadata.
                 out.push(Ok(ChatStreamEventCore::StreamStart {}));
             }
             "message_delta" | "content_block_delta" | "message_delta_input_json_delta" => {
@@ -306,7 +309,7 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
                         }
                     }
 
-                    // 当 delta 中带有 stop_reason 时，发出带具体原因的 StreamEnd。
+                    // When a delta carries a stop_reason, emit a StreamEnd with the concrete reason.
                     if let Some(stop_reason) = d.stop_reason.as_deref() {
                         let finish_reason = match stop_reason {
                             "end_turn" | "stop_sequence" => FinishReasonCore::Stop,
@@ -322,7 +325,8 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
                     }
                 }
 
-                // 某些实现会在 message_delta 中携带 usage（例如测试夹具），此时也发出 UsageUpdate。
+                // Some implementations carry usage in message_delta (e.g., fixtures);
+                // emit a UsageUpdate in that case.
                 if let Some(u) = evt.usage {
                     let prompt_tokens = u.input_tokens.unwrap_or(0);
                     let completion_tokens = u.output_tokens.unwrap_or(0);
@@ -346,8 +350,8 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
                     }));
                 }
 
-                // message_stop/message_end 也代表一次自然结束；如果之前没有从 delta
-                // 中解析出 stop_reason，这里补一个默认的 Stop。
+                // message_stop/message_end also represent a natural end. If we haven't
+                // parsed a stop_reason from deltas before, synthesize a default Stop here.
                 self.ended.store(true, Ordering::Relaxed);
                 out.push(Ok(ChatStreamEventCore::StreamEnd {
                     finish_reason: Some(FinishReasonCore::Stop),
@@ -357,7 +361,7 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
         }
 
         if out.is_empty() {
-            // 将无法识别的事件以 Custom 形式抛出，便于上层调试
+            // Forward unknown events as Custom to aid higher-level debugging.
             let raw: serde_json::Value =
                 serde_json::from_str(data).unwrap_or_else(|_| serde_json::json!({}));
             out.push(Ok(ChatStreamEventCore::Custom {
@@ -369,7 +373,7 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEventCore, LlmError>> {
-        // 如果已经发过 StreamEnd，则不再发第二个。
+        // Avoid emitting a second StreamEnd if one has already been sent.
         if self
             .ended
             .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)

@@ -89,12 +89,13 @@ pub trait GeminiChatAdapter: Send + Sync {
     }
 }
 
-/// 默认 Gemini Chat 适配器
+/// Default Gemini Chat adapter.
 ///
-/// 从 `ChatInput::extra` 中读取 Gemini-specific 配置，并注入最终请求 JSON：
-/// - `gemini_code_execution` → `tools` 里的 `code_execution` entry
-/// - `gemini_search_grounding` → `tools` 里的 `google_search` entry
-/// - `gemini_file_search` → `tools` 里的 `file_search` entry
+/// Reads Gemini-specific configuration from `ChatInput::extra` and injects it
+/// into the final request JSON:
+/// - `gemini_code_execution` → `code_execution` entry in `tools`
+/// - `gemini_search_grounding` → `google_search` entry in `tools`
+/// - `gemini_file_search` → `file_search` entry in `tools`
 /// - `gemini_response_mime_type` → `generationConfig.response_mime_type`
 #[derive(Clone, Default)]
 pub struct GeminiDefaultChatAdapter;

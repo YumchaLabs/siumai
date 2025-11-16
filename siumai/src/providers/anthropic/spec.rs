@@ -189,12 +189,14 @@ impl ProviderSpec for AnthropicSpec {
             return Some(hook);
         }
 
-        // 2. Anthropic-specific typed options（thinking / response_format）已经在
-        // `anthropic_like_chat_request_to_core_input` 中映射到 `ChatInput::extra`
-        //（键名 `anthropic_thinking` / `anthropic_response_format`），并由
-        // `siumai-std-anthropic` 默认适配器注入最终 JSON。
+        // 2. Anthropic-specific typed options (thinking / response_format) have
+        // already been mapped into `ChatInput::extra` by
+        // `anthropic_like_chat_request_to_core_input` (keys
+        // `anthropic_thinking` / `anthropic_response_format`) and are injected
+        // into the final JSON by the `siumai-std-anthropic` default adapter.
         //
-        // 因此这里不再处理这些字段，避免与标准层职责重叠。
+        // As a result, we no longer handle those fields here to avoid
+        // overlapping responsibilities with the standards layer.
         None
     }
 }

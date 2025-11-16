@@ -1,8 +1,8 @@
 //! Gemini Embedding standard.
 //!
-//! 该模块实现了基于 `siumai-core` 的 Gemini Embedding 标准映射：
-//! - 请求：`EmbeddingInput` → Gemini `embedContent` / `batchEmbedContents` JSON
-//! - 响应：Gemini embedding JSON → `EmbeddingResult`
+//! This module implements the Gemini Embedding standard mapping based on `siumai-core`:
+//! - Request: `EmbeddingInput` → Gemini `embedContent` / `batchEmbedContents` JSON
+//! - Response: Gemini embedding JSON → `EmbeddingResult`
 
 use siumai_core::error::LlmError;
 use siumai_core::execution::embedding::{
@@ -42,7 +42,7 @@ impl GeminiEmbeddingStandard {
     }
 }
 
-/// 内部请求结构，与 Gemini embedContent/batchEmbedContents 对齐（简化版）。
+/// Internal request structures aligned with Gemini embedContent/batchEmbedContents (simplified).
 #[derive(serde::Serialize)]
 struct GeminiPart {
     text: String,
@@ -87,14 +87,14 @@ impl EmbeddingRequestTransformer for GeminiEmbeddingRequestTx {
     }
 
     fn transform_embedding(&self, input: &EmbeddingInput) -> Result<serde_json::Value, LlmError> {
-        // 目前 EmbeddingInput 里没有标准化的 task_type 概念，
-        // 这里统一使用 TASK_TYPE_UNSPECIFIED；具体优化由聚合层处理。
+        // There is currently no standardized task_type concept in EmbeddingInput,
+        // so we use TASK_TYPE_UNSPECIFIED; further optimization is left to the aggregator.
         let task_type: Option<String> = None;
         let title = input.title.clone();
         let output_dimensionality = input.dimensions;
 
-        // Gemini 要求 model 形如 "models/{id}"；如果上层只传了裸 id，
-        // 这里做一个保守的补前缀。
+        // Gemini requires models of the form "models/{id}". If the caller only passes
+        // a bare id, conservatively prefix it here.
         let model_str = input.model.clone().unwrap_or_default();
         let model = if model_str.is_empty() {
             None
@@ -163,7 +163,7 @@ impl EmbeddingResponseTransformer for GeminiEmbeddingResponseTx {
         &self,
         raw: &serde_json::Value,
     ) -> Result<EmbeddingResult, LlmError> {
-        // 支持两种常见返回形态：
+        // Support two common response shapes:
         // - { "embedding": { "values": [...] } }
         // - { "embeddings": [ { "values": [...] }, ... ] }
         if let Some(obj) = raw.get("embedding") {

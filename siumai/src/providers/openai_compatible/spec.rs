@@ -44,7 +44,8 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         })?;
         #[cfg(feature = "provider-openai-compatible-external")]
         {
-            // 通过外部 helpers 构建，允许 provider 定制策略（如 OpenRouter 的 HTTP-Referer）。
+            // Build headers via external helpers, allowing provider-specific policies
+            // (e.g., OpenRouter HTTP-Referer behavior).
             use reqwest::header::HeaderMap as Hm;
             return siumai_provider_openai_compatible::helpers::build_json_headers_with_provider(
                 &ctx.provider_id,
@@ -56,7 +57,7 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         }
         #[cfg(not(feature = "provider-openai-compatible-external"))]
         {
-            // 默认：OpenAI 风格 + 透传 http_extra_headers
+            // Default: OpenAI-style headers and passthrough http_extra_headers.
             return ProviderHeaders::openai(
                 api_key,
                 ctx.organization.as_deref(),

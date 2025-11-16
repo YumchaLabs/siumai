@@ -83,7 +83,7 @@ impl ProviderSpec for XaiSpec {
         req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
-        // Shared helper: 将 ChatRequest 映射为带有 xAI ProviderOptions 的 ChatInput。
+        // Shared helper: map ChatRequest into ChatInput carrying xAI ProviderOptions.
         fn xai_chat_request_to_core_input(
             req: &crate::types::ChatRequest,
         ) -> siumai_core::execution::chat::ChatInput {
@@ -147,7 +147,7 @@ impl ProviderSpec for XaiSpec {
                     input: &ChatInput,
                     body: &mut serde_json::Value,
                 ) -> Result<(), LlmError> {
-                    // 与 core 层适配器保持一致：从 `xai_*` extra 中读取配置。
+                    // Keep consistent with the core-level adapter: read xAI configuration from `xai_*` extras.
                     if let Some(params) = input.extra.get("xai_search_parameters") {
                         body["search_parameters"] = params.clone();
                     }
@@ -209,7 +209,7 @@ impl ProviderSpec for XaiSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // 1. 仍然支持 CustomProviderOptions 注入
+        // 1. Still support CustomProviderOptions injection.
         crate::core::default_custom_options_hook(self.id(), req)
     }
 }

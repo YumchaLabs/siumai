@@ -711,8 +711,9 @@ pub fn openai_like_chat_request_to_core_input(
 /// Helper: map an aggregator-level `ChatRequest` into a minimal
 /// `siumai-core` `ChatInput` (Gemini-style).
 ///
-/// 当前实现复用 OpenAI 风格的基础字段映射，仅在 `extra` 中承载
-/// Gemini-specific ProviderOptions；JSON 细节由 std-gemini adapter 注入。
+/// Currently reuses the OpenAI-style base field mapping and carries only
+/// Gemini-specific ProviderOptions in `extra`. JSON details are injected
+/// by the std-gemini adapter.
 pub fn gemini_like_chat_request_to_core_input(
     req: &ChatRequest,
 ) -> siumai_core::execution::chat::ChatInput {
@@ -840,18 +841,19 @@ pub fn anthropic_like_chat_request_to_core_input(
             extra.insert("anthropic_response_format".to_string(), value);
         }
 
-        // Prompt caching configuration（v1：按 message_index 进行消息级缓存）。
+        // Prompt caching configuration (v1: message-level caching by message_index).
         //
-        // 当前只支持将 cache control 应用到 user/assistant 消息，且 cache type
-        // 仅支持 "ephemeral"。更细粒度的 TTL/cache_key 将在后续版本中扩展。
+        // Currently we only apply cache control to user/assistant messages, and
+        // the cache type only supports "ephemeral". More fine-grained TTL/cache_key
+        // settings may be added in future versions.
         if let Some(ref pc) = options.prompt_caching {
             if pc.enabled && !pc.cache_control.is_empty() {
                 let entries: Vec<serde_json::Value> = pc
                     .cache_control
                     .iter()
                     .map(|ctrl| {
-                        // `AnthropicCacheType` 已经实现 Serialize（lowercase 枚举），
-                        // 这里直接构造最终协议形状。
+                        // `AnthropicCacheType` already implements Serialize (lowercase enum),
+                        // so we construct the final protocol shape directly here.
                         let cache_type = serde_json::to_value(&ctrl.cache_type)
                             .unwrap_or_else(|_| serde_json::json!("ephemeral"));
                         serde_json::json!({

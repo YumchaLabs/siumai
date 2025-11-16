@@ -1,8 +1,8 @@
 //! Gemini Image standard.
 //!
-//! 基于 `siumai-core` 的 Gemini 图片生成标准：
-//! - 请求：`ImageGenerationRequest` → Gemini `generateContent`(IMAGE) JSON
-//! - 响应：Gemini `GenerateContentResponse` → `ImageGenerationResponse`
+//! Gemini image generation standard built on top of `siumai-core`:
+//! - Request: `ImageGenerationRequest` → Gemini `generateContent`(IMAGE) JSON
+//! - Response: Gemini `GenerateContentResponse` → `ImageGenerationResponse`
 
 use siumai_core::error::LlmError;
 use siumai_core::execution::image::{
@@ -45,7 +45,8 @@ impl GeminiImageStandard {
     }
 }
 
-/// 下面的类型是 `GenerateContentRequest/Response` 的精简版，只保留图片相关字段。
+/// The following types are a simplified version of
+/// `GenerateContentRequest/Response`, keeping only image-related fields.
 
 #[derive(serde::Serialize)]
 struct Content {
@@ -142,7 +143,7 @@ impl ImageRequestTransformer for GeminiImageRequestTx {
             ));
         }
 
-        // 将 prompt 映射到 contents/parts，与文本 chat 一致，但强制 IMAGE 模态。
+        // Map prompt into contents/parts similar to text chat, but force IMAGE modality.
         let contents = vec![Content {
             role: Some("user".to_string()),
             parts: vec![Part::Text {
@@ -151,7 +152,7 @@ impl ImageRequestTransformer for GeminiImageRequestTx {
         }];
 
         let mut modalities = vec!["IMAGE".to_string()];
-        // 预留：如果未来需要 TEXT+IMAGE，可以在这里扩展。
+        // Reserved: extend here if TEXT+IMAGE is needed in the future.
         if modalities.is_empty() {
             modalities.push("IMAGE".to_string());
         }

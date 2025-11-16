@@ -1,8 +1,8 @@
-//! Anthropic 标准模块入口
+//! Anthropic standard module entrypoint.
 //!
-//! 目前包括：
-//! - Chat Messages 标准（chat）
-//! - provider 无关的工具函数（utils）
+//! Currently includes:
+//! - Chat Messages standard (`chat`)
+//! - Provider-agnostic helper functions (`utils`)
 
 pub mod chat;
 pub mod utils;

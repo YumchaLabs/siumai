@@ -1,23 +1,23 @@
-//! Anthropic 标准工具函数（provider 无关）
+//! Anthropic standard helper functions (provider-agnostic).
 //!
-//! 基于 `siumai-core` 的 ChatInput/ChatResult 抽象，提供：
-//! - ChatInput → Anthropic Messages JSON 结构
-//! - Anthropic usage/finish_reason 等字段解析
+//! Built on top of `siumai-core` ChatInput/ChatResult abstractions, this module provides:
+//! - ChatInput → Anthropic Messages JSON mapping
+//! - Anthropic usage/finish_reason parsing utilities
 
 use siumai_core::error::LlmError;
 use siumai_core::execution::chat::{ChatInput, ChatResult, ChatRole, ChatUsage};
 use std::collections::HashMap;
 
-/// 将 ChatInput 转换为 Anthropic Messages payload 与可选 system 提示
+/// Convert ChatInput into Anthropic Messages payload and optional system prompt.
 pub fn build_messages_payload(
     input: &ChatInput,
 ) -> Result<(Vec<serde_json::Value>, Option<String>), LlmError> {
     let mut system: Option<String> = None;
     let mut messages = Vec::new();
 
-    // 构建基于 message index 的缓存控制映射：
+    // Build a cache-control map based on message index:
     //
-    // `ChatInput::extra["anthropic_prompt_caching"]` 的形状为：
+    // Shape of `ChatInput::extra["anthropic_prompt_caching"]`:
     // [
     //   { "index": 0, "cache_control": { "type": "ephemeral" } },
     //   ...
@@ -39,7 +39,7 @@ pub fn build_messages_payload(
     for (idx, m) in input.messages.iter().enumerate() {
         match m.role {
             ChatRole::System => {
-                // 多条 system message 简单拼接
+                // Concatenate multiple system messages with newline separators.
                 match &mut system {
                     Some(acc) => {
                         if !acc.is_empty() {
@@ -78,7 +78,7 @@ pub fn build_messages_payload(
     Ok((messages, system))
 }
 
-/// 从 Anthropic usage 对象构建 ChatUsage
+/// Build ChatUsage from Anthropic `usage` object.
 pub fn parse_usage(usage: Option<&serde_json::Value>) -> Option<ChatUsage> {
     let u = usage?;
     let prompt_tokens = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
@@ -91,9 +91,9 @@ pub fn parse_usage(usage: Option<&serde_json::Value>) -> Option<ChatUsage> {
     })
 }
 
-/// 从 Anthropic 响应 JSON 中提取最小 ChatResult（仅 content + usage）
+/// Extract a minimal ChatResult (only content + usage) from Anthropic response JSON.
 pub fn parse_minimal_chat_result(resp: &serde_json::Value) -> ChatResult {
-    // Anthropic 返回 content blocks 数组，这里仅提取 text 字段，按行拼接
+    // Anthropic returns an array of content blocks; here we only collect text fields and join by newline.
     let mut text_acc = String::new();
     if let Some(arr) = resp.get("content").and_then(|c| c.as_array()) {
         for block in arr {

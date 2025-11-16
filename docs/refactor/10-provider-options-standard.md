@@ -1,7 +1,7 @@
 # ProviderOptions 标准化设计（v0.12+ 草案）
 
-状态：草案（内部约定）
-更新时间：2025-11-15
+状态：草案（部分已在 0.11.x 实现）
+更新时间：2025-11-16
 
 本稿约束 `ProviderOptions` 的使用方式，并约定如何在
 core / std / provider / 聚合 四层之间传递与生效。
@@ -320,3 +320,20 @@ OpenAI 自身的 typed options（如 `OpenAiOptions::response_format`、
   `ProviderOptions::Custom` + `chat_before_send` hook。
 
 这两条路径互不干扰，typed options 优先，Custom 只做最后一层 merge。
+
+## 7. 后续计划（0.12+ 优先级草案）
+
+- OpenAI Chat legacy 路径收敛：
+  - 在启用 `std-openai-external` 的场景下，仅通过 `ChatInput::extra` +
+    `OpenAiDefaultChatAdapter` 注入 OpenAI-specific 字段；
+  - 将聚合层 `chat_before_send` 中基于 `OpenAiOptions` 直接拼 JSON 的逻辑
+    标记为 legacy，并在 0.12+ 版本中逐步移除。
+- Web Search ProviderOptions：
+  - Web 搜索不再作为独立 cross-provider 抽象能力；推荐通过各 provider 的
+    provider-defined tools（如 `openai.web_search`）和 typed providerOptions
+    使用搜索能力，聚合层不再维护统一的 WebSearch 参数映射逻辑。
+- Ollama ProviderOptions 收敛：
+  - 目前 `OllamaOptions` 在各自 capability 实现中直接转换为请求 JSON；
+  - 如未来需要跨语言共享 Ollama 行为，可引入 `ollama_like_chat_request_to_core_input`
+    / `ollama_like_embedding_request_to_core_input` + std/provider adapter，将
+    typed options 统一落在 `extra["ollama_*"]`。

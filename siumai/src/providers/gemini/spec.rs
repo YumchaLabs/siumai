@@ -114,13 +114,15 @@ impl ProviderSpec for GeminiSpec {
             return Some(hook);
         }
 
-        // Gemini-specific typed options 已迁移到 `gemini_like_chat_request_to_core_input`
-        // → `ChatInput::extra` → `GeminiDefaultChatAdapter`，此处仅保留 CustomProviderOptions。
+        // Gemini-specific typed options are now mapped via `gemini_like_chat_request_to_core_input`
+        // → `ChatInput::extra` → `GeminiDefaultChatAdapter`. Only CustomProviderOptions
+        // are handled here.
         None
     }
 
     fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
-        // 默认行为保持不变：根据输入数量选择 embedContent 或 batchEmbedContents。
+        // Default behavior remains: choose between embedContent and batchEmbedContents
+        // based on the number of inputs.
         let base = ctx.base_url.trim_end_matches('/');
         let model = req.model.as_deref().unwrap_or("");
         if req.input.len() == 1 {
@@ -142,7 +144,7 @@ impl ProviderSpec for GeminiSpec {
                 EmbeddingResponseTransformer as CoreEmbResp,
             };
 
-            // 使用 std-gemini 的核心 embedding transformers，并桥接回聚合层类型。
+            // Use std-gemini core embedding transformers and bridge back to aggregator types.
             let std = siumai_std_gemini::gemini::embedding::GeminiEmbeddingStandard::new();
             let req_tx: Arc<dyn CoreEmbReq> = std.create_request_transformer("gemini");
             let resp_tx: Arc<dyn CoreEmbResp> = std.create_response_transformer("gemini");
@@ -234,7 +236,7 @@ impl ProviderSpec for GeminiSpec {
     ) -> ImageTransformers {
         #[cfg(feature = "std-gemini-external")]
         {
-            // 直接复用 core Image transformers 的桥接模式（与 openai-compatible 中一致）。
+            // Reuse the core Image transformers bridge pattern (same as openai-compatible).
             let std = siumai_std_gemini::gemini::image::GeminiImageStandard::new();
             let t = std.create_request_transformer("gemini");
             let r = std.create_response_transformer("gemini");

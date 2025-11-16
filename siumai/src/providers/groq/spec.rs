@@ -56,7 +56,7 @@ impl ProviderSpec for GroqSpec {
         };
         use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
 
-        // 将 ChatRequest 映射为带 Groq provider options 的 ChatInput。
+        // Map ChatRequest into ChatInput carrying Groq provider options.
         fn groq_chat_request_to_core_input(
             req: &ChatRequest,
         ) -> siumai_core::execution::chat::ChatInput {

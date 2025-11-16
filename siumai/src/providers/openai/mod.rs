@@ -43,8 +43,10 @@
 //! ```
 
 // Core modules
-// adapter 模块：当启用外部 provider 时，提供同名模块包装外部实现；
-// 否则使用内部实现，维持现有路径 `providers::openai::adapter::OpenAiStandardAdapter`。
+// Adapter module: when the external provider is enabled, wrap the external
+// implementation under the same module name; otherwise use the internal
+// implementation and keep the existing path
+// `providers::openai::adapter::OpenAiStandardAdapter`.
 #[cfg(all(feature = "provider-openai-external"))]
 pub mod adapter {
     pub use siumai_provider_openai::adapter::OpenAiStandardAdapter;
@@ -88,8 +90,8 @@ pub mod model_constants;
 pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 
-// 外部 provider 桥接：当启用 `provider-openai-external` 时，直接重导出
-// 外部 crate 中的 Adapter/常量，保持对外路径稳定。
+// External provider bridge: when `provider-openai-external` is enabled, re-export
+// the Adapter/constants from the external crate to keep public paths stable.
 pub use config::OpenAiConfig;
 #[cfg(feature = "provider-openai-external")]
 pub use siumai_provider_openai::adapter::OpenAiStandardAdapter;

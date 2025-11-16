@@ -7,7 +7,7 @@
 //! ```json
 //! {
 //!   "model": "speech-2.6-hd",
-//!   "text": "今天是不是很开心呀，当然了！",
+//!   "text": "Are you happy today? Of course!",
 //!   "stream": false,
 //!   "voice_setting": {
 //!     "voice_id": "male-qn-qingse",

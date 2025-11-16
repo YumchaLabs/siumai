@@ -12,7 +12,7 @@ pub struct XaiProviderMarker;
 
 /// HTTP helpers for xAI API.
 pub mod headers;
-/// Core-level provider spec 实现.
+/// Core-level provider spec implementation.
 pub mod spec;
 
 pub use headers::build_xai_json_headers;

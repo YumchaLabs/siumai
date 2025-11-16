@@ -1,7 +1,8 @@
-//! xAI core-level provider spec 实现
+//! xAI core-level provider spec implementation.
 //!
-//! 该模块提供基于 `siumai-core` / `siumai-std-openai` 的
-//! `CoreProviderSpec` 实现，供聚合层通过 feature gate 进行桥接。
+//! This module provides a `CoreProviderSpec` implementation based on
+//! `siumai-core` / `siumai-std-openai`, which can be consumed by the
+//! aggregator via feature gates.
 
 use siumai_core::error::LlmError;
 use siumai_core::execution::chat::ChatInput;
@@ -11,7 +12,7 @@ use siumai_core::traits::ProviderCapabilities;
 use siumai_std_openai::openai::chat::{OpenAiChatAdapter, OpenAiChatStandard};
 use std::sync::Arc;
 
-/// xAI 在 core 层的 ProviderSpec 实现
+/// xAI `CoreProviderSpec` implementation.
 #[derive(Clone)]
 pub struct XaiCoreSpec {
     chat_standard: OpenAiChatStandard,
@@ -24,7 +25,7 @@ impl Default for XaiCoreSpec {
 }
 
 impl XaiCoreSpec {
-    /// 使用带 xAI 适配器的 OpenAI Chat 标准实现构造
+    /// Create a new spec using the OpenAI Chat standard with an xAI-specific adapter.
     pub fn new() -> Self {
         let adapter = Arc::new(XaiOpenAiChatAdapter::default());
         Self {
@@ -33,12 +34,12 @@ impl XaiCoreSpec {
     }
 }
 
-/// xAI 专用 OpenAI Chat 适配器
+/// xAI-specific OpenAI Chat adapter.
 ///
-/// 该适配器从 `ChatInput::extra` 中读取 xAI 相关参数：
-/// - `xai_search_parameters`：预构造的搜索配置对象
-/// - `xai_reasoning_effort`：推理强度字符串
-/// 然后将其注入到最终请求 JSON 中。
+/// This adapter reads xAI-related parameters from `ChatInput::extra`:
+/// - `xai_search_parameters`: pre-built search configuration object
+/// - `xai_reasoning_effort`: reasoning effort string
+/// and injects them into the final request JSON.
 #[derive(Clone, Default)]
 struct XaiOpenAiChatAdapter;
 
@@ -48,12 +49,12 @@ impl OpenAiChatAdapter for XaiOpenAiChatAdapter {
         input: &ChatInput,
         body: &mut serde_json::Value,
     ) -> Result<(), LlmError> {
-        // 将预先编码到 ChatInput::extra 中的 search_parameters 合并到请求体。
+        // Merge pre-encoded search_parameters from ChatInput::extra into the request body.
         if let Some(params) = input.extra.get("xai_search_parameters") {
             body["search_parameters"] = params.clone();
         }
 
-        // 注入 reasoning_effort（若存在）。
+        // Inject reasoning_effort if present.
         if let Some(effort) = input.extra.get("xai_reasoning_effort") {
             body["reasoning_effort"] = effort.clone();
         }
@@ -116,7 +117,7 @@ impl CoreProviderSpec for XaiCoreSpec {
     }
 
     fn map_core_stream_event(&self, event: ChatStreamEventCore) -> ChatStreamEventCore {
-        // 暂不做额外加工，直接透传
+        // No additional processing for now; pass through.
         event
     }
 }

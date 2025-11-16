@@ -283,7 +283,7 @@ impl OpenAiCompatibleClient {
     ) -> Result<reqwest::header::HeaderMap, LlmError> {
         #[cfg(feature = "provider-openai-compatible-external")]
         {
-            // 使用带 provider_id 的外部策略版本
+            // Use external helper variant that is aware of provider_id.
             return siumai_provider_openai_compatible::helpers::build_json_headers_with_provider(
                 provider_id,
                 api_key,

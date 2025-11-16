@@ -82,10 +82,11 @@ pub fn build_json_headers_with_provider(
     adapter_headers: &HeaderMap,
 ) -> Result<HeaderMap, LlmError> {
     let mut headers = build_json_headers(api_key, http_extra, config_headers, adapter_headers)?;
-    // Provider-specific policies（保守实现，避免注入未知值）
+    // Provider-specific policies (conservative behavior; avoid injecting unknown values).
     match provider_id {
-        // OpenRouter 建议提供 HTTP-Referer 与 X-Title；
-        // 若用户仅提供了标准 Referer，我们复制为 HTTP-Referer，便于通过。
+        // OpenRouter recommends providing HTTP-Referer and X-Title.
+        // If the user only provides a standard Referer, copy it to HTTP-Referer
+        // to satisfy provider requirements.
         "openrouter" => {
             let http_referer = HeaderName::from_static("http-referer");
             let referer = HeaderName::from_static("referer");
@@ -94,7 +95,8 @@ pub fn build_json_headers_with_provider(
                     headers.insert(http_referer, val);
                 }
             }
-            // X-Title 若用户未提供，不做默认注入，避免泄露不必要信息。
+            // If the user does not provide X-Title, do not inject a default value
+            // to avoid leaking unnecessary information.
         }
         _ => {}
     }

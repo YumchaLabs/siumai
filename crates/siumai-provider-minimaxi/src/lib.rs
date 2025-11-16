@@ -15,7 +15,7 @@ pub mod constants;
 pub mod error;
 /// HTTP helpers shared between Anthropic-compatible and OpenAI-compatible APIs.
 pub mod headers;
-/// Core-level provider spec 实现.
+/// Core-level provider spec implementation.
 pub mod spec;
 
 pub use constants::{ANTHROPIC_BASE_URL, OPENAI_BASE_URL};

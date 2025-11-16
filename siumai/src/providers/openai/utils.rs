@@ -8,6 +8,7 @@ use crate::execution::http::headers::ProviderHeaders;
 use crate::types::*;
 use base64::Engine;
 use reqwest::header::HeaderMap;
+use std::collections::HashMap;
 
 /// Infer audio format from media type
 pub(crate) fn infer_audio_format(media_type: Option<&str>) -> &'static str {

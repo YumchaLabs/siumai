@@ -119,21 +119,38 @@ impl ProviderHeaders {
         project: Option<&str>,
         custom_headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, LlmError> {
-        let mut builder = HttpHeaderBuilder::new()
-            .with_bearer_auth(api_key)?
-            .with_json_content_type();
-
-        // Add OpenAI-specific headers
-        if let Some(org) = organization {
-            builder = builder.with_header("OpenAI-Organization", org)?;
+        // When the external OpenAI provider crate is enabled, delegate header
+        // construction to it so that all OpenAI call paths share the same strategy.
+        #[cfg(feature = "provider-openai-external")]
+        {
+            return siumai_provider_openai::helpers::build_openai_json_headers(
+                api_key,
+                organization,
+                project,
+                custom_headers,
+            );
         }
 
-        if let Some(proj) = project {
-            builder = builder.with_header("OpenAI-Project", proj)?;
-        }
+        // When the external provider crate is not enabled, keep the original
+        // in-crate implementation to preserve historical behavior.
+        #[cfg(not(feature = "provider-openai-external"))]
+        {
+            let mut builder = HttpHeaderBuilder::new()
+                .with_bearer_auth(api_key)?
+                .with_json_content_type();
 
-        builder = builder.with_custom_headers(custom_headers)?;
-        Ok(builder.build())
+            // Add OpenAI-specific headers
+            if let Some(org) = organization {
+                builder = builder.with_header("OpenAI-Organization", org)?;
+            }
+
+            if let Some(proj) = project {
+                builder = builder.with_header("OpenAI-Project", proj)?;
+            }
+
+            builder = builder.with_custom_headers(custom_headers)?;
+            Ok(builder.build())
+        }
     }
 
     /// Build headers for Anthropic API
@@ -183,13 +200,29 @@ impl ProviderHeaders {
         api_key: &str,
         custom_headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, LlmError> {
-        let builder = HttpHeaderBuilder::new()
-            .with_bearer_auth(api_key)?
-            .with_json_content_type()
-            .with_user_agent("siumai/0.1.0 (groq-provider)")?
-            .with_custom_headers(custom_headers)?;
+        // When the external Groq provider crate is enabled, delegate header
+        // construction to it so that Groq-specific behavior lives close to the
+        // provider implementation.
+        #[cfg(feature = "provider-groq-external")]
+        {
+            return siumai_provider_groq::headers::build_groq_json_headers(
+                api_key,
+                custom_headers,
+            );
+        }
 
-        Ok(builder.build())
+        // Fallback to the in-crate implementation when the external crate is
+        // not enabled. This keeps behavior identical for existing users.
+        #[cfg(not(feature = "provider-groq-external"))]
+        {
+            let builder = HttpHeaderBuilder::new()
+                .with_bearer_auth(api_key)?
+                .with_json_content_type()
+                .with_user_agent("siumai/0.1.0 (groq-provider)")?
+                .with_custom_headers(custom_headers)?;
+
+            Ok(builder.build())
+        }
     }
 
     /// Build headers for xAI API
@@ -197,12 +230,25 @@ impl ProviderHeaders {
         api_key: &str,
         custom_headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, LlmError> {
-        let builder = HttpHeaderBuilder::new()
-            .with_bearer_auth(api_key)?
-            .with_json_content_type()
-            .with_custom_headers(custom_headers)?;
+        // When the external xAI provider crate is enabled, delegate header
+        // construction to it so that xAI-specific behavior lives close to the
+        // provider implementation.
+        #[cfg(feature = "provider-xai-external")]
+        {
+            return siumai_provider_xai::headers::build_xai_json_headers(api_key, custom_headers);
+        }
 
-        Ok(builder.build())
+        // Fallback to the in-crate implementation when the external crate is
+        // not enabled. This keeps behavior identical for existing users.
+        #[cfg(not(feature = "provider-xai-external"))]
+        {
+            let builder = HttpHeaderBuilder::new()
+                .with_bearer_auth(api_key)?
+                .with_json_content_type()
+                .with_custom_headers(custom_headers)?;
+
+            Ok(builder.build())
+        }
     }
 
     /// Build headers for Ollama API (no auth required)

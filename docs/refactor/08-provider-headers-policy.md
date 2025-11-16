@@ -1,6 +1,6 @@
-# Provider Headers 策略与别名（OpenAI-Compatible / OpenAI）
+# Provider Headers 策略与别名（OpenAI-Compatible / OpenAI / Groq / xAI）
 
-状态: 进行中（保守策略已落地 OpenRouter；其余按需补强）
+状态: 进行中（OpenRouter / OpenAI / Groq / xAI 已接入外部 helpers；其余按需补强）
 
 ## 目标
 - 统一各 Provider 的请求头构建入口（外部 helpers），避免分散在聚合层。
@@ -23,6 +23,16 @@
   - `build_openai_json_headers(api_key, organization, project, http_extra)`
   - 注入：Content-Type、Authorization、OpenAI-Organization、OpenAI-Project，并合并 `http_extra`。
 
+- Groq 外部 helpers（`siumai-provider-groq`）
+  - `build_groq_json_headers(api_key, http_extra)`
+  - 注入：`Authorization: Bearer <api_key>`、`Content-Type: application/json`、`User-Agent: siumai/0.1.0 (groq-provider)`，并合并 `http_extra`。
+  - 聚合层 `ProviderHeaders::groq` 在启用 `provider-groq-external` 时委托该 helper，未启用时保留原有实现。
+
+- xAI 外部 helpers（`siumai-provider-xai`）
+  - `build_xai_json_headers(api_key, http_extra)`
+  - 注入：`Authorization: Bearer <api_key>`、`Content-Type: application/json`，并合并 `http_extra`。
+  - 聚合层 `ProviderHeaders::xai` 在启用 `provider-xai-external` 时委托该 helper，未启用时保留原有实现。
+
 ## 扩展策略（建议）
 - “别名复制优先”：仅在已有标准头场景下做 alias 复制（例如 Provider 要求的别名头），减少信息泄露风险。
 - “不注入默认值”：除非官方明确要求，否则不生成新头。
@@ -34,7 +44,9 @@
   - 无 Referer 不注入 HTTP-Referer
   - DeepSeek/SiliconFlow/Groq 不做别名注入（透传验证）
 
+- 现有 `siumai/tests/providers/provider_headers_test.rs` 覆盖：
+  - OpenAI / Anthropic / Gemini / Groq / xAI / Ollama 基础头部结构与兼容行为。
+
 ## 后续计划
 - 待官方文档确认后，补齐 DeepSeek / SiliconFlow / Groq 等的“有据可依”的别名或规范化处理，并为每条规则新增对应用例。
 - 将更多无状态的 headers 构建逻辑集中于外部 helpers，聚合侧仅桥接。
-

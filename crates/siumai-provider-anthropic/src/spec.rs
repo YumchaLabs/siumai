@@ -1,7 +1,8 @@
-//! Anthropic core-level provider spec 实现
+//! Anthropic core-level provider spec implementation.
 //!
-//! 该模块提供基于 `siumai-core` / `siumai-std-anthropic` 的
-//! `CoreProviderSpec` 实现，供聚合层通过 feature gate 进行桥接。
+//! This module provides a `CoreProviderSpec` implementation based on
+//! `siumai-core` and `siumai-std-anthropic`, which can be consumed by the
+//! aggregator via feature gates.
 
 use siumai_core::error::LlmError;
 use siumai_core::execution::chat::ChatInput;
@@ -11,14 +12,14 @@ use siumai_core::traits::ProviderCapabilities;
 use siumai_std_anthropic::anthropic::chat::{AnthropicChatStandard, AnthropicDefaultChatAdapter};
 use std::sync::Arc;
 
-/// Anthropic 在 core 层的 ProviderSpec 实现
+/// Anthropic `CoreProviderSpec` implementation.
 #[derive(Clone, Default)]
 pub struct AnthropicCoreSpec {
     chat_standard: AnthropicChatStandard,
 }
 
 impl AnthropicCoreSpec {
-    /// 使用默认标准实现构造
+    /// Construct with the default Anthropic standard.
     pub fn new() -> Self {
         Self {
             chat_standard: AnthropicChatStandard::with_adapter(Arc::new(
@@ -49,12 +50,12 @@ impl CoreProviderSpec for AnthropicCoreSpec {
             .as_ref()
             .ok_or_else(|| LlmError::MissingApiKey("Anthropic API key not provided".into()))?;
 
-        // 复用本 crate 的 header helper，保持与聚合层行为一致
+        // Reuse this crate's header helper to keep behavior consistent with the aggregator.
         crate::headers::build_anthropic_json_headers(api_key, &ctx.http_extra_headers)
     }
 
     fn chat_url(&self, ctx: &CoreProviderContext) -> String {
-        // 默认行为：使用 base_url 拼接 Anthropic Messages API 路径
+        // Default behavior: append Anthropic Messages API path to base_url.
         format!("{}/v1/messages", ctx.base_url.trim_end_matches('/'))
     }
 
@@ -63,7 +64,7 @@ impl CoreProviderSpec for AnthropicCoreSpec {
         _input: &ChatInput,
         ctx: &CoreProviderContext,
     ) -> CoreChatTransformers {
-        // 使用标准 crate 提供的 Anthropic Chat 标准实现
+        // Use the standard Anthropic Chat implementation from the std crate.
         let req = self
             .chat_standard
             .create_request_transformer(&ctx.provider_id);
@@ -80,7 +81,7 @@ impl CoreProviderSpec for AnthropicCoreSpec {
     }
 
     fn map_core_stream_event(&self, event: ChatStreamEventCore) -> ChatStreamEventCore {
-        // 目前不做额外加工，直接透传
+        // No additional processing for now; pass through.
         event
     }
 }

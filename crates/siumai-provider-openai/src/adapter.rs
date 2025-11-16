@@ -1,8 +1,8 @@
-//! OpenAI provider adapter (externalized)
+//! OpenAI provider adapter (externalized).
 //!
-//! 提供与聚合层一致的 `OpenAiStandardAdapter`，实现自
-//! `siumai-provider-openai-compatible` 内定义的 `ProviderAdapter` 接口，
-//! 以便共享 OpenAI-compatible 的转换与能力检测逻辑。
+//! Provides an `OpenAiStandardAdapter` consistent with the aggregator, implementing
+//! the `ProviderAdapter` interface defined in `siumai-provider-openai-compatible`
+//! so that OpenAI-compatible transformation and capability detection logic can be shared.
 
 use siumai_core::error::LlmError;
 use siumai_core::traits::ProviderCapabilities;

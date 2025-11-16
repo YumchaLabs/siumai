@@ -15,7 +15,7 @@ pub mod constants;
 pub mod error;
 /// HTTP helpers for Anthropic API.
 pub mod headers;
-/// Core-level provider spec 实现.
+/// Core-level provider spec implementation.
 pub mod spec;
 
 pub use constants::ANTHROPIC_V1_ENDPOINT;
