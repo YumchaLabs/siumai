@@ -573,11 +573,46 @@ where
             &self,
             raw: &serde_json::Value,
         ) -> Result<crate::types::ChatResponse, LlmError> {
-            use crate::types::{FinishReason, MessageContent, Usage};
+            use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
             use siumai_core::types::FinishReasonCore;
 
             let core_res = self.inner.transform_chat_response(raw)?;
-            let content = MessageContent::Text(core_res.content);
+            // Prefer the structured parsed_content view when available, so that
+            // higher layers can get text + tool calls + thinking without
+            // re-parsing provider JSON.
+            let content = if let Some(parsed) = &core_res.parsed_content {
+                let mut parts = Vec::new();
+
+                if !parsed.text.is_empty() {
+                    parts.push(ContentPart::text(&parsed.text));
+                }
+
+                for tc in &parsed.tool_calls {
+                    parts.push(ContentPart::tool_call(
+                        tc.id.clone().unwrap_or_else(|| "".to_string()),
+                        tc.name.clone(),
+                        tc.arguments.clone(),
+                        None,
+                    ));
+                }
+
+                if let Some(thinking) = &parsed.thinking {
+                    if !thinking.is_empty() {
+                        parts.push(ContentPart::reasoning(thinking));
+                    }
+                }
+
+                if parts.is_empty() {
+                    MessageContent::Text(core_res.content)
+                } else if parts.len() == 1 && parts[0].is_text() {
+                    // Keep simple Text when only plain text is present.
+                    MessageContent::Text(parsed.text.clone())
+                } else {
+                    MessageContent::MultiModal(parts)
+                }
+            } else {
+                MessageContent::Text(core_res.content)
+            };
 
             let usage = core_res
                 .usage
@@ -706,6 +741,70 @@ pub fn openai_like_chat_request_to_core_input(
         stop: req.common_params.stop_sequences.clone(),
         extra: Default::default(),
     }
+}
+
+/// Helper: map an aggregator-level `ChatRequest` into the minimal
+/// `siumai-core` `ChatInput` used by OpenAI-style standards, including
+/// OpenAI-specific `ProviderOptions` fields.
+///
+/// This extends `openai_like_chat_request_to_core_input` by injecting
+/// OpenAI options into `ChatInput::extra` using the unified
+/// `openai_*` key naming convention so that std-openai adapters
+/// (and OpenAI-compatible providers) can consume them.
+pub fn openai_chat_request_to_core_input(
+    req: &ChatRequest,
+) -> siumai_core::execution::chat::ChatInput {
+    use crate::types::ProviderOptions;
+
+    let mut input = openai_like_chat_request_to_core_input(req);
+
+    if let ProviderOptions::OpenAi(ref options) = req.provider_options {
+        // Reasoning effort (o1/o3 models)
+        if let Some(effort) = options.reasoning_effort {
+            if let Ok(v) = serde_json::to_value(effort) {
+                input.extra.insert("openai_reasoning_effort".to_string(), v);
+            }
+        }
+
+        // Service tier preference
+        if let Some(tier) = options.service_tier {
+            if let Ok(v) = serde_json::to_value(tier) {
+                input.extra.insert("openai_service_tier".to_string(), v);
+            }
+        }
+
+        // Modalities (e.g., ["text","audio"])
+        if let Some(ref mods) = options.modalities
+            && let Ok(v) = serde_json::to_value(mods)
+        {
+            input.extra.insert("openai_modalities".to_string(), v);
+        }
+
+        // Audio configuration
+        if let Some(ref aud) = options.audio
+            && let Ok(v) = serde_json::to_value(aud)
+        {
+            input.extra.insert("openai_audio".to_string(), v);
+        }
+
+        // Prediction content
+        if let Some(ref pred) = options.prediction
+            && let Ok(v) = serde_json::to_value(pred)
+        {
+            input.extra.insert("openai_prediction".to_string(), v);
+        }
+
+        // Web search options
+        if let Some(ref ws) = options.web_search_options
+            && let Ok(v) = serde_json::to_value(ws)
+        {
+            input
+                .extra
+                .insert("openai_web_search_options".to_string(), v);
+        }
+    }
+
+    input
 }
 
 /// Helper: map an aggregator-level `ChatRequest` into a minimal

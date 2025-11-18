@@ -5,8 +5,32 @@
 //! - Anthropic usage/finish_reason parsing utilities
 
 use siumai_core::error::LlmError;
-use siumai_core::execution::chat::{ChatInput, ChatResult, ChatRole, ChatUsage};
+use siumai_core::execution::chat::{
+    ChatInput, ChatParsedContentCore, ChatParsedToolCallCore, ChatResult, ChatRole, ChatUsage,
+};
+use siumai_core::types::FinishReasonCore;
 use std::collections::HashMap;
+
+/// Core representation of a single Anthropic tool call.
+#[derive(Debug, Clone)]
+pub struct AnthropicToolCallCore {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+/// Core representation of Anthropic message content.
+///
+/// This mirrors the unified content model used by higher-level layers:
+/// - `text`: aggregated assistant text content
+/// - `tool_calls`: tool_use blocks with ids and JSON arguments
+/// - `thinking`: optional thinking/reasoning content
+#[derive(Debug, Clone, Default)]
+pub struct AnthropicParsedContentCore {
+    pub text: String,
+    pub tool_calls: Vec<AnthropicToolCallCore>,
+    pub thinking: Option<String>,
+}
 
 /// Convert ChatInput into Anthropic Messages payload and optional system prompt.
 pub fn build_messages_payload(
@@ -91,27 +115,139 @@ pub fn parse_usage(usage: Option<&serde_json::Value>) -> Option<ChatUsage> {
     })
 }
 
-/// Extract a minimal ChatResult (only content + usage) from Anthropic response JSON.
-pub fn parse_minimal_chat_result(resp: &serde_json::Value) -> ChatResult {
-    // Anthropic returns an array of content blocks; here we only collect text fields and join by newline.
-    let mut text_acc = String::new();
+/// Extract a core-level parsed content structure from an Anthropic
+/// response JSON. This is used by both non-streaming response
+/// handling and can be used by higher layers to construct richer
+/// content models (text + tool calls + thinking).
+pub fn parse_content_blocks_core(resp: &serde_json::Value) -> AnthropicParsedContentCore {
+    let mut parsed = AnthropicParsedContentCore::default();
+
     if let Some(arr) = resp.get("content").and_then(|c| c.as_array()) {
         for block in arr {
-            if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
-                if !text_acc.is_empty() {
-                    text_acc.push_str("\n");
+            let kind = block
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+
+            match kind {
+                "text" => {
+                    if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
+                        if !t.is_empty() {
+                            if !parsed.text.is_empty() {
+                                parsed.text.push('\n');
+                            }
+                            parsed.text.push_str(t);
+                        }
+                    }
                 }
-                text_acc.push_str(t);
+                "tool_use" => {
+                    let id = block
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    let name = block
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    let arguments = block
+                        .get("input")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+
+                    if !id.is_empty() && !name.is_empty() {
+                        parsed.tool_calls.push(AnthropicToolCallCore {
+                            id,
+                            name,
+                            arguments,
+                        });
+                    }
+                }
+                "thinking" => {
+                    // Thinking content may be placed under "thinking"; if absent,
+                    // fall back to "text" for robustness.
+                    if let Some(th) = block
+                        .get("thinking")
+                        .or_else(|| block.get("text"))
+                        .and_then(|v| v.as_str())
+                    {
+                        if !th.is_empty() {
+                            match &mut parsed.thinking {
+                                Some(acc) => {
+                                    if !acc.is_empty() {
+                                        acc.push('\n');
+                                    }
+                                    acc.push_str(th);
+                                }
+                                None => parsed.thinking = Some(th.to_string()),
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
 
+    parsed
+}
+
+/// Extract a minimal ChatResult (only content + usage/finish_reason) from
+/// Anthropic response JSON.
+pub fn parse_minimal_chat_result(resp: &serde_json::Value) -> ChatResult {
+    let parsed = parse_content_blocks_core(resp);
+
+    // Usage parsing reuses the existing helper.
+    let mut text_acc = String::new();
+    text_acc.push_str(&parsed.text);
+
     let usage = parse_usage(resp.get("usage"));
+    let finish_reason = resp
+        .get("stop_reason")
+        .and_then(|v| v.as_str())
+        .and_then(|s| parse_finish_reason_core(Some(s)));
+
+    // Populate the core parsed content model so higher layers can
+    // reconstruct richer MessageContent (text + tool calls + thinking)
+    // without re-parsing provider JSON.
+    let parsed_content = ChatParsedContentCore {
+        text: parsed.text.clone(),
+        tool_calls: parsed
+            .tool_calls
+            .iter()
+            .map(|t| ChatParsedToolCallCore {
+                id: Some(t.id.clone()),
+                name: t.name.clone(),
+                arguments: t.arguments.clone(),
+            })
+            .collect(),
+        thinking: parsed.thinking.clone(),
+    };
 
     ChatResult {
         content: text_acc,
-        finish_reason: None,
+        finish_reason,
         usage,
         metadata: Default::default(),
+        parsed_content: Some(parsed_content),
+    }
+}
+
+/// Parse Anthropic stop_reason into the core `FinishReasonCore` enum.
+///
+/// This helper is shared by both non-streaming response handling and
+/// streaming event converters to ensure consistent semantics across
+/// different call paths.
+pub fn parse_finish_reason_core(reason: Option<&str>) -> Option<FinishReasonCore> {
+    match reason {
+        Some("end_turn") => Some(FinishReasonCore::Stop),
+        Some("max_tokens") => Some(FinishReasonCore::Length),
+        Some("tool_use") => Some(FinishReasonCore::ToolCalls),
+        Some("refusal") => Some(FinishReasonCore::ContentFilter),
+        // For stop_sequence / pause_turn and any other values, keep the
+        // original string as an opaque tag.
+        Some(other) => Some(FinishReasonCore::Other(other.to_string())),
+        None => None,
     }
 }

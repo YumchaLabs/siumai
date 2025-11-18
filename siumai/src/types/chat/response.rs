@@ -228,6 +228,35 @@ impl ChatResponse {
         !self.reasoning().is_empty()
     }
 
+    /// Get concatenated reasoning/thinking content (if any).
+    ///
+    /// This helper joins all reasoning segments (if present) with
+    /// newline separators and returns a single `String`. If no
+    /// reasoning content is present, it returns `None`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use siumai::types::{ChatResponse, MessageContent, ContentPart};
+    ///
+    /// let response = ChatResponse::new(MessageContent::MultiModal(vec![
+    ///     ContentPart::reasoning("Let me think..."),
+    ///     ContentPart::reasoning("I should check the docs."),
+    /// ]));
+    ///
+    /// let thinking = response.reasoning_text().unwrap();
+    /// assert!(thinking.contains("Let me think"));
+    /// assert!(thinking.contains("I should check the docs."));
+    /// ```
+    pub fn reasoning_text(&self) -> Option<String> {
+        let parts = self.reasoning();
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n"))
+        }
+    }
+
     /// Convert response to messages for conversation history
     ///
     /// Returns an assistant message containing the response content

@@ -4,3 +4,4 @@ pub mod chat;
 // Embedding and image standards will be added in later phases.
 pub mod embedding;
 pub mod image;
+pub mod utils;

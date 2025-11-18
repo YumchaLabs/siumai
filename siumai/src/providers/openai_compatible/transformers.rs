@@ -37,47 +37,14 @@ impl RequestTransformer for CompatRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        // Use the core OpenAI Chat standard to convert into OpenAI-style JSON,
-        // then let the adapter perform provider-specific adjustments.
-        //
-        // Map aggregator ChatRequest -> core ChatInput
-        let messages = req
-            .messages
-            .iter()
-            .map(|m| {
-                let role = match m.role {
-                    crate::types::MessageRole::System => {
-                        siumai_core::execution::chat::ChatRole::System
-                    }
-                    crate::types::MessageRole::User => siumai_core::execution::chat::ChatRole::User,
-                    crate::types::MessageRole::Assistant => {
-                        siumai_core::execution::chat::ChatRole::Assistant
-                    }
-                    _ => siumai_core::execution::chat::ChatRole::User,
-                };
-                let content = m.content.all_text();
-                siumai_core::execution::chat::ChatMessageInput { role, content }
-            })
-            .collect();
-
-        let mut extra = std::collections::HashMap::new();
-        // Map a few common fields into `extra` so the standard transformer can
-        // see them if needed (optional, kept minimal for now).
-        if let Some(seed) = req.common_params.seed {
-            extra.insert("seed".to_string(), serde_json::json!(seed));
+        // 使用统一的 OpenAI ChatInput 映射逻辑，包括 OpenAI ProviderOptions
+        //（reasoning_effort/service_tier/modalities/audio/prediction/web_search 等）
+        // 这样 OpenAI-Compatible 也能复用 std-openai 的适配行为。
+        let mut input = crate::core::provider_spec::openai_chat_request_to_core_input(req);
+        // 覆盖模型为当前兼容层配置的模型（通常与 common_params.model 一致）
+        if !self.config.model.is_empty() {
+            input.model = Some(self.config.model.clone());
         }
-
-        let input = siumai_core::execution::chat::ChatInput {
-            messages,
-            model: Some(self.config.model.clone()),
-            max_tokens: req.common_params.max_tokens,
-            temperature: req.common_params.temperature,
-            top_p: req.common_params.top_p,
-            presence_penalty: None,
-            frequency_penalty: None,
-            stop: req.common_params.stop_sequences.clone(),
-            extra,
-        };
 
         // Build OpenAI-style body via std-openai
         struct CompatAdapter {

@@ -84,6 +84,9 @@ impl crate::adapter::ProviderAdapter for ConfigurableAdapter {
         if self.config.capabilities.contains(&"embedding".to_string()) {
             caps = caps.with_embedding();
         }
+        if self.config.capabilities.contains(&"rerank".to_string()) {
+            caps = caps.with_custom_feature("rerank", true);
+        }
         if self.config.supports_reasoning {
             caps = caps.with_custom_feature("reasoning", true);
         }

@@ -8,6 +8,7 @@ use crate::execution::http::headers::ProviderHeaders;
 use crate::types::*;
 use base64::Engine;
 use reqwest::header::HeaderMap;
+use siumai_std_anthropic::anthropic::utils::{AnthropicParsedContentCore, AnthropicToolCallCore};
 
 /// Build HTTP headers for Anthropic API requests according to official documentation
 /// <https://docs.anthropic.com/en/api/messages>
@@ -300,17 +301,21 @@ pub fn convert_messages(
 
 /// Parse Anthropic finish reason according to official API documentation
 /// <https://docs.anthropic.com/en/api/handling-stop-reasons>
+///
+/// This reuses the core-level `FinishReasonCore` from `siumai-std-anthropic`
+/// and maps it into the aggregator's `FinishReason` type.
 pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
-    match reason {
-        Some("end_turn") => Some(FinishReason::Stop),
-        Some("max_tokens") => Some(FinishReason::Length),
-        Some("tool_use") => Some(FinishReason::ToolCalls),
-        Some("stop_sequence") => Some(FinishReason::Other("stop_sequence".to_string())),
-        Some("pause_turn") => Some(FinishReason::Other("pause_turn".to_string())),
-        Some("refusal") => Some(FinishReason::ContentFilter),
-        Some(other) => Some(FinishReason::Other(other.to_string())),
-        None => None,
-    }
+    use siumai_core::types::FinishReasonCore;
+
+    let core_reason = siumai_std_anthropic::anthropic::utils::parse_finish_reason_core(reason)?;
+
+    Some(match core_reason {
+        FinishReasonCore::Stop => FinishReason::Stop,
+        FinishReasonCore::Length => FinishReason::Length,
+        FinishReasonCore::ContentFilter => FinishReason::ContentFilter,
+        FinishReasonCore::ToolCalls => FinishReason::ToolCalls,
+        FinishReasonCore::Other(s) => FinishReason::Other(s),
+    })
 }
 
 /// Get default models for Anthropic according to latest available models
@@ -395,6 +400,49 @@ pub fn parse_response_content_and_tools(
         MessageContent::Text(String::new())
     } else if parts.len() == 1 && parts[0].is_text() {
         MessageContent::Text(text_content)
+    } else {
+        MessageContent::MultiModal(parts)
+    }
+}
+
+/// Convert core-level `AnthropicParsedContentCore` into the aggregator's
+/// `MessageContent` structure (text + tool calls + reasoning).
+pub fn core_parsed_to_message_content(parsed: &AnthropicParsedContentCore) -> MessageContent {
+    use crate::types::ContentPart;
+
+    let mut parts = Vec::new();
+
+    // Primary assistant text content
+    if !parsed.text.is_empty() {
+        parts.push(ContentPart::text(&parsed.text));
+    }
+
+    // Tool calls
+    for AnthropicToolCallCore {
+        id,
+        name,
+        arguments,
+    } in &parsed.tool_calls
+    {
+        parts.push(ContentPart::tool_call(
+            id.clone(),
+            name.clone(),
+            arguments.clone(),
+            None,
+        ));
+    }
+
+    // Thinking / reasoning content
+    if let Some(thinking) = &parsed.thinking {
+        if !thinking.is_empty() {
+            parts.push(ContentPart::reasoning(thinking));
+        }
+    }
+
+    if parts.is_empty() {
+        MessageContent::Text(String::new())
+    } else if parts.len() == 1 && parts[0].is_text() {
+        MessageContent::Text(parsed.text.clone())
     } else {
         MessageContent::MultiModal(parts)
     }

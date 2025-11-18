@@ -1,7 +1,11 @@
-//! Anthropic streaming implementation using eventsource-stream
+//! Anthropic streaming implementation using eventsource-stream (legacy path)
 //!
 //! Provides SSE event conversion for Anthropic streaming responses.
-//! The legacy AnthropicStreaming client has been removed in favor of the unified HttpChatExecutor.
+//! The primary streaming path for Anthropic now lives in the
+//! `siumai-std-anthropic` crate, which produces core-level
+//! `ChatStreamEventCore` events that are bridged into the aggregator.
+//! This module is retained for compatibility and tests; new streaming
+//! behavior should be implemented in the std/core layer instead.
 
 use crate::error::LlmError;
 use crate::params::AnthropicParams;

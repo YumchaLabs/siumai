@@ -41,6 +41,35 @@ pub struct ChatUsage {
     pub total_tokens: u32,
 }
 
+/// Core representation of a single parsed tool call in chat content.
+///
+/// This is a provider-agnostic structure that standards can use to
+/// surface tool calls alongside aggregated text and thinking content.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ChatParsedToolCallCore {
+    /// Optional tool call id (if the provider exposes one).
+    pub id: Option<String>,
+    /// Tool/function name.
+    pub name: String,
+    /// JSON arguments for the tool call.
+    pub arguments: serde_json::Value,
+}
+
+/// Core representation of parsed chat content (text + tool calls + thinking).
+///
+/// Standards like Anthropic and Gemini can populate this structure so
+/// that higher layers can reconstruct richer `MessageContent` models
+/// without re-parsing provider JSON.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ChatParsedContentCore {
+    /// Aggregated assistant text (excluding thinking content).
+    pub text: String,
+    /// Parsed tool calls.
+    pub tool_calls: Vec<ChatParsedToolCallCore>,
+    /// Optional thinking / reasoning content.
+    pub thinking: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatResult {
     pub content: String,
@@ -48,6 +77,13 @@ pub struct ChatResult {
     pub usage: Option<ChatUsage>,
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Optional parsed content model (text + tool calls + thinking).
+    ///
+    /// This field is filled by standards that expose a richer content
+    /// view (e.g. Anthropic / Gemini). Providers that don't support it
+    /// can leave this as `None`.
+    #[serde(default)]
+    pub parsed_content: Option<ChatParsedContentCore>,
 }
 
 pub trait ChatRequestTransformer: Send + Sync {

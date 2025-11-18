@@ -11,7 +11,7 @@ impl ImageGenerationCapability for GeminiClient {
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        use crate::core::ProviderContext;
+        use crate::core::{ProviderContext, ProviderSpec};
         use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
         use secrecy::ExposeSecret;
 
@@ -23,31 +23,20 @@ impl ImageGenerationCapability for GeminiClient {
             extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
-        // Use lightweight wrapper spec with explicit URL behavior
-        let spec = crate::providers::gemini::spec::create_image_wrapper(
-            self.config.base_url.clone(),
-            self.config.model.clone(),
-        );
-
         let ctx = ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
-            extra_headers.clone(),
+            extra_headers,
         );
 
-        let req_tx = super::super::transformers::GeminiRequestTransformer {
-            config: self.config.clone(),
-        };
-        let resp_tx = super::super::transformers::GeminiResponseTransformer {
-            config: self.config.clone(),
-        };
+        // Use unified GeminiSpec + std-gemini image transformers.
+        let spec: Arc<dyn ProviderSpec> = Arc::new(crate::providers::gemini::spec::GeminiSpec);
 
         if let Some(opts) = &self.retry_options {
             let http = self.http_client.clone();
             let spec_clone = spec.clone();
             let ctx_clone = ctx.clone();
-            let config = self.config.clone();
             let interceptors = self.http_interceptors.clone();
             crate::retry_api::retry_with(
                 || {
@@ -56,18 +45,13 @@ impl ImageGenerationCapability for GeminiClient {
                     let spec = spec_clone.clone();
                     let ctx = ctx_clone.clone();
                     let interceptors = interceptors.clone();
-                    let req_tx = super::super::transformers::GeminiRequestTransformer {
-                        config: config.clone(),
-                    };
-                    let resp_tx = super::super::transformers::GeminiResponseTransformer {
-                        config: config.clone(),
-                    };
                     async move {
+                        let bundle = spec.choose_image_transformers(&rq, &ctx);
                         let exec = HttpImageExecutor {
                             provider_id: "gemini".to_string(),
                             http_client: http,
-                            request_transformer: Arc::new(req_tx),
-                            response_transformer: Arc::new(resp_tx),
+                            request_transformer: bundle.request,
+                            response_transformer: bundle.response,
                             provider_spec: spec,
                             provider_context: ctx,
                             policy: crate::execution::ExecutionPolicy::new()
@@ -80,11 +64,12 @@ impl ImageGenerationCapability for GeminiClient {
             )
             .await
         } else {
+            let bundle = spec.choose_image_transformers(&request, &ctx);
             let exec = HttpImageExecutor {
                 provider_id: "gemini".to_string(),
                 http_client: self.http_client.clone(),
-                request_transformer: Arc::new(req_tx),
-                response_transformer: Arc::new(resp_tx),
+                request_transformer: bundle.request,
+                response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
                 policy: crate::execution::ExecutionPolicy::new()

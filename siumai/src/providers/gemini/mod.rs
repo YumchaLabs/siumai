@@ -45,6 +45,7 @@ pub mod spec;
 pub mod streaming;
 pub mod transformers;
 pub mod types;
+pub mod utils;
 
 // Feature modules
 pub mod builder;

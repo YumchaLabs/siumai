@@ -233,21 +233,8 @@ impl ChatResponseTransformer for GeminiChatResponseTx {
             adapter.transform_response(&mut resp)?;
         }
 
-        // Minimal Gemini response parsing based on candidates[0].content.parts[*].text.
-        let text = resp
-            .get("candidates")
-            .and_then(|c| c.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|cand| cand.get("content"))
-            .and_then(|c| c.get("parts"))
-            .and_then(|p| p.as_array())
-            .and_then(|parts| {
-                parts
-                    .iter()
-                    .find_map(|part| part.get("text").and_then(|t| t.as_str()))
-            })
-            .unwrap_or("")
-            .to_string();
+        // Use the unified content parser to build the core content model.
+        let parsed = crate::gemini::utils::parse_content_core(&resp);
 
         // Canonicalize finishReason into a minimal string representation, then map
         // into the core-level FinishReasonCore enum.
@@ -281,11 +268,29 @@ impl ChatResponseTransformer for GeminiChatResponseTx {
                 .unwrap_or(0) as u32,
         });
 
+        // Populate the core parsed content model so higher layers can
+        // reconstruct richer MessageContent (text + tool calls + thinking)
+        // without re-parsing provider JSON.
+        let parsed_content = siumai_core::execution::chat::ChatParsedContentCore {
+            text: parsed.text.clone(),
+            tool_calls: parsed
+                .tool_calls
+                .iter()
+                .map(|t| siumai_core::execution::chat::ChatParsedToolCallCore {
+                    id: None,
+                    name: t.name.clone(),
+                    arguments: t.arguments.clone(),
+                })
+                .collect(),
+            thinking: parsed.thinking.clone(),
+        };
+
         Ok(ChatResult {
-            content: text,
+            content: parsed.text,
             finish_reason,
             usage,
             metadata: Default::default(),
+            parsed_content: Some(parsed_content),
         })
     }
 }

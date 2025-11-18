@@ -311,13 +311,9 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
 
                     // When a delta carries a stop_reason, emit a StreamEnd with the concrete reason.
                     if let Some(stop_reason) = d.stop_reason.as_deref() {
-                        let finish_reason = match stop_reason {
-                            "end_turn" | "stop_sequence" => FinishReasonCore::Stop,
-                            "max_tokens" => FinishReasonCore::Length,
-                            "tool_use" => FinishReasonCore::ToolCalls,
-                            "refusal" => FinishReasonCore::ContentFilter,
-                            other => FinishReasonCore::Other(other.to_string()),
-                        };
+                        let finish_reason =
+                            crate::anthropic::utils::parse_finish_reason_core(Some(stop_reason))
+                                .unwrap_or(FinishReasonCore::Other(stop_reason.to_string()));
                         self.ended.store(true, Ordering::Relaxed);
                         out.push(Ok(ChatStreamEventCore::StreamEnd {
                             finish_reason: Some(finish_reason),

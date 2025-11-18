@@ -239,7 +239,7 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         }
 
         let std = crate::std_openai::openai::chat::OpenAiChatStandard::with_adapter(Arc::new(
-            CompatToOpenAiChatAdapter(adapter),
+            CompatToOpenAiChatAdapter(adapter.clone()),
         ));
 
         #[cfg(feature = "std-openai-external")]
@@ -281,7 +281,7 @@ impl ProviderSpec for OpenAiCompatibleSpec {
             let provider_id = ctx.provider_id.clone();
             return bridge_core_chat_transformers(
                 core_txs,
-                openai_like_chat_request_to_core_input,
+                crate::core::provider_spec::openai_chat_request_to_core_input,
                 move |evt| map_core_stream_event_with_provider(&provider_id, evt),
             );
         }
@@ -289,13 +289,16 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         #[cfg(not(all(feature = "std-openai-external", feature = "openai")))]
         {
             // Internal compat transformers path
-            let cfg = crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig {
-                provider_id: ctx.provider_id.clone(),
-                model: "".to_string(),
-                base_url: ctx.base_url.clone(),
-                api_key: ctx.api_key.clone().unwrap_or_default(),
-            };
-            let adapter = adapter;
+            let cfg =
+                crate::providers::openai_compatible::openai_config::OpenAiCompatibleConfig::new(
+                    &ctx.provider_id,
+                    ctx.api_key.as_deref().unwrap_or(""),
+                    &ctx.base_url,
+                    adapter.clone(),
+                )
+                .with_model(&req.common_params.model)
+                .with_common_params(req.common_params.clone());
+
             let req_tx =
                 crate::providers::openai_compatible::transformers::CompatRequestTransformer {
                     config: cfg.clone(),

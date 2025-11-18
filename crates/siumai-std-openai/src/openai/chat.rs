@@ -4,7 +4,8 @@
 
 use siumai_core::error::LlmError;
 use siumai_core::execution::chat::{
-    ChatInput, ChatRequestTransformer, ChatResponseTransformer, ChatResult, ChatRole, ChatUsage,
+    ChatInput, ChatParsedContentCore, ChatParsedToolCallCore, ChatRequestTransformer,
+    ChatResponseTransformer, ChatResult, ChatRole, ChatUsage,
 };
 use siumai_core::execution::streaming::ChatStreamEventCore;
 use siumai_core::types::FinishReasonCore;
@@ -360,11 +361,25 @@ impl ChatResponseTransformer for OpenAiChatResponseTransformer {
         }
 
         // Parse minimal OpenAI chat response
-        let content = resp["choices"][0]["message"]["content"]
-            .as_str()
+        let choice0 = resp
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        let message = choice0
+            .get("message")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        let content = message
+            .get("content")
+            .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let finish_reason_str = resp["choices"][0]["finish_reason"].as_str();
+
+        let finish_reason_str = choice0.get("finish_reason").and_then(|v| v.as_str());
         let finish_reason = FinishReasonCore::from_str(finish_reason_str);
         let usage = if let Some(u) = resp.get("usage") {
             Some(ChatUsage {
@@ -375,11 +390,54 @@ impl ChatResponseTransformer for OpenAiChatResponseTransformer {
         } else {
             None
         };
+
+        // Build parsed_content with text + tool calls + optional reasoning/thinking.
+        let mut parsed = ChatParsedContentCore::default();
+        parsed.text = content.clone();
+
+        // Tool calls (function/tool_call schema)
+        if let Some(tcs) = message.get("tool_calls").and_then(|v| v.as_array()) {
+            for tc in tcs {
+                let id = tc.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let func = tc.get("function").cloned().unwrap_or(serde_json::json!({}));
+                let name = func
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let arguments = func
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                    .unwrap_or_else(|| serde_json::json!({}));
+
+                if !name.is_empty() {
+                    parsed.tool_calls.push(ChatParsedToolCallCore {
+                        id,
+                        name,
+                        arguments,
+                    });
+                }
+            }
+        }
+
+        // Reasoning / thinking content (best-effort, provider-specific)
+        if let Some(reasoning) = message
+            .get("reasoning")
+            .or_else(|| message.get("thinking"))
+            .and_then(|v| v.as_str())
+        {
+            if !reasoning.is_empty() {
+                parsed.thinking = Some(reasoning.to_string());
+            }
+        }
+
         Ok(ChatResult {
             content,
             finish_reason,
             usage,
             metadata: Default::default(),
+            parsed_content: Some(parsed),
         })
     }
 }

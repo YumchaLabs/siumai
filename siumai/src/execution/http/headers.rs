@@ -205,10 +205,7 @@ impl ProviderHeaders {
         // provider implementation.
         #[cfg(feature = "provider-groq-external")]
         {
-            return siumai_provider_groq::headers::build_groq_json_headers(
-                api_key,
-                custom_headers,
-            );
+            return siumai_provider_groq::headers::build_groq_json_headers(api_key, custom_headers);
         }
 
         // Fallback to the in-crate implementation when the external crate is

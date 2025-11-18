@@ -72,6 +72,7 @@ pub mod rerank;
 // compatibility checks. This keeps the client surface unchanged while allowing
 // integration tests to validate SSE parsing behavior directly.
 pub mod responses;
+mod responses_bridge;
 pub mod structured_output;
 pub mod transformers;
 // pub mod streaming; // removed after test migration to compat converter

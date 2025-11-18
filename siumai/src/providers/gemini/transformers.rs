@@ -349,7 +349,12 @@ mod tests_gemini_rules {
     }
 }
 
-/// Response transformer for Gemini
+/// Legacy response transformer for Gemini (kept for tests and
+/// non-chat paths).
+///
+/// Chat and streaming behavior now go through the unified
+/// `GeminiSpec` + `siumai-std-gemini` pipeline, so this type is no
+/// longer used in the main chat integration.
 #[derive(Clone)]
 pub struct GeminiResponseTransformer {
     pub config: GeminiConfig,
@@ -361,6 +366,15 @@ impl ResponseTransformer for GeminiResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
+        // First, use the std-gemini core parser to build a unified content model
+        // (text + tool calls + thinking). This keeps Gemini aligned with the
+        // Anthropic integration, where std crates own JSON parsing and the
+        // aggregator only performs final mapping into MessageContent.
+        let parsed_core = siumai_std_gemini::gemini::utils::parse_content_core(raw);
+        let base = crate::providers::gemini::utils::core_parsed_to_content_parts(&parsed_core);
+        let mut text_content = base.text;
+        let mut content_parts = base.parts;
+
         // Parse typed response and convert to unified ChatResponse (mirrors chat::convert_response)
         let response: GenerateContentResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Gemini response: {e}")))?;
@@ -375,27 +389,9 @@ impl ResponseTransformer for GeminiResponseTransformer {
             .as_ref()
             .ok_or_else(|| LlmError::api_error(400, "No content in candidate"))?;
 
-        let mut text_content = String::new();
-        let mut content_parts = Vec::new();
-        // Track if any non-text parts are present (kept for future heuristics)
-        let mut _has_multimodal_content = false;
-
         for part in &content.parts {
             match part {
-                Part::Text { text, thought } => {
-                    if thought.unwrap_or(false) {
-                        // Add reasoning content
-                        content_parts.push(ContentPart::reasoning(text));
-                    } else {
-                        if !text_content.is_empty() {
-                            text_content.push('\n');
-                        }
-                        text_content.push_str(text);
-                        content_parts.push(ContentPart::text(text));
-                    }
-                }
                 Part::InlineData { inline_data } => {
-                    _has_multimodal_content = true;
                     if inline_data.mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
                             source: crate::types::chat::MediaSource::Base64 {
@@ -422,7 +418,6 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     }
                 }
                 Part::FileData { file_data } => {
-                    _has_multimodal_content = true;
                     let mime_type = file_data
                         .mime_type
                         .as_deref()
@@ -451,18 +446,6 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             filename: None,
                         });
                     }
-                }
-                Part::FunctionCall { function_call } => {
-                    let arguments = function_call
-                        .args
-                        .clone()
-                        .unwrap_or_else(|| serde_json::json!({}));
-                    content_parts.push(ContentPart::tool_call(
-                        format!("call_{}", uuid::Uuid::new_v4()),
-                        function_call.name.clone(),
-                        arguments,
-                        None,
-                    ));
                 }
                 _ => {}
             }

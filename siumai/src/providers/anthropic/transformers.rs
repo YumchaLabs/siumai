@@ -1,7 +1,13 @@
-//! Transformers for Anthropic Claude
+//! Transformers for Anthropic Claude (legacy path)
 //!
-//! Centralizes request/response/stream chunk transformations to reduce duplication
-//! across chat capability and streaming implementations.
+//! NOTE:
+//! - The primary Anthropic integration is now implemented via the
+//!   `siumai-std-anthropic` crate and the core execution pipeline
+//!   (`AnthropicChatStandard` + `anthropic_like_chat_request_to_core_input`).
+//! - This module is kept as a compatibility layer and fallback for builds
+//!   where `std-anthropic-external` is not available. New features should
+//!   be added to the std/core/provider path instead of extending these
+//!   legacy transformers.
 
 use crate::error::LlmError;
 use crate::execution::transformers::{
@@ -15,8 +21,7 @@ use eventsource_stream::Event;
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
 use super::utils::{
     convert_messages as convert_messages_to_anthropic, convert_tools_to_anthropic_format,
-    create_usage_from_response, extract_thinking_content, parse_finish_reason,
-    parse_response_content_and_tools,
+    core_parsed_to_message_content, create_usage_from_response, parse_finish_reason,
 };
 use crate::execution::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
@@ -156,27 +161,21 @@ impl ResponseTransformer for AnthropicResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        use crate::types::ContentPart;
+        // Allow adapter to adjust the raw JSON first.
+        let mut resp = raw.clone();
+        // Legacy adapters (if any) may still be wired through the provider spec.
+        // Currently there is no adapter for the in-crate path, so this is a no-op.
+        // Kept for forward-compatibility with potential proxy variants.
+        // (No adapter type exists here, unlike std-anthropic; this is a pure legacy path.)
 
-        let response: AnthropicChatResponse = serde_json::from_value(raw.clone())
+        let response: AnthropicChatResponse = serde_json::from_value(resp.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Anthropic response: {e}")))?;
 
-        let mut content = parse_response_content_and_tools(&response.content);
-
-        // Add thinking/reasoning if present
-        if let Some(thinking) = extract_thinking_content(&response.content)
-            && !thinking.is_empty()
-        {
-            let mut parts = match content {
-                MessageContent::Text(ref text) if !text.is_empty() => {
-                    vec![ContentPart::text(text)]
-                }
-                MessageContent::MultiModal(ref parts) => parts.clone(),
-                _ => Vec::new(),
-            };
-            parts.push(ContentPart::reasoning(&thinking));
-            content = MessageContent::MultiModal(parts);
-        }
+        // Reuse std-anthropic core parser to obtain a unified content model
+        // (text + tool_calls + thinking), then convert it into the aggregator's
+        // MessageContent structure.
+        let parsed_core = siumai_std_anthropic::anthropic::utils::parse_content_blocks_core(&resp);
+        let content = core_parsed_to_message_content(&parsed_core);
 
         let usage: Option<Usage> = create_usage_from_response(response.usage.clone());
         let finish_reason: Option<FinishReason> =

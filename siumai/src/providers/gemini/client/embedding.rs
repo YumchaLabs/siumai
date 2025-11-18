@@ -8,10 +8,11 @@ use std::sync::Arc;
 #[async_trait]
 impl EmbeddingCapability for GeminiClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
+        use crate::core::{ProviderContext, ProviderSpec};
         use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
-        let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
-        use crate::core::ProviderContext;
         use secrecy::ExposeSecret;
+
+        let req = EmbeddingRequest::new(texts).with_model(self.config.model.clone());
 
         // Merge Authorization from token_provider if present
         let mut extra_headers = self.config.http_config.headers.clone();
@@ -21,52 +22,39 @@ impl EmbeddingCapability for GeminiClient {
             extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
-        let spec = crate::providers::gemini::spec::create_embedding_wrapper(
-            self.config.base_url.clone(),
-            self.config.model.clone(),
-        );
-
         let ctx = ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
-            extra_headers.clone(),
+            extra_headers,
         );
 
-        let req_tx = super::super::transformers::GeminiRequestTransformer {
-            config: self.config.clone(),
-        };
-        let resp_tx = super::super::transformers::GeminiResponseTransformer {
-            config: self.config.clone(),
-        };
+        // Use unified GeminiSpec + std-gemini embedding transformers.
+        let spec: Arc<dyn ProviderSpec> = Arc::new(crate::providers::gemini::spec::GeminiSpec);
 
         if let Some(opts) = &self.retry_options {
             let http = self.http_client.clone();
             let spec_clone = spec.clone();
             let ctx_clone = ctx.clone();
-            let config = self.config.clone();
+            let interceptors = self.http_interceptors.clone();
             crate::retry_api::retry_with(
                 || {
                     let rq = req.clone();
                     let http = http.clone();
                     let spec = spec_clone.clone();
                     let ctx = ctx_clone.clone();
-                    let req_tx = super::super::transformers::GeminiRequestTransformer {
-                        config: config.clone(),
-                    };
-                    let resp_tx = super::super::transformers::GeminiResponseTransformer {
-                        config: config.clone(),
-                    };
+                    let interceptors = interceptors.clone();
                     async move {
+                        let bundle = spec.choose_embedding_transformers(&rq, &ctx);
                         let exec = HttpEmbeddingExecutor {
                             provider_id: "gemini".to_string(),
                             http_client: http,
-                            request_transformer: Arc::new(req_tx),
-                            response_transformer: Arc::new(resp_tx),
+                            request_transformer: bundle.request,
+                            response_transformer: bundle.response,
                             provider_spec: spec,
                             provider_context: ctx,
                             policy: crate::execution::ExecutionPolicy::new()
-                                .with_interceptors(self.http_interceptors.clone()),
+                                .with_interceptors(interceptors),
                         };
                         EmbeddingExecutor::execute(&exec, rq).await
                     }
@@ -75,11 +63,12 @@ impl EmbeddingCapability for GeminiClient {
             )
             .await
         } else {
+            let bundle = spec.choose_embedding_transformers(&req, &ctx);
             let exec = HttpEmbeddingExecutor {
                 provider_id: "gemini".to_string(),
                 http_client: self.http_client.clone(),
-                request_transformer: Arc::new(req_tx),
-                response_transformer: Arc::new(resp_tx),
+                request_transformer: bundle.request,
+                response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
                 policy: crate::execution::ExecutionPolicy::new()
@@ -107,6 +96,7 @@ impl EmbeddingExtensions for GeminiClient {
         &self,
         request: EmbeddingRequest,
     ) -> Result<EmbeddingResponse, LlmError> {
+        use crate::core::{ProviderContext, ProviderSpec};
         use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
         if request.input.len() > 2048 {
             return Err(LlmError::InvalidParameter(format!(
@@ -115,7 +105,6 @@ impl EmbeddingExtensions for GeminiClient {
                 request.input.len()
             )));
         }
-        use crate::core::ProviderContext;
         use secrecy::ExposeSecret;
 
         // Merge Authorization from token_provider if present
@@ -126,46 +115,33 @@ impl EmbeddingExtensions for GeminiClient {
             extra_headers.insert("Authorization".to_string(), format!("Bearer {tok}"));
         }
 
-        let spec = crate::providers::gemini::spec::create_embedding_wrapper(
-            self.config.base_url.clone(),
-            self.config.model.clone(),
-        );
         let ctx = ProviderContext::new(
             "gemini",
             self.config.base_url.clone(),
             Some(self.config.api_key.expose_secret().to_string()),
-            extra_headers.clone(),
+            extra_headers,
         );
-        let req_tx = super::super::transformers::GeminiRequestTransformer {
-            config: self.config.clone(),
-        };
-        let resp_tx = super::super::transformers::GeminiResponseTransformer {
-            config: self.config.clone(),
-        };
+
+        // Use unified GeminiSpec + std-gemini embedding transformers.
+        let spec: Arc<dyn ProviderSpec> = Arc::new(crate::providers::gemini::spec::GeminiSpec);
 
         if let Some(opts) = &self.retry_options {
             let http = self.http_client.clone();
             let spec_clone = spec.clone();
             let ctx_clone = ctx.clone();
-            let config = self.config.clone();
             crate::retry_api::retry_with(
                 || {
                     let rq = request.clone();
                     let http = http.clone();
                     let spec = spec_clone.clone();
                     let ctx = ctx_clone.clone();
-                    let req_tx = super::super::transformers::GeminiRequestTransformer {
-                        config: config.clone(),
-                    };
-                    let resp_tx = super::super::transformers::GeminiResponseTransformer {
-                        config: config.clone(),
-                    };
                     async move {
+                        let bundle = spec.choose_embedding_transformers(&rq, &ctx);
                         let exec = HttpEmbeddingExecutor {
                             provider_id: "gemini".to_string(),
                             http_client: http,
-                            request_transformer: Arc::new(req_tx),
-                            response_transformer: Arc::new(resp_tx),
+                            request_transformer: bundle.request,
+                            response_transformer: bundle.response,
                             provider_spec: spec,
                             provider_context: ctx,
                             policy: crate::execution::ExecutionPolicy::new(),
@@ -177,11 +153,12 @@ impl EmbeddingExtensions for GeminiClient {
             )
             .await
         } else {
+            let bundle = spec.choose_embedding_transformers(&request, &ctx);
             let exec = HttpEmbeddingExecutor {
                 provider_id: "gemini".to_string(),
                 http_client: self.http_client.clone(),
-                request_transformer: Arc::new(req_tx),
-                response_transformer: Arc::new(resp_tx),
+                request_transformer: bundle.request,
+                response_transformer: bundle.response,
                 provider_spec: spec,
                 provider_context: ctx,
                 policy: crate::execution::ExecutionPolicy::new(),
