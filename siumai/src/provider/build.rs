@@ -493,7 +493,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "groq")]
         ProviderType::Groq => {
             use crate::providers::groq::{GroqClient, GroqConfig};
-            use secrecy::SecretString;
 
             // Resolve base URL (custom or default from GroqConfig)
             let resolved_base =

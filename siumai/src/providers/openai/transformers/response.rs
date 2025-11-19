@@ -207,8 +207,6 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
         #[cfg(feature = "std-openai-external")]
         let (root, core_usage, core_finish) = {
-            use siumai_core::execution::responses::ResponsesResponseTransformer;
-
             let standard = OpenAiResponsesStandard::new();
             let tx = standard.create_response_transformer("openai_responses");
             match tx.transform_responses_response(raw) {
@@ -231,7 +229,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         let root_ref = &root;
 
         // Build content parts (text + tool calls)
-        let (text_content, mut content_parts) = {
+        let (text_content, content_parts) = {
             #[cfg(feature = "std-openai-external")]
             {
                 let parsed = parse_responses_output(root_ref);

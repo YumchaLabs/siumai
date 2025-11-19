@@ -81,7 +81,7 @@ impl ProviderSpec for AnthropicSpec {
 
     fn choose_chat_transformers(
         &self,
-        req: &ChatRequest,
+        _req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
         #[cfg(feature = "provider-anthropic-external")]

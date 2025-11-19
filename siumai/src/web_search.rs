@@ -14,7 +14,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::types::{WebSearchConfig, WebSearchContextSize, WebSearchResult, WebSearchStrategy};
+// Currently only the Anthropic web search tool is used; the main
+// WebSearchConfig type is reserved for future unified APIs.
 
 /// Web search tool for Anthropic
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -275,7 +275,7 @@ impl OpenAiCompatibleClient {
 
     /// Build unified JSON headers for OpenAI-compatible providers
     fn build_json_headers(
-        provider_id: &str,
+        _provider_id: &str,
         api_key: &str,
         http_extra: &std::collections::HashMap<String, String>,
         config_headers: &reqwest::header::HeaderMap,
@@ -509,62 +509,9 @@ impl RerankCapability for OpenAiCompatibleClient {
 
         #[cfg(feature = "std-openai-external")]
         let transformers = {
-            // Bridge core rerank transformers to aggregator transformers
-            struct ReqBridge(
-                std::sync::Arc<dyn siumai_core::execution::rerank::RerankRequestTransformer>,
-            );
-            impl crate::execution::transformers::rerank_request::RerankRequestTransformer for ReqBridge {
-                fn transform(
-                    &self,
-                    req: &crate::types::RerankRequest,
-                ) -> Result<serde_json::Value, LlmError> {
-                    let input = siumai_core::execution::rerank::RerankInput {
-                        model: Some(req.model.clone()),
-                        query: req.query.clone(),
-                        documents: req.documents.clone(),
-                        top_n: req.top_n,
-                        return_documents: req.return_documents,
-                        extra: Default::default(),
-                    };
-                    self.0.transform(&input)
-                }
-            }
-            struct RespBridge(
-                std::sync::Arc<dyn siumai_core::execution::rerank::RerankResponseTransformer>,
-            );
-            impl crate::execution::transformers::rerank_response::RerankResponseTransformer for RespBridge {
-                fn transform(
-                    &self,
-                    raw: serde_json::Value,
-                ) -> Result<crate::types::RerankResponse, LlmError> {
-                    let out = self.0.transform_response(&raw)?;
-                    let results = out
-                        .results
-                        .into_iter()
-                        .map(|i| crate::types::RerankResult {
-                            document: i.document.map(|text| crate::types::RerankDocument { text }),
-                            index: i.index,
-                            relevance_score: i.relevance_score,
-                        })
-                        .collect::<Vec<_>>();
-                    Ok(crate::types::RerankResponse {
-                        id: out.id.unwrap_or_default(),
-                        results,
-                        tokens: crate::types::RerankTokenUsage {
-                            input_tokens: out.input_tokens,
-                            output_tokens: out.output_tokens,
-                        },
-                    })
-                }
-            }
-            crate::core::RerankTransformers {
-                request: std::sync::Arc::new(ReqBridge(
-                    standard.create_request_transformer(&self.config.provider_id),
-                )),
-                response: std::sync::Arc::new(RespBridge(
-                    standard.create_response_transformer(&self.config.provider_id),
-                )),
-            }
+            let core_req = standard.create_request_transformer(&self.config.provider_id);
+            let core_resp = standard.create_response_transformer(&self.config.provider_id);
+            crate::core::provider_spec::bridge_core_rerank_transformers(core_req, core_resp)
         };
         #[cfg(not(feature = "std-openai-external"))]
         let transformers = standard.create_transformers(&self.config.provider_id);

@@ -12,7 +12,6 @@ use crate::error::LlmError;
 use crate::execution::http::headers::ProviderHeaders;
 use crate::std_anthropic::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
-use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
 
 /// MiniMaxi ProviderSpec implementation
@@ -107,7 +106,7 @@ impl ProviderSpec for MinimaxiSpec {
 
     fn choose_chat_transformers(
         &self,
-        req: &crate::types::ChatRequest,
+        _req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
         #[cfg(feature = "provider-minimaxi-external")]

@@ -5,7 +5,6 @@
 use crate::core::ProviderContext;
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutorBuilder};
 use crate::execution::http::interceptor::HttpInterceptor;
-use crate::execution::transformers::request::ImageHttpBody;
 use crate::providers::minimaxi::spec::MinimaxiSpec;
 use crate::retry_api::RetryOptions;
 use std::sync::Arc;

@@ -14,7 +14,7 @@ use crate::execution::transformers::{
 use crate::streaming::SseEventConverter;
 use crate::types::EmbeddingRequest;
 use crate::types::ImageGenerationRequest;
-use crate::types::{ChatRequest, ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
+use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
 use std::future::Future;
 use std::pin::Pin;
@@ -372,7 +372,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
         // aggregator only performs final mapping into MessageContent.
         let parsed_core = siumai_std_gemini::gemini::utils::parse_content_core(raw);
         let base = crate::providers::gemini::utils::core_parsed_to_content_parts(&parsed_core);
-        let mut text_content = base.text;
+        let text_content = base.text;
         let mut content_parts = base.parts;
 
         // Parse typed response and convert to unified ChatResponse (mirrors chat::convert_response)

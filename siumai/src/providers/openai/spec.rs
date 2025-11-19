@@ -1,6 +1,7 @@
 #[cfg(all(feature = "openai-compatible", feature = "std-openai-external"))]
 use crate::core::provider_spec::{
-    bridge_core_chat_transformers, map_core_stream_event_with_provider,
+    bridge_core_chat_transformers, bridge_core_embedding_transformers,
+    bridge_core_image_transformers, map_core_stream_event_with_provider,
     openai_like_chat_request_to_core_input,
 };
 use crate::core::{ChatTransformers, EmbeddingTransformers, ProviderContext, ProviderSpec};
@@ -459,74 +460,7 @@ impl ProviderSpec for OpenAiSpec {
                     .embedding_standard
                     .create_response_transformer("openai");
 
-                struct EmbRequestBridge(
-                    std::sync::Arc<
-                        dyn siumai_core::execution::embedding::EmbeddingRequestTransformer,
-                    >,
-                );
-                impl crate::execution::transformers::request::RequestTransformer for EmbRequestBridge {
-                    fn provider_id(&self) -> &str {
-                        self.0.provider_id()
-                    }
-                    fn transform_chat(
-                        &self,
-                        _req: &crate::types::ChatRequest,
-                    ) -> Result<serde_json::Value, LlmError> {
-                        Err(LlmError::UnsupportedOperation(
-                            "Chat is not supported by embedding transformer".to_string(),
-                        ))
-                    }
-                    fn transform_embedding(
-                        &self,
-                        req: &crate::types::EmbeddingRequest,
-                    ) -> Result<serde_json::Value, LlmError> {
-                        let fmt = req.encoding_format.as_ref().map(|f| match f {
-                            crate::types::embedding::EmbeddingFormat::Float => "float".to_string(),
-                            crate::types::embedding::EmbeddingFormat::Base64 => {
-                                "base64".to_string()
-                            }
-                        });
-                        let input = siumai_core::execution::embedding::EmbeddingInput {
-                            input: req.input.clone(),
-                            model: req.model.clone(),
-                            dimensions: req.dimensions,
-                            encoding_format: fmt,
-                            user: req.user.clone(),
-                            title: req.title.clone(),
-                        };
-                        self.0.transform_embedding(&input)
-                    }
-                }
-
-                struct EmbResponseBridge(
-                    std::sync::Arc<
-                        dyn siumai_core::execution::embedding::EmbeddingResponseTransformer,
-                    >,
-                );
-                impl crate::execution::transformers::response::ResponseTransformer for EmbResponseBridge {
-                    fn provider_id(&self) -> &str {
-                        self.0.provider_id()
-                    }
-                    fn transform_embedding_response(
-                        &self,
-                        raw: &serde_json::Value,
-                    ) -> Result<crate::types::EmbeddingResponse, LlmError> {
-                        let r = self.0.transform_embedding_response(raw)?;
-                        let mut out = crate::types::EmbeddingResponse::new(r.embeddings, r.model);
-                        if let Some(u) = r.usage {
-                            out = out.with_usage(crate::types::embedding::EmbeddingUsage::new(
-                                u.prompt_tokens,
-                                u.total_tokens,
-                            ));
-                        }
-                        Ok(out)
-                    }
-                }
-
-                return EmbeddingTransformers {
-                    request: std::sync::Arc::new(EmbRequestBridge(req_tx)),
-                    response: std::sync::Arc::new(EmbResponseBridge(resp_tx)),
-                };
+                return bridge_core_embedding_transformers(req_tx, resp_tx);
             }
             #[cfg(not(feature = "std-openai-external"))]
             {
@@ -559,84 +493,7 @@ impl ProviderSpec for OpenAiSpec {
         let transformers = self.image_standard.create_transformers("openai");
         #[cfg(feature = "std-openai-external")]
         {
-            struct ImageOnlyRequestTransformerBridge(
-                std::sync::Arc<dyn siumai_core::execution::image::ImageRequestTransformer>,
-            );
-            impl crate::execution::transformers::request::RequestTransformer
-                for ImageOnlyRequestTransformerBridge
-            {
-                fn provider_id(&self) -> &str {
-                    self.0.provider_id()
-                }
-                fn transform_chat(
-                    &self,
-                    _req: &crate::types::ChatRequest,
-                ) -> Result<serde_json::Value, LlmError> {
-                    Err(LlmError::UnsupportedOperation(
-                        "Chat is not supported by image transformer".to_string(),
-                    ))
-                }
-                fn transform_image(
-                    &self,
-                    req: &crate::types::ImageGenerationRequest,
-                ) -> Result<serde_json::Value, LlmError> {
-                    self.0.transform_image(req)
-                }
-                fn transform_image_edit(
-                    &self,
-                    req: &crate::types::ImageEditRequest,
-                ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError>
-                {
-                    match self.0.transform_image_edit(req)? {
-                        siumai_core::execution::image::ImageHttpBody::Json(v) => {
-                            Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
-                        }
-                        siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
-                            crate::execution::transformers::request::ImageHttpBody::Multipart(f),
-                        ),
-                    }
-                }
-                fn transform_image_variation(
-                    &self,
-                    req: &crate::types::ImageVariationRequest,
-                ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError>
-                {
-                    match self.0.transform_image_variation(req)? {
-                        siumai_core::execution::image::ImageHttpBody::Json(v) => {
-                            Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
-                        }
-                        siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
-                            crate::execution::transformers::request::ImageHttpBody::Multipart(f),
-                        ),
-                    }
-                }
-            }
-
-            struct ImageOnlyResponseTransformerBridge(
-                std::sync::Arc<dyn siumai_core::execution::image::ImageResponseTransformer>,
-            );
-            impl crate::execution::transformers::response::ResponseTransformer
-                for ImageOnlyResponseTransformerBridge
-            {
-                fn provider_id(&self) -> &str {
-                    self.0.provider_id()
-                }
-                fn transform_image_response(
-                    &self,
-                    raw: &serde_json::Value,
-                ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
-                    self.0.transform_image_response(raw)
-                }
-            }
-
-            crate::core::ImageTransformers {
-                request: std::sync::Arc::new(ImageOnlyRequestTransformerBridge(
-                    transformers.request,
-                )),
-                response: std::sync::Arc::new(ImageOnlyResponseTransformerBridge(
-                    transformers.response,
-                )),
-            }
+            return bridge_core_image_transformers(transformers.request, transformers.response);
         }
         #[cfg(not(feature = "std-openai-external"))]
         {

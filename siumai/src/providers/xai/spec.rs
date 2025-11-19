@@ -80,8 +80,8 @@ impl ProviderSpec for XaiSpec {
 
     fn choose_chat_transformers(
         &self,
-        req: &crate::types::ChatRequest,
-        ctx: &ProviderContext,
+        _req: &crate::types::ChatRequest,
+        _ctx: &ProviderContext,
     ) -> ChatTransformers {
         // Shared helper: map ChatRequest into ChatInput carrying xAI ProviderOptions.
         fn xai_chat_request_to_core_input(

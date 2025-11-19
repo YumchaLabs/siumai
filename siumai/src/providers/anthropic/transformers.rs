@@ -15,7 +15,7 @@ use crate::execution::transformers::{
 };
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
-use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
+use crate::types::{ChatRequest, ChatResponse, FinishReason, Usage};
 use eventsource_stream::Event;
 
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
@@ -162,7 +162,7 @@ impl ResponseTransformer for AnthropicResponseTransformer {
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
         // Allow adapter to adjust the raw JSON first.
-        let mut resp = raw.clone();
+        let resp = raw.clone();
         // Legacy adapters (if any) may still be wired through the provider spec.
         // Currently there is no adapter for the in-crate path, so this is a no-op.
         // Kept for forward-compatibility with potential proxy variants.

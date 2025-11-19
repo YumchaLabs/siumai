@@ -7,7 +7,6 @@
 use siumai_core::error::LlmError;
 use siumai_core::execution::embedding::{
     EmbeddingInput, EmbeddingRequestTransformer, EmbeddingResponseTransformer, EmbeddingResult,
-    EmbeddingUsage,
 };
 use std::sync::Arc;
 

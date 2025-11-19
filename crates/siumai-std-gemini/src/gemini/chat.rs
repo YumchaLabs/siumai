@@ -376,7 +376,7 @@ impl ChatStreamEventConverterCore for GeminiChatStreamConv {
 
         let resp: GeminiStreamResponseCore = match serde_json::from_value(v.clone()) {
             Ok(r) => r,
-            Err(e) => {
+            Err(_e) => {
                 // If structure does not match expected shape, fall back to a Custom event.
                 return vec![Ok(ChatStreamEventCore::Custom {
                     event_type: "gemini:unknown_chunk".into(),

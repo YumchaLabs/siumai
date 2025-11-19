@@ -305,6 +305,240 @@ pub struct RerankTransformers {
         Arc<dyn crate::execution::transformers::rerank_response::RerankResponseTransformer>,
 }
 
+/// Bridge core-only embedding transformers into aggregator-level transformers.
+///
+/// This helper is used by providers that delegate embedding behavior to
+/// standards or external provider crates that operate on `siumai-core`
+/// embedding types. It wraps the core transformers in adapter structs that
+/// implement the aggregator's `RequestTransformer`/`ResponseTransformer`
+/// traits.
+pub fn bridge_core_embedding_transformers(
+    core_request: Arc<dyn siumai_core::execution::embedding::EmbeddingRequestTransformer>,
+    core_response: Arc<dyn siumai_core::execution::embedding::EmbeddingResponseTransformer>,
+) -> EmbeddingTransformers {
+    use siumai_core::execution::embedding::EmbeddingInput;
+
+    struct EmbRequestBridge {
+        inner: Arc<dyn siumai_core::execution::embedding::EmbeddingRequestTransformer>,
+    }
+
+    impl RequestTransformer for EmbRequestBridge {
+        fn provider_id(&self) -> &str {
+            self.inner.provider_id()
+        }
+
+        fn transform_chat(&self, _req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "Chat is not supported by embedding transformer".to_string(),
+            ))
+        }
+
+        fn transform_embedding(
+            &self,
+            req: &EmbeddingRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            let encoding_format = req.encoding_format.as_ref().map(|f| match f {
+                crate::types::embedding::EmbeddingFormat::Float => "float".to_string(),
+                crate::types::embedding::EmbeddingFormat::Base64 => "base64".to_string(),
+            });
+            let input = EmbeddingInput {
+                input: req.input.clone(),
+                model: req.model.clone(),
+                dimensions: req.dimensions,
+                encoding_format,
+                user: req.user.clone(),
+                title: req.title.clone(),
+            };
+            self.inner.transform_embedding(&input)
+        }
+    }
+
+    struct EmbResponseBridge {
+        inner: Arc<dyn siumai_core::execution::embedding::EmbeddingResponseTransformer>,
+    }
+
+    impl ResponseTransformer for EmbResponseBridge {
+        fn provider_id(&self) -> &str {
+            self.inner.provider_id()
+        }
+
+        fn transform_embedding_response(
+            &self,
+            raw: &serde_json::Value,
+        ) -> Result<crate::types::EmbeddingResponse, LlmError> {
+            let res = self.inner.transform_embedding_response(raw)?;
+            let mut out = crate::types::EmbeddingResponse::new(res.embeddings, res.model);
+            if let Some(u) = res.usage {
+                out = out.with_usage(crate::types::embedding::EmbeddingUsage::new(
+                    u.prompt_tokens,
+                    u.total_tokens,
+                ));
+            }
+            Ok(out)
+        }
+    }
+
+    EmbeddingTransformers {
+        request: Arc::new(EmbRequestBridge { inner: core_request }),
+        response: Arc::new(EmbResponseBridge { inner: core_response }),
+    }
+}
+
+/// Bridge core-only image transformers into aggregator-level transformers.
+///
+/// This helper is used by providers that delegate image behavior to
+/// standards or external provider crates that operate on `siumai-core`
+/// image types. It wraps the core transformers in adapter structs that
+/// implement the aggregator's `RequestTransformer`/`ResponseTransformer`
+/// traits.
+pub fn bridge_core_image_transformers(
+    core_request: Arc<dyn siumai_core::execution::image::ImageRequestTransformer>,
+    core_response: Arc<dyn siumai_core::execution::image::ImageResponseTransformer>,
+) -> ImageTransformers {
+    struct ImageRequestBridge {
+        inner: Arc<dyn siumai_core::execution::image::ImageRequestTransformer>,
+    }
+
+    impl crate::execution::transformers::request::RequestTransformer for ImageRequestBridge {
+        fn provider_id(&self) -> &str {
+            self.inner.provider_id()
+        }
+
+        fn transform_chat(
+            &self,
+            _req: &crate::types::ChatRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "Chat is not supported by image transformer".to_string(),
+            ))
+        }
+
+        fn transform_image(
+            &self,
+            req: &crate::types::ImageGenerationRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            self.inner.transform_image(req)
+        }
+
+        fn transform_image_edit(
+            &self,
+            req: &crate::types::ImageEditRequest,
+        ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError> {
+            match self.inner.transform_image_edit(req)? {
+                siumai_core::execution::image::ImageHttpBody::Json(v) => {
+                    Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
+                }
+                siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
+                    crate::execution::transformers::request::ImageHttpBody::Multipart(f),
+                ),
+            }
+        }
+
+        fn transform_image_variation(
+            &self,
+            req: &crate::types::ImageVariationRequest,
+        ) -> Result<crate::execution::transformers::request::ImageHttpBody, LlmError> {
+            match self.inner.transform_image_variation(req)? {
+                siumai_core::execution::image::ImageHttpBody::Json(v) => {
+                    Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
+                }
+                siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
+                    crate::execution::transformers::request::ImageHttpBody::Multipart(f),
+                ),
+            }
+        }
+    }
+
+    struct ImageResponseBridge {
+        inner: Arc<dyn siumai_core::execution::image::ImageResponseTransformer>,
+    }
+
+    impl crate::execution::transformers::response::ResponseTransformer for ImageResponseBridge {
+        fn provider_id(&self) -> &str {
+            self.inner.provider_id()
+        }
+
+        fn transform_image_response(
+            &self,
+            raw: &serde_json::Value,
+        ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
+            self.inner.transform_image_response(raw)
+        }
+    }
+
+    ImageTransformers {
+        request: Arc::new(ImageRequestBridge { inner: core_request }),
+        response: Arc::new(ImageResponseBridge { inner: core_response }),
+    }
+}
+
+/// Bridge core-only rerank transformers into aggregator-level transformers.
+///
+/// This helper is used by clients or providers that delegate rerank behavior
+/// to standards or external provider crates operating on `siumai-core`
+/// `RerankInput` / `RerankOutput` types. It wraps the core transformers in
+/// adapter structs that implement the aggregator's rerank transformer traits.
+pub fn bridge_core_rerank_transformers(
+    core_request: Arc<dyn siumai_core::execution::rerank::RerankRequestTransformer>,
+    core_response: Arc<dyn siumai_core::execution::rerank::RerankResponseTransformer>,
+) -> RerankTransformers {
+    struct ReqBridge {
+        inner: Arc<dyn siumai_core::execution::rerank::RerankRequestTransformer>,
+    }
+
+    impl crate::execution::transformers::rerank_request::RerankRequestTransformer for ReqBridge {
+        fn transform(
+            &self,
+            req: &crate::types::RerankRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            let input = siumai_core::execution::rerank::RerankInput {
+                model: Some(req.model.clone()),
+                query: req.query.clone(),
+                documents: req.documents.clone(),
+                top_n: req.top_n,
+                return_documents: req.return_documents,
+                extra: Default::default(),
+            };
+            self.inner.transform(&input)
+        }
+    }
+
+    struct RespBridge {
+        inner: Arc<dyn siumai_core::execution::rerank::RerankResponseTransformer>,
+    }
+
+    impl crate::execution::transformers::rerank_response::RerankResponseTransformer for RespBridge {
+        fn transform(
+            &self,
+            raw: serde_json::Value,
+        ) -> Result<crate::types::RerankResponse, LlmError> {
+            let out = self.inner.transform_response(&raw)?;
+            let results = out
+                .results
+                .into_iter()
+                .map(|i| crate::types::RerankResult {
+                    document: i.document.map(|text| crate::types::RerankDocument { text }),
+                    index: i.index,
+                    relevance_score: i.relevance_score,
+                })
+                .collect::<Vec<_>>();
+            Ok(crate::types::RerankResponse {
+                id: out.id.unwrap_or_default(),
+                results,
+                tokens: crate::types::RerankTokenUsage {
+                    input_tokens: out.input_tokens,
+                    output_tokens: out.output_tokens,
+                },
+            })
+        }
+    }
+
+    RerankTransformers {
+        request: Arc::new(ReqBridge { inner: core_request }),
+        response: Arc::new(RespBridge { inner: core_response }),
+    }
+}
+
 /// Provider Specification: unified header building, routing, and transformer selection
 pub trait ProviderSpec: Send + Sync {
     /// Provider identifier (e.g., "openai", "anthropic")
