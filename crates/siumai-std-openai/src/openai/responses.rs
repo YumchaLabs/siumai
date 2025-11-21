@@ -180,8 +180,13 @@ impl ResponsesRequestTransformer for OpenAiResponsesRequestTx {
             "input": req.input,
         });
 
-        // Flatten extra config into the top-level body (mirrors current
-        // behaviour in OpenAiSpec::chat_before_send for Responses API).
+        // Flatten extra config into the top-level body.
+        //
+        // The `extra` map is populated by the aggregator or provider layer via
+        // `ResponsesInput::extra` (e.g. ResponsesApiConfig and other
+        // OpenAI-specific options). The flattening behavior intentionally
+        // matches the legacy `OpenAiSpec::chat_before_send` implementation
+        // to preserve protocol compatibility.
         if let Some(obj) = body.as_object_mut() {
             for (k, v) in &req.extra {
                 obj.insert(k.clone(), v.clone());

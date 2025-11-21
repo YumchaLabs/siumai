@@ -2,7 +2,7 @@
 use crate::core::provider_spec::{
     bridge_core_chat_transformers, bridge_core_embedding_transformers,
     bridge_core_image_transformers, map_core_stream_event_with_provider,
-    openai_like_chat_request_to_core_input,
+    openai_chat_request_to_core_input,
 };
 use crate::core::{ChatTransformers, EmbeddingTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
@@ -340,62 +340,6 @@ impl ProviderSpec for OpenAiSpec {
                 {
                     // Bridge external core-only chat transformers into aggregator traits
                     use siumai_core::provider_spec::CoreChatTransformers;
-
-                    // Map aggregator-level ChatRequest into core ChatInput, injecting
-                    // a subset of OpenAI-specific ProviderOptions into ChatInput::extra.
-                    fn openai_chat_request_to_core_input(
-                        req: &ChatRequest,
-                    ) -> siumai_core::execution::chat::ChatInput {
-                        let mut input = openai_like_chat_request_to_core_input(req);
-
-                        if let ProviderOptions::OpenAi(ref options) = req.provider_options {
-                            // Reasoning effort (o1/o3 models)
-                            if let Some(effort) = options.reasoning_effort {
-                                if let Ok(v) = serde_json::to_value(effort) {
-                                    input.extra.insert("openai_reasoning_effort".to_string(), v);
-                                }
-                            }
-
-                            // Service tier preference
-                            if let Some(tier) = options.service_tier {
-                                if let Ok(v) = serde_json::to_value(tier) {
-                                    input.extra.insert("openai_service_tier".to_string(), v);
-                                }
-                            }
-
-                            // Modalities (e.g., ["text","audio"])
-                            if let Some(ref mods) = options.modalities
-                                && let Ok(v) = serde_json::to_value(mods)
-                            {
-                                input.extra.insert("openai_modalities".to_string(), v);
-                            }
-
-                            // Audio configuration
-                            if let Some(ref aud) = options.audio
-                                && let Ok(v) = serde_json::to_value(aud)
-                            {
-                                input.extra.insert("openai_audio".to_string(), v);
-                            }
-
-                            // Prediction content
-                            if let Some(ref pred) = options.prediction
-                                && let Ok(v) = serde_json::to_value(pred)
-                            {
-                                input.extra.insert("openai_prediction".to_string(), v);
-                            }
-
-                            // Web search options
-                            if let Some(ref ws) = options.web_search_options
-                                && let Ok(v) = serde_json::to_value(ws)
-                            {
-                                input
-                                    .extra
-                                    .insert("openai_web_search_options".to_string(), v);
-                            }
-                        }
-
-                        input
-                    }
 
                     let core_txs: CoreChatTransformers = CoreChatTransformers {
                         request: self.chat_standard.create_request_transformer("openai"),

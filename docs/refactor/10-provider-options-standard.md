@@ -294,20 +294,33 @@ impl AnthropicChatAdapter for AnthropicDefaultChatAdapter {
 > `ChatInput::extra` → std adapter 这一链路中完成，聚合层只负责
 > typed options → extra 的映射；`chat_before_send` 不再处理这些字段。
 
-## 5. OpenAI 示例（计划）
+## 5. OpenAI 示例（完成情况）
 
-OpenAI 自身的 typed options（如 `OpenAiOptions::response_format`、
-`service_tier` 等）按同样模式处理：
+OpenAI 自身的 typed options（如 `OpenAiOptions::reasoning_effort`、
+`service_tier`、`modalities`、`audio`、`prediction`、
+`web_search_options` 等）已经按本标准完成收敛：
 
-- 在聚合层 `OpenAiSpec` 侧提供 `openai_chat_request_to_core_input`，
-  负责把 `ProviderOptions::OpenAi` 映射到 `ChatInput.extra`：
-  - `openai_response_format`
-  - `openai_service_tier`
-  - …
-- 在 `siumai-provider-openai` 中为 `OpenAiStandardAdapter` 增加
-  对这些 extra key 的处理逻辑。
+- Chat 路径：
+  - 在 core 层提供 `openai_chat_request_to_core_input`，负责把
+    `ProviderOptions::OpenAi` 映射到 `ChatInput.extra`：
+    - `openai_reasoning_effort`
+    - `openai_service_tier`
+    - `openai_modalities`
+    - `openai_audio`
+    - `openai_prediction`
+    - `openai_web_search_options`
+  - 在 `siumai-std-openai` 中由 `OpenAiDefaultChatAdapter` 读取这些 extra
+    key 并注入最终 JSON（仅在启用 `std-openai-external` 时生效）。
+- Responses 路径：
+  - 聚合层通过 `build_responses_input` 将 `ResponsesApiConfig` 以及
+    OpenAI-specific 选项写入 `ResponsesInput::extra`；
+  - `OpenAiResponsesStandard::transform_responses` 负责将 `extra` 展平
+    到最终 `/responses` 请求体，行为等价于早期
+    `OpenAiSpec::chat_before_send` 中的 JSON merge 逻辑。
 
-该重构尚未完成，但应遵循本文件的约定。
+在启用 `std-openai-external` 的场景下，聚合层不再直接基于
+`ProviderOptions::OpenAi` 拼接 Chat/Responses JSON，只通过
+`ChatInput::extra` / `ResponsesInput::extra` 传递 typed options。
 
 ## 6. 聚合层默认 hook（CustomProviderOptions）
 

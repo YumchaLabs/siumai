@@ -32,8 +32,27 @@ impl ProviderSpec for GeminiSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx.api_key.as_deref().unwrap_or("");
-        crate::execution::http::headers::ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)
+        // When the external provider is enabled, delegate header construction
+        // to the core-level GeminiCoreSpec for consistency with other providers.
+        #[cfg(feature = "provider-gemini-external")]
+        {
+            use siumai_core::provider_spec::CoreProviderSpec;
+
+            let core_ctx = ctx.to_core_context();
+            let core_spec = siumai_provider_gemini::GeminiCoreSpec::new();
+            return core_spec.build_headers(&core_ctx);
+        }
+
+        // Fallback behavior: use the in-crate ProviderHeaders::gemini implementation.
+        // This path is considered legacy and may be removed in a future release.
+        #[cfg(not(feature = "provider-gemini-external"))]
+        {
+            let api_key = ctx.api_key.as_deref().unwrap_or("");
+            return crate::execution::http::headers::ProviderHeaders::gemini(
+                api_key,
+                &ctx.http_extra_headers,
+            );
+        }
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
@@ -48,10 +67,32 @@ impl ProviderSpec for GeminiSpec {
 
     fn choose_chat_transformers(
         &self,
-        _req: &ChatRequest,
+        req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
-        #[cfg(feature = "std-gemini-external")]
+        #[cfg(all(feature = "std-gemini-external", feature = "provider-gemini-external"))]
+        {
+            use crate::core::provider_spec::gemini_like_chat_request_to_core_input;
+            use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
+
+            let core_ctx = ctx.to_core_context();
+            let core_input = gemini_like_chat_request_to_core_input(req);
+
+            let core_spec = siumai_provider_gemini::GeminiCoreSpec::new();
+            let core_txs: CoreChatTransformers =
+                core_spec.choose_chat_transformers(&core_input, &core_ctx);
+
+            return bridge_core_chat_transformers(
+                core_txs,
+                gemini_like_chat_request_to_core_input,
+                |evt| map_core_stream_event_with_provider("gemini", evt),
+            );
+        }
+
+        #[cfg(all(
+            feature = "std-gemini-external",
+            not(feature = "provider-gemini-external")
+        ))]
         {
             use siumai_core::provider_spec::CoreChatTransformers;
             use siumai_std_gemini::gemini::chat::{GeminiChatStandard, GeminiDefaultChatAdapter};
@@ -109,14 +150,15 @@ impl ProviderSpec for GeminiSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // 1. First check for CustomProviderOptions (using default implementation)
+        // First, check for CustomProviderOptions using the default implementation.
         if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
             return Some(hook);
         }
 
-        // Gemini-specific typed options are now mapped via `gemini_like_chat_request_to_core_input`
-        // → `ChatInput::extra` → `GeminiDefaultChatAdapter`. Only CustomProviderOptions
-        // are handled here.
+        // Gemini-specific typed options are mapped via
+        // `gemini_like_chat_request_to_core_input` → `ChatInput::extra`
+        // → `GeminiDefaultChatAdapter`. Only CustomProviderOptions are handled
+        // in this hook; legacy JSON mutation for Gemini options has been removed.
         None
     }
 
@@ -147,7 +189,34 @@ impl ProviderSpec for GeminiSpec {
 
         #[cfg(not(feature = "std-gemini-external"))]
         {
-            crate::standards::gemini::GeminiEmbeddingStandard::new().create_transformers()
+            // Legacy aggregator embedding standard has been removed. When
+            // `std-gemini-external` is disabled, return an explicit
+            // Unsupported error instead of silently falling back to the
+            // old behavior.
+            struct UnsupportedReq;
+            impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                fn provider_id(&self) -> &str {
+                    "gemini"
+                }
+                fn transform_embedding(
+                    &self,
+                    _req: &crate::types::EmbeddingRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Gemini embedding requires std-gemini-external feature".into(),
+                    ))
+                }
+            }
+            struct UnsupportedResp;
+            impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                fn provider_id(&self) -> &str {
+                    "gemini"
+                }
+            }
+            EmbeddingTransformers {
+                request: Arc::new(UnsupportedReq),
+                response: Arc::new(UnsupportedResp),
+            }
         }
     }
 
@@ -176,7 +245,32 @@ impl ProviderSpec for GeminiSpec {
 
         #[cfg(not(feature = "std-gemini-external"))]
         {
-            crate::standards::gemini::GeminiImageStandard::new().create_transformers()
+            // Likewise, when `std-gemini-external` is disabled, image generation
+            // is reported as Unsupported instead of silently using legacy logic.
+            struct UnsupportedReq;
+            impl crate::execution::transformers::request::RequestTransformer for UnsupportedReq {
+                fn provider_id(&self) -> &str {
+                    "gemini"
+                }
+                fn transform_image(
+                    &self,
+                    _req: &crate::types::ImageGenerationRequest,
+                ) -> Result<serde_json::Value, LlmError> {
+                    Err(LlmError::UnsupportedOperation(
+                        "Gemini image generation requires std-gemini-external feature".into(),
+                    ))
+                }
+            }
+            struct UnsupportedResp;
+            impl crate::execution::transformers::response::ResponseTransformer for UnsupportedResp {
+                fn provider_id(&self) -> &str {
+                    "gemini"
+                }
+            }
+            ImageTransformers {
+                request: Arc::new(UnsupportedReq),
+                response: Arc::new(UnsupportedResp),
+            }
         }
     }
 
@@ -412,63 +506,6 @@ pub fn create_image_wrapper(base_url: String, model: String) -> Arc<dyn Provider
 mod tests {
     use super::*;
     use crate::types::{ChatMessage, GeminiOptions};
-
-    #[test]
-    fn chat_before_send_injects_file_search_tool() {
-        // Build a ChatRequest with GeminiOptions.file_search configured
-        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_gemini_options(
-            GeminiOptions::new().with_file_search_store_names(vec![
-                "stores/foo".to_string(),
-                "stores/bar".to_string(),
-            ]),
-        );
-
-        // Minimal provider context
-        let ctx = crate::core::ProviderContext::new(
-            "gemini",
-            "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            None,
-            std::collections::HashMap::new(),
-        );
-
-        let spec = GeminiSpec;
-        let hook = spec
-            .chat_before_send(&req, &ctx)
-            .expect("expected before_send hook");
-
-        let base = serde_json::json!({
-            "model": "gemini-2.0-flash-exp",
-            "contents": []
-        });
-
-        let out = hook(&base).expect("hook apply ok");
-        let tools = out
-            .get("tools")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .expect("tools array present");
-
-        let fs = tools
-            .iter()
-            .find_map(|t| t.get("file_search"))
-            .cloned()
-            .expect("file_search tool present");
-
-        let names = fs
-            .get("file_search_store_names")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .expect("store names present");
-
-        let names: Vec<String> = names
-            .into_iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-        assert_eq!(
-            names,
-            vec!["stores/foo".to_string(), "stores/bar".to_string()]
-        );
-    }
 
     #[test]
     fn embedding_wrapper_selects_single_vs_batch_url() {

@@ -168,6 +168,12 @@ coordinates types and glue.
   - `GeminiParsedContentCore` and `parse_content_core` unify:
     - text, tool calls, thinking content.
 
+- **Provider crate**: `siumai-provider-gemini`
+  - `GeminiCoreSpec` implements `CoreProviderSpec` for chat using
+    the Gemini Chat standard.
+  - `build_gemini_json_headers` centralises Gemini API header
+    construction (API key vs. Authorization/Bearer).
+
 - **Aggregator**:
   - `GeminiSpec` in `siumai/src/providers/gemini/spec.rs`:
     - Uses `gemini_like_chat_request_to_core_input` to map
@@ -177,8 +183,11 @@ coordinates types and glue.
       bridged with `bridge_core_chat_transformers`.
     - Uses `GeminiEmbeddingStandard` / `GeminiImageStandard` for
       embedding/image transformers (`choose_embedding_transformers`,
-      `choose_image_transformers`).
-  - `GeminiChatCapability` and `GeminiClient` now call:
+      `choose_image_transformers`), always via `std-gemini-external`.
+    - Delegates Gemini headers to `siumai-provider-gemini` when
+      `provider-gemini-external` is enabled; otherwise falls back to
+      the in-crate implementation.
+  - `GeminiChatCapability` and `GeminiClient` call:
     - `GeminiSpec::choose_chat_transformers` +
       `HttpChatExecutor` for chat/stream.
     - `GeminiSpec::choose_embedding_transformers` +
@@ -189,8 +198,11 @@ coordinates types and glue.
     `core_parsed_to_content_parts` to convert `GeminiParsedContentCore`
     into `ContentPart` + aggregated text.
 
-This makes Gemini fully follow the same patterns as Anthropic and
-OpenAI.
+This makes Gemini follow the same “standard + provider + aggregator
+bridge” pattern as OpenAI and Anthropic. Legacy, in-crate Gemini
+standards are no longer used when `std-gemini-external` is enabled;
+without this feature, Gemini capabilities report
+`UnsupportedOperation` instead of silently falling back.
 
 ---
 
@@ -272,4 +284,3 @@ When adding a new provider or capability, follow this checklist:
 
 Following this pattern ensures new providers remain consistent with
 the rest of Siumai and with the Vercel AI SDK–style architecture.
-

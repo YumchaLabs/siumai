@@ -13,6 +13,7 @@ members = [
     "crates/siumai-provider-minimaxi",
     "crates/siumai-provider-xai",
     "crates/siumai-provider-groq",
+    "crates/siumai-provider-gemini",
 ]
 
 [workspace.package]

@@ -93,6 +93,7 @@ siumai-provider-anthropic = { path = "../crates/siumai-provider-anthropic", opti
 siumai-provider-minimaxi = { path = "../crates/siumai-provider-minimaxi", optional = true }
 siumai-provider-xai = { path = "../crates/siumai-provider-xai", optional = true }
 siumai-provider-groq = { path = "../crates/siumai-provider-groq", optional = true }
+siumai-provider-gemini = { path = "../crates/siumai-provider-gemini", optional = true }
 
 [features]
 # Default features - include all providers for convenience
@@ -104,7 +105,7 @@ structured-messages = []
 # Provider features - each provider can be enabled independently
 openai = ["std-openai-external"]
 anthropic = ["std-anthropic-external"]
-google = ["std-gemini-external"]
+google = ["std-gemini-external", "provider-gemini-external"]
 ollama = []
 xai = ["std-openai-external"]
 groq = ["std-openai-external", "provider-groq-external"]
@@ -131,6 +132,7 @@ provider-anthropic-external = ["dep:siumai-provider-anthropic"]
 provider-minimaxi-external = ["dep:siumai-provider-minimaxi"]
 provider-xai-external = ["dep:siumai-provider-xai"]
 provider-groq-external = ["dep:siumai-provider-groq"]
+provider-gemini-external = ["dep:siumai-provider-gemini"]
 
 # HTTP client features (passed through to reqwest)
 gzip = []
@@ -149,6 +151,7 @@ all-providers = [
     "std-openai-external",
     "std-anthropic-external",
     "std-gemini-external",
+    "provider-gemini-external",
 ]
 
 [dev-dependencies]

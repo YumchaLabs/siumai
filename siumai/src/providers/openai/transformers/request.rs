@@ -738,8 +738,11 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                 _req: &crate::types::ChatRequest,
                 _body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                // All provider-specific features are now handled via provider_options
-                // in ProviderSpec::chat_before_send()
+                // Provider-specific Responses configuration (ResponsesApiConfig, reasoning_effort, etc.)
+                // is injected via `ProviderOptions::OpenAi` → `ResponsesInput::extra`
+                // → `OpenAiResponsesStandard::transform_responses` when `std-openai-external`
+                // is enabled. This legacy branch only builds the base JSON shape to avoid
+                // overlapping with the standardized pipeline.
                 Ok(())
             }
         }

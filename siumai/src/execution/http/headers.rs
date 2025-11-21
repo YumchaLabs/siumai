@@ -271,24 +271,39 @@ impl ProviderHeaders {
         api_key: &str,
         custom_headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, LlmError> {
-        // Base headers: JSON + custom headers
-        let mut builder = HttpHeaderBuilder::new()
-            .with_json_content_type()
-            .with_custom_headers(custom_headers)?;
-
-        // Detect whether Authorization (Bearer) is provided; if so, skip x-goog-api-key
-        let has_authorization = custom_headers
-            .keys()
-            .any(|k| k.eq_ignore_ascii_case("authorization"));
-
-        if !has_authorization {
-            // Without Authorization, fall back to API Key if provided
-            if !api_key.is_empty() {
-                builder = builder.with_custom_auth("x-goog-api-key", api_key)?;
-            }
+        // When the external Gemini provider crate is enabled, delegate header
+        // construction到 provider crate，使 Gemini-specific 策略集中在 provider 层。
+        #[cfg(feature = "provider-gemini-external")]
+        {
+            return siumai_provider_gemini::headers::build_gemini_json_headers(
+                api_key,
+                custom_headers,
+            );
         }
 
-        Ok(builder.build())
+        // Fallback to the in-crate implementation when the external crate is
+        // not enabled. This keeps behavior identical for existing users.
+        #[cfg(not(feature = "provider-gemini-external"))]
+        {
+            // Base headers: JSON + custom headers
+            let mut builder = HttpHeaderBuilder::new()
+                .with_json_content_type()
+                .with_custom_headers(custom_headers)?;
+
+            // Detect whether Authorization (Bearer) is provided; if so, skip x-goog-api-key
+            let has_authorization = custom_headers
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case("authorization"));
+
+            if !has_authorization {
+                // Without Authorization, fall back to API Key if provided
+                if !api_key.is_empty() {
+                    builder = builder.with_custom_auth("x-goog-api-key", api_key)?;
+                }
+            }
+
+            Ok(builder.build())
+        }
     }
 
     /// Build headers for Vertex (Bearer-only JSON)
