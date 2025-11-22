@@ -64,7 +64,9 @@
   - xAI：
     - `XaiOptions` 在聚合层映射为 `ChatInput::extra["xai_search_parameters"]` / `"xai_reasoning_effort"`，由 `XaiOpenAiChatAdapter` 注入 OpenAI-compatible JSON 字段。
   - Groq：
-    - `GroqOptions.extra_params` 统一落在 `ChatInput::extra["groq_extra_params"]`，由 `GroqOpenAiChatAdapter` merge 到最终请求体。
+    - `GroqOptions` 包含 typed 字段（`reasoning_effort` / `reasoning_format` / `parallel_tool_calls` / `service_tier`）和逃生口 `extra_params`：
+      - 聚合层通过 `groq_chat_request_to_core_input` 将其映射为 `ChatInput::extra["groq_reasoning_effort" | "groq_reasoning_format" | "groq_parallel_tool_calls" | "groq_service_tier" | "groq_extra_params"]`；
+      - 在启用 `provider-groq-external` 时，由 `siumai-provider-groq::GroqOpenAiChatAdapter` 注入最终 JSON：typed 字段直接映射为顶层字段（优先级最高），`groq_extra_params` 中的键值在不与 typed 冲突时按原样展开。
   - Gemini：
     - Chat：`GeminiOptions` 通过 `gemini_like_chat_request_to_core_input` 映射为 `ChatInput::extra["gemini_code_execution" | "gemini_search_grounding" | "gemini_file_search" | "gemini_response_mime_type"]`，由 `GeminiDefaultChatAdapter` 注入 `tools` / `generationConfig`；`GeminiSpec::chat_before_send` 仅处理 CustomProviderOptions。
     - Embedding / Image：在启用 `std-gemini-external` 时，始终通过 `GeminiEmbeddingStandard` / `GeminiImageStandard` + `bridge_core_*` 处理；未启用时明确返回 `UnsupportedOperation`，不再静默使用 legacy 聚合层标准。

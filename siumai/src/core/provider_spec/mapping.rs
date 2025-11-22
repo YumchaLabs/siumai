@@ -57,9 +57,7 @@ pub fn openai_chat_request_to_core_input(
         // Reasoning effort (o1/o3 models)
         if let Some(effort) = options.reasoning_effort {
             if let Ok(v) = serde_json::to_value(effort) {
-                input
-                    .extra
-                    .insert("openai_reasoning_effort".to_string(), v);
+                input.extra.insert("openai_reasoning_effort".to_string(), v);
             }
         }
 
@@ -98,6 +96,16 @@ pub fn openai_chat_request_to_core_input(
             input
                 .extra
                 .insert("openai_web_search_options".to_string(), v);
+        }
+
+        // Text verbosity (GPT‑5 style) for chat completions.
+        //
+        // Stored as `openai_text_verbosity` in ChatInput::extra and later mapped
+        // to the top-level `verbosity` field by `OpenAiDefaultChatAdapter`.
+        if let Some(ref verb) = options.text_verbosity
+            && let Ok(v) = serde_json::to_value(verb)
+        {
+            input.extra.insert("openai_text_verbosity".to_string(), v);
         }
     }
 
@@ -162,6 +170,90 @@ pub fn gemini_like_chat_request_to_core_input(
         stop: req.common_params.stop_sequences.clone(),
         extra,
     }
+}
+
+/// Helper: Groq ChatRequest → ChatInput 映射。
+///
+/// 在 OpenAI 风格基础上，将 `ProviderOptions::Groq` 中的 typed 配置写入
+/// `ChatInput::extra["groq_*"]`，由 Groq 专用的 OpenAI Chat adapter 在标准层
+/// 注入最终 JSON。
+pub fn groq_chat_request_to_core_input(
+    req: &ChatRequest,
+) -> siumai_core::execution::chat::ChatInput {
+    use siumai_core::execution::chat::ChatInput;
+
+    let mut input: ChatInput = openai_like_chat_request_to_core_input(req);
+
+    if let ProviderOptions::Groq(ref options) = req.provider_options {
+        // Reasoning effort / format
+        if let Some(ref effort) = options.reasoning_effort {
+            input.extra.insert(
+                "groq_reasoning_effort".to_string(),
+                serde_json::json!(effort),
+            );
+        }
+        if let Some(ref fmt) = options.reasoning_format {
+            input
+                .extra
+                .insert("groq_reasoning_format".to_string(), serde_json::json!(fmt));
+        }
+
+        // Parallel tool calls
+        if let Some(parallel) = options.parallel_tool_calls {
+            input.extra.insert(
+                "groq_parallel_tool_calls".to_string(),
+                serde_json::json!(parallel),
+            );
+        }
+
+        // Service tier
+        if let Some(ref tier) = options.service_tier {
+            input
+                .extra
+                .insert("groq_service_tier".to_string(), serde_json::json!(tier));
+        }
+
+        // Escape hatch: extra_params
+        if !options.extra_params.is_empty() {
+            if let Ok(v) = serde_json::to_value(&options.extra_params) {
+                input.extra.insert("groq_extra_params".to_string(), v);
+            }
+        }
+    }
+
+    input
+}
+
+/// Helper: xAI ChatRequest → ChatInput 映射。
+///
+/// 在 OpenAI 风格基础上，将 `ProviderOptions::Xai` 中的 typed
+/// 配置写入 `ChatInput::extra` 的 `xai_*` key，由 XAI 专用的
+/// OpenAI Chat adapter 在标准层注入最终 JSON。
+pub fn xai_chat_request_to_core_input(
+    req: &ChatRequest,
+) -> siumai_core::execution::chat::ChatInput {
+    use siumai_core::execution::chat::ChatInput;
+
+    let mut input: ChatInput = openai_like_chat_request_to_core_input(req);
+
+    if let ProviderOptions::Xai(ref options) = req.provider_options {
+        // Web search configuration
+        if let Some(ref sp) = options.search_parameters
+            && let Ok(v) = serde_json::to_value(sp)
+        {
+            input.extra.insert("xai_search_parameters".to_string(), v);
+        }
+
+        // Reasoning effort
+        if let Some(ref effort) = options.reasoning_effort {
+            input.extra.insert(
+                "xai_reasoning_effort".to_string(),
+                serde_json::Value::String(effort.clone()),
+            );
+        }
+    }
+
+    input
 }
 
 /// Helper: Anthropic / MiniMaxi 共用的 ChatRequest → ChatInput 映射。
@@ -270,4 +362,3 @@ pub fn anthropic_like_chat_request_to_core_input(
         extra,
     }
 }
-

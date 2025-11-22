@@ -51,27 +51,10 @@ impl ProviderSpec for GroqSpec {
         ctx: &ProviderContext,
     ) -> ChatTransformers {
         use crate::core::provider_spec::{
-            bridge_core_chat_transformers, map_core_stream_event_with_provider,
-            openai_like_chat_request_to_core_input,
+            bridge_core_chat_transformers, groq_chat_request_to_core_input,
+            map_core_stream_event_with_provider,
         };
         use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
-
-        // Map ChatRequest into ChatInput carrying Groq provider options.
-        fn groq_chat_request_to_core_input(
-            req: &ChatRequest,
-        ) -> siumai_core::execution::chat::ChatInput {
-            let mut input = openai_like_chat_request_to_core_input(req);
-
-            if let ProviderOptions::Groq(ref options) = req.provider_options
-                && !options.extra_params.is_empty()
-            {
-                if let Ok(v) = serde_json::to_value(&options.extra_params) {
-                    input.extra.insert("groq_extra_params".to_string(), v);
-                }
-            }
-
-            input
-        }
 
         let core_ctx = ctx.to_core_context();
         let core_input = groq_chat_request_to_core_input(req);

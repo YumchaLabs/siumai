@@ -26,6 +26,9 @@ pub struct OpenAiCompatibleConfig {
     pub custom_headers: reqwest::header::HeaderMap,
     /// Provider adapter for handling specifics
     pub adapter: Arc<dyn ProviderAdapter>,
+    /// Provider-specific parameters derived from unified builder options
+    /// (e.g., enable_thinking, thinking_budget, enable_reasoning).
+    pub provider_params: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl OpenAiCompatibleConfig {
@@ -45,6 +48,7 @@ impl OpenAiCompatibleConfig {
             http_config: HttpConfig::default(),
             custom_headers: reqwest::header::HeaderMap::new(),
             adapter,
+            provider_params: std::collections::HashMap::new(),
         }
     }
 
@@ -64,6 +68,15 @@ impl OpenAiCompatibleConfig {
     /// Set HTTP configuration
     pub fn with_http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = config;
+        self
+    }
+
+    /// Set provider-specific parameters (for OpenAI-compatible providers)
+    pub fn with_provider_params(
+        mut self,
+        params: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.provider_params = params;
         self
     }
 

@@ -85,6 +85,7 @@ pub trait OpenAiChatAdapter: Send + Sync {
 /// `ChatInput::extra` keys that are populated by the aggregator:
 /// - `openai_reasoning_effort`: serialized `ReasoningEffort`
 /// - `openai_service_tier`: serialized `ServiceTier`
+/// - `openai_text_verbosity`: serialized text verbosity for GPT‑5 style models
 ///
 /// Additional OpenAI-specific options can be moved here gradually so
 /// that JSON shaping logic lives close to the standard instead of the
@@ -126,6 +127,11 @@ impl OpenAiChatAdapter for OpenAiDefaultChatAdapter {
         // Web search options
         if let Some(v) = input.extra.get("openai_web_search_options") {
             body["web_search_options"] = v.clone();
+        }
+
+        // Text verbosity (GPT‑5 style). Mirrors Vercel's textVerbosity → verbosity mapping.
+        if let Some(v) = input.extra.get("openai_text_verbosity") {
+            body["verbosity"] = v.clone();
         }
 
         Ok(())
@@ -186,10 +192,10 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
                 )))];
             }
         };
-        if let Some(adapter) = &self.adapter {
-            if let Err(e) = adapter.transform_sse_event(&mut v) {
-                return vec![Err(e)];
-            }
+        if let Some(adapter) = &self.adapter
+            && let Err(e) = adapter.transform_sse_event(&mut v)
+        {
+            return vec![Err(e)];
         }
         if let Some(choices) = v.get("choices").and_then(|c| c.as_array()) {
             for (i, ch) in choices.iter().enumerate() {
@@ -203,7 +209,10 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
                     if let Some(tc_arr) = delta.get("tool_calls").and_then(|a| a.as_array()) {
                         for tc in tc_arr.iter() {
                             let id = tc.get("id").and_then(|s| s.as_str()).map(|s| s.to_string());
-                            let func = tc.get("function").cloned().unwrap_or(serde_json::json!({}));
+                            let func = tc
+                                .get("function")
+                                .cloned()
+                                .unwrap_or_else(|| serde_json::json!({}));
                             let name = func
                                 .get("name")
                                 .and_then(|s| s.as_str())
@@ -244,15 +253,14 @@ impl siumai_core::execution::streaming::ChatStreamEventConverterCore for OpenAiC
         }
 
         // Emit a StreamEnd event when finish_reason is present in the chunk.
-        if let Some(choices) = v.get("choices").and_then(|c| c.as_array()) {
-            if let Some(first) = choices.first() {
-                if let Some(reason_str) = first.get("finish_reason").and_then(|r| r.as_str()) {
-                    let finish_reason = FinishReasonCore::from_str(Some(reason_str));
-                    // Mark that we have emitted a StreamEnd for this stream.
-                    self.ended.store(true, Ordering::Relaxed);
-                    out.push(Ok(ChatStreamEventCore::StreamEnd { finish_reason }));
-                }
-            }
+        if let Some(choices) = v.get("choices").and_then(|c| c.as_array())
+            && let Some(first) = choices.first()
+            && let Some(reason_str) = first.get("finish_reason").and_then(|r| r.as_str())
+        {
+            let finish_reason = FinishReasonCore::from_str(Some(reason_str));
+            // Mark that we have emitted a StreamEnd for this stream.
+            self.ended.store(true, Ordering::Relaxed);
+            out.push(Ok(ChatStreamEventCore::StreamEnd { finish_reason }));
         }
 
         if out.is_empty() {
@@ -381,19 +389,17 @@ impl ChatResponseTransformer for OpenAiChatResponseTransformer {
 
         let finish_reason_str = choice0.get("finish_reason").and_then(|v| v.as_str());
         let finish_reason = FinishReasonCore::from_str(finish_reason_str);
-        let usage = if let Some(u) = resp.get("usage") {
-            Some(ChatUsage {
-                prompt_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,
-                completion_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
-                total_tokens: u["total_tokens"].as_u64().unwrap_or(0) as u32,
-            })
-        } else {
-            None
-        };
+        let usage = resp.get("usage").map(|u| ChatUsage {
+            prompt_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,
+            completion_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
+            total_tokens: u["total_tokens"].as_u64().unwrap_or(0) as u32,
+        });
 
         // Build parsed_content with text + tool calls + optional reasoning/thinking.
-        let mut parsed = ChatParsedContentCore::default();
-        parsed.text = content.clone();
+        let mut parsed = ChatParsedContentCore {
+            text: content.clone(),
+            ..ChatParsedContentCore::default()
+        };
 
         // Tool calls (function/tool_call schema)
         if let Some(tcs) = message.get("tool_calls").and_then(|v| v.as_array()) {
@@ -426,10 +432,9 @@ impl ChatResponseTransformer for OpenAiChatResponseTransformer {
             .get("reasoning")
             .or_else(|| message.get("thinking"))
             .and_then(|v| v.as_str())
+            && !reasoning.is_empty()
         {
-            if !reasoning.is_empty() {
-                parsed.thinking = Some(reasoning.to_string());
-            }
+            parsed.thinking = Some(reasoning.to_string());
         }
 
         Ok(ChatResult {

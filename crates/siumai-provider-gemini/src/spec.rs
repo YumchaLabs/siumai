@@ -71,16 +71,18 @@ impl CoreProviderSpec for GeminiCoreSpec {
         ctx.base_url.trim_end_matches('/').to_string()
     }
 
-    fn choose_chat_transformers(&self, _input: &ChatInput, ctx: &CoreProviderContext) -> CoreChatTransformers {
+    fn choose_chat_transformers(
+        &self,
+        _input: &ChatInput,
+        ctx: &CoreProviderContext,
+    ) -> CoreChatTransformers {
         let req = self
             .chat_standard
             .create_request_transformer(&ctx.provider_id);
         let resp = self
             .chat_standard
             .create_response_transformer(&ctx.provider_id);
-        let stream = self
-            .chat_standard
-            .create_stream_converter(&ctx.provider_id);
+        let stream = self.chat_standard.create_stream_converter(&ctx.provider_id);
 
         CoreChatTransformers {
             request: req,

@@ -339,6 +339,8 @@ impl ChatCapability for OpenAiCompatibleClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
+        use crate::types::ProviderOptions;
+
         // Build unified ChatRequest
         let mut builder = ChatRequest::builder()
             .messages(messages)
@@ -347,6 +349,16 @@ impl ChatCapability for OpenAiCompatibleClient {
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
+
+        // Inject provider-specific parameters via ProviderOptions::Custom so that
+        // the OpenAI-compatible Spec/adapter can merge them into request JSON.
+        if !self.config.provider_params.is_empty() {
+            builder = builder.provider_options(ProviderOptions::Custom {
+                provider_id: self.config.provider_id.clone(),
+                options: self.config.provider_params.clone(),
+            });
+        }
+
         let req = builder.build();
 
         // Execute via ProviderSpec
@@ -358,6 +370,8 @@ impl ChatCapability for OpenAiCompatibleClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
+        use crate::types::ProviderOptions;
+
         // Unified ChatRequest
         let mut builder = crate::types::ChatRequest::builder()
             .messages(messages)
@@ -367,6 +381,14 @@ impl ChatCapability for OpenAiCompatibleClient {
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
+
+        if !self.config.provider_params.is_empty() {
+            builder = builder.provider_options(ProviderOptions::Custom {
+                provider_id: self.config.provider_id.clone(),
+                options: self.config.provider_params.clone(),
+            });
+        }
+
         let request = builder.build();
 
         // Execute via ProviderSpec

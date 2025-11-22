@@ -20,8 +20,9 @@ use eventsource_stream::Event;
 
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
 use super::utils::{
-    convert_messages as convert_messages_to_anthropic, convert_tools_to_anthropic_format,
-    core_parsed_to_message_content, create_usage_from_response, parse_finish_reason,
+    build_anthropic_metadata, convert_messages as convert_messages_to_anthropic,
+    convert_tools_to_anthropic_format, core_parsed_to_message_content, create_usage_from_response,
+    parse_finish_reason,
 };
 use crate::execution::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
@@ -181,6 +182,21 @@ impl ResponseTransformer for AnthropicResponseTransformer {
         let finish_reason: Option<FinishReason> =
             parse_finish_reason(response.stop_reason.as_deref());
 
+        // Build Anthropic-specific provider metadata (prompt caching + thinking).
+        let provider_metadata =
+            build_anthropic_metadata(response.usage.as_ref(), parsed_core.thinking.as_deref())
+                .and_then(|meta| {
+                    if let Ok(value) = serde_json::to_value(meta) {
+                        if let serde_json::Value::Object(obj) = value {
+                            let map = obj.into_iter().collect();
+                            let mut outer = std::collections::HashMap::new();
+                            outer.insert("anthropic".to_string(), map);
+                            return Some(outer);
+                        }
+                    }
+                    None
+                });
+
         Ok(ChatResponse {
             id: Some(response.id),
             model: Some(response.model),
@@ -191,7 +207,7 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            provider_metadata: None,
+            provider_metadata,
         })
     }
 }

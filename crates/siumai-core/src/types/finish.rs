@@ -20,6 +20,7 @@ impl FinishReasonCore {
     ///
     /// This helper is shared by multiple standards/providers (OpenAI, Groq,
     /// xAI, etc.) to keep string-to-enum mapping consistent.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(reason: Option<&str>) -> Option<Self> {
         match reason {
             Some("stop") => Some(Self::Stop),

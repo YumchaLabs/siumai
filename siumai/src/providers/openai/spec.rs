@@ -86,7 +86,7 @@ impl ProviderSpec for OpenAiSpec {
             let core_ctx = ctx.to_core_context();
 
             let core_spec = siumai_provider_openai::spec::OpenAiCoreSpec::new();
-            return core_spec.build_headers(&core_ctx);
+            core_spec.build_headers(&core_ctx)
         }
 
         #[cfg(not(feature = "provider-openai-external"))]
@@ -95,12 +95,12 @@ impl ProviderSpec for OpenAiSpec {
                 .api_key
                 .as_ref()
                 .ok_or_else(|| LlmError::MissingApiKey("OpenAI API key not provided".into()))?;
-            return ProviderHeaders::openai(
+            ProviderHeaders::openai(
                 api_key,
                 ctx.organization.as_deref(),
                 ctx.project.as_deref(),
                 &ctx.http_extra_headers,
-            );
+            )
         }
     }
 

@@ -337,16 +337,47 @@ impl ResponseTransformer for CompatResponseTransformer {
             MessageContent::Text(String::new())
         };
 
-        let usage = resp.usage.map(|u| Usage {
-            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-            completion_tokens: u.completion_tokens.unwrap_or(0),
-            total_tokens: u.total_tokens.unwrap_or(0),
-            #[allow(deprecated)]
-            cached_tokens: None,
-            #[allow(deprecated)]
-            reasoning_tokens: None,
-            prompt_tokens_details: None,
-            completion_tokens_details: None,
+        let usage = resp.usage.map(|u| {
+            // 基于顶层 usage 计数 + 可选的 details 字段构造 Usage，
+            // 行为与 streaming 提取逻辑保持一致。
+            let mut builder = Usage::builder()
+                .prompt_tokens(u.prompt_tokens.unwrap_or(0))
+                .completion_tokens(u.completion_tokens.unwrap_or(0))
+                .total_tokens(u.total_tokens.unwrap_or(0));
+
+            if let Some(usage_json) = raw.get("usage") {
+                // prompt_tokens_details.cached_tokens → cached_input_tokens
+                if let Some(cached) = usage_json
+                    .get("prompt_tokens_details")
+                    .and_then(|d| d.get("cached_tokens"))
+                    .and_then(|v| v.as_u64())
+                {
+                    builder = builder.with_cached_tokens(cached as u32);
+                }
+
+                // completion_tokens_details: reasoning / accepted / rejected prediction tokens
+                if let Some(details) = usage_json.get("completion_tokens_details") {
+                    if let Some(reasoning) =
+                        details.get("reasoning_tokens").and_then(|v| v.as_u64())
+                    {
+                        builder = builder.with_reasoning_tokens(reasoning as u32);
+                    }
+                    if let Some(accepted) = details
+                        .get("accepted_prediction_tokens")
+                        .and_then(|v| v.as_u64())
+                    {
+                        builder = builder.with_accepted_prediction_tokens(accepted as u32);
+                    }
+                    if let Some(rejected) = details
+                        .get("rejected_prediction_tokens")
+                        .and_then(|v| v.as_u64())
+                    {
+                        builder = builder.with_rejected_prediction_tokens(rejected as u32);
+                    }
+                }
+            }
+
+            builder.build()
         });
 
         let finish_reason = choice.finish_reason.map(|r| match r.as_str() {
@@ -485,4 +516,83 @@ mod tests {
 
     // Test for structured_output via provider_params has been removed
     // as this functionality is now handled via provider_options
+
+    #[test]
+    fn compat_response_usage_includes_details_from_json() {
+        // 构造一个包含 usage 详情字段的 OpenAI 兼容响应 JSON
+        let raw = serde_json::json!({
+            "id": "chatcmpl-123",
+            "model": "gpt-test",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "hello",
+                    "tool_calls": []
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+                "prompt_tokens_details": {
+                    "cached_tokens": 3
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 7,
+                    "accepted_prediction_tokens": 5,
+                    "rejected_prediction_tokens": 2
+                }
+            }
+        });
+
+        let provider_config = crate::providers::openai_compatible::registry::ProviderConfig {
+            id: "test".to_string(),
+            name: "test".to_string(),
+            base_url: "https://example.com".to_string(),
+            field_mappings:
+                crate::providers::openai_compatible::registry::ProviderFieldMappings::default(),
+            capabilities: vec!["chat".into()],
+            default_model: None,
+            supports_reasoning: false,
+        };
+
+        let adapter = Arc::new(
+            crate::providers::openai_compatible::registry::ConfigurableAdapter::new(
+                provider_config,
+            ),
+        );
+
+        let config =
+            OpenAiCompatibleConfig::new("test", "test-key", "https://example.com", adapter.clone())
+                .with_model("gpt-test");
+
+        let transformer = CompatResponseTransformer { config, adapter };
+
+        let resp = transformer.transform_chat_response(&raw).unwrap();
+        let usage = resp.usage.expect("usage should be present");
+
+        assert_eq!(usage.prompt_tokens, 10);
+        assert_eq!(usage.completion_tokens, 20);
+        assert_eq!(usage.total_tokens, 30);
+
+        // prompt_tokens_details.cached_tokens
+        assert_eq!(
+            usage
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|d| d.cached_tokens),
+            Some(3)
+        );
+
+        // completion_tokens_details.reasoning_tokens / accepted / rejected
+        let completion = usage
+            .completion_tokens_details
+            .as_ref()
+            .expect("completion_tokens_details should be present");
+        assert_eq!(completion.reasoning_tokens, Some(7));
+        assert_eq!(completion.accepted_prediction_tokens, Some(5));
+        assert_eq!(completion.rejected_prediction_tokens, Some(2));
+    }
 }

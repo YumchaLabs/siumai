@@ -8,22 +8,26 @@
 use mockito::{Matcher, Server, ServerGuard};
 
 /// Start an async mockito Server
+#[allow(dead_code)]
 pub async fn start() -> ServerGuard {
     Server::new_async().await
 }
 
 /// Get the Server base URL (including scheme)
+#[allow(dead_code)]
 pub fn url(server: &ServerGuard) -> String {
     server.url()
 }
 
 /// Convenience regex matcher helper
+#[allow(dead_code)]
 pub fn regex(re: &str) -> Matcher {
     Matcher::Regex(re.to_string())
 }
 
 /// Convenience helper to create a JSON response mock
 /// (automatically sets `content-type: application/json`)
+#[allow(dead_code)]
 pub async fn json_mock<P: Into<Matcher>>(
     server: &mut ServerGuard,
     method: &str,

@@ -15,10 +15,7 @@ use std::sync::Arc;
 /// provider options into the request JSON body. All providers
 /// automatically support `CustomProviderOptions` through this
 /// function when they use the default `chat_before_send`.
-pub fn default_custom_options_hook(
-    provider_id: &str,
-    req: &ChatRequest,
-) -> Option<BeforeSendHook> {
+pub fn default_custom_options_hook(provider_id: &str, req: &ChatRequest) -> Option<BeforeSendHook> {
     if let ProviderOptions::Custom {
         provider_id: custom_provider_id,
         options,
@@ -70,4 +67,3 @@ pub fn default_custom_options_hook_embedding(
     }
     None
 }
-

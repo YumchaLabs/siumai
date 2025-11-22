@@ -202,9 +202,60 @@ impl OpenAiCompatibleBuilder {
         self
     }
 
+    /// Set text verbosity for providers that support GPT-5 style verbosity.
+    ///
+    /// This controls how verbose the model's text output should be. For OpenAI-compatible
+    /// providers that proxy GPT-5/GPT-4.1 style models, this maps to the `verbosity` field
+    /// in the JSON body (e.g. `"verbosity": "low" | "medium" | "high"`).
+    ///
+    /// Providers that do not recognize this parameter typically ignore unknown fields.
+    ///
+    /// # Arguments
+    /// * `verbosity` - One of `"low"`, `"medium"`, or `"high"` (as recommended by OpenAI docs).
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use siumai::prelude::*;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = LlmBuilder::new()
+    ///         .openrouter()
+    ///         .api_key("your-api-key")
+    ///         .model("gpt-5.1-mini")
+    ///         .text_verbosity("low")
+    ///         .build()
+    ///         .await?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    pub fn text_verbosity<S: Into<String>>(mut self, verbosity: S) -> Self {
+        self.provider_specific_config.insert(
+            "verbosity".to_string(),
+            serde_json::Value::String(verbosity.into()),
+        );
+        self
+    }
+
     /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).
     pub fn http_debug(mut self, enabled: bool) -> Self {
         self.http_debug = enabled;
+        self
+    }
+
+    /// Control whether to include usage information in streaming responses.
+    ///
+    /// When set to `true` (default behavior), OpenAI-compatible providers that
+    /// support `stream_options` will receive `stream_options: { include_usage: true }`
+    /// on streaming chat requests, mirroring Vercel's `includeUsage` flag.
+    ///
+    /// Setting this to `false` disables `include_usage` for providers that support
+    /// `stream_options`. Providers that do not support `stream_options` will ignore
+    /// this setting.
+    pub fn include_stream_usage(mut self, include: bool) -> Self {
+        self.provider_specific_config.insert(
+            "include_stream_usage".to_string(),
+            serde_json::Value::Bool(include),
+        );
         self
     }
 
@@ -326,8 +377,9 @@ impl OpenAiCompatibleBuilder {
     pub fn reasoning(mut self, enable: bool) -> Self {
         // Map unified reasoning to provider-specific parameters
         match self.provider_id.as_str() {
-            "siliconflow" => {
-                // SiliconFlow uses "enable_thinking"
+            "siliconflow" | "doubao" => {
+                // SiliconFlow / Doubao use "thinking" style control; we normalize为 enable_thinking，
+                // 再由适配层转换成最终请求体字段。
                 self.provider_specific_config.insert(
                     "enable_thinking".to_string(),
                     serde_json::Value::Bool(enable),
@@ -355,9 +407,10 @@ impl OpenAiCompatibleBuilder {
     ///
     /// This controls how many tokens the model can use for its internal reasoning process.
     /// Different providers interpret this differently:
-    /// - SiliconFlow: Maps to `thinking_budget` parameter
-    /// - DeepSeek: Ignored (uses boolean reasoning mode)
-    /// - OpenRouter: Passed through to underlying model
+    /// - SiliconFlow: Maps到 `thinking_budget` 参数，并自动开启 `enable_thinking`
+    /// - DeepSeek: 当前不会将 `reasoning_budget` 发送给 DeepSeek API，仅作为统一接口层状态；
+    ///   实际控制逻辑通过 `reasoning(true)` 映射为 `enable_reasoning: true`
+    /// - OpenRouter: 以 `reasoning_budget` 字段原样透传给底层模型
     ///
     /// # Arguments
     /// * `budget` - Number of tokens for reasoning (128-32768)
@@ -392,6 +445,20 @@ impl OpenAiCompatibleBuilder {
                 // Also enable thinking when budget is set
                 self.provider_specific_config
                     .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
+            }
+            "doubao" => {
+                // Doubao 官方主要通过 thinking / reasoningEffort 控制思考。
+                // 在统一接口下，我们只使用 budget>0 作为“开启思考模式”的信号，
+                // 不向 Doubao 发送未文档化的 numeric 字段。
+                if clamped_budget > 0 {
+                    self.provider_specific_config
+                        .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
+                } else {
+                    self.provider_specific_config.insert(
+                        "enable_thinking".to_string(),
+                        serde_json::Value::Bool(false),
+                    );
+                }
             }
             "deepseek" | "openrouter" => {
                 // DeepSeek and OpenRouter: store budget but mainly use boolean mode
@@ -458,7 +525,9 @@ impl OpenAiCompatibleBuilder {
         }
 
         // Set common parameters
-        config = config.with_common_params(self.common_params);
+        config = config
+            .with_common_params(self.common_params)
+            .with_provider_params(self.provider_specific_config);
 
         // Merge HTTP configurations
         let mut final_http_config = self.http_config;

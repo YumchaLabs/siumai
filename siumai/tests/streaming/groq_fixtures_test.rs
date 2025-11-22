@@ -88,9 +88,8 @@ async fn groq_simple_content_stop_fixture() {
     let mut content = String::new();
 
     for e in events {
-        match e {
-            ChatStreamEvent::ContentDelta { delta, .. } => content.push_str(&delta),
-            _ => {}
+        if let ChatStreamEvent::ContentDelta { delta, .. } = e {
+            content.push_str(&delta);
         }
     }
 

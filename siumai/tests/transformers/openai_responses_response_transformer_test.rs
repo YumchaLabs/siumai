@@ -24,9 +24,14 @@ fn parse_tool_calls_with_nested_function_object() {
     assert_eq!(resp.content_text().unwrap_or_default(), "hello");
     let calls = resp.get_tool_calls().expect("has tool calls");
     assert_eq!(calls.len(), 1);
-    let call = &calls[0];
-    assert_eq!(call.function.as_ref().unwrap().name, "lookup");
-    assert_eq!(call.function.as_ref().unwrap().arguments, "{\"q\":\"rust\"}");
+    let call = calls[0];
+    let info = call.as_tool_call().expect("tool call info");
+    assert_eq!(info.tool_name, "lookup");
+    assert_eq!(info.tool_call_id, "call_1");
+    assert_eq!(
+        info.arguments,
+        &serde_json::json!({"q": "rust"})
+    );
 }
 
 #[test]
@@ -50,9 +55,14 @@ fn parse_tool_calls_with_flattened_fields() {
     assert_eq!(resp.content_text().unwrap_or_default(), "world");
     let calls = resp.get_tool_calls().expect("has tool calls");
     assert_eq!(calls.len(), 1);
-    let call = &calls[0];
-    assert_eq!(call.function.as_ref().unwrap().name, "search");
-    assert_eq!(call.function.as_ref().unwrap().arguments, "{\"k\":\"v\"}");
+    let call = calls[0];
+    let info = call.as_tool_call().expect("tool call info");
+    assert_eq!(info.tool_name, "search");
+    assert_eq!(info.tool_call_id, "call_2");
+    assert_eq!(
+        info.arguments,
+        &serde_json::json!({"k": "v"})
+    );
 }
 
 #[test]
@@ -94,5 +104,41 @@ fn missing_tool_calls_results_in_none() {
         "output": [ { "content": [{"type": "output_text", "text": "hello"}] } ]
     });
     let resp: ChatResponse = tx.transform_chat_response(&raw).expect("ok");
-    assert!(resp.tool_calls.is_none());
+    assert!(resp.get_tool_calls().is_none());
+}
+
+#[test]
+fn openai_metadata_is_populated_from_responses() {
+    let tx = OpenAiResponsesResponseTransformer;
+    let raw = serde_json::json!({
+        "response": {
+            "id": "r5",
+            "model": "gpt-5-mini",
+            "output": [
+                { "content": [{"type": "output_text", "text": "meta"}] }
+            ],
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "total_tokens": 3,
+                "completion_tokens_details": {
+                    "reasoning_tokens": 11
+                }
+            },
+            "system_fingerprint": "fp_test",
+            "service_tier": "scale"
+        }
+    });
+
+    let resp: ChatResponse = tx.transform_chat_response(&raw).expect("ok");
+
+    // Top-level fields should be populated
+    assert_eq!(resp.system_fingerprint.as_deref(), Some("fp_test"));
+    assert_eq!(resp.service_tier.as_deref(), Some("scale"));
+
+    // Provider-specific metadata should mirror these values
+    let meta = resp.openai_metadata().expect("openai metadata");
+    assert_eq!(meta.reasoning_tokens, Some(11));
+    assert_eq!(meta.system_fingerprint.as_deref(), Some("fp_test"));
+    assert_eq!(meta.service_tier.as_deref(), Some("scale"));
 }

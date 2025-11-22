@@ -51,6 +51,18 @@ pub struct OpenAiOptions {
     pub prediction: Option<PredictionContent>,
     /// Web search options (context size and user location)
     pub web_search_options: Option<OpenAiWebSearchOptions>,
+    /// Text verbosity level for GPT‑5 style models (chat/Responses unified).
+    ///
+    /// For Chat Completions this maps to the top-level `verbosity` field.
+    /// For the Responses API it is used as a fallback for `text.verbosity`
+    /// when no per-call `ResponsesApiConfig::text_verbosity` is set.
+    pub text_verbosity: Option<TextVerbosity>,
+    /// Whether to include usage information in streaming Responses API calls.
+    ///
+    /// - `None` / `Some(true)` keep the default behaviour
+    ///   (`stream_options.include_usage = true`).
+    /// - `Some(false)` disables `include_usage` for streaming Responses requests.
+    pub include_stream_usage: Option<bool>,
 }
 
 impl OpenAiOptions {
@@ -177,6 +189,24 @@ impl OpenAiOptions {
     /// ```
     pub fn with_web_search_options(mut self, options: OpenAiWebSearchOptions) -> Self {
         self.web_search_options = Some(options);
+        self
+    }
+
+    /// Set text verbosity level for GPT‑5 style models.
+    ///
+    /// This mirrors Vercel AI SDK's `providerOptions.openai.textVerbosity` and provides
+    /// a single entry point for both Chat Completions and the Responses API.
+    pub fn with_text_verbosity(mut self, verbosity: TextVerbosity) -> Self {
+        self.text_verbosity = Some(verbosity);
+        self
+    }
+
+    /// Control whether to include usage information in streaming Responses API calls.
+    ///
+    /// By default Siumai enables `stream_options.include_usage` for Responses streaming.
+    /// Setting this to `false` disables that behaviour for this request.
+    pub fn with_stream_usage(mut self, include: bool) -> Self {
+        self.include_stream_usage = Some(include);
         self
     }
 }

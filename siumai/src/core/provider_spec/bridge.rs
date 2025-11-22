@@ -6,11 +6,10 @@
 
 use crate::error::LlmError;
 use crate::execution::transformers::{
-    request::RequestTransformer,
-    response::ResponseTransformer,
-    stream::StreamChunkTransformer,
+    request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::{ChatTransformers, EmbeddingTransformers, ImageTransformers, RerankTransformers};
@@ -86,8 +85,12 @@ pub fn bridge_core_embedding_transformers(
     }
 
     EmbeddingTransformers {
-        request: Arc::new(EmbRequestBridge { inner: core_request }),
-        response: Arc::new(EmbResponseBridge { inner: core_response }),
+        request: Arc::new(EmbRequestBridge {
+            inner: core_request,
+        }),
+        response: Arc::new(EmbResponseBridge {
+            inner: core_response,
+        }),
     }
 }
 
@@ -132,9 +135,9 @@ pub fn bridge_core_image_transformers(
                 siumai_core::execution::image::ImageHttpBody::Json(v) => {
                     Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
                 }
-                siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
-                    crate::execution::transformers::request::ImageHttpBody::Multipart(f),
-                ),
+                siumai_core::execution::image::ImageHttpBody::Multipart(f) => {
+                    Ok(crate::execution::transformers::request::ImageHttpBody::Multipart(f))
+                }
             }
         }
 
@@ -146,9 +149,9 @@ pub fn bridge_core_image_transformers(
                 siumai_core::execution::image::ImageHttpBody::Json(v) => {
                     Ok(crate::execution::transformers::request::ImageHttpBody::Json(v))
                 }
-                siumai_core::execution::image::ImageHttpBody::Multipart(f) => Ok(
-                    crate::execution::transformers::request::ImageHttpBody::Multipart(f),
-                ),
+                siumai_core::execution::image::ImageHttpBody::Multipart(f) => {
+                    Ok(crate::execution::transformers::request::ImageHttpBody::Multipart(f))
+                }
             }
         }
     }
@@ -171,8 +174,12 @@ pub fn bridge_core_image_transformers(
     }
 
     ImageTransformers {
-        request: Arc::new(ImageRequestBridge { inner: core_request }),
-        response: Arc::new(ImageResponseBridge { inner: core_response }),
+        request: Arc::new(ImageRequestBridge {
+            inner: core_request,
+        }),
+        response: Arc::new(ImageResponseBridge {
+            inner: core_response,
+        }),
     }
 }
 
@@ -236,8 +243,12 @@ pub fn bridge_core_rerank_transformers(
     }
 
     RerankTransformers {
-        request: Arc::new(ReqBridge { inner: core_request }),
-        response: Arc::new(RespBridge { inner: core_response }),
+        request: Arc::new(ReqBridge {
+            inner: core_request,
+        }),
+        response: Arc::new(RespBridge {
+            inner: core_response,
+        }),
     }
 }
 
@@ -298,7 +309,12 @@ where
             use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
             use siumai_core::types::FinishReasonCore;
 
+            let provider_id = self.inner.provider_id().to_string();
             let core_res = self.inner.transform_chat_response(raw)?;
+
+            // Preserve thinking content for potential provider-specific metadata.
+            let mut thinking_text: Option<String> = None;
+
             // Prefer the structured parsed_content view when available, so that
             // higher layers can get text + tool calls + thinking without
             // re-parsing provider JSON.
@@ -320,6 +336,7 @@ where
 
                 if let Some(thinking) = &parsed.thinking {
                     if !thinking.is_empty() {
+                        thinking_text = Some(thinking.clone());
                         parts.push(ContentPart::reasoning(thinking));
                     }
                 }
@@ -348,7 +365,7 @@ where
                 FinishReasonCore::Other(s) => FinishReason::Other(s),
             });
 
-            Ok(crate::types::ChatResponse {
+            let mut response = crate::types::ChatResponse {
                 id: None,
                 model: None,
                 content,
@@ -359,7 +376,25 @@ where
                 audio: None,
                 warnings: None,
                 provider_metadata: None,
-            })
+            };
+
+            // For Anthropic, expose thinking content via provider_metadata["anthropic"]
+            // so callers can use response.anthropic_metadata().thinking even when
+            // going through the std/core pipeline.
+            if provider_id == "anthropic" {
+                if let Some(thinking) = thinking_text {
+                    if !thinking.is_empty() {
+                        let mut inner: HashMap<String, serde_json::Value> = HashMap::new();
+                        inner.insert("thinking".to_string(), serde_json::Value::String(thinking));
+                        let mut outer: HashMap<String, HashMap<String, serde_json::Value>> =
+                            HashMap::new();
+                        outer.insert("anthropic".to_string(), inner);
+                        response.provider_metadata = Some(outer);
+                    }
+                }
+            }
+
+            Ok(response)
         }
     }
 
@@ -502,4 +537,3 @@ pub fn anthropic_like_map_core_stream_event(
 ) -> crate::streaming::ChatStreamEvent {
     map_core_stream_event_with_provider(provider, evt)
 }
-

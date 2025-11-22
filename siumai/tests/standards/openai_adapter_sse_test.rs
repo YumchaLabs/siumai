@@ -79,11 +79,11 @@ async fn test_openai_standard_adapter_transforms_sse_events() {
 
     let mut found_transformed = false;
     for event_result in result {
-        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result {
-            if delta.starts_with("[TRANSFORMED] ") {
-                found_transformed = true;
-                assert_eq!(delta, "[TRANSFORMED] Hello");
-            }
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result
+            && delta.starts_with("[TRANSFORMED] ")
+        {
+            found_transformed = true;
+            assert_eq!(delta, "[TRANSFORMED] Hello");
         }
     }
 
@@ -223,10 +223,10 @@ async fn test_openai_adapter_multiple_choices() {
     // Should transform all choices
     let mut transformed_count = 0;
     for event_result in result {
-        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result {
-            if delta.starts_with("[MULTI] ") {
-                transformed_count += 1;
-            }
+        if let Ok(ChatStreamEventCore::ContentDelta { delta, .. }) = event_result
+            && delta.starts_with("[MULTI] ")
+        {
+            transformed_count += 1;
         }
     }
 

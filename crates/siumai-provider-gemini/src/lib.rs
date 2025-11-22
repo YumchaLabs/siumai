@@ -21,4 +21,3 @@ pub mod spec;
 
 pub use headers::build_gemini_json_headers;
 pub use spec::GeminiCoreSpec;
-

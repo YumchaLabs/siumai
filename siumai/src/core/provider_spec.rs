@@ -69,7 +69,8 @@ pub use bridge::{
 };
 pub use mapping::{
     anthropic_like_chat_request_to_core_input, gemini_like_chat_request_to_core_input,
-    openai_chat_request_to_core_input, openai_like_chat_request_to_core_input,
+    groq_chat_request_to_core_input, openai_chat_request_to_core_input,
+    openai_like_chat_request_to_core_input, xai_chat_request_to_core_input,
 };
 pub use options::{default_custom_options_hook, default_custom_options_hook_embedding};
 use unsupported::{
@@ -323,4 +324,3 @@ pub trait ProviderSpec: Send + Sync {
         }
     }
 }
-

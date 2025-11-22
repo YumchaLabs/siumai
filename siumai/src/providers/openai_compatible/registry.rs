@@ -72,11 +72,33 @@ impl ProviderAdapter for ConfigurableAdapter {
 
     fn transform_request_params(
         &self,
-        _params: &mut serde_json::Value,
+        params: &mut serde_json::Value,
         _model: &str,
-        _request_type: super::types::RequestType,
+        request_type: super::types::RequestType,
     ) -> Result<(), LlmError> {
-        // Most OpenAI-compatible providers don't need parameter transformation
+        // Most OpenAI-compatible providers don't need parameter transformation.
+        // Doubao is a special case: it uses a nested `thinking` object instead of
+        // a flat `enable_thinking` flag. We convert the unified flag here.
+        if matches!(request_type, super::types::RequestType::Chat)
+            && self.config.id.eq_ignore_ascii_case("doubao")
+        {
+            if let Some(obj) = params.as_object_mut() {
+                if let Some(enable_val) = obj.remove("enable_thinking") {
+                    if let Some(flag) = enable_val.as_bool() {
+                        // Do not override an explicit thinking block set by the user.
+                        if !obj.contains_key("thinking") {
+                            let thinking = if flag {
+                                serde_json::json!({ "type": "enabled" })
+                            } else {
+                                serde_json::json!({ "type": "disabled" })
+                            };
+                            obj.insert("thinking".to_string(), thinking);
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -94,8 +116,69 @@ impl ProviderAdapter for ConfigurableAdapter {
         }
     }
 
-    fn get_model_config(&self, _model: &str) -> super::types::ModelConfig {
-        super::types::ModelConfig {
+    fn get_model_config(&self, model: &str) -> super::types::ModelConfig {
+        use crate::providers::openai_compatible::types::ModelConfig;
+
+        // Provider-level flag: if the provider does not support reasoning at all,
+        // fall back to a standard chat config.
+        if !self.config.supports_reasoning {
+            return ModelConfig::standard_chat();
+        }
+
+        let provider_id = self.config.id.to_lowercase();
+        let model_id = model.to_lowercase();
+
+        // DeepSeek native provider
+        if provider_id == "deepseek" {
+            // DeepSeek v3 / R1 models expose reasoning_content and support thinking.
+            if model_id.contains("deepseek-v3")
+                || model_id.contains("deepseek-r1")
+                || model_id.contains("deepseek-chat")
+                || model_id.contains("deepseek-reasoner")
+            {
+                return ModelConfig::deepseek();
+            }
+        }
+
+        // SiliconFlow hosting DeepSeek / Qwen models
+        if provider_id == "siliconflow" {
+            // DeepSeek models on SiliconFlow
+            if model_id.contains("deepseek-v3")
+                || model_id.contains("deepseek-r1")
+                || model_id.contains("deepseek-v2.5")
+                || model_id.contains("deepseek-vl2")
+            {
+                return ModelConfig::deepseek();
+            }
+
+            // Qwen reasoning-style models hosted on SiliconFlow.
+            // Heuristic: treat Qwen3/QwQ/QVQ families as supporting thinking.
+            if model_id.contains("qwen3")
+                || model_id.contains("qwq")
+                || model_id.contains("qvq")
+                || model_id.contains("qwen2.5")
+            {
+                return ModelConfig::qwen_reasoning();
+            }
+        }
+
+        // Qwen DashScope provider (compatible-mode)
+        if provider_id == "qwen" {
+            // Align with Qwen docs / Vercel examples:
+            // - "qwen-plus", "qwen-max", "qwen3-max" 等模型具备推理能力
+            // - QwQ / QVQ 系列是专门的推理模型
+            if model_id.starts_with("qwen-plus")
+                || model_id.starts_with("qwen-max")
+                || model_id.starts_with("qwen3-max")
+                || model_id.contains("qwq")
+                || model_id.contains("qvq")
+            {
+                return ModelConfig::qwen_reasoning();
+            }
+        }
+
+        // Default: provider-level reasoning support without model-specific tweaks
+        ModelConfig {
             supports_thinking: self.config.supports_reasoning,
             ..Default::default()
         }

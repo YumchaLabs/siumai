@@ -106,7 +106,168 @@ coordinates types and glue.
 
 ---
 
+## Unified Reasoning Capabilities (Overview)
+
+Several providers expose "reasoning" or "thinking" modes (OpenAI o1/o3,
+Anthropic thinking, Gemini thinkingConfig, DeepSeek-style reasoning,
+etc.). Siumai follows Vercel AI SDK's approach:
+
+- Use provider-specific typed options (`providerOptions.*`) wherever
+  possible.
+- Offer a *unified* reasoning interface only for OpenAI-compatible
+  providers, and keep its behaviour close to each provider's official
+  docs.
+- Avoid inventing undocumented HTTP fields; if a provider does not
+  document a numeric `reasoning_budget`, Siumai will not send one.
+
+At a glance:
+
+| Provider family                       | User-facing API in Siumai                                                                                   | What you configure                                            | HTTP behaviour (simplified)                                                                                      | Notes                                                                                       |
+|--------------------------------------|-------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| OpenAI (Chat / Responses, o1/o3)     | `OpenAiClient` + `OpenAiOptions` (`providerOptions.openai`)                                                | `reasoning_effort` (`low`/`medium`/`high`)                   | `ChatInput::extra["openai_reasoning_effort"]` → `reasoning_effort` in final JSON                                | Mirrors Vercel `providerOptions.openai.reasoningEffort`; no builder-level `reasoning()` yet |
+| Anthropic (Claude Messages)          | `AnthropicClient` + `AnthropicOptions` (`providerOptions.anthropic`)                                       | `thinking_mode` (enabled + optional budget)                  | `ChatInput::extra["anthropic_thinking"]` → `thinking` object in final JSON                                      | Follows official `thinking` + prompt caching + JSON schema docs                             |
+| Gemini (Gemini 1.5 / 2.x Chat)       | `GeminiClient` + generation helpers (`with_thinking_budget`, `with_dynamic_thinking`, `with_thinking_disabled`) | `thinking_config` (`thinkingBudget`, `includeThoughts`)      | `GenerationConfig.thinkingConfig` → `thinkingConfig` in `generationConfig` JSON                                  | No extra undocumented reasoning fields are added                                            |
+| OpenAI-compatible providers (DeepSeek / SiliconFlow / Doubao / Qwen / OpenRouter, etc.) | `OpenAiCompatibleBuilder` (`LlmBuilder::new().deepseek()`, `.siliconflow()`, `.doubao()`, etc.)           | `.with_thinking(..)` / `.with_thinking_budget(..)` / `.reasoning(..)` / `.reasoning_budget(..)` | Stored in `OpenAiCompatibleConfig.provider_params` and mapped by each adapter to the provider's documented keys | Unified surface, provider-specific mapping; behaviour is kept conservative                  |
+
+### Unified OpenAI-compatible reasoning API
+
+For OpenAI-compatible providers, Siumai exposes a unified interface on
+`OpenAiCompatibleBuilder`:
+
+- `.with_thinking(bool)` / `.with_thinking_budget(u32)`
+- `.reasoning(bool)` / `.reasoning_budget(i32)`
+
+Internally, these map into `provider_params` which are then interpreted
+by each provider adapter:
+
+- **SiliconFlow**  
+  - `with_thinking(true)` → `enable_thinking: true`  
+  - `with_thinking_budget(8192)` → `thinking_budget: 8192` + `enable_thinking: true`
+- **DeepSeek / OpenRouter**  
+  - `reasoning(true)` → `enable_reasoning: true`  
+  - `reasoning_budget(..)` stores a `reasoning_budget` value but does
+    not send undocumented DeepSeek-specific numeric fields; enabling is
+    controlled via `enable_reasoning`.
+- **Doubao**  
+  - `reasoning(true)` → internal `enable_thinking: true`, which the
+    adapter converts into Doubao's documented `thinking` structure
+    (e.g. `{ "type": "enabled" | "disabled" }`).
+- **Other OpenAI-compatible providers**  
+  - Default to `enable_reasoning` + optional `reasoning_budget` in
+    `provider_params`, only if such fields are documented for that
+    provider.
+
+This mirrors Vercel AI SDK's unified `reasoning` surface for
+OpenAI-compatible providers, while respecting each provider's official
+API. The `provider-options-standard` design doc
+(`docs/refactor/10-provider-options-standard.md`) describes how these
+`provider_params` flow through to `ChatInput::extra` and, finally, to
+provider JSON.
+
+---
+
 ## Concrete Examples
+
+### OpenAI-Specific Options (Reasoning / Web Search)
+
+Siumai follows Vercel AI SDK’s pattern of “generic call options +
+typed providerOptions” for OpenAI:
+
+- Generic layer: `ChatRequest` / `ChatRequestBuilder`
+- OpenAI layer: `OpenAiOptions` + `ProviderOptions::OpenAi`
+- Core mapping: `openai_chat_request_to_core_input` /
+  `build_responses_input`
+
+Key pieces:
+
+- `siumai::types::OpenAiOptions` lives in
+  `siumai/src/types/provider_options/openai/mod.rs`.
+- It mirrors Vercel’s `providerOptions.openai`:
+  - `reasoning_effort: Option<ReasoningEffort>`
+  - `service_tier: Option<ServiceTier>`
+  - `web_search_options: Option<OpenAiWebSearchOptions>`
+  - `responses_api: Option<ResponsesApiConfig>`
+  - `modalities`, `audio`, `prediction`, etc.
+- `ChatRequestBuilder::with_openai_options` wraps it into
+  `ProviderOptions::OpenAi`.
+
+The mapping rules:
+
+- **Chat Completions** (`/chat/completions`):
+  - `openai_chat_request_to_core_input` injects typed options into
+    `ChatInput::extra["openai_*"]`, e.g.
+    - `reasoning_effort` → `"openai_reasoning_effort"`
+    - `service_tier` → `"openai_service_tier"`
+    - `modalities` → `"openai_modalities"`
+    - `audio` → `"openai_audio"`
+    - `prediction` → `"openai_prediction"`
+    - `web_search_options` → `"openai_web_search_options"`
+
+- **Responses API** (`/responses`):
+  - `build_responses_input` constructs `ResponsesInput` from
+    `ChatRequest`:
+    - Maps messages via `OpenAiResponsesRequestTransformer`.
+    - Fills `ResponsesInput.extra` with:
+      - `stream`, `seed`, `max_output_tokens`
+      - `tools` / `tool_choice`
+      - `responses_api` fields:
+        `instructions`, `response_format`, `previous_response_id`,
+        `truncation`, `include`, `store`, `max_tool_calls`, etc.
+      - `reasoning_effort` / `service_tier` (typed enums).
+      - `modalities`, `audio`, `prediction`.
+      - `web_search_options` (typed `OpenAiWebSearchOptions`).
+
+From a user’s perspective this matches Vercel’s design:
+
+```rust,no_run
+use siumai::prelude::*;
+use siumai::types::{
+    ChatRequest, OpenAiOptions,
+    provider_options::openai::{
+        ReasoningEffort, OpenAiWebSearchOptions, WebSearchLocation,
+        ResponsesApiConfig,
+    },
+};
+
+async fn openai_responses_with_reasoning_and_websearch(
+    client: siumai::providers::openai::OpenAiClient,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Configure web search options (similar to Vercel providerOptions.openai.webSearchOptions)
+    let web_search = OpenAiWebSearchOptions::new()
+        .with_context_size("high")
+        .with_user_location(
+            WebSearchLocation::approximate()
+                .with_country("US")
+                .with_city("San Francisco"),
+        );
+
+    // Configure Responses API + reasoningEffort, just like Vercel
+    let opts = OpenAiOptions::new()
+        .with_reasoning_effort(ReasoningEffort::Medium)
+        .with_web_search_options(web_search)
+        .with_responses_api(
+            ResponsesApiConfig::new()
+                .with_background(false),
+        );
+
+    let req = ChatRequest::new(vec![user!("What’s new in Rust 1.80?")])
+        .with_openai_options(opts);
+
+    let resp = client.chat_request(req).await?;
+    println!("answer = {}", resp.text());
+
+    if let Some(meta) = resp.openai_metadata() {
+        if let Some(reasoning_tokens) = meta.reasoning_tokens {
+            println!("reasoning tokens used = {}", reasoning_tokens);
+        }
+    }
+    Ok(())
+}
+```
+
+This keeps all OpenAI-specific JSON/fields at the OpenAI layer,
+while the aggregator only sees `ChatRequest` + `ProviderOptions::OpenAi`
+and core standards (`ResponsesInput` / `ChatInput`).
 
 ### OpenAI (Chat / Embedding / Image)
 
@@ -159,6 +320,87 @@ coordinates types and glue.
     `core_parsed_to_message_content` to convert
     `AnthropicParsedContentCore` into aggregator `MessageContent`.
 
+- **Anthropic-specific options**:
+  - `AnthropicOptions` in
+    `siumai/src/types/provider_options/anthropic.rs` mirrors Vercel’s
+    `providerOptions.anthropic`:
+    - `prompt_caching: Option<PromptCachingConfig>`
+    - `thinking_mode: Option<ThinkingModeConfig>`
+    - `response_format: Option<AnthropicResponseFormat>`
+  - `ChatRequestBuilder::with_anthropic_options` wraps it into
+    `ProviderOptions::Anthropic`.
+  - `anthropic_like_chat_request_to_core_input` maps typed options into
+    `ChatInput::extra` with Anthropic-style keys:
+    - `thinking_mode` → `"anthropic_thinking"` (later renamed to
+      `thinking` in the final JSON by `siumai-std-anthropic`).
+    - `response_format` → `"anthropic_response_format"`.
+    - `prompt_caching` → `"anthropic_prompt_caching"`.
+
+  From a user’s perspective this matches Vercel’s design of
+  `providerOptions.anthropic.thinking` / `promptCaching` /
+  `responseFormat`:
+
+  ```rust,no_run
+  use siumai::prelude::*;
+  use siumai::types::{
+      ChatRequest, AnthropicOptions,
+      provider_options::anthropic::{
+          PromptCachingConfig, AnthropicCacheControl, AnthropicCacheType,
+          ThinkingModeConfig, AnthropicResponseFormat,
+      },
+  };
+
+  async fn anthropic_with_thinking_and_prompt_caching(
+      client: siumai::providers::anthropic::AnthropicClient,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+      // Enable extended thinking with an explicit budget
+      let thinking = ThinkingModeConfig {
+          enabled: true,
+          thinking_budget: Some(10_000),
+      };
+
+      // Enable prompt caching on the first user message
+      let caching = PromptCachingConfig {
+          enabled: true,
+          cache_control: vec![AnthropicCacheControl {
+              cache_type: AnthropicCacheType::Ephemeral,
+              message_index: 0,
+          }],
+      };
+
+      // Configure structured output as JSON schema
+      let response_format = AnthropicResponseFormat::JsonSchema {
+          name: "Answer".to_string(),
+          schema: serde_json::json!({
+              "type": "object",
+              "properties": {
+                  "summary": { "type": "string" }
+              },
+              "required": ["summary"]
+          }),
+          strict: true,
+      };
+
+      let opts = AnthropicOptions::new()
+          .with_thinking_mode(thinking)
+          .with_prompt_caching(caching)
+          .with_json_schema("Answer", serde_json::json!({}), true);
+
+      let req = ChatRequest::new(vec![user!("Explain Rust ownership.")])
+          .with_anthropic_options(opts);
+
+      let resp = client.chat_request(req).await?;
+      println!("answer = {}", resp.text());
+      Ok(())
+  }
+  ```
+
+  All Anthropic-specific JSON (thinking / response_format / prompt
+  caching) is constructed in `anthropic_like_chat_request_to_core_input`
+  + `siumai-std-anthropic`; the aggregator only coordinates
+  `ChatRequest` + `ProviderOptions::Anthropic` and the standard
+  transformers.
+
 
 ### Gemini (Chat / Embedding / Image)
 
@@ -197,6 +439,91 @@ coordinates types and glue.
   - `providers/gemini/utils.rs` provides
     `core_parsed_to_content_parts` to convert `GeminiParsedContentCore`
     into `ContentPart` + aggregated text.
+
+- **Gemini-specific options**:
+  - `GeminiOptions` in
+    `siumai/src/types/provider_options/gemini.rs` mirrors Vercel’s
+    `providerOptions.google` for Gemini models:
+    - `code_execution: Option<CodeExecutionConfig>` → enables the
+      `codeExecution` tool.
+    - `search_grounding: Option<SearchGroundingConfig>` → enables
+      `googleSearchRetrieval.dynamicRetrievalConfig`.
+    - `file_search: Option<FileSearchConfig>` → best-effort File Search
+      tool wiring (non-standard schema).
+    - `response_mime_type: Option<String>` → sets
+      `generationConfig.responseMimeType`.
+  - `ChatRequestBuilder::with_gemini_options` wraps it into
+    `ProviderOptions::Gemini`.
+  - `gemini_like_chat_request_to_core_input` maps typed options into
+    `ChatInput::extra`:
+    - `code_execution` → `"gemini_code_execution"`.
+    - `search_grounding` → `"gemini_search_grounding"`.
+    - `file_search` → `"gemini_file_search"`.
+    - `response_mime_type` → `"gemini_response_mime_type"`.
+  - `GeminiDefaultChatAdapter` in
+    `siumai-std-gemini::gemini::chat` consumes these keys and injects
+    official Gemini JSON fields:
+    - `gemini_code_execution.enabled == true` →
+      `tools += { "codeExecution": {} }`.
+    - `gemini_search_grounding.enabled == true` →
+      `tools += { "googleSearchRetrieval": { "dynamicRetrievalConfig": {...} } }`.
+    - `gemini_file_search.file_search_store_names != []` →
+      `tools += { "file_search": { "file_search_store_names": [...] } }`
+      (experimental, not an official schema).
+    - `gemini_response_mime_type` → `generationConfig.responseMimeType`.
+
+  This matches the way Vercel models Gemini-specific behaviour via
+  `providerOptions.google.*` while keeping the aggregator free of JSON
+  details. A typical usage mirrors Vercel’s pattern:
+
+  ```rust,no_run
+  use siumai::prelude::*;
+  use siumai::types::{
+      ChatRequest, GeminiOptions,
+      provider_options::gemini::{
+          CodeExecutionConfig, SearchGroundingConfig, DynamicRetrievalConfig,
+      },
+  };
+
+  async fn gemini_with_code_execution_and_search(
+      client: siumai::providers::gemini::GeminiClient,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+      // Enable code execution tool
+      let code = CodeExecutionConfig { enabled: true };
+
+      // Enable Google search grounding with dynamic retrieval
+      let search = SearchGroundingConfig {
+          enabled: true,
+          dynamic_retrieval_config: Some(DynamicRetrievalConfig {
+              mode: crate::types::provider_options::gemini::DynamicRetrievalMode::ModeDynamic,
+              dynamic_threshold: Some(0.5),
+          }),
+      };
+
+      let opts = GeminiOptions::new()
+          .with_code_execution(code)
+          .with_search_grounding(search)
+          .with_response_mime_type("application/json");
+
+      let req = ChatRequest::new(vec![user!("Explain Rust lifetimes.")])
+          .with_gemini_options(opts);
+
+      let resp = client.chat_request(req).await?;
+      println!("answer = {}", resp.text());
+      Ok(())
+  }
+  ```
+
+  For structured outputs and thinking-specific configuration, the
+  Gemini client also exposes `GenerationConfig` helpers:
+
+  - `GeminiClient::with_json_schema(...)` /
+    `with_enum_schema(...)` → `generationConfig.responseMimeType` +
+    `responseSchema`.
+  - `GeminiClient::with_thinking_budget(...)` /
+    `with_dynamic_thinking()` /
+    `with_thinking_disabled()` → `generationConfig.thinkingConfig`
+    with `thinkingBudget` / `includeThoughts`.
 
 This makes Gemini follow the same “standard + provider + aggregator
 bridge” pattern as OpenAI and Anthropic. Legacy, in-crate Gemini

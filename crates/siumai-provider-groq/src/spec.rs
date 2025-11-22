@@ -26,7 +26,7 @@ impl Default for GroqCoreSpec {
 impl GroqCoreSpec {
     /// 使用带 Groq 适配器的 OpenAI Chat 标准实现构造
     pub fn new() -> Self {
-        let adapter = Arc::new(GroqOpenAiChatAdapter::default());
+        let adapter = Arc::new(GroqOpenAiChatAdapter);
         Self {
             chat_standard: OpenAiChatStandard::with_adapter(adapter),
         }
@@ -46,15 +46,102 @@ impl OpenAiChatAdapter for GroqOpenAiChatAdapter {
         input: &ChatInput,
         body: &mut serde_json::Value,
     ) -> Result<(), LlmError> {
-        if let Some(extra) = input.extra.get("groq_extra_params")
-            && let Some(extra_obj) = extra.as_object()
-            && let Some(body_obj) = body.as_object_mut()
-        {
-            for (k, v) in extra_obj {
-                body_obj.insert(k.clone(), v.clone());
+        if let Some(body_obj) = body.as_object_mut() {
+            // 先展开 escape hatch：extra_params。仅在目标字段不存在时写入，
+            // 避免覆盖后续 typed options 映射产生的字段。
+            if let Some(extra) = input.extra.get("groq_extra_params")
+                && let Some(extra_obj) = extra.as_object()
+            {
+                for (k, v) in extra_obj {
+                    body_obj.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+            }
+
+            // 再映射 typed GroqOptions 字段（优先级高于 extra_params）。
+            if let Some(effort) = input.extra.get("groq_reasoning_effort") {
+                body_obj.insert("reasoning_effort".to_string(), effort.clone());
+            }
+            if let Some(fmt) = input.extra.get("groq_reasoning_format") {
+                body_obj.insert("reasoning_format".to_string(), fmt.clone());
+            }
+            if let Some(parallel) = input.extra.get("groq_parallel_tool_calls") {
+                body_obj.insert("parallel_tool_calls".to_string(), parallel.clone());
+            }
+            if let Some(tier) = input.extra.get("groq_service_tier") {
+                body_obj.insert("service_tier".to_string(), tier.clone());
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn transform_request_merges_typed_and_extra_params() {
+        let mut input = ChatInput::default();
+        // Typed options mapped via ChatInput::extra
+        input
+            .extra
+            .insert("groq_reasoning_effort".to_string(), json!("medium"));
+        input
+            .extra
+            .insert("groq_reasoning_format".to_string(), json!("parsed"));
+        input
+            .extra
+            .insert("groq_parallel_tool_calls".to_string(), json!(true));
+        input
+            .extra
+            .insert("groq_service_tier".to_string(), json!("flex"));
+
+        // Escape hatch params, including a conflicting service_tier
+        input.extra.insert(
+            "groq_extra_params".to_string(),
+            json!({
+                "service_tier": "on_demand",
+                "custom_flag": true
+            }),
+        );
+
+        let mut body = json!({
+            "model": "qwen/qwen3-32b",
+            "messages": [],
+        });
+
+        let adapter = GroqOpenAiChatAdapter::default();
+        adapter.transform_request(&input, &mut body).unwrap();
+
+        let obj = body.as_object().expect("body should remain a JSON object");
+
+        // Typed fields should be present
+        assert_eq!(
+            obj.get("reasoning_effort").and_then(|v| v.as_str()),
+            Some("medium")
+        );
+        assert_eq!(
+            obj.get("reasoning_format").and_then(|v| v.as_str()),
+            Some("parsed")
+        );
+        assert_eq!(
+            obj.get("parallel_tool_calls").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            obj.get("service_tier").and_then(|v| v.as_str()),
+            Some("flex")
+        );
+
+        // extra_params should also be merged
+        assert_eq!(obj.get("custom_flag").and_then(|v| v.as_bool()), Some(true));
+
+        // Typed service_tier should override extra_params["service_tier"]
+        assert_eq!(
+            obj.get("service_tier").and_then(|v| v.as_str()),
+            Some("flex")
+        );
     }
 }
 

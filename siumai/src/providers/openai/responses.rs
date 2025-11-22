@@ -99,30 +99,58 @@ impl OpenAiResponsesEventConverter {
                 .and_then(serde_json::Value::as_u64)
                 .map(|v| v as u32)
                 .unwrap_or(0);
-            let reasoning_tokens = usage
+
+            let mut builder = crate::types::Usage::builder()
+                .prompt_tokens(prompt_tokens)
+                .completion_tokens(completion_tokens)
+                .total_tokens(total_tokens);
+
+            // 顶层 reasoning_tokens（旧字段）
+            if let Some(reasoning) = usage
                 .get("reasoning_tokens")
                 .or_else(|| usage.get("reasoningTokens"))
                 .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32);
+                .map(|v| v as u32)
+            {
+                builder = builder.with_reasoning_tokens(reasoning);
+            }
 
-            let usage_info = crate::types::Usage {
-                prompt_tokens,
-                completion_tokens,
-                total_tokens,
-                #[allow(deprecated)]
-                reasoning_tokens,
-                #[allow(deprecated)]
-                cached_tokens: None,
-                prompt_tokens_details: None,
-                completion_tokens_details: reasoning_tokens.map(|r| {
-                    crate::types::CompletionTokensDetails {
-                        reasoning_tokens: Some(r),
-                        audio_tokens: None,
-                        accepted_prediction_tokens: None,
-                        rejected_prediction_tokens: None,
-                    }
-                }),
-            };
+            // prompt_tokens_details.cached_tokens
+            if let Some(cached) = usage
+                .get("prompt_tokens_details")
+                .and_then(|d| d.get("cached_tokens"))
+                .and_then(serde_json::Value::as_u64)
+                .map(|v| v as u32)
+            {
+                builder = builder.with_cached_tokens(cached);
+            }
+
+            // completion_tokens_details: reasoning / accepted / rejected
+            if let Some(details) = usage.get("completion_tokens_details") {
+                if let Some(reasoning) = details
+                    .get("reasoning_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|v| v as u32)
+                {
+                    builder = builder.with_reasoning_tokens(reasoning);
+                }
+                if let Some(accepted) = details
+                    .get("accepted_prediction_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|v| v as u32)
+                {
+                    builder = builder.with_accepted_prediction_tokens(accepted);
+                }
+                if let Some(rejected) = details
+                    .get("rejected_prediction_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|v| v as u32)
+                {
+                    builder = builder.with_rejected_prediction_tokens(rejected);
+                }
+            }
+
+            let usage_info = builder.build();
             return Some(crate::streaming::ChatStreamEvent::UsageUpdate { usage: usage_info });
         }
 

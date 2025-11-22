@@ -48,8 +48,15 @@ pub fn build_responses_input(req: &ChatRequest) -> Result<ResponsesInput, LlmErr
         }
     }
 
-    // stream_options
-    if req.stream {
+    // stream_options: include_usage for streaming Responses API.
+    //
+    // Default: include_usage = true. Users can override via OpenAiOptions::with_stream_usage(false).
+    let mut include_usage_flag: Option<bool> = None;
+
+    if let ProviderOptions::OpenAi(ref options) = req.provider_options {
+        include_usage_flag = options.include_stream_usage;
+    }
+    if req.stream && include_usage_flag.unwrap_or(true) {
         extra.insert(
             "stream_options".to_string(),
             serde_json::json!({ "include_usage": true }),
@@ -110,7 +117,17 @@ pub fn build_responses_input(req: &ChatRequest) -> Result<ResponsesInput, LlmErr
             {
                 extra.insert("truncation".to_string(), val);
             }
-            if let Some(ref verb) = cfg.text_verbosity
+            // Text verbosity for Responses API:
+            //
+            // Priority:
+            // 1) Per-call ResponsesApiConfig::text_verbosity
+            // 2) Fallback to OpenAiOptions::text_verbosity when not set
+            let effective_text_verbosity = if let Some(ref verb) = cfg.text_verbosity {
+                Some(verb)
+            } else {
+                options.text_verbosity.as_ref()
+            };
+            if let Some(verb) = effective_text_verbosity
                 && let Ok(val) = serde_json::to_value(verb)
             {
                 // text_verbosity is nested under "text.verbosity"

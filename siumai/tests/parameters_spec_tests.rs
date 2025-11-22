@@ -9,3 +9,6 @@ mod rerank_openai_compatible_transform_test;
 
 #[path = "parameters/moderation_array_input_shape_test.rs"]
 mod moderation_array_input_shape_test;
+
+#[path = "parameters/openai_compatible_reasoning_tests.rs"]
+mod openai_compatible_reasoning_tests;

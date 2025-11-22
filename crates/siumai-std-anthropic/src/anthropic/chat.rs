@@ -259,10 +259,10 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
         };
 
         // Allow the adapter to adjust the underlying JSON (for proxies/variants, etc.).
-        if let Some(adapter) = &self.adapter {
-            if let Err(e) = adapter.transform_sse_event(&mut raw) {
-                return vec![Err(e)];
-            }
+        if let Some(adapter) = &self.adapter
+            && let Err(e) = adapter.transform_sse_event(&mut raw)
+        {
+            return vec![Err(e)];
         }
 
         // If the event represents an error (no type field, only an error object),
@@ -295,18 +295,18 @@ impl ChatStreamEventConverterCore for AnthropicChatStreamConv {
             }
             "message_delta" | "content_block_delta" | "message_delta_input_json_delta" => {
                 if let Some(d) = evt.delta {
-                    if let Some(text) = d.text {
-                        if !text.is_empty() {
-                            out.push(Ok(ChatStreamEventCore::ContentDelta {
-                                delta: text,
-                                index: None,
-                            }));
-                        }
+                    if let Some(text) = d.text
+                        && !text.is_empty()
+                    {
+                        out.push(Ok(ChatStreamEventCore::ContentDelta {
+                            delta: text,
+                            index: None,
+                        }));
                     }
-                    if let Some(th) = d.thinking {
-                        if !th.is_empty() {
-                            out.push(Ok(ChatStreamEventCore::ThinkingDelta { delta: th }));
-                        }
+                    if let Some(th) = d.thinking
+                        && !th.is_empty()
+                    {
+                        out.push(Ok(ChatStreamEventCore::ThinkingDelta { delta: th }));
                     }
 
                     // When a delta carries a stop_reason, emit a StreamEnd with the concrete reason.

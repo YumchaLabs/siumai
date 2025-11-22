@@ -289,9 +289,16 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
             name: "Qwen".to_string(),
             base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
-            capabilities: vec!["tools".to_string(), "vision".to_string()],
+            capabilities: vec![
+                "tools".to_string(),
+                "vision".to_string(),
+                "reasoning".to_string(),
+            ],
             default_model: Some("qwen-plus".to_string()),
-            supports_reasoning: false,
+            // Qwen models (qwen-plus/qwen-max/qwq 等) 支持思考/推理输出
+            // 在 OpenAI 兼容模式下通过 enable_thinking / thinking_budget 控制，
+            // 这里将 provider 级别标记为支持 reasoning，具体行为由上层按模型细分。
+            supports_reasoning: true,
         },
     );
 

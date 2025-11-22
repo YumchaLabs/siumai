@@ -174,7 +174,7 @@ impl GeminiSearchConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Tool;
+    use crate::types::{Tool, WebSearchConfig, WebSearchContextSize, WebSearchStrategy};
 
     #[test]
     fn test_web_search_config() {

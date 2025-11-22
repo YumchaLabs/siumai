@@ -1,5 +1,7 @@
 #[cfg(all(feature = "openai", feature = "std-openai-external"))]
-use crate::core::provider_spec::{bridge_core_chat_transformers, map_core_stream_event_with_provider};
+use crate::core::provider_spec::{
+    bridge_core_chat_transformers, map_core_stream_event_with_provider,
+};
 use crate::core::{
     ChatTransformers, EmbeddingTransformers, ImageTransformers, ProviderContext, ProviderSpec,
 };
@@ -116,7 +118,7 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         {
             let path =
                 adapter.route_for(crate::providers::openai_compatible::types::RequestType::Chat);
-            return format!("{}/{}", ctx.base_url.trim_end_matches('/'), path);
+            format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
         }
     }
 
@@ -174,6 +176,22 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 req: &ChatRequest,
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
+                // Merge ProviderOptions::Custom for this provider into the request body
+                if let crate::types::ProviderOptions::Custom {
+                    provider_id,
+                    options,
+                } = &req.provider_options
+                {
+                    if provider_id == &self.0.provider_id() {
+                        if let Some(obj) = body.as_object_mut() {
+                            for (k, v) in options {
+                                // Do not overwrite fields that are already set by standards layer
+                                obj.entry(k.clone()).or_insert_with(|| v.clone());
+                            }
+                        }
+                    }
+                }
+
                 self.0.transform_request_params(
                     body,
                     &req.common_params.model,
@@ -246,6 +264,53 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 req: &siumai_core::execution::chat::ChatInput,
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
+                // 合并 unified builder 产生的 provider_params（通过 ChatInput::extra 传入）
+                // 到最终 JSON body，再由具体 ProviderAdapter 做最后一层映射。
+                if let Some(extra) = req.extra.get("openai_compat_provider_params")
+                    && let Some(obj) = extra.as_object()
+                    && let Some(body_obj) = body.as_object_mut()
+                {
+                    for (k, v) in obj {
+                        // 避免覆盖 std-openai 已经设置好的字段
+                        body_obj.entry(k.clone()).or_insert_with(|| v.clone());
+                    }
+                }
+
+                // Streaming usage control: include_usage for providers that support stream_options.
+                //
+                // 默认行为：当 ChatRequest.stream == true 时，在 compat 层开启
+                // stream_options: { include_usage: true }。若 builder 显式设置了
+                // include_stream_usage = false，则不注入该字段。
+                if self.0.compatibility().supports_stream_options {
+                    let is_streaming = body
+                        .get("stream")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+
+                    if is_streaming {
+                        // 查找来自 builder 的 include_stream_usage 覆盖：
+                        // - false → 不设置 include_usage
+                        // - None/true → include_usage = true
+                        let include_flag = req
+                            .extra
+                            .get("openai_compat_provider_params")
+                            .and_then(|v| v.get("include_stream_usage"))
+                            .and_then(|v| v.as_bool());
+
+                        if include_flag.unwrap_or(true)
+                            && let Some(obj) = body.as_object_mut()
+                        {
+                            let stream_options = obj
+                                .entry("stream_options".to_string())
+                                .or_insert_with(|| serde_json::json!({}));
+                            if let Some(so) = stream_options.as_object_mut() {
+                                so.entry("include_usage".to_string())
+                                    .or_insert(serde_json::Value::Bool(true));
+                            }
+                        }
+                    }
+                }
+
                 self.0.transform_request_params(
                     body,
                     req.model.as_deref().unwrap_or(""),
@@ -275,12 +340,36 @@ impl ProviderSpec for OpenAiCompatibleSpec {
                 stream: Some(std.create_stream_converter(&ctx.provider_id)),
             };
 
-            let provider_id = ctx.provider_id.clone();
-            return bridge_core_chat_transformers(
-                core_txs,
-                crate::core::provider_spec::openai_chat_request_to_core_input,
-                move |evt| map_core_stream_event_with_provider(&provider_id, evt),
-            );
+            let provider_id_for_extra = ctx.provider_id.clone();
+            let provider_id_for_stream = ctx.provider_id.clone();
+
+            // 自定义 ChatRequest -> ChatInput 映射：
+            // 在标准 OpenAI 映射基础上，将 ProviderOptions::Custom 中的 provider_params
+            // 写入 ChatInput::extra["openai_compat_provider_params"]，供上面的
+            // CompatToOpenAiChatAdapter 在最终 JSON 中展开。
+            let to_core = move |req: &crate::types::ChatRequest| {
+                use crate::types::ProviderOptions;
+                let mut input = crate::core::provider_spec::openai_chat_request_to_core_input(req);
+
+                if let ProviderOptions::Custom {
+                    provider_id: custom_id,
+                    options,
+                } = &req.provider_options
+                    && *custom_id == provider_id_for_extra
+                    && !options.is_empty()
+                    && let Ok(v) = serde_json::to_value(options)
+                {
+                    input
+                        .extra
+                        .insert("openai_compat_provider_params".to_string(), v);
+                }
+
+                input
+            };
+
+            return bridge_core_chat_transformers(core_txs, to_core, move |evt| {
+                map_core_stream_event_with_provider(&provider_id_for_stream, evt)
+            });
         }
 
         #[cfg(not(all(feature = "std-openai-external", feature = "openai")))]
@@ -470,7 +559,7 @@ impl ProviderSpec for OpenAiCompatibleSpec {
         {
             let path = adapter
                 .route_for(crate::providers::openai_compatible::types::RequestType::Embedding);
-            return format!("{}/{}", ctx.base_url.trim_end_matches('/'), path);
+            format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
         }
     }
 
@@ -613,7 +702,7 @@ impl ProviderSpec for OpenAiCompatibleSpec {
             let path = adapter.route_for(
                 crate::providers::openai_compatible::types::RequestType::ImageGeneration,
             );
-            return format!("{}/{}", ctx.base_url.trim_end_matches('/'), path);
+            format!("{}/{}", ctx.base_url.trim_end_matches('/'), path)
         }
     }
 }

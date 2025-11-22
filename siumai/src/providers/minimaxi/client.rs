@@ -196,7 +196,7 @@ impl AudioCapability for MinimaxiClient {
 
         let exec = super::audio::build_audio_executor(
             &self.config.api_key,
-            &self.config.base_url,
+            super::config::MinimaxiConfig::OPENAI_BASE_URL,
             &self.http_client,
             self.retry_options.as_ref(),
             &self.http_interceptors,
@@ -234,7 +234,7 @@ impl ImageGenerationCapability for MinimaxiClient {
 
         let exec = super::image::build_image_executor(
             &self.config.api_key,
-            &self.config.base_url,
+            super::config::MinimaxiConfig::OPENAI_BASE_URL,
             &self.http_client,
             self.retry_options.as_ref(),
             &self.http_interceptors,
@@ -268,7 +268,7 @@ impl VideoGenerationCapability for MinimaxiClient {
     ) -> Result<crate::types::video::VideoGenerationResponse, LlmError> {
         super::video::create_video_task(
             &self.config.api_key,
-            &self.config.base_url,
+            super::config::MinimaxiConfig::OPENAI_BASE_URL,
             &self.http_client,
             request,
         )
@@ -281,7 +281,7 @@ impl VideoGenerationCapability for MinimaxiClient {
     ) -> Result<crate::types::video::VideoTaskStatusResponse, LlmError> {
         super::video::query_video_task(
             &self.config.api_key,
-            &self.config.base_url,
+            super::config::MinimaxiConfig::OPENAI_BASE_URL,
             &self.http_client,
             task_id,
         )
@@ -309,7 +309,7 @@ impl MusicGenerationCapability for MinimaxiClient {
     ) -> Result<crate::types::music::MusicGenerationResponse, LlmError> {
         super::music::generate_music(
             &self.config.api_key,
-            &self.config.base_url,
+            super::config::MinimaxiConfig::OPENAI_BASE_URL,
             &self.http_client,
             request,
         )

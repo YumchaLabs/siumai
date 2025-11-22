@@ -47,15 +47,15 @@ pub fn build_messages_payload(
     //   ...
     // ]
     let mut cache_by_index: HashMap<usize, serde_json::Value> = HashMap::new();
-    if let Some(cfg) = input.extra.get("anthropic_prompt_caching") {
-        if let Some(items) = cfg.as_array() {
-            for item in items {
-                if let (Some(idx), Some(cc)) = (
-                    item.get("index").and_then(|v| v.as_u64()),
-                    item.get("cache_control"),
-                ) {
-                    cache_by_index.insert(idx as usize, cc.clone());
-                }
+    if let Some(cfg) = input.extra.get("anthropic_prompt_caching")
+        && let Some(items) = cfg.as_array()
+    {
+        for item in items {
+            if let (Some(idx), Some(cc)) = (
+                item.get("index").and_then(|v| v.as_u64()),
+                item.get("cache_control"),
+            ) {
+                cache_by_index.insert(idx as usize, cc.clone());
             }
         }
     }
@@ -67,7 +67,7 @@ pub fn build_messages_payload(
                 match &mut system {
                     Some(acc) => {
                         if !acc.is_empty() {
-                            acc.push_str("\n");
+                            acc.push('\n');
                         }
                         acc.push_str(&m.content);
                     }
@@ -131,13 +131,13 @@ pub fn parse_content_blocks_core(resp: &serde_json::Value) -> AnthropicParsedCon
 
             match kind {
                 "text" => {
-                    if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
-                        if !t.is_empty() {
-                            if !parsed.text.is_empty() {
-                                parsed.text.push('\n');
-                            }
-                            parsed.text.push_str(t);
+                    if let Some(t) = block.get("text").and_then(|v| v.as_str())
+                        && !t.is_empty()
+                    {
+                        if !parsed.text.is_empty() {
+                            parsed.text.push('\n');
                         }
+                        parsed.text.push_str(t);
                     }
                 }
                 "tool_use" => {
@@ -171,17 +171,16 @@ pub fn parse_content_blocks_core(resp: &serde_json::Value) -> AnthropicParsedCon
                         .get("thinking")
                         .or_else(|| block.get("text"))
                         .and_then(|v| v.as_str())
+                        && !th.is_empty()
                     {
-                        if !th.is_empty() {
-                            match &mut parsed.thinking {
-                                Some(acc) => {
-                                    if !acc.is_empty() {
-                                        acc.push('\n');
-                                    }
-                                    acc.push_str(th);
+                        match &mut parsed.thinking {
+                            Some(acc) => {
+                                if !acc.is_empty() {
+                                    acc.push('\n');
                                 }
-                                None => parsed.thinking = Some(th.to_string()),
+                                acc.push_str(th);
                             }
+                            None => parsed.thinking = Some(th.to_string()),
                         }
                     }
                 }

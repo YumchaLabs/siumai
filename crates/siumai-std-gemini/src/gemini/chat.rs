@@ -92,11 +92,11 @@ pub trait GeminiChatAdapter: Send + Sync {
 /// Default Gemini Chat adapter.
 ///
 /// Reads Gemini-specific configuration from `ChatInput::extra` and injects it
-/// into the final request JSON:
-/// - `gemini_code_execution` → `code_execution` entry in `tools`
-/// - `gemini_search_grounding` → `google_search` entry in `tools`
-/// - `gemini_file_search` → `file_search` entry in `tools`
-/// - `gemini_response_mime_type` → `generationConfig.response_mime_type`
+/// into the final request JSON using official Gemini field names:
+/// - `gemini_code_execution` → `codeExecution` entry in `tools`
+/// - `gemini_search_grounding` → `googleSearch` (or `googleSearchRetrieval`) entry in `tools`
+/// - `gemini_file_search` → `file_search` entry in `tools` (best-effort; not an official schema)
+/// - `gemini_response_mime_type` → `generationConfig.responseMimeType`
 #[derive(Clone, Default)]
 pub struct GeminiDefaultChatAdapter;
 
@@ -112,32 +112,38 @@ impl GeminiChatAdapter for GeminiDefaultChatAdapter {
             .and_then(|v| v.as_array().cloned())
             .unwrap_or_default();
 
-        if let Some(v) = input.extra.get("gemini_code_execution") {
-            if v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false) {
-                tools.push(serde_json::json!({ "code_execution": {} }));
-            }
+        if let Some(v) = input.extra.get("gemini_code_execution")
+            && v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false)
+        {
+            // Official field name: codeExecution
+            tools.push(serde_json::json!({ "codeExecution": {} }));
         }
 
-        if let Some(v) = input.extra.get("gemini_search_grounding") {
-            if v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false) {
-                let mut tool = serde_json::json!({ "google_search": {} });
-                if let Some(dr) = v.get("dynamic_retrieval_config") {
-                    tool["google_search"]["dynamic_retrieval_config"] = dr.clone();
+        if let Some(v) = input.extra.get("gemini_search_grounding")
+            && v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false)
+        {
+            // Official Tool schema exposes:
+            // - googleSearch
+            // - googleSearchRetrieval.dynamicRetrievalConfig
+            //
+            // We map our SearchGroundingConfig into the retrieval variant to
+            // align with the REST/OpenAPI shapes.
+            let mut tool = serde_json::json!({ "googleSearchRetrieval": {} });
+            if let Some(dr) = v.get("dynamic_retrieval_config") {
+                tool["googleSearchRetrieval"]["dynamicRetrievalConfig"] = dr.clone();
+            }
+            tools.push(tool);
+        }
+
+        if let Some(v) = input.extra.get("gemini_file_search")
+            && let Some(stores) = v.get("file_search_store_names")
+            && stores.is_array()
+        {
+            tools.push(serde_json::json!({
+                "file_search": {
+                    "file_search_store_names": stores.clone()
                 }
-                tools.push(tool);
-            }
-        }
-
-        if let Some(v) = input.extra.get("gemini_file_search") {
-            if let Some(stores) = v.get("file_search_store_names")
-                && stores.is_array()
-            {
-                tools.push(serde_json::json!({
-                    "file_search": {
-                        "file_search_store_names": stores.clone()
-                    }
-                }));
-            }
+            }));
         }
 
         if !tools.is_empty() {
@@ -149,7 +155,8 @@ impl GeminiChatAdapter for GeminiDefaultChatAdapter {
             .get("gemini_response_mime_type")
             .and_then(|v| v.as_str())
         {
-            body["generationConfig"]["response_mime_type"] = serde_json::json!(mime);
+            // Official GenerationConfig field: responseMimeType
+            body["generationConfig"]["responseMimeType"] = serde_json::json!(mime);
         }
 
         Ok(())
@@ -168,29 +175,46 @@ impl ChatRequestTransformer for GeminiChatRequestTx {
     }
 
     fn transform_chat(&self, input: &ChatInput) -> Result<serde_json::Value, LlmError> {
-        // Naive mapping: map core chat messages into a simple Gemini-like
-        // structure. This is intentionally minimal and will be refined.
-        let contents = input
-            .messages
-            .iter()
-            .map(|m| {
-                let role = match m.role {
-                    ChatRole::System => "user", // Gemini has user/model; system will be treated as user content.
-                    ChatRole::User => "user",
-                    ChatRole::Assistant => "model",
-                };
-                serde_json::json!({
-                    "role": role,
-                    "parts": [{
-                        "text": m.content.clone()
-                    }],
-                })
-            })
-            .collect::<Vec<_>>();
+        // Map core chat messages into Gemini `contents` + optional `systemInstruction`.
+        //
+        // 对齐官方推荐用法：
+        // - `system` 消息聚合到 `systemInstruction.parts[*].text`
+        // - `user/assistant` 消息映射为 `contents`（role: "user" / "model"）
+        let mut system_parts: Vec<serde_json::Value> = Vec::new();
+        let mut contents: Vec<serde_json::Value> = Vec::new();
+
+        for m in &input.messages {
+            match m.role {
+                ChatRole::System => {
+                    if !m.content.is_empty() {
+                        system_parts.push(serde_json::json!({ "text": m.content.clone() }));
+                    }
+                }
+                ChatRole::User | ChatRole::Assistant => {
+                    let role = match m.role {
+                        ChatRole::User => "user",
+                        ChatRole::Assistant => "model",
+                        _ => "user",
+                    };
+                    contents.push(serde_json::json!({
+                        "role": role,
+                        "parts": [{
+                            "text": m.content.clone()
+                        }],
+                    }));
+                }
+            }
+        }
 
         let mut body = serde_json::json!({
             "contents": contents,
         });
+
+        if !system_parts.is_empty() {
+            body["systemInstruction"] = serde_json::json!({
+                "parts": system_parts,
+            });
+        }
 
         if let Some(model) = &input.model {
             body["model"] = serde_json::json!(model);
@@ -368,10 +392,10 @@ impl ChatStreamEventConverterCore for GeminiChatStreamConv {
         };
 
         // Allow adapter to mutate raw JSON before standard parsing.
-        if let Some(adapter) = &self.adapter {
-            if let Err(e) = adapter.transform_sse_event(&mut v) {
-                return vec![Err(e)];
-            }
+        if let Some(adapter) = &self.adapter
+            && let Err(e) = adapter.transform_sse_event(&mut v)
+        {
+            return vec![Err(e)];
         }
 
         let resp: GeminiStreamResponseCore = match serde_json::from_value(v.clone()) {
@@ -390,17 +414,18 @@ impl ChatStreamEventConverterCore for GeminiChatStreamConv {
         // Content deltas: accumulate all non-empty text parts.
         if let Some(candidates) = &resp.candidates {
             for (cand_idx, cand) in candidates.iter().enumerate() {
-                if let Some(content) = &cand.content {
-                    if let Some(parts) = &content.parts {
-                        for (part_idx, part) in parts.iter().enumerate() {
-                            if let Some(text) = &part.text {
-                                if !text.is_empty() && !part.thought.unwrap_or(false) {
-                                    out.push(Ok(ChatStreamEventCore::ContentDelta {
-                                        delta: text.clone(),
-                                        index: Some(cand_idx.max(part_idx)),
-                                    }));
-                                }
-                            }
+                if let Some(content) = &cand.content
+                    && let Some(parts) = &content.parts
+                {
+                    for (part_idx, part) in parts.iter().enumerate() {
+                        if let Some(text) = &part.text
+                            && !text.is_empty()
+                            && !part.thought.unwrap_or(false)
+                        {
+                            out.push(Ok(ChatStreamEventCore::ContentDelta {
+                                delta: text.clone(),
+                                index: Some(cand_idx.max(part_idx)),
+                            }));
                         }
                     }
                 }
@@ -408,21 +433,19 @@ impl ChatStreamEventConverterCore for GeminiChatStreamConv {
         }
 
         // Thinking delta: first part with thought == true.
-        if let Some(candidates) = &resp.candidates {
-            if let Some(first) = candidates.first() {
-                if let Some(content) = &first.content {
-                    if let Some(parts) = &content.parts {
-                        if let Some(thinking) = parts.iter().find_map(|p| {
-                            if p.thought.unwrap_or(false) {
-                                p.text.clone()
-                            } else {
-                                None
-                            }
-                        }) {
-                            out.push(Ok(ChatStreamEventCore::ThinkingDelta { delta: thinking }));
-                        }
-                    }
+        if let Some(candidates) = &resp.candidates
+            && let Some(first) = candidates.first()
+            && let Some(content) = &first.content
+            && let Some(parts) = &content.parts
+        {
+            if let Some(thinking) = parts.iter().find_map(|p| {
+                if p.thought.unwrap_or(false) {
+                    p.text.clone()
+                } else {
+                    None
                 }
+            }) {
+                out.push(Ok(ChatStreamEventCore::ThinkingDelta { delta: thinking }));
             }
         }
 

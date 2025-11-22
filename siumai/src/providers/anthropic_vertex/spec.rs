@@ -88,9 +88,8 @@ impl ProviderSpec for VertexAnthropicSpec {
 
             // Reuse the Anthropic Messages standard to build core-level transformers,
             // then bridge them into the aggregator's ChatTransformers bundle.
-            let standard = AnthropicChatStandard::with_adapter(Arc::new(
-                AnthropicDefaultChatAdapter::default(),
-            ));
+            let standard =
+                AnthropicChatStandard::with_adapter(Arc::new(AnthropicDefaultChatAdapter));
 
             let core_txs: CoreChatTransformers = CoreChatTransformers {
                 request: standard.create_request_transformer(&ctx.provider_id),
@@ -98,11 +97,11 @@ impl ProviderSpec for VertexAnthropicSpec {
                 stream: Some(standard.create_stream_converter(&ctx.provider_id)),
             };
 
-            return bridge_core_chat_transformers(
+            bridge_core_chat_transformers(
                 core_txs,
                 anthropic_like_chat_request_to_core_input,
                 |evt| anthropic_like_map_core_stream_event("anthropic-vertex", evt),
-            );
+            )
         }
 
         // Fallback path when the external Anthropic standard is not available.

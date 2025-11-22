@@ -1,15 +1,18 @@
 #![cfg(feature = "std-anthropic-external")]
 
-//! Anthropic Prompt Caching mapping tests
+//! Anthropic ProviderOptions → ChatInput::extra 映射测试
 //!
-//! 验证 ProviderOptions::Anthropic.prompt_caching 经由
-//! `anthropic_like_chat_request_to_core_input` → `ChatInput::extra` →
-//! `build_messages_payload` 后，正确映射为 Anthropic Messages
-//! 请求中的 `cache_control` 字段。
+//! 覆盖三类配置：
+//! - Prompt Caching：经由 `anthropic_like_chat_request_to_core_input`
+//!   → `ChatInput::extra["anthropic_prompt_caching"]` →
+//!   `build_messages_payload` 映射为 Messages `cache_control` 字段。
+//! - Thinking Mode：映射为 `ChatInput::extra["anthropic_thinking"]`。
+//! - Response Format：映射为 `ChatInput::extra["anthropic_response_format"]`。
 
 use siumai::core::provider_spec::anthropic_like_chat_request_to_core_input;
 use siumai::types::{
-    AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, ChatMessage, ChatRequest,
+    AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
+    ChatMessage, ChatRequest, ThinkingModeConfig,
 };
 use siumai_std_anthropic::anthropic::utils::build_messages_payload;
 
@@ -71,3 +74,91 @@ fn anthropic_prompt_caching_is_mapped_to_cache_control() {
     );
 }
 
+#[test]
+fn anthropic_thinking_mode_is_mapped_into_extra() {
+    // 构造简单消息。
+    let messages = vec![ChatMessage::user("Hello").build()];
+
+    // ThinkingModeConfig：enabled=true + budget。
+    let thinking = ThinkingModeConfig {
+        enabled: true,
+        thinking_budget: Some(4096),
+    };
+
+    let options = AnthropicOptions::new().with_thinking_mode(thinking);
+    let req = ChatRequest::new(messages).with_anthropic_options(options);
+
+    let core_input = anthropic_like_chat_request_to_core_input(&req);
+
+    let thinking_val = core_input
+        .extra
+        .get("anthropic_thinking")
+        .expect("ChatInput::extra should contain anthropic_thinking");
+
+    let obj = thinking_val
+        .as_object()
+        .expect("anthropic_thinking should be a JSON object");
+    assert_eq!(obj.get("type").and_then(|v| v.as_str()), Some("enabled"));
+    assert_eq!(
+        obj.get("budget_tokens").and_then(|v| v.as_u64()),
+        Some(4096)
+    );
+}
+
+#[test]
+fn anthropic_response_format_is_mapped_into_extra() {
+    let messages = vec![ChatMessage::user("Hello").build()];
+
+    // 1) JsonObject 形式
+    let opts_obj = AnthropicOptions::new().with_json_object();
+    let req_obj = ChatRequest::new(messages.clone()).with_anthropic_options(opts_obj);
+    let core_input_obj = anthropic_like_chat_request_to_core_input(&req_obj);
+
+    let rf_obj = core_input_obj
+        .extra
+        .get("anthropic_response_format")
+        .expect("extra should contain anthropic_response_format for JsonObject");
+    let obj = rf_obj
+        .as_object()
+        .expect("anthropic_response_format should be a JSON object");
+    assert_eq!(obj.get("type").and_then(|v| v.as_str()), Some("json_object"));
+
+    // 2) JsonSchema 形式
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": { "foo": { "type": "string" } },
+        "required": ["foo"]
+    });
+
+    let opts_schema = AnthropicOptions::new().with_json_schema("MySchema", schema.clone(), true);
+    let req_schema = ChatRequest::new(messages).with_anthropic_options(opts_schema);
+    let core_input_schema = anthropic_like_chat_request_to_core_input(&req_schema);
+
+    let rf_schema = core_input_schema
+        .extra
+        .get("anthropic_response_format")
+        .expect("extra should contain anthropic_response_format for JsonSchema");
+    let obj = rf_schema
+        .as_object()
+        .expect("anthropic_response_format should be a JSON object");
+
+    assert_eq!(
+        obj.get("type").and_then(|v| v.as_str()),
+        Some("json_schema")
+    );
+
+    let json_schema = obj
+        .get("json_schema")
+        .and_then(|v| v.as_object())
+        .expect("json_schema should be an object");
+
+    assert_eq!(
+        json_schema.get("name").and_then(|v| v.as_str()),
+        Some("MySchema")
+    );
+    assert_eq!(
+        json_schema.get("strict").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(json_schema.get("schema"), Some(&schema));
+}

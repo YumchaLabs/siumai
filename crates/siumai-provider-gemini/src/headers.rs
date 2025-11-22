@@ -5,7 +5,7 @@
 //! - 否则在 API key 非空时注入 `x-goog-api-key`
 //! - 始终设置 `Content-Type: application/json`，并合并自定义头
 
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use siumai_core::error::LlmError;
 use std::collections::HashMap;
 
@@ -21,9 +21,8 @@ pub fn build_gemini_json_headers(
 
     // 先合并自定义头
     for (k, v) in http_extra {
-        let name = HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-            LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}"))
-        })?;
+        let name = HeaderName::from_bytes(k.as_bytes())
+            .map_err(|e| LlmError::ConfigurationError(format!("Invalid header name '{k}': {e}")))?;
         let value = HeaderValue::from_str(v).map_err(|e| {
             LlmError::ConfigurationError(format!("Invalid header value for '{k}': {e}"))
         })?;
@@ -46,4 +45,3 @@ pub fn build_gemini_json_headers(
 
     Ok(headers)
 }
-

@@ -1,10 +1,6 @@
-#[cfg(all(
-    feature = "std-openai-external",
-    not(feature = "provider-xai-external")
-))]
 use crate::core::provider_spec::{
     bridge_core_chat_transformers, map_core_stream_event_with_provider,
-    openai_like_chat_request_to_core_input,
+    xai_chat_request_to_core_input,
 };
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
@@ -51,7 +47,7 @@ impl ProviderSpec for XaiSpec {
                 .api_key
                 .as_ref()
                 .ok_or_else(|| LlmError::MissingApiKey("xAI API key not provided".into()))?;
-            return ProviderHeaders::xai(api_key, &ctx.http_extra_headers);
+            ProviderHeaders::xai(api_key, &ctx.http_extra_headers)
         }
     }
 
@@ -80,40 +76,11 @@ impl ProviderSpec for XaiSpec {
 
     fn choose_chat_transformers(
         &self,
-        _req: &crate::types::ChatRequest,
-        _ctx: &ProviderContext,
+        req: &crate::types::ChatRequest,
+        ctx: &ProviderContext,
     ) -> ChatTransformers {
-        // Shared helper: map ChatRequest into ChatInput carrying xAI ProviderOptions.
-        fn xai_chat_request_to_core_input(
-            req: &crate::types::ChatRequest,
-        ) -> siumai_core::execution::chat::ChatInput {
-            use serde_json::Value;
-
-            let mut input = openai_like_chat_request_to_core_input(req);
-
-            if let ProviderOptions::Xai(ref options) = req.provider_options {
-                if let Some(ref sp) = options.search_parameters
-                    && let Ok(v) = serde_json::to_value(sp)
-                {
-                    input.extra.insert("xai_search_parameters".to_string(), v);
-                }
-
-                if let Some(ref effort) = options.reasoning_effort {
-                    input.extra.insert(
-                        "xai_reasoning_effort".to_string(),
-                        Value::String(effort.clone()),
-                    );
-                }
-            }
-
-            input
-        }
-
         #[cfg(feature = "provider-xai-external")]
         {
-            use crate::core::provider_spec::{
-                bridge_core_chat_transformers, map_core_stream_event_with_provider,
-            };
             use siumai_core::provider_spec::{CoreChatTransformers, CoreProviderSpec};
 
             let core_ctx = ctx.to_core_context();
@@ -179,11 +146,9 @@ impl ProviderSpec for XaiSpec {
                 stream: Some(std.create_stream_converter("xai")),
             };
 
-            return bridge_core_chat_transformers(
-                core_txs,
-                xai_chat_request_to_core_input,
-                |evt| map_core_stream_event_with_provider("xai", evt),
-            );
+            bridge_core_chat_transformers(core_txs, xai_chat_request_to_core_input, |evt| {
+                map_core_stream_event_with_provider("xai", evt)
+            })
         }
 
         #[cfg(not(feature = "std-openai-external"))]

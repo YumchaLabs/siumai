@@ -106,7 +106,7 @@ impl ProviderSpec for MinimaxiSpec {
 
     fn choose_chat_transformers(
         &self,
-        _req: &crate::types::ChatRequest,
+        req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
         #[cfg(feature = "provider-minimaxi-external")]

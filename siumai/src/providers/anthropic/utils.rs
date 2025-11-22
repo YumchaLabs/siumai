@@ -478,6 +478,39 @@ pub fn create_usage_from_response(usage: Option<AnthropicUsage>) -> Option<Usage
     })
 }
 
+/// Build Anthropic-specific metadata from usage and optional thinking content.
+///
+/// This helper mirrors the AI SDK 的做法：在 providerMetadata.anthropic 下挂载
+/// 与 Prompt Caching 和 Thinking 相关的附加信息，便于上层进行命中率 /
+/// 推理开销分析。
+pub fn build_anthropic_metadata(
+    usage: Option<&AnthropicUsage>,
+    thinking: Option<&str>,
+) -> Option<crate::types::AnthropicMetadata> {
+    let mut meta = crate::types::AnthropicMetadata::default();
+
+    if let Some(u) = usage {
+        meta.cache_creation_input_tokens = u.cache_creation_input_tokens;
+        meta.cache_read_input_tokens = u.cache_read_input_tokens;
+    }
+
+    if let Some(th) = thinking {
+        if !th.is_empty() {
+            meta.thinking = Some(th.to_string());
+        }
+    }
+
+    if meta.cache_creation_input_tokens.is_none()
+        && meta.cache_read_input_tokens.is_none()
+        && meta.thinking_tokens.is_none()
+        && meta.thinking.is_none()
+    {
+        return None;
+    }
+
+    Some(meta)
+}
+
 /// Map Anthropic error types to `LlmError` according to official documentation
 /// <https://docs.anthropic.com/en/api/errors>
 pub fn map_anthropic_error(

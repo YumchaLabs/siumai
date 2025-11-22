@@ -233,9 +233,13 @@ impl ModelConfig {
     }
 
     /// Create configuration for Qwen reasoning models
+    ///
+    /// Note: currently we only use `supports_thinking` from this config.
+    /// The `force_streaming` flag is reserved for future use when we add
+    /// tighter alignment with provider semantics.
     pub fn qwen_reasoning() -> Self {
         Self {
-            force_streaming: true, // Qwen reasoning models only support streaming
+            force_streaming: true, // reserved for future use
             supports_thinking: true,
             ..Default::default()
         }

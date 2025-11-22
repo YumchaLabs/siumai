@@ -311,13 +311,13 @@ impl OpenAiResponsesStreamConverter {
         // Handle delta as plain text or delta.content
         if let Some(delta) = json.get("delta") {
             // Case 1: delta is a plain string (response.output_text.delta)
-            if let Some(s) = delta.as_str() {
-                if !s.is_empty() {
-                    return Some(ChatStreamEventCore::ContentDelta {
-                        delta: s.to_string(),
-                        index: None,
-                    });
-                }
+            if let Some(s) = delta.as_str()
+                && !s.is_empty()
+            {
+                return Some(ChatStreamEventCore::ContentDelta {
+                    delta: s.to_string(),
+                    index: None,
+                });
             }
             // Case 2: delta.content is a string (message.delta simplified)
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {

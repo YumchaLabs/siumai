@@ -197,11 +197,22 @@ impl ResponseTransformer for XaiResponseTransformer {
                 .completion_tokens(u.completion_tokens.unwrap_or(0))
                 .total_tokens(u.total_tokens.unwrap_or(0));
 
-            if let Some(cached) = u.prompt_tokens_details.and_then(|d| d.cached_tokens) {
+            // Prompt tokens details (cached tokens)
+            if let Some(ref prompt_details) = u.prompt_tokens_details
+                && let Some(cached) = prompt_details.cached_tokens
+            {
                 builder = builder.with_cached_tokens(cached);
             }
 
+            // Top-level reasoning_tokens (legacy / aggregate)
             if let Some(reasoning) = u.reasoning_tokens {
+                builder = builder.with_reasoning_tokens(reasoning);
+            }
+
+            // Completion tokens details (preferred source for reasoning tokens)
+            if let Some(ref completion_details) = u.completion_tokens_details
+                && let Some(reasoning) = completion_details.reasoning_tokens
+            {
                 builder = builder.with_reasoning_tokens(reasoning);
             }
 
