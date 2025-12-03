@@ -2,6 +2,32 @@
 
 This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
 
+## [0.11.0-beta.4] - 2025-12-03
+
+### Added
+
+- Provider factories for Anthropic on Vertex AI and MiniMaxi
+  - New factory types: `AnthropicVertexProviderFactory`, `MiniMaxiProviderFactory`
+  - Both fully support the shared `BuildContext` (HTTP client/config, tracing, middlewares, retry)
+- Default registry factory wiring
+  - `registry::helpers::create_registry_with_defaults()` now pre-registers factories for:
+    - Native providers: `openai`, `anthropic`, `anthropic-vertex`, `gemini`, `groq`, `xai`, `ollama`, `minimaxi`
+    - All built-in OpenAI-compatible providers (DeepSeek, SiliconFlow, OpenRouter, Together, Fireworks, etc.)
+
+### Changed
+
+- Unified construction path for `SiumaiBuilder` and Registry
+  - `SiumaiBuilder::build()` no longer calls provider helpers directly
+  - Instead, it builds a `BuildContext` and delegates to the corresponding `ProviderFactory::language_model_with_ctx()`
+  - Ensures that HTTP config, custom `reqwest::Client`, API keys, base URLs, tracing, interceptors, middlewares, and retry options behave identically across:
+    - `Siumai::builder()...build()`
+    - `registry::global().language_model("provider:model")`
+- Anthropic / Gemini / Groq / xAI / Ollama / MiniMaxi registry factories
+  - All providers now construct clients via the shared helper functions in `registry::factory` (or their own config/client types) using `BuildContext`
+  - Registry-level HTTP interceptors and model middlewares are consistently installed across all clients
+- Provider registry metadata
+  - Added a native `anthropic-vertex` entry (with alias `google-vertex-anthropic` and `claude` model prefix) to align routing between builder and registry
+
 ## [0.11.0-beta.3] - 2025-11-09
 
 ### Added

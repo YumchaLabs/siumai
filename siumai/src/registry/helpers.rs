@@ -3,10 +3,13 @@
 //! English-only comments in code as requested.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::execution::http::interceptor::LoggingInterceptor;
 use crate::execution::middleware::samples::chain_default_and_clamp;
-use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_provider_registry};
+use crate::registry::entry::{
+    ProviderFactory, ProviderRegistryHandle, RegistryOptions, create_provider_registry,
+};
 
 /// Create a registry with common defaults:
 /// - separator ':'
@@ -14,9 +17,102 @@ use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_pro
 /// - LRU cache: 100 entries (default)
 /// - TTL: None (no expiration)
 /// - auto_middleware: true (automatically add model-specific middlewares)
+/// - Built-in provider factories registered for common providers
+///   (OpenAI, Anthropic, Anthropic Vertex, Gemini, Groq, xAI, Ollama,
+///   MiniMaxi, and all OpenAI-compatible providers)
 pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
+    // Register built-in provider factories for the handle-level registry.
+    let mut providers: HashMap<String, Arc<dyn ProviderFactory>> = HashMap::new();
+
+    // Native provider factories
+    #[cfg(feature = "openai")]
+    {
+        providers.insert(
+            "openai".to_string(),
+            Arc::new(crate::registry::factories::OpenAIProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "anthropic")]
+    {
+        providers.insert(
+            "anthropic".to_string(),
+            Arc::new(crate::registry::factories::AnthropicProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+        providers.insert(
+            "anthropic-vertex".to_string(),
+            Arc::new(crate::registry::factories::AnthropicVertexProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "google")]
+    {
+        providers.insert(
+            "gemini".to_string(),
+            Arc::new(crate::registry::factories::GeminiProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "groq")]
+    {
+        providers.insert(
+            "groq".to_string(),
+            Arc::new(crate::registry::factories::GroqProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "xai")]
+    {
+        providers.insert(
+            "xai".to_string(),
+            Arc::new(crate::registry::factories::XAIProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "ollama")]
+    {
+        providers.insert(
+            "ollama".to_string(),
+            Arc::new(crate::registry::factories::OllamaProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "minimaxi")]
+    {
+        providers.insert(
+            "minimaxi".to_string(),
+            Arc::new(crate::registry::factories::MiniMaxiProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    // OpenAI-compatible provider factories (DeepSeek, SiliconFlow, OpenRouter, etc.)
+    #[cfg(feature = "openai")]
+    {
+        let builtin = crate::providers::openai_compatible::config::get_builtin_providers();
+        for (_id, cfg) in builtin {
+            let id_str = cfg.id.clone();
+            // Skip providers that already have native factories registered (e.g., groq, minimaxi).
+            if providers.contains_key(&id_str) {
+                continue;
+            }
+            providers.insert(
+                id_str.clone(),
+                Arc::new(
+                    crate::registry::factories::OpenAICompatibleProviderFactory::new(id_str),
+                ) as Arc<dyn ProviderFactory>,
+            );
+        }
+    }
+
     create_provider_registry(
-        HashMap::new(),
+        providers,
         Some(RegistryOptions {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),

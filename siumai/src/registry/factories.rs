@@ -10,6 +10,8 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::registry::entry::BuildContext;
 use crate::registry::entry::ProviderFactory;
+#[allow(unused_imports)]
+use crate::execution::http::client::build_http_client_from_config;
 
 /// OpenAI provider factory
 #[cfg(feature = "openai")]
@@ -19,8 +21,9 @@ pub struct OpenAIProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAIProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = crate::quick_openai_with_model(model_id).await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -28,14 +31,63 @@ impl ProviderFactory for OpenAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_openai_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        use crate::execution::http::client::build_http_client_from_config;
+
+        // Resolve HTTP configuration and client (prefer provided client).
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key: context override → environment variable.
+        let api_key = if let Some(key) = &ctx.api_key {
+            key.clone()
+        } else {
+            std::env::var("OPENAI_API_KEY").map_err(|_| {
+                LlmError::ConfigurationError(
+                    "Missing OPENAI_API_KEY or explicit api_key in BuildContext".to_string(),
+                )
+            })?
+        };
+
+        // Resolve base URL (context override → default).
+        let base_url = ctx
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+
+        // Resolve common parameters (model, temperature, max_tokens, etc.).
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        // Ensure model is always set.
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+
+        // Delegate to the shared OpenAI client builder used by SiumaiBuilder.
+        crate::registry::factory::build_openai_client(
+            api_key,
+            base_url,
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.organization.clone(),
+            ctx.project.clone(),
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -43,14 +95,8 @@ impl ProviderFactory for OpenAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_openai_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // For OpenAI, embeddings are served by the same client as chat.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -58,7 +104,8 @@ impl ProviderFactory for OpenAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        // Image generation is also handled by the unified OpenAI client.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn speech_model_with_ctx(
@@ -90,8 +137,9 @@ pub struct AnthropicProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for AnthropicProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = crate::quick_anthropic_with_model(model_id).await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -99,14 +147,57 @@ impl ProviderFactory for AnthropicProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_anthropic_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key: context override → environment variable.
+        let api_key = if let Some(key) = &ctx.api_key {
+            key.clone()
+        } else {
+            std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+                LlmError::ConfigurationError(
+                    "Missing ANTHROPIC_API_KEY or explicit api_key in BuildContext".to_string(),
+                )
+            })?
+        };
+
+        // Resolve base URL (context override → default).
+        let base_url = ctx
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+
+        // Resolve common parameters (model, temperature, max_tokens, etc.).
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+
+        crate::registry::factory::build_anthropic_client(
+            api_key,
+            base_url,
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -114,14 +205,8 @@ impl ProviderFactory for AnthropicProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_anthropic_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // Anthropic uses a unified client for chat/embeddings/images.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -153,6 +238,104 @@ impl ProviderFactory for AnthropicProviderFactory {
     }
 }
 
+/// Anthropic on Vertex AI provider factory
+///
+/// This factory builds `anthropic-vertex` clients that communicate with
+/// Anthropic models hosted on Vertex AI. Authentication is handled via
+/// `Authorization: Bearer` headers configured on the HTTP client.
+#[cfg(feature = "anthropic")]
+pub struct AnthropicVertexProviderFactory;
+
+#[cfg(feature = "anthropic")]
+#[async_trait::async_trait]
+impl ProviderFactory for AnthropicVertexProviderFactory {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
+    }
+
+    async fn language_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve common parameters (model id, etc.).
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
+        }
+
+        // For Vertex AI, base URL must point at the Vertex endpoint.
+        // We do not synthesize a default here; callers should provide
+        // a concrete base_url via BuildContext.
+        let base_url = ctx.base_url.clone().unwrap_or_default();
+
+        crate::registry::factory::build_anthropic_vertex_client(
+            base_url,
+            http_client,
+            common_params,
+            http_config,
+            ctx.tracing_config.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
+    }
+
+    async fn embedding_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // Anthropic Vertex client is unified across capabilities.
+        self.language_model_with_ctx(model_id, ctx).await
+    }
+
+    async fn image_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.embedding_model_with_ctx(model_id, ctx).await
+    }
+
+    async fn speech_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.embedding_model_with_ctx(model_id, ctx).await
+    }
+
+    async fn transcription_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.embedding_model_with_ctx(model_id, ctx).await
+    }
+
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("anthropic-vertex")
+    }
+}
+
 /// Gemini provider factory
 #[cfg(feature = "google")]
 pub struct GeminiProviderFactory;
@@ -161,8 +344,9 @@ pub struct GeminiProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for GeminiProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = crate::quick_gemini_with_model(model_id).await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -170,14 +354,72 @@ impl ProviderFactory for GeminiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_gemini_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Detect whether an explicit Authorization header or token provider is present.
+        let has_auth_header = http_config
+            .headers
+            .keys()
+            .any(|k| k.eq_ignore_ascii_case("authorization"));
+        let has_token_provider = ctx
+            .gemini_token_provider
+            .as_ref()
+            .map(|_| true)
+            .unwrap_or(false);
+        let requires_api_key = !(has_auth_header || has_token_provider);
+
+        // Resolve API key: context override → GEMINI_API_KEY (when required) → empty for token-based auth.
+        let api_key = if let Some(key) = &ctx.api_key {
+            key.clone()
+        } else if requires_api_key {
+            std::env::var("GEMINI_API_KEY").map_err(|_| {
+                LlmError::ConfigurationError(
+                    "Missing GEMINI_API_KEY or explicit api_key in BuildContext (or provide Authorization header / token provider)"
+                        .to_string(),
+                )
+            })?
+        } else {
+            String::new()
+        };
+
+        // Resolve base URL (context override → default).
+        let base_url = ctx.base_url.clone().unwrap_or_else(|| {
+            "https://generativelanguage.googleapis.com/v1beta".to_string()
+        });
+
+        // Resolve common parameters.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+
+        crate::registry::factory::build_gemini_client(
+            api_key,
+            base_url,
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.gemini_token_provider.clone(),
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -185,14 +427,8 @@ impl ProviderFactory for GeminiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_gemini_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // Gemini uses a unified client for chat/embeddings/images.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -232,8 +468,9 @@ pub struct GroqProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for GroqProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = crate::quick_groq_with_model(model_id).await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -241,14 +478,52 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_groq_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key for Groq (OpenAI-compatible).
+        let api_key = if let Some(key) = &ctx.api_key {
+            key.clone()
+        } else {
+            std::env::var("GROQ_API_KEY").map_err(|_| {
+                LlmError::ConfigurationError(
+                    "Missing GROQ_API_KEY or explicit api_key in BuildContext".to_string(),
+                )
+            })?
+        };
+
+        // Resolve common parameters.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+
+        crate::registry::factory::build_openai_compatible_client(
+            "groq".to_string(),
+            api_key,
+            ctx.base_url.clone(),
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -256,14 +531,8 @@ impl ProviderFactory for GroqProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::quick_groq_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // Groq client is OpenAI-compatible and unified across capabilities.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -303,8 +572,9 @@ pub struct XAIProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for XAIProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = crate::prelude::quick_xai_with_model(model_id).await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -312,13 +582,77 @@ impl ProviderFactory for XAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::prelude::quick_xai_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        use crate::providers::xai::{XaiClient, XaiConfig};
+
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key: context override → XAI_API_KEY.
+        let api_key = if let Some(key) = &ctx.api_key {
+            key.clone()
+        } else {
+            std::env::var("XAI_API_KEY").map_err(|_| {
+                LlmError::ConfigurationError(
+                    "Missing XAI_API_KEY or explicit api_key in BuildContext".to_string(),
+                )
+            })?
+        };
+
+        // Resolve base URL (context override → default).
+        let base_url = ctx
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.x.ai/v1".to_string());
+
+        // Resolve common parameters for model selection.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
+
+        // Build XAI config and client.
+        let xai_cfg = XaiConfig::new(api_key)
+            .with_base_url(base_url)
+            .with_model(common_params.model.clone());
+
+        let mut client = XaiClient::with_http_client(xai_cfg, http_client).await?;
+
+        // Apply tracing configuration if provided.
+        if let Some(tc) = ctx.tracing_config.clone() {
+            client.set_tracing_config(Some(tc));
+        }
+
+        // Install HTTP interceptors.
         if !ctx.http_interceptors.is_empty() {
             client = client.with_http_interceptors(ctx.http_interceptors.clone());
         }
+
+        // Apply retry options when present.
+        if let Some(opts) = &ctx.retry_options {
+            client.set_retry_options(Some(opts.clone()));
+        }
+
+        // Auto + user middlewares.
+        let mut auto_mws =
+            crate::execution::middleware::build_auto_middlewares_vec("xai", &common_params.model);
+        auto_mws.extend(ctx.model_middlewares.clone());
+        if !auto_mws.is_empty() {
+            client = client.with_model_middlewares(auto_mws);
+        }
+
         Ok(Arc::new(client))
     }
 
@@ -327,14 +661,8 @@ impl ProviderFactory for XAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = crate::prelude::quick_xai_with_model(model_id).await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // xAI currently exposes chat/models; reuse chat client path.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -374,8 +702,9 @@ pub struct OllamaProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for OllamaProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = LlmBuilder::new().ollama().model(model_id).build().await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -383,14 +712,45 @@ impl ProviderFactory for OllamaProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = LlmBuilder::new().ollama().model(model_id).build().await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve base URL (context override → default).
+        let base_url = ctx
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "http://localhost:11434".to_string());
+
+        // Resolve common parameters.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+
+        crate::registry::factory::build_ollama_client(
+            base_url,
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -398,14 +758,8 @@ impl ProviderFactory for OllamaProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = LlmBuilder::new().ollama().model(model_id).build().await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // Ollama client is unified across capabilities.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -437,6 +791,113 @@ impl ProviderFactory for OllamaProviderFactory {
     }
 }
 
+/// MiniMaxi provider factory
+#[cfg(feature = "minimaxi")]
+pub struct MiniMaxiProviderFactory;
+
+#[cfg(feature = "minimaxi")]
+#[async_trait::async_trait]
+impl ProviderFactory for MiniMaxiProviderFactory {
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
+    }
+
+    async fn language_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key: context override → MINIMAXI_API_KEY.
+        let api_key = if let Some(key) = &ctx.api_key {
+            key.clone()
+        } else {
+            std::env::var("MINIMAXI_API_KEY").map_err(|_| {
+                LlmError::ConfigurationError(
+                    "Missing MINIMAXI_API_KEY or explicit api_key in BuildContext".to_string(),
+                )
+            })?
+        };
+
+        // Resolve base URL (context override → config default).
+        let base_url = ctx.base_url.clone().unwrap_or_else(|| {
+            crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string()
+        });
+
+        // Resolve common parameters.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
+        }
+
+        crate::registry::factory::build_minimaxi_client(
+            api_key,
+            base_url,
+            http_client,
+            common_params,
+            http_config,
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
+    }
+
+    async fn embedding_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        // MiniMaxi client is unified across capabilities.
+        self.language_model_with_ctx(model_id, ctx).await
+    }
+
+    async fn image_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.embedding_model_with_ctx(model_id, ctx).await
+    }
+
+    async fn speech_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.embedding_model_with_ctx(model_id, ctx).await
+    }
+
+    async fn transcription_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.embedding_model_with_ctx(model_id, ctx).await
+    }
+
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("minimaxi")
+    }
+}
+
 /// OpenRouter provider factory (OpenAI-compatible)
 #[cfg(feature = "openai")]
 pub struct OpenRouterProviderFactory;
@@ -445,12 +906,9 @@ pub struct OpenRouterProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for OpenRouterProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = LlmBuilder::new()
-            .openrouter()
-            .model(model_id)
-            .build()
-            .await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -458,18 +916,47 @@ impl ProviderFactory for OpenRouterProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = LlmBuilder::new()
-            .openrouter()
-            .model(model_id)
-            .build()
-            .await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key using shared helper (supports context override + env).
+        let api_key = crate::utils::builder_helpers::get_api_key_with_env(
+            ctx.api_key.clone(),
+            "openrouter",
+        )?;
+
+        // Resolve common parameters.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+
+        crate::registry::factory::build_openai_compatible_client(
+            "openrouter".to_string(),
+            api_key,
+            ctx.base_url.clone(),
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -477,18 +964,8 @@ impl ProviderFactory for OpenRouterProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = LlmBuilder::new()
-            .openrouter()
-            .model(model_id)
-            .build()
-            .await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // OpenRouter client is OpenAI-compatible and unified.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -528,8 +1005,9 @@ pub struct DeepSeekProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for DeepSeekProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let client = LlmBuilder::new().deepseek().model(model_id).build().await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -537,14 +1015,45 @@ impl ProviderFactory for DeepSeekProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = LlmBuilder::new().deepseek().model(model_id).build().await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key using shared helper.
+        let api_key =
+            crate::utils::builder_helpers::get_api_key_with_env(ctx.api_key.clone(), "deepseek")?;
+
+        // Resolve common parameters.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
         }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+
+        crate::registry::factory::build_openai_compatible_client(
+            "deepseek".to_string(),
+            api_key,
+            ctx.base_url.clone(),
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -552,14 +1061,8 @@ impl ProviderFactory for DeepSeekProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut client = LlmBuilder::new().deepseek().model(model_id).build().await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // DeepSeek client is OpenAI-compatible and unified.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(
@@ -608,22 +1111,9 @@ impl OpenAICompatibleProviderFactory {
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAICompatibleProviderFactory {
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut builder = crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-            LlmBuilder::new(),
-            &self.provider_id,
-        );
-
-        let env_key = format!("{}_API_KEY", self.provider_id.to_uppercase());
-        let api_key = std::env::var(&env_key).map_err(|_| {
-            LlmError::ConfigurationError(format!(
-                "Missing {} for OpenAI-compatible provider {}",
-                env_key, self.provider_id
-            ))
-        })?;
-
-        builder = builder.api_key(api_key).model(model_id);
-        let client = builder.build().await?;
-        Ok(Arc::new(client))
+        // Delegate to the context-aware implementation with default context.
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
     }
 
     async fn language_model_with_ctx(
@@ -631,28 +1121,47 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut builder = crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-            LlmBuilder::new(),
+        // Resolve HTTP configuration and client.
+        let http_config = ctx
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::default);
+        let http_client = if let Some(client) = &ctx.http_client {
+            client.clone()
+        } else {
+            build_http_client_from_config(&http_config)?
+        };
+
+        // Resolve API key using shared helper (context override + env).
+        let api_key = crate::utils::builder_helpers::get_api_key_with_env(
+            ctx.api_key.clone(),
             &self.provider_id,
-        );
+        )?;
 
-        let env_key = format!("{}_API_KEY", self.provider_id.to_uppercase());
-        let api_key = std::env::var(&env_key).map_err(|_| {
-            LlmError::ConfigurationError(format!(
-                "Missing {} for OpenAI-compatible provider {}",
-                env_key, self.provider_id
-            ))
-        })?;
+        // Resolve common parameters.
+        let mut common_params = ctx.common_params.clone().unwrap_or_else(|| {
+            crate::types::CommonParams {
+                model: model_id.to_string(),
+                ..Default::default()
+            }
+        });
+        if common_params.model.is_empty() {
+            common_params.model = model_id.to_string();
+        }
 
-        builder = builder.api_key(api_key).model(model_id);
-        let mut client = builder.build().await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        crate::registry::factory::build_openai_compatible_client(
+            self.provider_id.clone(),
+            api_key,
+            ctx.base_url.clone(),
+            http_client,
+            common_params,
+            http_config,
+            None,
+            ctx.tracing_config.clone(),
+            ctx.http_interceptors.clone(),
+            ctx.model_middlewares.clone(),
+        )
+        .await
     }
 
     async fn embedding_model_with_ctx(
@@ -660,28 +1169,8 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let mut builder = crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(
-            LlmBuilder::new(),
-            &self.provider_id,
-        );
-
-        let env_key = format!("{}_API_KEY", self.provider_id.to_uppercase());
-        let api_key = std::env::var(&env_key).map_err(|_| {
-            LlmError::ConfigurationError(format!(
-                "Missing {} for OpenAI-compatible provider {}",
-                env_key, self.provider_id
-            ))
-        })?;
-
-        builder = builder.api_key(api_key).model(model_id);
-        let mut client = builder.build().await?;
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-        Ok(Arc::new(client))
+        // Generic OpenAI-compatible client is unified; reuse chat path.
+        self.language_model_with_ctx(model_id, ctx).await
     }
 
     async fn image_model_with_ctx(

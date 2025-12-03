@@ -124,6 +124,27 @@ impl ProviderRegistry {
                 .with_custom_feature("thinking", true),
         );
 
+        // Anthropic on Vertex AI (native wrapper around Anthropic via Vertex)
+        #[cfg(feature = "anthropic")]
+        {
+            self.register_native(
+                "anthropic-vertex",
+                "Anthropic on Vertex",
+                None,
+                ProviderCapabilities::new()
+                    .with_chat()
+                    .with_streaming()
+                    .with_tools(),
+            );
+            // Add common alias and model prefix to ease lookup/routing.
+            if let Some(rec) = self.resolve("anthropic-vertex").cloned() {
+                let rec = rec
+                    .with_alias("google-vertex-anthropic")
+                    .with_model_prefix("claude");
+                self.register(rec);
+            }
+        }
+
         // Google Gemini
         #[cfg(feature = "google")]
         {

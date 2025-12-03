@@ -2,6 +2,7 @@ use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::execution::middleware::LanguageModelMiddleware;
+use crate::registry::entry::{BuildContext, ProviderFactory};
 #[allow(unused_imports)]
 use crate::traits::ProviderCapabilities;
 use crate::types::ProviderType;
@@ -44,9 +45,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         .clone()
         .ok_or_else(|| LlmError::ConfigurationError("Provider type not specified".to_string()))?;
 
-    // Check if API key is required for this provider type
+    // Check if API key is required for this provider type.
     // For Gemini: if Authorization (Bearer) is provided via default headers
-    // or a TokenProvider is configured, do not enforce API Key (supports Vertex AI enterprise auth)
+    // or a TokenProvider is configured, do not enforce API Key (supports Vertex AI enterprise auth).
     let requires_api_key = match provider_type {
         ProviderType::Ollama => false,
         ProviderType::Gemini => {
@@ -96,13 +97,12 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                         )
                     })?,
                     #[cfg(feature = "google")]
-                    ProviderType::Gemini => {
-                        // For unified builder, require explicit .api_key() or Authorization/TokenProvider
-                        return Err(LlmError::ConfigurationError(
-                            "API key not specified (set via .api_key() when Authorization/TokenProvider is not used)"
+                    ProviderType::Gemini => std::env::var("GEMINI_API_KEY").ok().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "API key not specified (missing GEMINI_API_KEY or explicit .api_key(); or use Authorization/TokenProvider)"
                                 .to_string(),
-                        ));
-                    }
+                        )
+                    })?,
                     #[cfg(feature = "xai")]
                     ProviderType::XAI => std::env::var("XAI_API_KEY").ok().ok_or_else(|| {
                         LlmError::ConfigurationError(
@@ -258,9 +258,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Validation moved to Transformers within Executors; skip pre-validation here
 
-    // Now create the appropriate client based on provider type
-    // Parameters have already been validated by RequestBuilder
-    // Prepare interceptors (unified interface)
+    // Now create the appropriate client based on provider type.
+    // Parameters have already been validated by RequestBuilder.
+    // Prepare interceptors (unified interface).
     let mut interceptors: Vec<Arc<dyn HttpInterceptor>> = builder.http_interceptors.clone();
     if builder.http_debug {
         interceptors.push(Arc::new(LoggingInterceptor));
@@ -273,7 +273,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     let client: Arc<dyn LlmClient> = match provider_type {
         #[cfg(feature = "openai")]
         ProviderType::OpenAi => {
-            // Resolve defaults via ProviderRegistry v2 (native provider)
+            // Resolve defaults via ProviderRegistry v2 (native provider) to keep
+            // metadata (aliases, prefixes) in sync; base URL still flows through
+            // BuildContext into the OpenAI provider factory.
             let resolved_base = {
                 let registry = crate::registry::global_registry();
                 let mut guard = registry
@@ -296,20 +298,25 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             let resolved_base = base_url
                 .or(resolved_base)
                 .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-            crate::registry::factory::build_openai_client(
-                api_key,
-                resolved_base,
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                None, // provider_params removed
-                organization.clone(),
-                project.clone(),
-                builder.tracing_config.clone(),
-                interceptors.clone(),
-                user_model_middlewares.clone(),
-            )
-            .await?
+
+            // Build unified context and delegate to OpenAIProviderFactory.
+            let mut ctx = BuildContext::default();
+            ctx.http_client = Some(built_http_client.clone());
+            ctx.http_config = Some(http_config.clone());
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = Some(resolved_base);
+            ctx.organization = organization.clone();
+            ctx.project = project.clone();
+            ctx.tracing_config = builder.tracing_config.clone();
+            ctx.http_interceptors = interceptors.clone();
+            ctx.model_middlewares = user_model_middlewares.clone();
+            ctx.retry_options = builder.retry_options.clone();
+            ctx.common_params = Some(common_params.clone());
+
+            let factory = crate::registry::factories::OpenAIProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
         }
         #[cfg(feature = "anthropic")]
         ProviderType::Anthropic => {
@@ -371,36 +378,48 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 let base = base_url
                     .or_else(|| Some(resolved_base.clone().unwrap_or_default()))
                     .unwrap_or_default();
-                crate::registry::factory::build_anthropic_vertex_client(
-                    base,
-                    built_http_client.clone(),
-                    common_params.clone(),
-                    http_config.clone(),
-                    builder.tracing_config.clone(),
-                    user_model_middlewares.clone(),
-                )
-                .await?
+
+                // Build unified context and delegate to AnthropicVertexProviderFactory.
+                let mut ctx = BuildContext::default();
+                ctx.http_client = Some(built_http_client.clone());
+                ctx.http_config = Some(http_config.clone());
+                ctx.base_url = Some(base);
+                ctx.tracing_config = builder.tracing_config.clone();
+                ctx.model_middlewares = user_model_middlewares.clone();
+                ctx.retry_options = builder.retry_options.clone();
+                ctx.common_params = Some(common_params.clone());
+
+                let factory = crate::registry::factories::AnthropicVertexProviderFactory;
+                factory
+                    .language_model_with_ctx(&common_params.model, &ctx)
+                    .await?
             } else {
                 let anthropic_base_url = base_url
                     .or(resolved_base)
                     .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-                crate::registry::factory::build_anthropic_client(
-                    api_key,
-                    anthropic_base_url,
-                    built_http_client.clone(),
-                    common_params.clone(),
-                    http_config.clone(),
-                    None, // provider_params removed
-                    builder.tracing_config.clone(),
-                    interceptors.clone(),
-                    user_model_middlewares.clone(),
-                )
-                .await?
+
+                // Build unified context and delegate to AnthropicProviderFactory.
+                let mut ctx = BuildContext::default();
+                ctx.http_client = Some(built_http_client.clone());
+                ctx.http_config = Some(http_config.clone());
+                ctx.api_key = Some(api_key.clone());
+                ctx.base_url = Some(anthropic_base_url);
+                ctx.tracing_config = builder.tracing_config.clone();
+                ctx.http_interceptors = interceptors.clone();
+                ctx.model_middlewares = user_model_middlewares.clone();
+                ctx.retry_options = builder.retry_options.clone();
+                ctx.common_params = Some(common_params.clone());
+
+                let factory = crate::registry::factories::AnthropicProviderFactory;
+                factory
+                    .language_model_with_ctx(&common_params.model, &ctx)
+                    .await?
             }
         }
         #[cfg(feature = "google")]
         ProviderType::Gemini => {
-            // Resolve defaults via ProviderRegistry v2 (native provider)
+            // Resolve defaults via ProviderRegistry v2 (native provider) to ensure
+            // aliases and model prefixes are registered for routing.
             let resolved_base = {
                 let registry = crate::registry::global_registry();
                 let mut guard = registry
@@ -432,96 +451,115 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             let resolved_base = base_url
                 .or(resolved_base)
                 .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string());
-            crate::registry::factory::build_gemini_client(
-                api_key,
-                resolved_base,
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                None, // provider_params removed
-                #[cfg(feature = "google")]
-                builder.gemini_token_provider.clone(),
-                #[cfg(not(feature = "google"))]
-                None,
-                builder.tracing_config.clone(),
-                interceptors.clone(),
-                user_model_middlewares.clone(),
-            )
-            .await?
+
+            // Build unified context and delegate to GeminiProviderFactory.
+            let mut ctx = BuildContext::default();
+            ctx.http_client = Some(built_http_client.clone());
+            ctx.http_config = Some(http_config.clone());
+            // Only override API key when explicitly set; otherwise allow factory
+            // to fall back to GEMINI_API_KEY or token-based auth.
+            if builder.api_key.is_some() {
+                ctx.api_key = Some(api_key.clone());
+            }
+            ctx.base_url = Some(resolved_base);
+            ctx.tracing_config = builder.tracing_config.clone();
+            ctx.http_interceptors = interceptors.clone();
+            ctx.model_middlewares = user_model_middlewares.clone();
+            ctx.retry_options = builder.retry_options.clone();
+            ctx.common_params = Some(common_params.clone());
+            #[cfg(feature = "google")]
+            {
+                ctx.gemini_token_provider = builder.gemini_token_provider.clone();
+            }
+
+            let factory = crate::registry::factories::GeminiProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
         }
         #[cfg(feature = "xai")]
         ProviderType::XAI => {
-            // Build a native xAI client (avoid requiring the OpenAI-compatible layer)
-            use crate::providers::xai::{XaiClient, XaiConfig};
-            let resolved_base = base_url.unwrap_or_else(|| "https://api.x.ai/v1".to_string());
-            let xai_cfg = XaiConfig::new(api_key)
-                .with_base_url(resolved_base)
-                .with_model(common_params.model.clone());
+            // Build unified context and delegate to XAIProviderFactory.
+            let resolved_base =
+                base_url.unwrap_or_else(|| "https://api.x.ai/v1".to_string());
 
-            let mut client =
-                XaiClient::with_http_client(xai_cfg, built_http_client.clone()).await?;
-            if !interceptors.is_empty() {
-                client = client.with_http_interceptors(interceptors.clone());
-            }
-            // Auto + user middlewares
-            let mut auto_mws = crate::execution::middleware::build_auto_middlewares_vec(
-                "xai",
-                &common_params.model,
-            );
-            auto_mws.extend(user_model_middlewares.clone());
-            if !auto_mws.is_empty() {
-                client = client.with_model_middlewares(auto_mws);
-            }
-            Ok::<Arc<dyn LlmClient>, LlmError>(Arc::new(client))?
+            let mut ctx = BuildContext::default();
+            ctx.http_client = Some(built_http_client.clone());
+            ctx.http_config = Some(http_config.clone());
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = Some(resolved_base);
+            ctx.tracing_config = builder.tracing_config.clone();
+            ctx.http_interceptors = interceptors.clone();
+            ctx.model_middlewares = user_model_middlewares.clone();
+            ctx.retry_options = builder.retry_options.clone();
+            ctx.common_params = Some(common_params.clone());
+
+            let factory = crate::registry::factories::XAIProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
         }
         #[cfg(feature = "ollama")]
         ProviderType::Ollama => {
-            let ollama_base_url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
-            crate::registry::factory::build_ollama_client(
-                ollama_base_url,
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                None, // provider_params removed
-                builder.tracing_config.clone(),
-                interceptors.clone(),
-                user_model_middlewares.clone(),
-            )
-            .await?
+            // Build unified context and delegate to OllamaProviderFactory.
+            let ollama_base_url =
+                base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
+
+            let mut ctx = BuildContext::default();
+            ctx.http_client = Some(built_http_client.clone());
+            ctx.http_config = Some(http_config.clone());
+            ctx.base_url = Some(ollama_base_url);
+            ctx.tracing_config = builder.tracing_config.clone();
+            ctx.http_interceptors = interceptors.clone();
+            ctx.model_middlewares = user_model_middlewares.clone();
+            ctx.retry_options = builder.retry_options.clone();
+            ctx.common_params = Some(common_params.clone());
+
+            let factory = crate::registry::factories::OllamaProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
         }
         #[cfg(feature = "groq")]
         ProviderType::Groq => {
-            crate::registry::factory::build_openai_compatible_client(
-                "groq".to_string(),
-                api_key.clone(),
-                base_url.clone(),
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                None, // provider_params removed
-                builder.tracing_config.clone(),
-                interceptors.clone(),
-                user_model_middlewares.clone(),
-            )
-            .await?
+            // Build unified context and delegate to GroqProviderFactory.
+            let mut ctx = BuildContext::default();
+            ctx.http_client = Some(built_http_client.clone());
+            ctx.http_config = Some(http_config.clone());
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = base_url.clone();
+            ctx.tracing_config = builder.tracing_config.clone();
+            ctx.http_interceptors = interceptors.clone();
+            ctx.model_middlewares = user_model_middlewares.clone();
+            ctx.retry_options = builder.retry_options.clone();
+            ctx.common_params = Some(common_params.clone());
+
+            let factory = crate::registry::factories::GroqProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
         }
         ProviderType::Custom(name) => {
             #[cfg(feature = "openai")]
             {
-                // Build via registry/factory for any OpenAI-compatible provider id
-                crate::registry::factory::build_openai_compatible_client(
-                    name.clone(),
-                    api_key.clone(),
-                    base_url.clone(),
-                    built_http_client.clone(),
-                    common_params.clone(),
-                    http_config.clone(),
-                    None, // provider_params removed
-                    builder.tracing_config.clone(),
-                    interceptors.clone(),
-                    user_model_middlewares.clone(),
-                )
-                .await?
+                // Build unified context and delegate to a generic OpenAI-compatible
+                // provider factory using the given provider id.
+                let mut ctx = BuildContext::default();
+                ctx.http_client = Some(built_http_client.clone());
+                ctx.http_config = Some(http_config.clone());
+                ctx.api_key = Some(api_key.clone());
+                ctx.base_url = base_url.clone();
+                ctx.tracing_config = builder.tracing_config.clone();
+                ctx.http_interceptors = interceptors.clone();
+                ctx.model_middlewares = user_model_middlewares.clone();
+                ctx.retry_options = builder.retry_options.clone();
+                ctx.common_params = Some(common_params.clone());
+
+                let factory =
+                    crate::registry::factories::OpenAICompatibleProviderFactory::new(name.clone());
+                factory
+                    .language_model_with_ctx(&common_params.model, &ctx)
+                    .await?
             }
             #[cfg(not(feature = "openai"))]
             {
@@ -576,17 +614,22 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string()
             });
 
-            crate::registry::factory::build_minimaxi_client(
-                api_key,
-                resolved_base,
-                built_http_client.clone(),
-                common_params.clone(),
-                http_config.clone(),
-                builder.tracing_config.clone(),
-                interceptors.clone(),
-                user_model_middlewares.clone(),
-            )
-            .await?
+            // Build unified context and delegate to MiniMaxiProviderFactory.
+            let mut ctx = BuildContext::default();
+            ctx.http_client = Some(built_http_client.clone());
+            ctx.http_config = Some(http_config.clone());
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = Some(resolved_base);
+            ctx.tracing_config = builder.tracing_config.clone();
+            ctx.http_interceptors = interceptors.clone();
+            ctx.model_middlewares = user_model_middlewares.clone();
+            ctx.retry_options = builder.retry_options.clone();
+            ctx.common_params = Some(common_params.clone());
+
+            let factory = crate::registry::factories::MiniMaxiProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
         }
         #[cfg(not(feature = "minimaxi"))]
         ProviderType::MiniMaxi => {

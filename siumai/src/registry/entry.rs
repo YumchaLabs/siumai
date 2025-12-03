@@ -183,14 +183,44 @@ pub struct ProviderRegistryHandle {
     retry_options: Option<RetryOptions>,
 }
 
-/// Build-time context for ProviderFactory client construction
-/// Carries cross-cutting concerns such as HTTP interceptors and retry options.
+/// Build-time context for ProviderFactory client construction.
+///
+/// This struct carries all cross-cutting configuration needed to build
+/// concrete provider clients in a unified way (HTTP config, auth, tracing,
+/// interceptors, retry options, etc.).
 #[derive(Default, Clone)]
 pub struct BuildContext {
+    /// HTTP interceptors applied at the registry / builder level.
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Unified retry options (optional).
     pub retry_options: Option<RetryOptions>,
-    /// Optional model-level middlewares (used by some providers); left empty by default.
+    /// Optional model-level middlewares (applied before provider mapping).
     pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Optional pre-built HTTP client. When present, factories should prefer
+    /// this client over constructing a new one from `http_config`.
+    pub http_client: Option<reqwest::Client>,
+    /// Optional HTTP configuration (timeouts, headers, proxy, user-agent, etc.).
+    /// When no custom client is supplied, factories may use this to build one.
+    pub http_config: Option<crate::types::HttpConfig>,
+    /// Optional API key override. When `None`, factories may fall back to
+    /// environment variables or other defaults.
+    pub api_key: Option<String>,
+    /// Optional base URL override for the provider.
+    pub base_url: Option<String>,
+    /// Optional organization identifier (e.g., OpenAI `organization`).
+    pub organization: Option<String>,
+    /// Optional project identifier (e.g., OpenAI `project`).
+    pub project: Option<String>,
+    /// Optional tracing configuration for providers that support it.
+    pub tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    /// Optional Gemini token provider (e.g., for Vertex AI auth).
+    #[cfg(feature = "google")]
+    pub gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+    /// Optional common parameters (model id, temperature, max_tokens, etc.).
+    /// When `None`, factories may construct minimal defaults based on `model_id`.
+    pub common_params: Option<crate::types::CommonParams>,
+    /// Optional canonical provider id override (for adapter-style providers).
+    pub provider_id: Option<String>,
 }
 
 impl ProviderRegistryHandle {
@@ -443,11 +473,11 @@ impl LanguageModelHandle {
         // Cache miss or expired - build new client
         drop(cache); // Release lock before async factory call
         // Construct build context from registry-level settings
-        let ctx = BuildContext {
-            http_interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-            model_middlewares: Vec::new(),
-        };
+        let mut ctx = BuildContext::default();
+        ctx.http_interceptors = self.http_interceptors.clone();
+        ctx.retry_options = self.retry_options.clone();
+        // Note: model_middlewares are applied at the handle level; factories
+        // should not re-apply them.
         let client_built = self.factory.language_model_with_ctx(model_id, &ctx).await?;
 
         // Client built via factory with BuildContext already contains interceptors/retry.
@@ -590,11 +620,9 @@ pub struct EmbeddingModelHandle {
 impl EmbeddingCapability for EmbeddingModelHandle {
     async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
         // Build client from factory with context
-        let ctx = BuildContext {
-            http_interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-            model_middlewares: Vec::new(),
-        };
+        let mut ctx = BuildContext::default();
+        ctx.http_interceptors = self.http_interceptors.clone();
+        ctx.retry_options = self.retry_options.clone();
         let client_raw = self
             .factory
             .embedding_model_with_ctx(&self.model_id, &ctx)
@@ -642,11 +670,9 @@ impl ImageGenerationCapability for ImageModelHandle {
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         // Build client from factory with context
-        let ctx = BuildContext {
-            http_interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-            model_middlewares: Vec::new(),
-        };
+        let mut ctx = BuildContext::default();
+        ctx.http_interceptors = self.http_interceptors.clone();
+        ctx.retry_options = self.retry_options.clone();
         let client_raw = self
             .factory
             .image_model_with_ctx(&self.model_id, &ctx)
@@ -703,11 +729,9 @@ impl AudioCapability for SpeechModelHandle {
 
     async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         // Build client from factory with context
-        let ctx = BuildContext {
-            http_interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-            model_middlewares: Vec::new(),
-        };
+        let mut ctx = BuildContext::default();
+        ctx.http_interceptors = self.http_interceptors.clone();
+        ctx.retry_options = self.retry_options.clone();
         let client_raw = self
             .factory
             .speech_model_with_ctx(&self.model_id, &ctx)
@@ -763,11 +787,9 @@ impl AudioCapability for TranscriptionModelHandle {
 
     async fn speech_to_text(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
         // Build client from factory with context
-        let ctx = BuildContext {
-            http_interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-            model_middlewares: Vec::new(),
-        };
+        let mut ctx = BuildContext::default();
+        ctx.http_interceptors = self.http_interceptors.clone();
+        ctx.retry_options = self.retry_options.clone();
         let client_raw = self
             .factory
             .transcription_model_with_ctx(&self.model_id, &ctx)
