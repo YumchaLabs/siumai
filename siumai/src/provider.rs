@@ -77,6 +77,49 @@ impl Siumai {
         }
     }
 
+    /// Create a siumai provider from a registry language model handle.
+    ///
+    /// This allows using the Vercel-style `registry.language_model("provider:model")`
+    /// entry point and still benefit from the unified `Siumai` interface.
+    pub fn from_language_model_handle(
+        handle: crate::registry::LanguageModelHandle,
+    ) -> Self {
+        let provider_id = handle.provider_id.clone();
+        let provider_type = ProviderType::from_name(&provider_id);
+
+        // Resolve capabilities from the global registry when possible.
+        let capabilities = if let Ok(reg) = crate::registry::global_registry().read() {
+            reg.resolve(&provider_id)
+                .map(|r| r.capabilities.clone())
+                .unwrap_or_else(ProviderCapabilities::new)
+        } else {
+            ProviderCapabilities::new()
+        };
+
+        let supported_models = vec![handle.model_id.clone()];
+
+        let client: Arc<dyn LlmClient> = Arc::new(handle);
+        let metadata = ProviderMetadata {
+            provider_type,
+            provider_id,
+            supported_models,
+            capabilities,
+        };
+
+        Self {
+            client,
+            metadata,
+            retry_options: None,
+        }
+    }
+
+    /// Convenience constructor: build from a registry model id like `"openai:gpt-4"`.
+    pub fn from_registry_model(id: &str) -> Result<Self, LlmError> {
+        let handle = crate::registry::global()
+            .language_model(id)?;
+        Ok(Self::from_language_model_handle(handle))
+    }
+
     /// Attach retry options (builder-style)
     pub fn with_retry_options(mut self, options: Option<RetryOptions>) -> Self {
         self.retry_options = options;

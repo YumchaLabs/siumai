@@ -66,389 +66,204 @@ pub struct ProviderInfo {
 /// Get information for all supported providers
 #[allow(clippy::vec_init_then_push)]
 pub fn get_supported_providers() -> Vec<ProviderInfo> {
-    // Unified source: derive providers from the Registry
-    if let Ok(g) = crate::registry::global_registry().read() {
-        let mut out = Vec::new();
-        for rec in g.list_providers() {
-            let ptype = ProviderType::from_name(&rec.id);
-            // When some provider features are disabled via cargo features,
-            // keep the match exhaustive to avoid compile errors.
-            #[allow(unreachable_patterns)]
-            match ptype {
-                #[cfg(feature = "openai")]
-                ProviderType::OpenAi => {
-                    use crate::constants::openai;
-                    let mut models: Vec<&'static str> = Vec::new();
-                    models.extend_from_slice(openai::gpt_4o::ALL);
-                    models.extend_from_slice(openai::gpt_4_1::ALL);
-                    models.extend_from_slice(openai::gpt_4_5::ALL);
-                    models.extend_from_slice(openai::gpt_4_turbo::ALL);
-                    models.extend_from_slice(openai::gpt_4::ALL);
-                    models.extend_from_slice(openai::o1::ALL);
-                    models.extend_from_slice(openai::o3::ALL);
-                    models.extend_from_slice(openai::o4::ALL);
-                    models.extend_from_slice(openai::gpt_5::ALL);
-                    models.extend_from_slice(openai::gpt_3_5::ALL);
-                    models.extend_from_slice(openai::audio::ALL);
-                    models.extend_from_slice(openai::images::ALL);
-                    models.extend_from_slice(openai::embeddings::ALL);
-                    models.extend_from_slice(openai::moderation::ALL);
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: "OpenAI",
-                        description:
-                            "OpenAI GPT models including GPT-4, GPT-3.5, and specialized models",
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: "https://api.openai.com/v1",
-                        supported_models: models,
-                    });
-                }
-                #[cfg(feature = "anthropic")]
-                ProviderType::Anthropic => {
-                    use crate::constants::anthropic;
-                    let mut models: Vec<&'static str> = Vec::new();
-                    models.extend_from_slice(anthropic::claude_opus_4_1::ALL);
-                    models.extend_from_slice(anthropic::claude_opus_4::ALL);
-                    models.extend_from_slice(anthropic::claude_sonnet_4::ALL);
-                    models.extend_from_slice(anthropic::claude_sonnet_3_7::ALL);
-                    models.extend_from_slice(anthropic::claude_sonnet_3_5::ALL);
-                    models.extend_from_slice(anthropic::claude_haiku_3_5::ALL);
-                    models.extend_from_slice(anthropic::claude_haiku_3::ALL);
-                    models.extend_from_slice(anthropic::claude_opus_3::ALL);
-                    models.extend_from_slice(anthropic::claude_sonnet_3::ALL);
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: "Anthropic",
-                        description: "Anthropic Claude models with advanced reasoning capabilities",
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: "https://api.anthropic.com",
-                        supported_models: models,
-                    });
-                }
-                #[cfg(feature = "google")]
-                ProviderType::Gemini => {
-                    use crate::constants::gemini;
-                    let mut models: Vec<&'static str> = Vec::new();
-                    models.extend_from_slice(gemini::gemini_2_5_pro::ALL);
-                    models.extend_from_slice(gemini::gemini_2_5_flash::ALL);
-                    models.extend_from_slice(gemini::gemini_2_5_flash_lite::ALL);
-                    models.extend_from_slice(gemini::gemini_2_0_flash::ALL);
-                    models.extend_from_slice(gemini::gemini_2_0_flash_lite::ALL);
-                    models.extend_from_slice(gemini::gemini_1_5_flash::ALL);
-                    models.extend_from_slice(gemini::gemini_1_5_flash_8b::ALL);
-                    models.extend_from_slice(gemini::gemini_1_5_pro::ALL);
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: "Google Gemini",
-                        description:
-                            "Google Gemini models with multimodal capabilities and code execution",
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: "https://generativelanguage.googleapis.com/v1beta",
-                        supported_models: models,
-                    });
-                }
-                #[cfg(feature = "ollama")]
-                ProviderType::Ollama => {
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: "Ollama",
-                        description: "Local Ollama models with full control and privacy",
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: "http://localhost:11434",
-                        supported_models: vec![
-                            "llama3.2:latest",
-                            "llama3.2:3b",
-                            "llama3.2:1b",
-                            "llama3.1:latest",
-                            "llama3.1:8b",
-                            "llama3.1:70b",
-                            "mistral:latest",
-                            "mistral:7b",
-                            "codellama:latest",
-                            "codellama:7b",
-                            "codellama:13b",
-                            "codellama:34b",
-                            "phi3:latest",
-                            "phi3:mini",
-                            "phi3:medium",
-                            "gemma:latest",
-                            "gemma:2b",
-                            "gemma:7b",
-                            "qwen2:latest",
-                            "qwen2:0.5b",
-                            "qwen2:1.5b",
-                            "qwen2:7b",
-                            "qwen2:72b",
-                            "deepseek-coder:latest",
-                            "deepseek-coder:6.7b",
-                            "deepseek-coder:33b",
-                            "nomic-embed-text:latest",
-                            "all-minilm:latest",
-                        ],
-                    });
-                }
-                #[cfg(feature = "xai")]
-                ProviderType::XAI => {
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: "xAI",
-                        description: "xAI Grok models with advanced reasoning capabilities",
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: "https://api.x.ai/v1",
-                        supported_models: crate::providers::xai::models::all_models(),
-                    });
-                }
-                #[cfg(feature = "groq")]
-                ProviderType::Groq => {
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: "Groq",
-                        description: "Groq models with ultra-fast inference",
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: "https://api.groq.com/openai/v1",
-                        supported_models: crate::providers::groq::models::all_models(),
-                    });
-                }
-                #[cfg(feature = "minimaxi")]
-                ProviderType::MiniMaxi => {
-                    out.push(ProviderInfo {
-                        provider_type: ptype,
-                        name: "MiniMaxi",
-                        description: "MiniMaxi models with multi-modal capabilities (text, speech, video, music)",
-                        capabilities: rec.capabilities.clone(),
-                        default_base_url: "https://api.minimaxi.com/v1",
-                        supported_models: vec![
-                            "MiniMax-M2",
-                            "speech-2.6-hd",
-                            "speech-2.6-turbo",
-                            "hailuo-2.3",
-                            "hailuo-2.3-fast",
-                            "music-2.0",
-                        ],
-                    });
-                }
-                ProviderType::Custom(_) =>
-                {
-                    #[cfg(feature = "openai")]
-                    if rec.id == "openai-compatible" {
-                        out.push(ProviderInfo {
-                            provider_type: ProviderType::Custom("openai-compatible".to_string()),
-                            name: "OpenAI-Compatible",
-                            description: "Any provider implementing the OpenAI API (via adapters)",
-                            capabilities: rec.capabilities.clone(),
-                            default_base_url: "custom",
-                            supported_models: vec![
-                                "deepseek-chat",
-                                "openrouter:openai/gpt-4o-mini",
-                                "together:meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-                            ],
-                        });
-                    }
-                }
-                // Provider feature not enabled: ignore (do not include in the list)
-                _ => {}
+    // Unified source: derive providers from the registry.
+    //
+    // Primary path: use the global registry (single source of truth for provider metadata).
+    // Fallback path (poisoned lock): create a temporary registry with built-in providers.
+    let providers_iter: Vec<crate::registry::ProviderRecord> =
+        if let Ok(guard) = crate::registry::global_registry().read() {
+            guard.list_providers().into_iter().cloned().collect()
+        } else {
+            crate::registry::ProviderRegistry::with_builtin_providers()
+                .list_providers()
+                .into_iter()
+                .cloned()
+                .collect()
+        };
+
+    let mut out = Vec::new();
+    for rec in providers_iter {
+        let ptype = ProviderType::from_name(&rec.id);
+        // When some provider features are disabled via cargo features,
+        // keep the match exhaustive to avoid compile errors.
+        #[allow(unreachable_patterns)]
+        match ptype {
+            #[cfg(feature = "openai")]
+            ProviderType::OpenAi => {
+                use crate::constants::openai;
+                let mut models: Vec<&'static str> = Vec::new();
+                models.extend_from_slice(openai::gpt_4o::ALL);
+                models.extend_from_slice(openai::gpt_4_1::ALL);
+                models.extend_from_slice(openai::gpt_4_5::ALL);
+                models.extend_from_slice(openai::gpt_4_turbo::ALL);
+                models.extend_from_slice(openai::gpt_4::ALL);
+                models.extend_from_slice(openai::o1::ALL);
+                models.extend_from_slice(openai::o3::ALL);
+                models.extend_from_slice(openai::o4::ALL);
+                models.extend_from_slice(openai::gpt_5::ALL);
+                models.extend_from_slice(openai::gpt_3_5::ALL);
+                models.extend_from_slice(openai::audio::ALL);
+                models.extend_from_slice(openai::images::ALL);
+                models.extend_from_slice(openai::embeddings::ALL);
+                models.extend_from_slice(openai::moderation::ALL);
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: "OpenAI",
+                    description:
+                        "OpenAI GPT models including GPT-4, GPT-3.5, and specialized models",
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: "https://api.openai.com/v1",
+                    supported_models: models,
+                });
             }
+            #[cfg(feature = "anthropic")]
+            ProviderType::Anthropic => {
+                use crate::constants::anthropic;
+                let mut models: Vec<&'static str> = Vec::new();
+                models.extend_from_slice(anthropic::claude_opus_4_1::ALL);
+                models.extend_from_slice(anthropic::claude_opus_4::ALL);
+                models.extend_from_slice(anthropic::claude_sonnet_4::ALL);
+                models.extend_from_slice(anthropic::claude_sonnet_3_7::ALL);
+                models.extend_from_slice(anthropic::claude_sonnet_3_5::ALL);
+                models.extend_from_slice(anthropic::claude_haiku_3_5::ALL);
+                models.extend_from_slice(anthropic::claude_haiku_3::ALL);
+                models.extend_from_slice(anthropic::claude_opus_3::ALL);
+                models.extend_from_slice(anthropic::claude_sonnet_3::ALL);
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: "Anthropic",
+                    description: "Anthropic Claude models with advanced reasoning capabilities",
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: "https://api.anthropic.com",
+                    supported_models: models,
+                });
+            }
+            #[cfg(feature = "google")]
+            ProviderType::Gemini => {
+                use crate::constants::gemini;
+                let mut models: Vec<&'static str> = Vec::new();
+                models.extend_from_slice(gemini::gemini_2_5_pro::ALL);
+                models.extend_from_slice(gemini::gemini_2_5_flash::ALL);
+                models.extend_from_slice(gemini::gemini_2_5_flash_lite::ALL);
+                models.extend_from_slice(gemini::gemini_2_0_flash::ALL);
+                models.extend_from_slice(gemini::gemini_2_0_flash_lite::ALL);
+                models.extend_from_slice(gemini::gemini_1_5_flash::ALL);
+                models.extend_from_slice(gemini::gemini_1_5_flash_8b::ALL);
+                models.extend_from_slice(gemini::gemini_1_5_pro::ALL);
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: "Google Gemini",
+                    description:
+                        "Google Gemini models with multimodal capabilities and code execution",
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: "https://generativelanguage.googleapis.com/v1beta",
+                    supported_models: models,
+                });
+            }
+            #[cfg(feature = "ollama")]
+            ProviderType::Ollama => {
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: "Ollama",
+                    description: "Local Ollama models with full control and privacy",
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: "http://localhost:11434",
+                    supported_models: vec![
+                        "llama3.2:latest",
+                        "llama3.2:3b",
+                        "llama3.2:1b",
+                        "llama3.1:latest",
+                        "llama3.1:8b",
+                        "llama3.1:70b",
+                        "mistral:latest",
+                        "mistral:7b",
+                        "codellama:latest",
+                        "codellama:7b",
+                        "codellama:13b",
+                        "codellama:34b",
+                        "phi3:latest",
+                        "phi3:mini",
+                        "phi3:medium",
+                        "gemma:latest",
+                        "gemma:2b",
+                        "gemma:7b",
+                        "qwen2:latest",
+                        "qwen2:0.5b",
+                        "qwen2:1.5b",
+                        "qwen2:7b",
+                        "qwen2:72b",
+                        "deepseek-coder:latest",
+                        "deepseek-coder:6.7b",
+                        "deepseek-coder:33b",
+                        "nomic-embed-text:latest",
+                        "all-minilm:latest",
+                    ],
+                });
+            }
+            #[cfg(feature = "xai")]
+            ProviderType::XAI => {
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: "xAI",
+                    description: "xAI Grok models with advanced reasoning capabilities",
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: "https://api.x.ai/v1",
+                    supported_models: crate::providers::xai::models::all_models(),
+                });
+            }
+            #[cfg(feature = "groq")]
+            ProviderType::Groq => {
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: "Groq",
+                    description: "Groq models with ultra-fast inference",
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: "https://api.groq.com/openai/v1",
+                    supported_models: crate::providers::groq::models::all_models(),
+                });
+            }
+            #[cfg(feature = "minimaxi")]
+            ProviderType::MiniMaxi => {
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: "MiniMaxi",
+                    description:
+                        "MiniMaxi models with multi-modal capabilities (text, speech, video, music)",
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: "https://api.minimaxi.com/v1",
+                    supported_models: vec![
+                        "MiniMax-M2",
+                        "speech-2.6-hd",
+                        "speech-2.6-turbo",
+                        "hailuo-2.3",
+                        "hailuo-2.3-fast",
+                        "music-2.0",
+                    ],
+                });
+            }
+            ProviderType::Custom(_) => {
+                #[cfg(feature = "openai")]
+                if rec.id == "openai-compatible" {
+                    out.push(ProviderInfo {
+                        provider_type: ProviderType::Custom("openai-compatible".to_string()),
+                        name: "OpenAI-Compatible",
+                        description: "Any provider implementing the OpenAI API (via adapters)",
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: "custom",
+                        supported_models: vec![
+                            "deepseek-chat",
+                            "openrouter:openai/gpt-4o-mini",
+                            "together:meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+                        ],
+                    });
+                }
+            }
+            // Provider feature not enabled: ignore (do not include in the list)
+            _ => {}
         }
-        return out;
     }
-    let mut providers = Vec::new();
 
-    #[cfg(feature = "openai")]
-    providers.push(ProviderInfo {
-        provider_type: ProviderType::OpenAi,
-        name: "OpenAI",
-        description: "OpenAI GPT models including GPT-4, GPT-3.5, and specialized models",
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_vision()
-            .with_audio()
-            .with_embedding()
-            .with_custom_feature("structured_output", true)
-            .with_custom_feature("batch_processing", true),
-        default_base_url: "https://api.openai.com/v1",
-        supported_models: {
-            use crate::constants::openai;
-            let mut models = Vec::new();
-            models.extend_from_slice(openai::gpt_4o::ALL);
-            models.extend_from_slice(openai::gpt_4_1::ALL);
-            models.extend_from_slice(openai::gpt_4_5::ALL);
-            models.extend_from_slice(openai::gpt_4_turbo::ALL);
-            models.extend_from_slice(openai::gpt_4::ALL);
-            models.extend_from_slice(openai::o1::ALL);
-            models.extend_from_slice(openai::o3::ALL);
-            models.extend_from_slice(openai::o4::ALL);
-            models.extend_from_slice(openai::gpt_5::ALL);
-            models.extend_from_slice(openai::gpt_3_5::ALL);
-            models.extend_from_slice(openai::audio::ALL);
-            models.extend_from_slice(openai::images::ALL);
-            models.extend_from_slice(openai::embeddings::ALL);
-            models.extend_from_slice(openai::moderation::ALL);
-            models
-        },
-    });
-
-    #[cfg(feature = "anthropic")]
-    providers.push(ProviderInfo {
-        provider_type: ProviderType::Anthropic,
-        name: "Anthropic",
-        description: "Anthropic Claude models with advanced reasoning capabilities",
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_vision()
-            .with_custom_feature("prompt_caching", true)
-            .with_custom_feature("thinking_mode", true),
-        default_base_url: "https://api.anthropic.com",
-        supported_models: {
-            use crate::constants::anthropic;
-            let mut models = Vec::new();
-            models.extend_from_slice(anthropic::claude_opus_4_1::ALL);
-            models.extend_from_slice(anthropic::claude_opus_4::ALL);
-            models.extend_from_slice(anthropic::claude_sonnet_4::ALL);
-            models.extend_from_slice(anthropic::claude_sonnet_3_7::ALL);
-            models.extend_from_slice(anthropic::claude_sonnet_3_5::ALL);
-            models.extend_from_slice(anthropic::claude_haiku_3_5::ALL);
-            models.extend_from_slice(anthropic::claude_haiku_3::ALL);
-            models.extend_from_slice(anthropic::claude_opus_3::ALL);
-            models.extend_from_slice(anthropic::claude_sonnet_3::ALL);
-            models
-        },
-    });
-
-    #[cfg(feature = "google")]
-    providers.push(ProviderInfo {
-        provider_type: ProviderType::Gemini,
-        name: "Google Gemini",
-        description: "Google Gemini models with multimodal capabilities and code execution",
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_vision()
-            .with_custom_feature("code_execution", true)
-            .with_custom_feature("thinking_mode", true)
-            .with_custom_feature("safety_settings", true)
-            .with_custom_feature("cached_content", true)
-            .with_custom_feature("json_schema", true),
-        default_base_url: "https://generativelanguage.googleapis.com/v1beta",
-        supported_models: {
-            use crate::constants::gemini;
-            let mut models = Vec::new();
-            models.extend_from_slice(gemini::gemini_2_5_pro::ALL);
-            models.extend_from_slice(gemini::gemini_2_5_flash::ALL);
-            models.extend_from_slice(gemini::gemini_2_5_flash_lite::ALL);
-            models.extend_from_slice(gemini::gemini_2_0_flash::ALL);
-            models.extend_from_slice(gemini::gemini_2_0_flash_lite::ALL);
-            models.extend_from_slice(gemini::gemini_1_5_flash::ALL);
-            models.extend_from_slice(gemini::gemini_1_5_flash_8b::ALL);
-            models.extend_from_slice(gemini::gemini_1_5_pro::ALL);
-            models
-        },
-    });
-
-    #[cfg(feature = "ollama")]
-    providers.push(ProviderInfo {
-        provider_type: ProviderType::Ollama,
-        name: "Ollama",
-        description: "Local Ollama models with full control and privacy",
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_vision()
-            .with_embedding()
-            .with_custom_feature("completion", true)
-            .with_custom_feature("model_management", true)
-            .with_custom_feature("local_models", true),
-        default_base_url: "http://localhost:11434",
-        supported_models: vec![
-            "llama3.2:latest",
-            "llama3.2:3b",
-            "llama3.2:1b",
-            "llama3.1:latest",
-            "llama3.1:8b",
-            "llama3.1:70b",
-            "mistral:latest",
-            "mistral:7b",
-            "codellama:latest",
-            "codellama:7b",
-            "codellama:13b",
-            "codellama:34b",
-            "phi3:latest",
-            "phi3:mini",
-            "phi3:medium",
-            "gemma:latest",
-            "gemma:2b",
-            "gemma:7b",
-            "qwen2:latest",
-            "qwen2:0.5b",
-            "qwen2:1.5b",
-            "qwen2:7b",
-            "qwen2:72b",
-            "deepseek-coder:latest",
-            "deepseek-coder:6.7b",
-            "deepseek-coder:33b",
-            "nomic-embed-text:latest",
-            "all-minilm:latest",
-        ],
-    });
-
-    #[cfg(feature = "xai")]
-    providers.push(ProviderInfo {
-        provider_type: ProviderType::XAI,
-        name: "xAI",
-        description: "xAI Grok models with advanced reasoning capabilities",
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_vision()
-            .with_custom_feature("reasoning", true)
-            .with_custom_feature("deferred_completion", true)
-            .with_custom_feature("structured_outputs", true),
-        default_base_url: "https://api.x.ai/v1",
-        supported_models: crate::providers::xai::models::all_models(),
-    });
-
-    #[cfg(feature = "groq")]
-    providers.push(ProviderInfo {
-        provider_type: ProviderType::Groq,
-        name: "Groq",
-        description: "Groq models with ultra-fast inference",
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_audio()
-            .with_custom_feature("fast_inference", true),
-        default_base_url: "https://api.groq.com/openai/v1",
-        supported_models: crate::providers::groq::models::all_models(),
-    });
-
-    // OpenAI-Compatible meta provider (adapters for many providers)
-    #[cfg(feature = "openai")]
-    providers.push(ProviderInfo {
-        provider_type: ProviderType::Custom("openai-compatible".to_string()),
-        name: "OpenAI-Compatible",
-        description: "Any provider implementing the OpenAI API (via adapters)",
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_custom_feature("structured_output", true),
-        default_base_url: "custom",
-        supported_models: vec![
-            // Examples only; actual models depend on the selected provider adapter
-            "deepseek-chat",
-            "openrouter:openai/gpt-4o-mini",
-            "together:meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-        ],
-    });
-
-    providers
+    out
 }
 
 /// Get provider information by provider type

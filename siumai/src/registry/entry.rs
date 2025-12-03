@@ -18,6 +18,7 @@ use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, EmbeddingCapability, ImageGenerationCapability,
+    ProviderCapabilities,
 };
 use crate::types::{
     AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingResponse,
@@ -457,6 +458,41 @@ impl LanguageModelHandle {
         cache.put(cache_key, CacheEntry::new(client.clone()));
 
         Ok(client)
+    }
+}
+
+/// Implement unified client metadata trait for LanguageModelHandle.
+///
+/// This allows using a registry language model handle anywhere an `LlmClient`
+/// is expected (e.g., inside the unified `Siumai` wrapper), while keeping
+/// execution logic delegated to the underlying provider clients.
+impl LlmClient for LanguageModelHandle {
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(self.provider_id.clone())
+    }
+
+    fn supported_models(&self) -> Vec<String> {
+        // We only know the configured model id for this handle; return that.
+        vec![self.model_id.clone()]
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        // Prefer capabilities from the global registry metadata; fall back
+        // to an empty capability set if registry access fails.
+        if let Ok(reg) = crate::registry::global_registry().read() {
+            if let Some(rec) = reg.resolve(&self.provider_id) {
+                return rec.capabilities.clone();
+            }
+        }
+        ProviderCapabilities::new()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn LlmClient> {
+        Box::new(self.clone())
     }
 }
 
