@@ -38,12 +38,12 @@
 //!
 //! // Use with any Siumai model
 //! let model = Siumai::builder().openai().build().await?;
-//! let (response, _) = siumai::orchestrator::generate(
+//! let (response, _) = siumai_extras::orchestrator::generate(
 //!     &model,
 //!     messages,
 //!     Some(tools),
 //!     Some(&resolver),
-//!     vec![siumai::orchestrator::step_count_is(10)],
+//!     vec![siumai_extras::orchestrator::step_count_is(10)],
 //!     Default::default(),
 //! ).await?;
 //! ```
@@ -84,3 +84,12 @@ pub mod mcp;
 
 /// Error types for siumai-extras
 pub mod error;
+
+// Internal helpers for structured output (shared by highlevel + orchestrator).
+mod structured_output;
+
+/// High-level structured object helpers (provider-agnostic).
+pub mod highlevel;
+
+/// Orchestrator and agent utilities for multi-step tool calling.
+pub mod orchestrator;

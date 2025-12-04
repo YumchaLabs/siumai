@@ -26,7 +26,7 @@ Orchestration enables AI agents to:
 ### Basic Multi-Step Tool Calling
 
 ```rust
-use siumai::orchestrator::{generate, step_count_is, OrchestratorOptions, ToolResolver};
+use siumai_extras::orchestrator::{generate, step_count_is, OrchestratorOptions, ToolResolver};
 use siumai::prelude::*;
 
 // Define your tool resolver
@@ -56,7 +56,7 @@ let (response, steps) = generate(
 ### Using the Agent Pattern
 
 ```rust
-use siumai::orchestrator::{ToolLoopAgent, step_count_is};
+use siumai_extras::orchestrator::{ToolLoopAgent, step_count_is};
 
 // Create a reusable agent
 let agent = ToolLoopAgent::new(client, tools, vec![step_count_is(10)])
@@ -140,7 +140,7 @@ cargo run --example streaming-orchestrator --features openai
 Control when orchestration should stop:
 
 ```rust
-use siumai::orchestrator::*;
+use siumai_extras::orchestrator::*;
 
 // Stop after 10 steps
 let condition1 = step_count_is(10);
@@ -168,7 +168,7 @@ let custom = custom_condition(|steps| {
 Control tool execution with approval workflows:
 
 ```rust
-use siumai::orchestrator::ToolApproval;
+use siumai_extras::orchestrator::ToolApproval;
 
 let options = OrchestratorOptions {
     on_tool_approval: Some(Arc::new(|tool_name, args| {
@@ -199,7 +199,7 @@ let options = OrchestratorOptions {
 Modify orchestrator behavior before each step:
 
 ```rust
-use siumai::orchestrator::{PrepareStepContext, PrepareStepResult, ToolChoice};
+use siumai_extras::orchestrator::{PrepareStepContext, PrepareStepResult, ToolChoice};
 
 let options = OrchestratorOptions {
     prepare_step: Some(Arc::new(|ctx: PrepareStepContext| {
@@ -236,7 +236,7 @@ let options = OrchestratorOptions {
 Create reusable agents for common workflows:
 
 ```rust
-use siumai::orchestrator::ToolLoopAgent;
+use siumai_extras::orchestrator::ToolLoopAgent;
 
 // Create agent
 let weather_agent = ToolLoopAgent::new(
@@ -346,4 +346,3 @@ on_finish: Some(Arc::new(|steps| {
 - Use `generate_stream_owned()` instead of `generate()`
 - Ensure model supports streaming
 - Check for errors in stream consumption
-

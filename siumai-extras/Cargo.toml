@@ -41,7 +41,7 @@ once_cell = { workspace = true, optional = true }
 
 # Server adapters (optional)
 axum = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
+futures = { workspace = true }
 
 # MCP integration (optional)
 rmcp = { version = "0.8", optional = true, features = [
@@ -52,15 +52,18 @@ rmcp = { version = "0.8", optional = true, features = [
     "macros",
     "client",
 ] }
-async-trait = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true, features = ["process"] }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+async-stream = { workspace = true }
+reqwest = { workspace = true, optional = true }
+uuid = { workspace = true }
 
 [features]
 # Default to OpenAI only for minimal build; other providers can be enabled explicitly
 default = ["openai"]
 
 # Provider features (pass-through to siumai)
-openai = ["siumai/openai"]
+openai = ["siumai/openai", "dep:reqwest"]
 anthropic = ["siumai/anthropic"]
 google = ["siumai/google"]
 ollama = ["siumai/ollama"]
@@ -87,10 +90,10 @@ opentelemetry = [
 ]
 
 # Server adapters feature
-server = ["dep:axum", "dep:futures"]
+server = ["dep:axum"]
 
 # MCP integration feature
-mcp = ["dep:rmcp", "dep:async-trait", "dep:tokio"]
+mcp = ["dep:rmcp"]
 
 # Convenience feature to enable all extras
 all = ["schema", "telemetry", "opentelemetry", "server", "mcp"]
@@ -103,3 +106,8 @@ tokio-test.workspace = true
 name = "opentelemetry_tracing"
 path = "examples/opentelemetry_tracing.rs"
 required-features = ["opentelemetry"]
+
+[[example]]
+name = "workflow_planner_coder"
+path = "examples/workflow_planner_coder.rs"
+required-features = ["openai"]

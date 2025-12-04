@@ -44,6 +44,10 @@ impl ImageGenerationCapability for GeminiClient {
         };
 
         if let Some(opts) = &self.retry_options {
+            let mut opts = opts.clone();
+            if opts.provider.is_none() {
+                opts.provider = Some(crate::types::ProviderType::Gemini);
+            }
             let http = self.http_client.clone();
             let spec_clone = spec.clone();
             let ctx_clone = ctx.clone();
@@ -76,7 +80,7 @@ impl ImageGenerationCapability for GeminiClient {
                         ImageExecutor::execute(&exec, rq).await
                     }
                 },
-                opts.clone(),
+                opts,
             )
             .await
         } else {

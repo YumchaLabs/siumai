@@ -14,7 +14,9 @@ This README keeps things straightforward: what you can do, how to customize, and
 - Capability traits for chat, streaming, tools, vision, audio, files, embeddings, and rerank
 - Streaming with start/delta/usage/end events and cancellation
 - Tool calling and a lightweight orchestrator for multi‑step workflows
-- Structured outputs (JSON/schema) with repair and validation helpers
+- Structured outputs:
+  - Provider‑native structured outputs (OpenAI/Anthropic/Gemini, etc.)
+  - Provider‑agnostic decoding helpers with JSON repair and validation (via `siumai-extras`)
 - HTTP interceptors, middleware, and a simple retry facade
 - Optional extras for telemetry, OpenTelemetry, schema validation, and server adapters
 
@@ -161,11 +163,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Structured output
 
-Provider‑agnostic high‑level helper for generating typed JSON:
+#### 1) Provider‑agnostic decoding (recommended for cross‑provider flows)
+
+Use `siumai-extras` to parse model text into typed JSON with optional schema validation and repair:
 
 ```rust
 use serde::Deserialize;
 use siumai::prelude::*;
+use siumai_extras::highlevel::object::generate_object;
 
 #[derive(Deserialize, Debug)]
 struct Post { title: String }
@@ -173,7 +178,7 @@ struct Post { title: String }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Siumai::builder().openai().model("gpt-4o-mini").build().await?;
-    let (post, _resp) = siumai::highlevel::object::generate_object::<Post>(
+    let (post, _resp) = generate_object::<Post>(
         &client,
         vec![user!("Return JSON: {\"title\":\"hi\"}")],
         None,
@@ -184,7 +189,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Recommended: ChatRequestBuilder + ProviderOptions (example: OpenAI Responses API):
+Under the hood this uses `siumai_extras::structured_output::OutputDecodeConfig` to:
+- enforce shape hints (object/array/enum)
+- optionally validate against a JSON Schema
+- repair common issues (markdown fences, trailing commas, partial slices)
+
+#### 2) Provider‑native structured outputs (example: OpenAI Responses API)
+
+For providers that expose native structured outputs, configure them via provider options.
+You still can combine them with the decoding helpers above if you want:
 
 ```rust
 use siumai::prelude::*;
@@ -203,6 +216,7 @@ let req = ChatRequestBuilder::new()
     )
     .build();
 let resp = client.chat_request(req).await?;
+// Optionally: further validate/repair/deserialize using `siumai-extras` helpers.
 ```
 
 ### Retries

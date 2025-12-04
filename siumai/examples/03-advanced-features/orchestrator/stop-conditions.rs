@@ -7,12 +7,12 @@
 //!
 //! Run with: cargo run --example stop-conditions --features openai
 
-use siumai::orchestrator::{
+use siumai::prelude::*;
+use siumai::types::Tool;
+use siumai_extras::orchestrator::{
     OrchestratorOptions, ToolResolver, any_of, custom_condition, generate, has_text_response,
     has_tool_call, step_count_is,
 };
-use siumai::prelude::*;
-use siumai::types::Tool;
 
 // Tool resolver with a "finalAnswer" tool
 struct ResearchResolver;

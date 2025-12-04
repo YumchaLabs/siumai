@@ -4,6 +4,8 @@
 //!
 //! - Simple defaults: `retry` and `retry_for_provider` use backoff-based executor
 //! - Opt-in control: use `RetryOptions` to select backend and configuration
+//! - Builder/registry integration: `RetryOptions` can be attached to providers via
+//!   `Siumai::builder().with_retry(...)` or `RegistryOptions.retry_options`
 //!
 //! Example
 //! ```rust,no_run

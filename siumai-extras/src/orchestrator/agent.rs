@@ -9,9 +9,10 @@ use super::stream::{StreamOrchestration, generate_stream_owned};
 use super::types::{
     AgentResult, OrchestratorOptions, OrchestratorStreamOptions, StepResult, ToolResolver,
 };
-use crate::error::LlmError;
-use crate::traits::ChatCapability;
-use crate::types::{ChatMessage, ChatResponse, CommonParams, OutputSchema, Tool};
+use crate::structured_output::{OutputDecodeConfig, decode_json_value};
+use siumai::error::LlmError;
+use siumai::traits::ChatCapability;
+use siumai::types::{ChatMessage, ChatResponse, CommonParams, OutputSchema, Tool};
 
 /// A reusable agent that can generate text, stream responses, and use tools across multiple steps.
 ///
@@ -22,11 +23,18 @@ use crate::types::{ChatMessage, ChatResponse, CommonParams, OutputSchema, Tool};
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::orchestrator::{ToolLoopAgent, step_count_is};
-/// use siumai::providers::openai::OpenAiClient;
+/// use siumai_extras::orchestrator::{ToolLoopAgent, step_count_is};
+/// use siumai::prelude::Siumai;
+///
+/// // Build a unified model client (recommended)
+/// let model = Siumai::builder()
+///     .openai()
+///     .model("gpt-4o")
+///     .build()
+///     .await?;
 ///
 /// let agent = ToolLoopAgent::new(
-///     OpenAiClient::new("gpt-4o"),
+///     model,
 ///     vec![weather_tool, calculator_tool],
 ///     vec![step_count_is(10)],
 /// )
@@ -65,14 +73,13 @@ where
     /// These parameters will be applied to all chat requests made by the agent.
     /// Similar to Vercel AI SDK's agent-level parameter configuration.
     common_params: Option<CommonParams>,
-    /// Optional output schema for structured output validation.
+    /// Structured output configuration.
     ///
     /// When set, the agent will attempt to extract and parse structured output
-    /// from the final response. The schema can be validated using a SchemaValidator
-    /// from `siumai-extras` with the `schema` feature.
-    ///
-    /// Similar to Vercel AI SDK's `experimental_output` parameter.
-    output_schema: Option<OutputSchema>,
+    /// from the final response using the unified structured output pipeline
+    /// (`OutputDecodeConfig`). This mirrors Vercel AI SDK's
+    /// `experimental_output` parameter.
+    output_config: Option<OutputDecodeConfig>,
     /// Agent-level tool choice setting.
     ///
     /// Controls how the model should use tools. Can be overridden per-step
@@ -119,7 +126,7 @@ where
             id: None,
             options: OrchestratorOptions::default(),
             common_params: None,
-            output_schema: None,
+            output_config: None,
             tool_choice: None,
             active_tools: None,
         }
@@ -315,7 +322,16 @@ where
     /// );
     /// ```
     pub fn with_output_schema(mut self, schema: OutputSchema) -> Self {
-        self.output_schema = Some(schema);
+        self.output_config = Some(OutputDecodeConfig::from_schema(schema));
+        self
+    }
+
+    /// Set full structured output configuration.
+    ///
+    /// This is the most flexible entrypoint and allows customizing shape hints,
+    /// repair behaviour, and schema metadata in one place.
+    pub fn with_output_config(mut self, cfg: OutputDecodeConfig) -> Self {
+        self.output_config = Some(cfg);
         self
     }
 
@@ -329,7 +345,7 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::orchestrator::ToolChoice;
+    /// use siumai_extras::orchestrator::ToolChoice;
     ///
     /// let agent = agent.with_tool_choice(ToolChoice::Required);
     /// ```
@@ -362,7 +378,7 @@ where
 
     /// Get the output schema if set.
     pub fn output_schema(&self) -> Option<&OutputSchema> {
-        self.output_schema.as_ref()
+        self.output_config.as_ref().and_then(|c| c.schema.as_ref())
     }
 
     /// Get the agent-level tool choice if set.
@@ -378,6 +394,24 @@ where
     /// Get the tools available to the agent.
     pub fn tools(&self) -> &[Tool] {
         &self.tools
+    }
+
+    /// Attach a telemetry configuration to this agent.
+    ///
+    /// This enables structured telemetry events (spans, orchestrator events,
+    /// tool execution events) to be emitted via `siumai::telemetry`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use siumai::telemetry::TelemetryConfig;
+    ///
+    /// let telemetry = TelemetryConfig::minimal();
+    /// let agent = agent.with_telemetry(telemetry);
+    /// ```
+    pub fn with_telemetry(mut self, cfg: siumai::telemetry::TelemetryConfig) -> Self {
+        self.options.telemetry = Some(cfg);
+        self
     }
 
     /// Generate a response (non-streaming).
@@ -463,9 +497,9 @@ where
         )
         .await?;
 
-        // Extract structured output if schema is set
-        let output = if let Some(ref schema) = self.output_schema {
-            Self::extract_output(&response, schema)?
+        // Extract structured output if configuration is set
+        let output = if let Some(ref cfg) = self.output_config {
+            Self::extract_output(&response, cfg)?
         } else {
             None
         };
@@ -475,12 +509,11 @@ where
 
     /// Extract structured output from the response.
     ///
-    /// This method attempts to parse JSON from the response text.
-    /// The actual schema validation should be done by the user using
-    /// a SchemaValidator from `siumai-extras`.
+    /// This method attempts to parse JSON from the response text using the
+    /// unified structured output configuration.
     fn extract_output(
         response: &ChatResponse,
-        _schema: &OutputSchema,
+        cfg: &OutputDecodeConfig,
     ) -> Result<Option<serde_json::Value>, LlmError> {
         // Try to get text content
         let text = match response.content_text() {
@@ -488,19 +521,14 @@ where
             None => return Ok(None),
         };
 
-        // Try to parse as JSON
-        match serde_json::from_str::<serde_json::Value>(text) {
+        // First try direct decode; if that fails, fall back to extracting JSON
+        // from markdown fences and decoding again.
+        match decode_json_value(text, cfg) {
             Ok(value) => Ok(Some(value)),
             Err(_) => {
-                // If the entire text is not JSON, try to extract JSON from markdown code blocks
                 if let Some(json_str) = Self::extract_json_from_markdown(text) {
-                    match serde_json::from_str::<serde_json::Value>(json_str) {
-                        Ok(value) => Ok(Some(value)),
-                        Err(e) => Err(LlmError::ParseError(format!(
-                            "Failed to parse extracted JSON: {}",
-                            e
-                        ))),
-                    }
+                    let value = decode_json_value(json_str, cfg)?;
+                    Ok(Some(value))
                 } else {
                     Err(LlmError::ParseError(
                         "Response does not contain valid JSON".to_string(),
@@ -609,7 +637,7 @@ where
                 common_params: self.options.common_params.clone(),
             },
             common_params: self.common_params.clone(),
-            output_schema: self.output_schema.clone(),
+            output_config: self.output_config.clone(),
             tool_choice: self.tool_choice.clone(),
             active_tools: self.active_tools.clone(),
         }

@@ -10,9 +10,9 @@
 //!
 //! Run with: cargo run --example agent-pattern --features openai
 
-use siumai::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 use siumai::prelude::*;
 use siumai::types::Tool;
+use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 
 // Simple tool resolver
 struct WeatherResolver;

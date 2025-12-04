@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Uncomment below when siumai-extras mcp feature is available:
     /*
-    use siumai::orchestrator::{generate, step_count_is};
+    use siumai_extras::orchestrator::{generate, step_count_is};
     use siumai_extras::mcp::{mcp_tools_from_sse, mcp_tools_from_http};
 
     // Get transport type from environment

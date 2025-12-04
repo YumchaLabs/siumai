@@ -29,8 +29,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     {
         providers.insert(
             "openai".to_string(),
-            Arc::new(crate::registry::factories::OpenAIProviderFactory)
-                as Arc<dyn ProviderFactory>,
+            Arc::new(crate::registry::factories::OpenAIProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
 
@@ -52,8 +51,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     {
         providers.insert(
             "gemini".to_string(),
-            Arc::new(crate::registry::factories::GeminiProviderFactory)
-                as Arc<dyn ProviderFactory>,
+            Arc::new(crate::registry::factories::GeminiProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
 
@@ -61,8 +59,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     {
         providers.insert(
             "groq".to_string(),
-            Arc::new(crate::registry::factories::GroqProviderFactory)
-                as Arc<dyn ProviderFactory>,
+            Arc::new(crate::registry::factories::GroqProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
 
@@ -78,8 +75,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     {
         providers.insert(
             "ollama".to_string(),
-            Arc::new(crate::registry::factories::OllamaProviderFactory)
-                as Arc<dyn ProviderFactory>,
+            Arc::new(crate::registry::factories::OllamaProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
 
@@ -104,9 +100,8 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
             }
             providers.insert(
                 id_str.clone(),
-                Arc::new(
-                    crate::registry::factories::OpenAICompatibleProviderFactory::new(id_str),
-                ) as Arc<dyn ProviderFactory>,
+                Arc::new(crate::registry::factories::OpenAICompatibleProviderFactory::new(id_str))
+                    as Arc<dyn ProviderFactory>,
             );
         }
     }

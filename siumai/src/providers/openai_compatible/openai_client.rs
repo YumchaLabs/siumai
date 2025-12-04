@@ -138,13 +138,18 @@ impl OpenAiCompatibleClient {
             provider_context: ctx,
         });
         if let Some(opts) = &self.retry_options {
+            // Default to OpenAI-compatible provider type when none is set
+            let mut opts = opts.clone();
+            if opts.provider.is_none() {
+                opts.provider = Some(crate::types::ProviderType::OpenAi);
+            }
             crate::retry_api::retry_with(
                 || {
                     let reqc = request.clone();
                     let exec = exec.clone();
                     async move { exec.execute(reqc).await }
                 },
-                opts.clone(),
+                opts,
             )
             .await
         } else {
@@ -193,13 +198,17 @@ impl OpenAiCompatibleClient {
             provider_context: ctx,
         });
         if let Some(opts) = &self.retry_options {
+            let mut opts = opts.clone();
+            if opts.provider.is_none() {
+                opts.provider = Some(crate::types::ProviderType::OpenAi);
+            }
             crate::retry_api::retry_with(
                 || {
                     let reqc = request.clone();
                     let exec = exec.clone();
                     async move { exec.execute_stream(reqc).await }
                 },
-                opts.clone(),
+                opts,
             )
             .await
         } else {
@@ -384,6 +393,10 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
         let bundle = spec.choose_embedding_transformers(&req, &ctx);
 
         if let Some(opts) = &self.retry_options {
+            let mut opts = opts.clone();
+            if opts.provider.is_none() {
+                opts.provider = Some(crate::types::ProviderType::OpenAi);
+            }
             let http = self.http_client.clone();
             let spec_clone = spec.clone();
             let ctx_clone = ctx.clone();
@@ -410,7 +423,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
                         EmbeddingExecutor::execute(&exec, rqc).await
                     }
                 },
-                opts.clone(),
+                opts,
             )
             .await
         } else {

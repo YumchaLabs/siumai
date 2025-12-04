@@ -8,11 +8,11 @@
 //!
 //! Run with: cargo run --example tool-approval --features openai
 
-use siumai::orchestrator::{
-    OrchestratorOptions, ToolApproval, ToolResolver, generate, step_count_is,
-};
 use siumai::prelude::*;
 use siumai::types::Tool;
+use siumai_extras::orchestrator::{
+    OrchestratorOptions, ToolApproval, ToolResolver, generate, step_count_is,
+};
 use std::sync::Arc;
 
 // Tool resolver with potentially dangerous operations

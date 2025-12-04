@@ -27,7 +27,6 @@ use crate::retry_api::RetryOptions;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
-
 /// HTTP request body type
 #[derive(Debug)]
 pub enum HttpBody {

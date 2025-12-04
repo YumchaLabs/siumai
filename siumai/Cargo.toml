@@ -138,6 +138,7 @@ serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 axum = "0.8.4"
 actix-web = "4"
+siumai-extras = { path = "../siumai-extras" }
 
 # Examples configuration
 # Examples (0.11.0 refactored structure)

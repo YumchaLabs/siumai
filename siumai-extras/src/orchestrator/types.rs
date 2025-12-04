@@ -6,10 +6,10 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::prepare_step::PrepareStepFn;
-use crate::error::LlmError;
-use crate::streaming::ChatStreamEvent;
-use crate::telemetry::TelemetryConfig;
-use crate::types::{
+use siumai::error::LlmError;
+use siumai::streaming::ChatStreamEvent;
+use siumai::telemetry::TelemetryConfig;
+use siumai::types::{
     ChatMessage, ChatResponse, CommonParams, ContentPart, FinishReason, Usage, Warning,
 };
 
@@ -69,7 +69,7 @@ impl StepResult {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::orchestrator::StepResult;
+    /// use siumai_extras::orchestrator::StepResult;
     ///
     /// let step: StepResult = /* ... */;
     /// if let Some(text) = step.text() {
@@ -79,7 +79,7 @@ impl StepResult {
     pub fn text(&self) -> Option<&str> {
         self.messages
             .iter()
-            .find(|msg| matches!(msg.role, crate::types::MessageRole::Assistant))
+            .find(|msg| matches!(msg.role, siumai::types::MessageRole::Assistant))
             .and_then(|msg| msg.content_text())
     }
 
@@ -90,7 +90,7 @@ impl StepResult {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::orchestrator::StepResult;
+    /// use siumai_extras::orchestrator::StepResult;
     ///
     /// let step: StepResult = /* ... */;
     /// for tool_call in step.tool_calls() {
@@ -108,7 +108,7 @@ impl StepResult {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::orchestrator::StepResult;
+    /// use siumai_extras::orchestrator::StepResult;
     ///
     /// let step: StepResult = /* ... */;
     /// if step.has_tool_calls() {
@@ -126,7 +126,7 @@ impl StepResult {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::orchestrator::StepResult;
+    /// use siumai_extras::orchestrator::StepResult;
     ///
     /// let step: StepResult = /* ... */;
     /// for tool_result in step.tool_results() {
@@ -144,7 +144,7 @@ impl StepResult {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::orchestrator::StepResult;
+    /// use siumai_extras::orchestrator::StepResult;
     ///
     /// let step: StepResult = /* ... */;
     /// if step.has_tool_results() {

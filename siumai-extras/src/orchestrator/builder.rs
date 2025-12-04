@@ -9,10 +9,12 @@
 
 use std::sync::Arc;
 
-use crate::error::LlmError;
-use crate::traits::ChatCapability;
-use crate::types::{ChatMessage, Tool};
+use siumai::error::LlmError;
+use siumai::streaming::ChatStreamEvent;
+use siumai::traits::ChatCapability;
+use siumai::types::{ChatMessage, Tool};
 
+use super::prepare_step::{PrepareStepFn, PrepareStepResult, ToolChoice};
 use super::stop_condition::StopCondition;
 use super::types::{OrchestratorOptions, OrchestratorStreamOptions, StepResult};
 
@@ -95,13 +97,59 @@ impl OrchestratorBuilder {
     }
 
     /// Prepare‑step callback for dynamic tool/message selection (non‑stream).
-    pub fn prepare_step(mut self, f: super::prepare_step::PrepareStepFn) -> Self {
+    pub fn prepare_step(mut self, f: PrepareStepFn) -> Self {
         self.options.prepare_step = Some(f);
         self
     }
 
+    /// Set a default tool choice strategy for all steps (non‑stream).
+    ///
+    /// This is syntactic sugar over `prepare_step` that:
+    /// - Applies the given `ToolChoice` when no per‑step override is set
+    /// - Composes with an existing `prepare_step` callback if present
+    pub fn tool_choice(mut self, choice: ToolChoice) -> Self {
+        let existing: Option<PrepareStepFn> = self.options.prepare_step.take();
+        let choice_clone = choice.clone();
+        let prepare: PrepareStepFn = Arc::new(move |ctx| {
+            let mut result = if let Some(ref f) = existing {
+                f(ctx)
+            } else {
+                PrepareStepResult::default()
+            };
+            if result.tool_choice.is_none() {
+                result.tool_choice = Some(choice_clone.clone());
+            }
+            result
+        });
+        self.options.prepare_step = Some(prepare);
+        self
+    }
+
+    /// Restrict the active tools for all steps (non‑stream).
+    ///
+    /// This is syntactic sugar over `prepare_step` that:
+    /// - Applies the given `active_tools` when no per‑step override is set
+    /// - Composes with an existing `prepare_step` callback if present
+    pub fn active_tools(mut self, tools: Vec<String>) -> Self {
+        let existing: Option<PrepareStepFn> = self.options.prepare_step.take();
+        let tools_clone = tools.clone();
+        let prepare: PrepareStepFn = Arc::new(move |ctx| {
+            let mut result = if let Some(ref f) = existing {
+                f(ctx)
+            } else {
+                PrepareStepResult::default()
+            };
+            if result.active_tools.is_none() {
+                result.active_tools = Some(tools_clone.clone());
+            }
+            result
+        });
+        self.options.prepare_step = Some(prepare);
+        self
+    }
+
     /// Set telemetry configuration (applies to both variants).
-    pub fn telemetry(mut self, cfg: crate::telemetry::TelemetryConfig) -> Self {
+    pub fn telemetry(mut self, cfg: siumai::telemetry::TelemetryConfig) -> Self {
         let some = Some(cfg);
         self.stream_options.telemetry = some.clone();
         self.options.telemetry = some;
@@ -109,7 +157,7 @@ impl OrchestratorBuilder {
     }
 
     /// Set agent‑level CommonParams (applies to both variants).
-    pub fn common_params(mut self, params: crate::types::CommonParams) -> Self {
+    pub fn common_params(mut self, params: siumai::types::CommonParams) -> Self {
         let some = Some(params);
         self.stream_options.common_params = some.clone();
         self.options.common_params = some;
@@ -119,7 +167,7 @@ impl OrchestratorBuilder {
     /// Streaming on_chunk callback (stream variant only).
     pub fn on_chunk<F>(mut self, cb: F) -> Self
     where
-        F: Fn(&crate::streaming::ChatStreamEvent) + Send + Sync + 'static,
+        F: Fn(&ChatStreamEvent) + Send + Sync + 'static,
     {
         self.stream_options.on_chunk = Some(Arc::new(cb));
         self
@@ -141,7 +189,7 @@ impl OrchestratorBuilder {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
         resolver: Option<&dyn super::types::ToolResolver>,
-    ) -> Result<(crate::types::ChatResponse, Vec<StepResult>), LlmError> {
+    ) -> Result<(siumai::types::ChatResponse, Vec<StepResult>), LlmError> {
         // Convert owned Box<dyn StopCondition> into a temporary Vec<&dyn StopCondition>
         let mut refs: Vec<&dyn StopCondition> = Vec::with_capacity(self.stop_conditions.len());
         for c in &self.stop_conditions {

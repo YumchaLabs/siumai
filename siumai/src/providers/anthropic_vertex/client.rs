@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use crate::error::LlmError;
 use crate::execution::executors::chat::HttpChatExecutor;
-use crate::execution::middleware::language_model::LanguageModelMiddleware;
-
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
@@ -32,6 +32,8 @@ pub struct VertexAnthropicClient {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares
     model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Optional retry options for chat calls
+    retry_options: Option<RetryOptions>,
 }
 
 impl VertexAnthropicClient {
@@ -41,6 +43,7 @@ impl VertexAnthropicClient {
             config,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
+            retry_options: None,
         }
     }
 
@@ -145,6 +148,7 @@ impl ChatCapability for VertexAnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<crate::types::Tool>>,
     ) -> Result<ChatResponse, LlmError> {
+        // Build request once and wrap the unified execution path with configurable retry.
         let mut builder = ChatRequest::builder()
             .messages(messages)
             .common_params(crate::types::CommonParams {
@@ -157,7 +161,22 @@ impl ChatCapability for VertexAnthropicClient {
         }
         let req = builder.build();
 
-        self.chat_request_via_spec(req).await
+        if let Some(opts) = &self.retry_options {
+            let mut opts = opts.clone();
+            if opts.provider.is_none() {
+                opts.provider = Some(crate::types::ProviderType::Anthropic);
+            }
+            crate::retry_api::retry_with(
+                || {
+                    let rq = req.clone();
+                    async move { self.chat_request_via_spec(rq).await }
+                },
+                opts,
+            )
+            .await
+        } else {
+            self.chat_request_via_spec(req).await
+        }
     }
 
     async fn chat_stream(
@@ -196,6 +215,11 @@ impl VertexAnthropicClient {
     ) -> Self {
         self.model_middlewares = middlewares;
         self
+    }
+
+    /// Set unified retry options for chat calls.
+    pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
+        self.retry_options = options;
     }
 }
 

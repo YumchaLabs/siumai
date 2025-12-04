@@ -8,43 +8,16 @@
 //! performs optional JSON Schema validation and optional text repair before
 //! deserializing into `T`.
 
-use std::sync::Arc;
-
-/// Type alias for JSON repair function used in object generation APIs.
-type RepairFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
-
-use crate::error::LlmError;
-use crate::traits::ChatCapability;
-use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool, Usage};
 use futures::Stream;
 use serde::de::DeserializeOwned;
+use siumai::error::LlmError;
+use siumai::traits::ChatCapability;
+use siumai::types::{ChatMessage, ChatRequest, ChatResponse, Tool, Usage};
 use std::pin::Pin;
 
-/// Output kind hints for object generation.
-#[derive(Debug, Clone, Default)]
-pub enum OutputKind {
-    /// Expect a JSON object value
-    #[default]
-    Object,
-    /// Expect a JSON array value
-    Array,
-    /// Expect one of enumerated values (string/number/bool)
-    Enum(Vec<serde_json::Value>),
-    /// Do not apply schema validation; free-form JSON
-    NoSchema,
-}
-
-// Default is derived on enum (Object)
-
-/// Mode hint for providers to select structured output strategy.
-/// Currently informational at the high-level API; provider mappers may use it.
-#[derive(Debug, Clone, Copy, Default)]
-pub enum GenerateMode {
-    #[default]
-    Auto,
-    Json,
-    Tool,
-}
+use crate::structured_output::{
+    GenerateMode, OutputDecodeConfig, OutputKind, RepairFn, decode_typed,
+};
 
 /// Options for object generation.
 pub struct GenerateObjectOptions {
@@ -98,10 +71,10 @@ pub async fn generate_object<T: DeserializeOwned>(
     let resp = model.chat_request(request).await?;
 
     // Prefer tool call arguments if present (Tool mode or provider chose tools)
-    let mut text = {
+    let text = {
         let tool_calls = resp.tool_calls();
         if let Some(first) = tool_calls.first() {
-            if let crate::types::ContentPart::ToolCall { arguments, .. } = first {
+            if let siumai::types::ContentPart::ToolCall { arguments, .. } = first {
                 serde_json::to_string(arguments).unwrap_or_default()
             } else {
                 resp.content_text()
@@ -120,71 +93,24 @@ pub async fn generate_object<T: DeserializeOwned>(
         ));
     }
 
-    // Attempt to parse + validate + deserialize, with optional repair rounds.
-    let mut rounds = 0usize;
-    loop {
-        match try_parse_validate_deserialize::<T>(&text, opts.schema.as_ref(), &opts.output) {
-            Ok(obj) => return Ok((obj, resp)),
-            Err(e) => {
-                if rounds >= opts.max_repair_rounds {
-                    return Err(e);
-                }
-                if let Some(repair) = &opts.repair_text {
-                    if let Some(next) = repair(&text) {
-                        text = next;
-                        rounds += 1;
-                        continue;
-                    }
-                } else if let Some(next) = default_repair_text(&text) {
-                    text = next;
-                    rounds += 1;
-                    continue;
-                }
-                return Err(e);
-            }
-        }
-    }
-}
+    let cfg = OutputDecodeConfig {
+        schema: opts
+            .schema
+            .clone()
+            .map(|schema| siumai::types::OutputSchema {
+                schema,
+                name: opts.schema_name.clone(),
+                description: opts.schema_description.clone(),
+            }),
+        kind: opts.output.clone(),
+        mode: opts.mode,
+        emit_partial: false,
+        repair_text: opts.repair_text.clone(),
+        max_repair_rounds: opts.max_repair_rounds,
+    };
 
-fn try_parse_validate_deserialize<T: DeserializeOwned>(
-    text: &str,
-    schema: Option<&serde_json::Value>,
-    output: &OutputKind,
-) -> Result<T, LlmError> {
-    let value: serde_json::Value = serde_json::from_str(text)
-        .map_err(|e| LlmError::ParseError(format!("Failed to parse JSON: {}", e)))?;
-    // Output kind simple validation
-    match output {
-        OutputKind::Object => {
-            if !value.is_object() {
-                return Err(LlmError::InvalidParameter("Expected a JSON object".into()));
-            }
-        }
-        OutputKind::Array => {
-            if !value.is_array() {
-                return Err(LlmError::InvalidParameter("Expected a JSON array".into()));
-            }
-        }
-        OutputKind::Enum(allowed) => {
-            if !allowed.is_empty() && !allowed.contains(&value) {
-                return Err(LlmError::InvalidParameter(format!(
-                    "Value not in enum set: {}",
-                    value
-                )));
-            }
-        }
-        OutputKind::NoSchema => {}
-    }
-
-    // Schema validation has been moved to siumai-extras
-    // If you need schema validation, use siumai-extras::schema::validate_json
-    if schema.is_some() {
-        tracing::warn!(
-            "Schema validation is no longer built-in. Use siumai-extras::schema::validate_json for validation."
-        );
-    }
-    serde_json::from_value::<T>(value)
-        .map_err(|e| LlmError::ParseError(format!("Failed to deserialize object: {}", e)))
+    let obj = decode_typed::<T>(&text, &cfg)?;
+    Ok((obj, resp))
 }
 
 /// Stream options for `stream_object`.
@@ -252,8 +178,8 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
         true,
     );
     let mut stream = model.chat_stream_request(req).await?;
-    let schema = opts.schema.clone();
-    let output = opts.output.clone();
+    let output_kind = opts.output.clone();
+    let mode = opts.mode;
     let repair = opts.repair_text.clone();
     let max_rounds = opts.max_repair_rounds;
     let emit_partial = opts.emit_partial_object;
@@ -266,13 +192,13 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
         let mut last_partial: Option<serde_json::Value> = None;
         while let Some(item) = stream.next().await {
             match item? {
-                crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+                siumai::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
                     if emit_partial {
                         // Try parse a balanced JSON slice from the accumulated text.
-                        if let Some(slice) = extract_balanced_json_slice(&acc) {
-                            let cand = strip_trailing_commas(slice);
+                        if let Some(slice) = crate::structured_output::extract_balanced_json_slice(&acc) {
+                            let cand = crate::structured_output::strip_trailing_commas(slice);
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cand) {
                                 let changed = match &last_partial {
                                     Some(prev) => prev != &v,
@@ -286,43 +212,39 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                         }
                     }
                 }
-                crate::streaming::ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
+                siumai::streaming::ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
                     tool_args_acc.push_str(&d);
                 }
-                crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
+                siumai::streaming::ChatStreamEvent::UsageUpdate { usage } => {
                     yield StreamObjectEvent::UsageUpdate { usage };
                 }
-                crate::streaming::ChatStreamEvent::StreamEnd { response } => {
+                siumai::streaming::ChatStreamEvent::StreamEnd { response } => {
                     final_resp = Some(response);
                     break;
                 }
                 _ => {}
             }
         }
-        let resp = final_resp.unwrap_or_else(|| ChatResponse::new(crate::types::MessageContent::Text(acc.clone())));
+        let resp = final_resp
+            .unwrap_or_else(|| ChatResponse::new(siumai::types::MessageContent::Text(acc.clone())));
         // Try parse/validate/deserialize with optional repair
         // Prefer tool arguments if present
-        let mut text = if !tool_args_acc.is_empty() { tool_args_acc } else { acc };
-        let mut rounds = 0usize;
-        loop {
-            match try_parse_validate_deserialize::<T>(&text, schema.as_ref(), &output) {
-                Ok(obj) => {
-                    yield StreamObjectEvent::Final { object: obj, response: resp };
-                    break;
-                }
-                Err(e) => {
-                    let mut err_opt = Some(e);
-                    if rounds < max_rounds {
-                        if let Some(cb) = &repair {
-                            if let Some(next) = cb(&text) { text = next; rounds += 1; err_opt = None; }
-                        } else if let Some(next) = default_repair_text(&text) {
-                            text = next; rounds += 1; err_opt = None;
-                        }
-                    }
-                    if let Some(err) = err_opt { Err::<(), LlmError>(err)?; }
-                }
-            }
-        }
+        let text = if !tool_args_acc.is_empty() { tool_args_acc } else { acc };
+        let cfg = OutputDecodeConfig {
+            schema: opts.schema.clone().map(|schema| siumai::types::OutputSchema {
+                schema,
+                name: opts.schema_name.clone(),
+                description: opts.schema_description.clone(),
+            }),
+            kind: output_kind,
+            mode,
+            emit_partial: emit_partial,
+            repair_text: repair,
+            max_repair_rounds: max_rounds,
+        };
+
+        let obj = decode_typed::<T>(&text, &cfg)?;
+        yield StreamObjectEvent::Final { object: obj, response: resp };
     };
     Ok(Box::pin(s))
 }
@@ -332,128 +254,8 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
 /// This scans for the first '{' or '[' and then tracks brace/bracket balance,
 /// ignoring occurrences within string literals. When balance returns to zero,
 /// returns the substring covering that balanced JSON block.
-fn extract_balanced_json_slice(text: &str) -> Option<&str> {
-    let bytes = text.as_bytes();
-    let mut start = None;
-    let mut brace: i32 = 0;
-    let mut bracket: i32 = 0;
-    let mut i = 0;
-    let mut in_str = false;
-    let mut escape = false;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if start.is_none() {
-            if c == '{' || c == '[' {
-                start = Some(i);
-                if c == '{' {
-                    brace = 1;
-                } else {
-                    bracket = 1;
-                }
-                i += 1;
-                continue;
-            }
-        } else {
-            if in_str {
-                if escape {
-                    escape = false;
-                } else if c == '\\' {
-                    escape = true;
-                } else if c == '"' {
-                    in_str = false;
-                }
-            } else {
-                match c {
-                    '"' => in_str = true,
-                    '{' => brace += 1,
-                    '}' => brace -= 1,
-                    '[' => bracket += 1,
-                    ']' => bracket -= 1,
-                    _ => {}
-                }
-                if brace < 0 || bracket < 0 {
-                    // malformed; abort current detection
-                    start = None;
-                    brace = 0;
-                    bracket = 0;
-                    in_str = false;
-                    escape = false;
-                } else if brace == 0 && bracket == 0 {
-                    let s = start.unwrap();
-                    let e = i; // inclusive char at i
-                    return text.get(s..=e);
-                }
-            }
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Default lightweight repair: strip code fences, trim to balanced JSON slice.
-fn default_repair_text(text: &str) -> Option<String> {
-    // Remove common fenced code wrappers
-    let mut s = text.trim().to_string();
-    if s.starts_with("```") {
-        // remove first line fence
-        if let Some(pos) = s.find('\n') {
-            s = s[pos + 1..].to_string();
-        }
-    }
-    if let Some(idx) = s.rfind("```") {
-        s = s[..idx].to_string();
-    }
-    // Try balanced slice
-    if let Some(slice) = extract_balanced_json_slice(&s) {
-        let cand = strip_trailing_commas(slice);
-        return Some(cand);
-    }
-    None
-}
-
-/// Remove trailing commas immediately before '}' or ']'.
-fn strip_trailing_commas(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = String::with_capacity(input.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if c == ',' {
-            let mut j = i + 1;
-            while j < bytes.len() && (bytes[j] as char).is_whitespace() {
-                j += 1;
-            }
-            if j < bytes.len() {
-                let nc = bytes[j] as char;
-                if nc == '}' || nc == ']' {
-                    i += 1; // skip this comma
-                    continue;
-                }
-            }
-            out.push(',');
-            i += 1;
-        } else {
-            out.push(c);
-            i += 1;
-        }
-    }
-    out
-}
-
-/// Remove trailing commas before '}' and ']' to increase JSON parse tolerance.
-#[allow(dead_code)]
-fn remove_trailing_commas(input: &str) -> String {
-    strip_trailing_commas(input)
-    /*
-    // Simple regex approach; safe fallback to original on regex build failure.
-    // Pattern: ,\s*} and ,\s*]
-    let re1 = Regex::new(",\\s*}\").ok();
-    let re2 = Regex::new(",\\s*]\\").ok();
-    let mut out = input.to_string();
-    if let Some(r) = re1.as_ref() { out = r.replace_all(&out, "}").to_string(); }
-    if let Some(r) = re2.as_ref() { out = r.replace_all(&out, "]").to_string(); }
-    */
-}
+// Balanced-slice helpers now live in `crate::structured_output` and are reused
+// here for computing partial JSON objects.
 
 /// Build a ChatRequest carrying structured_output hints.
 fn build_chat_request_with_hints(
@@ -543,7 +345,7 @@ fn build_chat_request_with_hints(
     if let Some(schema) = opts.schema.clone() {
         #[cfg(feature = "openai")]
         {
-            use crate::types::{OpenAiOptions, ResponsesApiConfig};
+            use siumai::types::{OpenAiOptions, ResponsesApiConfig};
             let response_format = if let Some(name) = opts.schema_name.clone() {
                 serde_json::json!({
                     "type": "json_schema",
@@ -570,7 +372,7 @@ fn build_chat_request_with_hints(
 
         #[cfg(feature = "anthropic")]
         {
-            use crate::types::AnthropicOptions;
+            use siumai::types::AnthropicOptions;
             if let Some(name) = opts.schema_name.clone() {
                 let opts_an = AnthropicOptions::new().with_json_schema(name, schema.clone(), true);
                 req = req.with_anthropic_options(opts_an);
@@ -582,7 +384,7 @@ fn build_chat_request_with_hints(
 
         #[cfg(feature = "google")]
         {
-            use crate::types::GeminiOptions;
+            use siumai::types::GeminiOptions;
             // Ask Gemini to return JSON by setting the response MIME type
             let opts_g = GeminiOptions::new().with_response_mime_type("application/json");
             req = req.with_gemini_options(opts_g);
@@ -618,13 +420,13 @@ pub async fn stream_object_auto<T: DeserializeOwned + Send + 'static>(
 /// Generate a typed object using OpenAI Responses API structured outputs when possible.
 /// This helper creates a ChatRequest with appropriate provider_options for structured output.
 pub async fn generate_object_openai<T: DeserializeOwned>(
-    client: &crate::providers::openai::OpenAiClient,
-    messages: Vec<crate::types::ChatMessage>,
-    tools: Option<Vec<crate::types::Tool>>,
+    client: &siumai::providers::openai::OpenAiClient,
+    messages: Vec<siumai::types::ChatMessage>,
+    tools: Option<Vec<siumai::types::Tool>>,
     opts: GenerateObjectOptions,
-) -> Result<(T, crate::types::ChatResponse), crate::error::LlmError> {
+) -> Result<(T, siumai::types::ChatResponse), LlmError> {
     // Build a ChatRequest with provider_options for structured output
-    use crate::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
 
     let mut request = ChatRequest::new(messages);
     if let Some(t) = tools {
@@ -663,10 +465,10 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     let resp = client.chat_request(request).await?;
 
     // Extract text content (prefer tool call arguments if present)
-    let mut text = {
+    let text = {
         let tool_calls = resp.tool_calls();
         if let Some(first) = tool_calls.first() {
-            if let crate::types::ContentPart::ToolCall { arguments, .. } = first {
+            if let siumai::types::ContentPart::ToolCall { arguments, .. } = first {
                 serde_json::to_string(arguments).unwrap_or_default()
             } else {
                 resp.content_text()
@@ -681,51 +483,42 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     };
 
     if text.is_empty() {
-        return Err(crate::error::LlmError::ParseError(
+        return Err(LlmError::ParseError(
             "No content for object generation".into(),
         ));
     }
 
-    // Parse and repair with retries
-    let mut rounds = 0usize;
-    loop {
-        match try_parse_validate_deserialize::<T>(&text, opts.schema.as_ref(), &opts.output) {
-            Ok(obj) => return Ok((obj, resp)),
-            Err(e) => {
-                if rounds >= opts.max_repair_rounds {
-                    return Err(e);
-                }
-                if let Some(repair) = &opts.repair_text {
-                    if let Some(next) = repair(&text) {
-                        text = next;
-                        rounds += 1;
-                        continue;
-                    }
-                } else if let Some(next) = default_repair_text(&text) {
-                    text = next;
-                    rounds += 1;
-                    continue;
-                }
-                return Err(e);
-            }
-        }
-    }
+    let cfg = OutputDecodeConfig {
+        schema: opts
+            .schema
+            .clone()
+            .map(|schema| siumai::types::OutputSchema {
+                schema,
+                name: opts.schema_name.clone(),
+                description: opts.schema_description.clone(),
+            }),
+        kind: opts.output.clone(),
+        mode: opts.mode,
+        emit_partial: false,
+        repair_text: opts.repair_text.clone(),
+        max_repair_rounds: opts.max_repair_rounds,
+    };
+
+    let obj = decode_typed::<T>(&text, &cfg)?;
+    Ok((obj, resp))
 }
 
 #[cfg(feature = "openai")]
 /// Stream a typed object using OpenAI Responses API structured outputs when possible.
 /// Creates a ChatRequest with appropriate provider_options for structured output.
 pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
-    client: &crate::providers::openai::OpenAiClient,
-    messages: Vec<crate::types::ChatMessage>,
-    tools: Option<Vec<crate::types::Tool>>,
+    client: &siumai::providers::openai::OpenAiClient,
+    messages: Vec<siumai::types::ChatMessage>,
+    tools: Option<Vec<siumai::types::Tool>>,
     opts: StreamObjectOptions,
-) -> Result<
-    Pin<Box<dyn Stream<Item = Result<StreamObjectEvent<T>, crate::error::LlmError>> + Send>>,
-    crate::error::LlmError,
-> {
+) -> Result<Pin<Box<dyn Stream<Item = Result<StreamObjectEvent<T>, LlmError>> + Send>>, LlmError> {
     // Build a ChatRequest with provider_options for structured output
-    use crate::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
 
     let mut request = ChatRequest::new(messages);
     if let Some(t) = tools {
@@ -777,12 +570,12 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
 
         while let Some(item) = stream.next().await {
             match item? {
-                crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+                siumai::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
                     if emit_partial {
-                        if let Some(slice) = extract_balanced_json_slice(&acc) {
-                            let cand = strip_trailing_commas(slice);
+                        if let Some(slice) = crate::structured_output::extract_balanced_json_slice(&acc) {
+                            let cand = crate::structured_output::strip_trailing_commas(slice);
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cand) {
                                 let changed = match &last_partial {
                                     Some(prev) => prev != &v,
@@ -796,7 +589,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
                         }
                     }
                 }
-                crate::streaming::ChatStreamEvent::StreamEnd { response } => {
+                siumai::streaming::ChatStreamEvent::StreamEnd { response } => {
                     final_resp = Some(response);
                     break;
                 }
@@ -805,40 +598,27 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
         }
 
         let resp = final_resp.ok_or_else(|| LlmError::ParseError("No final response".into()))?;
-        let mut text = resp.content_text().map(|s| s.to_string()).unwrap_or_else(|| acc.clone());
-        if text.is_empty() {
-            text = acc;
-        }
+        let text = resp
+            .content_text()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(acc);
 
-        // Parse and repair
-        let mut rounds = 0usize;
-        loop {
-            match try_parse_validate_deserialize::<T>(&text, schema.as_ref(), &output) {
-                Ok(obj) => {
-                    yield StreamObjectEvent::Final { object: obj, response: resp };
-                    break;
-                }
-                Err(e) => {
-                    if rounds >= max_rounds {
-                        Err(e)?;
-                        break;
-                    }
-                    if let Some(repair_fn) = &repair {
-                        if let Some(next) = repair_fn(&text) {
-                            text = next;
-                            rounds += 1;
-                            continue;
-                        }
-                    } else if let Some(next) = default_repair_text(&text) {
-                        text = next;
-                        rounds += 1;
-                        continue;
-                    }
-                    Err(e)?;
-                    break;
-                }
-            }
-        }
+        let cfg = OutputDecodeConfig {
+            schema: schema.clone().map(|schema| siumai::types::OutputSchema {
+                schema,
+                name: opts.schema_name.clone(),
+                description: opts.schema_description.clone(),
+            }),
+            kind: output.clone(),
+            mode: opts.mode,
+            emit_partial,
+            repair_text: repair.clone(),
+            max_repair_rounds: max_rounds,
+        };
+
+        let obj = decode_typed::<T>(&text, &cfg)?;
+        yield StreamObjectEvent::Final { object: obj, response: resp };
     };
     Ok(Box::pin(s))
 }
@@ -861,22 +641,26 @@ mod tests {
     impl ChatCapability for StreamOnlyModel {
         async fn chat_with_tools(
             &self,
-            _messages: Vec<crate::types::ChatMessage>,
-            _tools: Option<Vec<crate::types::Tool>>,
-        ) -> Result<crate::types::ChatResponse, LlmError> {
+            _messages: Vec<siumai::types::ChatMessage>,
+            _tools: Option<Vec<siumai::types::Tool>>,
+        ) -> Result<siumai::types::ChatResponse, LlmError> {
             Err(LlmError::UnsupportedOperation("non-stream".into()))
         }
         async fn chat_stream(
             &self,
-            _messages: Vec<crate::types::ChatMessage>,
-            _tools: Option<Vec<crate::types::Tool>>,
-        ) -> Result<crate::streaming::ChatStream, LlmError> {
+            _messages: Vec<siumai::types::ChatMessage>,
+            _tools: Option<Vec<siumai::types::Tool>>,
+        ) -> Result<siumai::streaming::ChatStream, LlmError> {
             let chunks = self.deltas.clone();
             let s = async_stream::try_stream! {
                 for d in chunks {
-                    yield crate::streaming::ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
+                    yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
                 }
-                yield crate::streaming::ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text(String::new())) };
+                yield siumai::streaming::ChatStreamEvent::StreamEnd {
+                    response: siumai::types::ChatResponse::new(
+                        siumai::types::MessageContent::Text(String::new())
+                    ),
+                };
             };
             Ok(Box::pin(s))
         }
@@ -935,19 +719,19 @@ mod tests {
     impl ChatCapability for MockModel {
         async fn chat_with_tools(
             &self,
-            _messages: Vec<crate::types::ChatMessage>,
-            _tools: Option<Vec<crate::types::Tool>>,
-        ) -> Result<crate::types::ChatResponse, LlmError> {
-            Ok(crate::types::ChatResponse::new(
-                crate::types::MessageContent::Text("{\"name\":\"Ada\",\"age\":36}".to_string()),
+            _messages: Vec<siumai::types::ChatMessage>,
+            _tools: Option<Vec<siumai::types::Tool>>,
+        ) -> Result<siumai::types::ChatResponse, LlmError> {
+            Ok(siumai::types::ChatResponse::new(
+                siumai::types::MessageContent::Text("{\"name\":\"Ada\",\"age\":36}".to_string()),
             ))
         }
 
         async fn chat_stream(
             &self,
-            _messages: Vec<crate::types::ChatMessage>,
-            _tools: Option<Vec<crate::types::Tool>>,
-        ) -> Result<crate::streaming::ChatStream, LlmError> {
+            _messages: Vec<siumai::types::ChatMessage>,
+            _tools: Option<Vec<siumai::types::Tool>>,
+        ) -> Result<siumai::streaming::ChatStream, LlmError> {
             Err(LlmError::UnsupportedOperation("no stream".into()))
         }
     }
@@ -965,7 +749,7 @@ mod tests {
         });
         let (user, _resp): (User, _) = generate_object(
             &model,
-            vec![crate::types::ChatMessage::user("give me user json").build()],
+            vec![siumai::types::ChatMessage::user("give me user json").build()],
             None,
             GenerateObjectOptions {
                 schema: Some(schema),
@@ -993,23 +777,27 @@ mod tests {
         impl ChatCapability for MockStreamModel {
             async fn chat_with_tools(
                 &self,
-                _messages: Vec<crate::types::ChatMessage>,
-                _tools: Option<Vec<crate::types::Tool>>,
-            ) -> Result<crate::types::ChatResponse, LlmError> {
+                _messages: Vec<siumai::types::ChatMessage>,
+                _tools: Option<Vec<siumai::types::Tool>>,
+            ) -> Result<siumai::types::ChatResponse, LlmError> {
                 Err(LlmError::UnsupportedOperation("no sync".into()))
             }
 
             async fn chat_stream(
                 &self,
-                _messages: Vec<crate::types::ChatMessage>,
-                _tools: Option<Vec<crate::types::Tool>>,
-            ) -> Result<crate::streaming::ChatStream, LlmError> {
+                _messages: Vec<siumai::types::ChatMessage>,
+                _tools: Option<Vec<siumai::types::Tool>>,
+            ) -> Result<siumai::streaming::ChatStream, LlmError> {
                 let s = async_stream::try_stream! {
-                    yield crate::types::ChatStreamEvent::ContentDelta { delta: "{".into(), index: None };
-                    yield crate::types::ChatStreamEvent::ContentDelta { delta: "\"name\"".into(), index: None };
-                    yield crate::types::ChatStreamEvent::ContentDelta { delta: ":\"Ada\",".into(), index: None };
-                    yield crate::types::ChatStreamEvent::ContentDelta { delta: "\"age\":36}".into(), index: None };
-                    yield crate::types::ChatStreamEvent::StreamEnd { response: crate::types::ChatResponse::new(crate::types::MessageContent::Text("".into())) };
+                    yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: "{".into(), index: None };
+                    yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: "\"name\"".into(), index: None };
+                    yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: ":\"Ada\",".into(), index: None };
+                    yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: "\"age\":36}".into(), index: None };
+                    yield siumai::streaming::ChatStreamEvent::StreamEnd {
+                        response: siumai::types::ChatResponse::new(
+                            siumai::types::MessageContent::Text("".into())
+                        ),
+                    };
                 };
                 Ok(Box::pin(s))
             }
@@ -1024,7 +812,7 @@ mod tests {
         let model = MockStreamModel;
         let mut s = stream_object::<U>(
             &model,
-            vec![crate::types::ChatMessage::user("user").build()],
+            vec![siumai::types::ChatMessage::user("user").build()],
             None,
             StreamObjectOptions {
                 emit_partial_object: true,
@@ -1066,16 +854,16 @@ mod openai_integration_tests {
     use super::*;
 
     struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
-    impl crate::execution::http::interceptor::HttpInterceptor for Capture {
+    impl siumai::execution::http::interceptor::HttpInterceptor for Capture {
         fn on_before_send(
             &self,
-            _ctx: &crate::execution::http::interceptor::HttpRequestContext,
+            _ctx: &siumai::execution::http::interceptor::HttpRequestContext,
             _rb: reqwest::RequestBuilder,
             body: &serde_json::Value,
             _headers: &reqwest::header::HeaderMap,
-        ) -> Result<reqwest::RequestBuilder, crate::error::LlmError> {
+        ) -> Result<reqwest::RequestBuilder, LlmError> {
             *self.0.lock().unwrap() = Some(body.clone());
-            Err(crate::error::LlmError::InvalidParameter("stop".into()))
+            Err(LlmError::InvalidParameter("stop".into()))
         }
     }
 
@@ -1083,8 +871,8 @@ mod openai_integration_tests {
     fn openai_generate_object_injects_response_format_object() {
         // Prepare OpenAI client
         let cfg =
-            crate::providers::openai::OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
-        let client = crate::providers::openai::OpenAiClient::new(cfg, reqwest::Client::new());
+            siumai::providers::openai::OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
+        let client = siumai::providers::openai::OpenAiClient::new(cfg, reqwest::Client::new());
         let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
         let cap = Capture(captured.clone());
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
@@ -1095,7 +883,7 @@ mod openai_integration_tests {
             "properties": {"name": {"type": "string"}},
             "required": ["name"]
         });
-        let messages = vec![crate::types::ChatMessage::user("hi").build()];
+        let messages = vec![siumai::types::ChatMessage::user("hi").build()];
         let opts = GenerateObjectOptions {
             schema: Some(schema),
             ..Default::default()
@@ -1113,8 +901,8 @@ mod openai_integration_tests {
     #[test]
     fn openai_stream_object_injects_response_format_named_schema() {
         let cfg =
-            crate::providers::openai::OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
-        let client = crate::providers::openai::OpenAiClient::new(cfg, reqwest::Client::new());
+            siumai::providers::openai::OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
+        let client = siumai::providers::openai::OpenAiClient::new(cfg, reqwest::Client::new());
         let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
         let cap = Capture(captured.clone());
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
@@ -1124,7 +912,7 @@ mod openai_integration_tests {
             "properties": {"age": {"type": "integer"}},
             "required": ["age"]
         });
-        let messages = vec![crate::types::ChatMessage::user("hi").build()];
+        let messages = vec![siumai::types::ChatMessage::user("hi").build()];
         let opts = StreamObjectOptions {
             schema: Some(schema),
             schema_name: Some("User".into()),

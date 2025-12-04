@@ -380,7 +380,11 @@ impl ChatCapability for OllamaClient {
         };
 
         if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(call, opts.clone()).await
+            let mut opts = opts.clone();
+            if opts.provider.is_none() {
+                opts.provider = Some(crate::types::ProviderType::Ollama);
+            }
+            crate::retry_api::retry_with(call, opts).await
         } else {
             call().await
         }

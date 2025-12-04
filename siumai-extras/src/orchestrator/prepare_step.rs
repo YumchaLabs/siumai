@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use super::types::StepResult;
-use crate::types::{ChatMessage, Tool};
+use siumai::types::{ChatMessage, Tool};
 
 /// Context provided to the prepare step callback.
 pub struct PrepareStepContext<'a> {
@@ -90,7 +90,7 @@ pub enum ToolChoice {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::orchestrator::{PrepareStepFn, PrepareStepResult, ToolChoice};
+/// use siumai_extras::orchestrator::{PrepareStepFn, PrepareStepResult, ToolChoice};
 /// use std::sync::Arc;
 ///
 /// let prepare_step: PrepareStepFn = Arc::new(|ctx| {
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_filter_active_tools() {
-        use crate::types::Tool;
+        use siumai::types::Tool;
 
         let tools = vec![
             Tool::function(

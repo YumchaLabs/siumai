@@ -17,6 +17,7 @@ use crate::traits::ProviderCapabilities;
 use crate::providers::openai_compatible::adapter::ProviderAdapter;
 #[cfg(feature = "openai")]
 use crate::providers::openai_compatible::registry::{ConfigurableAdapter, ProviderConfig};
+pub mod builder;
 
 /// Unified provider record maintained by the registry
 #[derive(Debug, Clone)]
@@ -483,7 +484,7 @@ mod tests {
 
 // Re-export commonly used items for convenience
 pub use entry::{
-    EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
+    BuildContext, EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
     ProviderRegistryHandle, RegistryOptions, SpeechModelHandle, TranscriptionModelHandle,
     create_provider_registry,
 };

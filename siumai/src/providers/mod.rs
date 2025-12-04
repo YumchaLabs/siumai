@@ -241,7 +241,8 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     ],
                 });
             }
-            ProviderType::Custom(_) => {
+            ProviderType::Custom(_) =>
+            {
                 #[cfg(feature = "openai")]
                 if rec.id == "openai-compatible" {
                     out.push(ProviderInfo {

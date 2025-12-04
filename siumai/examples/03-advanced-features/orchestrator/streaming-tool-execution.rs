@@ -16,10 +16,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use siumai::error::LlmError;
-use siumai::orchestrator::{
+use siumai::prelude::*;
+use siumai_extras::orchestrator::{
     OrchestratorOptions, ToolExecutionResult, ToolResolver, generate, step_count_is,
 };
-use siumai::prelude::*;
 
 /// A tool resolver that supports streaming tool execution
 struct StreamingToolResolver;

@@ -22,6 +22,126 @@ siumai-extras = { version = "0.11", features = ["schema", "telemetry", "mcp"] }
 
 ## Usage
 
+> Orchestrator and high-level object helpers do **not** require any extra
+> features. Schema validation and tracing are opt-in via the `schema` and
+> `telemetry` features.
+
+### High-level structured objects
+
+Provider-agnostic helpers for generating typed JSON objects:
+
+```rust
+use serde::Deserialize;
+use siumai::prelude::*;
+use siumai_extras::highlevel::object::{generate_object, GenerateObjectOptions};
+
+#[derive(Deserialize, Debug)]
+struct Post { title: String }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Siumai::builder()
+        .openai()
+        .model("gpt-4o-mini")
+        .build()
+        .await?;
+
+    let (post, _resp) = generate_object::<Post>(
+        &client,
+        vec![user!("Return JSON: {\"title\":\"hi\"}")],
+        None,
+        GenerateObjectOptions::default(),
+    )
+    .await?;
+
+    println!("{}", post.title);
+    Ok(())
+}
+```
+
+If you enable the `schema` feature, `GenerateObjectOptions::schema` is
+validated via `siumai_extras::schema` before deserializing into `T`.
+
+### Orchestrator & agents
+
+Multi-step tool calling, agents, and stop conditions:
+
+```rust
+use serde_json::json;
+use siumai::prelude::*;
+use siumai_extras::orchestrator::{
+    ToolLoopAgent, ToolResolver, ToolChoice, step_count_is,
+};
+
+struct SimpleResolver;
+
+#[async_trait::async_trait]
+impl ToolResolver for SimpleResolver {
+    async fn call_tool(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, siumai::error::LlmError> {
+        match name {
+            "get_weather" => {
+                let city = args.get("city").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                Ok(json!({ "city": city, "temperature": 72, "condition": "sunny" }))
+            }
+            _ => Err(siumai::error::LlmError::InternalError(format!(
+                "Unknown tool: {}",
+                name
+            ))),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Siumai::builder()
+        .openai()
+        .model("gpt-4o-mini")
+        .build()
+        .await?;
+
+    let weather_tool = Tool::function(
+        "get_weather",
+        "Get weather for a city",
+        json!({
+            "type": "object",
+            "properties": { "city": { "type": "string" } },
+            "required": ["city"]
+        }),
+    );
+
+    let agent = ToolLoopAgent::new(client, vec![weather_tool], vec![step_count_is(10)])
+        .with_system("You are a helpful assistant.")
+        .with_tool_choice(ToolChoice::Required);
+
+    let messages = vec![ChatMessage::user("What's the weather in Tokyo?").build()];
+    let resolver = SimpleResolver;
+
+    let result = agent.generate(messages, &resolver).await?;
+    println!("Answer: {}", result.text().unwrap_or_default());
+    Ok(())
+}
+```
+
+You can attach telemetry to the agent or orchestrator using
+`siumai::telemetry::TelemetryConfig`:
+
+```rust
+use siumai::telemetry::TelemetryConfig;
+use siumai_extras::orchestrator::OrchestratorBuilder;
+
+let telemetry = TelemetryConfig::builder()
+    .record_inputs(false)
+    .record_outputs(false)
+    .record_usage(true)
+    .build();
+
+let builder = OrchestratorBuilder::new().telemetry(telemetry);
+```
+
 ### Schema Validation
 
 ```rust
@@ -58,13 +178,13 @@ use siumai_extras::mcp::mcp_tools_from_stdio;
 // Connect to MCP server and get tools
 let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
 
-// Use with Siumai orchestrator
-let (response, _) = siumai::orchestrator::generate(
+// Use with Siumai orchestrator (from siumai-extras)
+let (response, _) = siumai_extras::orchestrator::generate(
     &model,
     messages,
     Some(tools),
     Some(&resolver),
-    vec![siumai::orchestrator::step_count_is(10)],
+    vec![siumai_extras::orchestrator::step_count_is(10)],
     Default::default(),
 ).await?;
 ```
@@ -82,4 +202,3 @@ Licensed under either of:
 - MIT license ([LICENSE-MIT](../LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
 at your option.
-

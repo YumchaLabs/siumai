@@ -92,22 +92,25 @@ use crate::error::LlmError;
 
 // Note: Removed unused import crate::providers::* to fix warning
 
-/// Quick `OpenAI` client creation with minimal configuration.
+/// Quick `OpenAI` client creation with minimal configuration (low-level).
+///
+/// This helper returns the provider-specific `OpenAiClient` directly.
+/// For most applications, prefer using the unified `Siumai::builder()`
+/// or the provider registry, and only drop down to this API when you
+/// need direct access to OpenAI-specific capabilities.
 ///
 /// Uses environment variable `OPENAI_API_KEY` and default settings.
 ///
 /// # Example
 /// ```rust,no_run
-/// use siumai::{quick_openai, quick_openai_with_model};
+/// use siumai::builder::quick_openai;
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Uses OPENAI_API_KEY env var and gpt-4o-mini model
+///     // Low-level provider client (advanced use)
 ///     let client = quick_openai().await?;
-///
-///     // With custom model
-///     let client = quick_openai_with_model("gpt-4").await?;
-///
+///     let resp = client.chat(vec![siumai::types::ChatMessage::user("hi").build()]).await?;
+///     println!("{:?}", resp.content_text());
 ///     Ok(())
 /// }
 /// ```
@@ -124,7 +127,10 @@ pub async fn quick_openai_with_model(
     LlmBuilder::new().openai().model(model).build().await
 }
 
-/// Quick Anthropic client creation with minimal configuration.
+/// Quick Anthropic client creation with minimal configuration (low-level).
+///
+/// This helper returns the provider-specific `AnthropicClient`. Prefer
+/// `Siumai::builder().anthropic()` or the registry for most use cases.
 ///
 /// Uses environment variable `ANTHROPIC_API_KEY` and default settings.
 #[cfg(feature = "anthropic")]
@@ -140,7 +146,10 @@ pub async fn quick_anthropic_with_model(
     LlmBuilder::new().anthropic().model(model).build().await
 }
 
-/// Quick Gemini client creation with minimal configuration.
+/// Quick Gemini client creation with minimal configuration (low-level).
+///
+/// This helper returns the provider-specific `GeminiClient`. Prefer
+/// `Siumai::builder().gemini()` or the registry for most use cases.
 ///
 /// Uses environment variable `GEMINI_API_KEY` and default settings.
 #[cfg(feature = "google")]
@@ -156,7 +165,10 @@ pub async fn quick_gemini_with_model(
     LlmBuilder::new().gemini().model(model).build().await
 }
 
-/// Quick Ollama client creation with minimal configuration.
+/// Quick Ollama client creation with minimal configuration (low-level).
+///
+/// This helper returns the provider-specific `OllamaClient`. Prefer
+/// `Siumai::builder().ollama()` or the registry for most use cases.
 ///
 /// Uses default Ollama settings (<http://localhost:11434>) and llama3.2 model.
 #[cfg(feature = "ollama")]
@@ -172,7 +184,10 @@ pub async fn quick_ollama_with_model(
     LlmBuilder::new().ollama().model(model).build().await
 }
 
-/// Quick Groq client creation with minimal configuration.
+/// Quick Groq client creation with minimal configuration (low-level).
+///
+/// This helper returns the provider-specific `GroqClient`. Prefer
+/// `Siumai::builder().groq()` or the registry for most use cases.
 ///
 /// Uses environment variable `GROQ_API_KEY` and default settings.
 #[cfg(feature = "groq")]
@@ -188,7 +203,10 @@ pub async fn quick_groq_with_model(
     LlmBuilder::new().groq().model(model).build().await
 }
 
-/// Quick xAI client creation with minimal configuration.
+/// Quick xAI client creation with minimal configuration (low-level).
+///
+/// This helper returns the provider-specific `XaiClient`. Prefer
+/// `Siumai::builder().xai()` or the registry for most use cases.
 ///
 /// Uses environment variable `XAI_API_KEY` and default settings.
 #[cfg(feature = "xai")]

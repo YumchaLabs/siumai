@@ -9,14 +9,14 @@
 //! ```
 
 use serde_json::json;
-use siumai::orchestrator::{step_count_is, ToolLoopAgent};
-use siumai::providers::openai::OpenAiClient;
+use siumai_extras::orchestrator::{step_count_is, ToolLoopAgent};
+use siumai::prelude::Siumai;
 use siumai::types::{ChatMessage, OutputSchema, Tool};
 
 // Simple tool resolver that doesn't actually execute tools
 struct DummyResolver;
 
-impl siumai::orchestrator::ToolResolver for DummyResolver {
+impl siumai_extras::orchestrator::ToolResolver for DummyResolver {
     async fn resolve(
         &self,
         _tool_name: &str,
@@ -28,9 +28,14 @@ impl siumai::orchestrator::ToolResolver for DummyResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the OpenAI client
+    // Initialize the model via the unified Siumai builder
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
-    let client = OpenAiClient::new(&api_key).model("gpt-4o-mini");
+    let client = Siumai::builder()
+        .openai()
+        .api_key(&api_key)
+        .model("gpt-4o-mini")
+        .build()
+        .await?;
 
     // Define the output schema
     let schema = json!({
@@ -125,20 +130,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "required": ["people"]
     });
 
-    let agent2 = ToolLoopAgent::new(
-        OpenAiClient::new(&api_key).model("gpt-4o-mini"),
-        vec![],
-        vec![Box::new(step_count_is(5))],
-    )
-    .with_system(
+    let agent2 = ToolLoopAgent::new(client.clone(), vec![], vec![Box::new(step_count_is(5))])
+        .with_system(
         "You are a helpful assistant that extracts information about multiple people. \
          Always respond with valid JSON matching the requested schema.",
     )
-    .with_output_schema(
-        OutputSchema::new(multi_schema.clone())
-            .with_name("people_list")
-            .with_description("List of people"),
-    );
+        .with_output_schema(
+            OutputSchema::new(multi_schema.clone())
+                .with_name("people_list")
+                .with_description("List of people"),
+        );
 
     let messages2 = vec![ChatMessage::user(
         "Extract information about these people: \
@@ -189,4 +190,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

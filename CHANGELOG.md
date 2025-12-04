@@ -13,6 +13,14 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - `registry::helpers::create_registry_with_defaults()` now pre-registers factories for:
     - Native providers: `openai`, `anthropic`, `anthropic-vertex`, `gemini`, `groq`, `xai`, `ollama`, `minimaxi`
     - All built-in OpenAI-compatible providers (DeepSeek, SiliconFlow, OpenRouter, Together, Fireworks, etc.)
+- `siumai-extras` workflow and memory abstractions
+  - New `WorkflowBuilder<M>` + `Workflow<M>` on top of `Orchestrator<M>` and `ToolLoopAgent<M>`
+  - Semantic worker role helpers and constants: `WORKER_PLANNER`, `WORKER_CODER`, `WORKER_RESEARCHER`
+  - Pluggable `WorkflowMemory` trait and in-process `InMemoryWorkflowMemory` implementation
+  - Example `workflow_planner_coder` showing planner + coder + in-memory memory using OpenAI
+- Unified structured output decoding helpers in `siumai-extras`
+  - `structured_output::OutputDecodeConfig` used by high-level object helpers, agents, orchestrator, and workflows
+  - Shared JSON repair, shape hints, and optional JSON Schema validation (via `schema` feature)
 
 ### Changed
 
@@ -25,6 +33,21 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Anthropic / Gemini / Groq / xAI / Ollama / MiniMaxi registry factories
   - All providers now construct clients via the shared helper functions in `registry::factory` (or their own config/client types) using `BuildContext`
   - Registry-level HTTP interceptors and model middlewares are consistently installed across all clients
+- Retry option propagation (builder + registry)
+  - `BuildContext.retry_options` is now applied uniformly to all supported providers (OpenAI, Anthropic, Anthropic Vertex, Gemini, Groq, xAI, Ollama, MiniMaxi, and all OpenAI-compatible adapters)
+  - `Siumai::builder().with_retry(...)` and `RegistryOptions.retry_options` configure the underlying provider clients via their unified `set_retry_options` / `with_retry` APIs, rather than adding separate ad hoc layers
+- Siumai outer retry wrapper semantics
+  - `SiumaiBuilder::build()` no longer automatically wraps the resulting `Siumai` instance in an additional retry layer
+  - Recommended usage: configure retry via the builder or registry; `Siumai::with_retry_options(...)` remains available as an explicit, opt-in wrapper for advanced scenarios
+- Orchestrator and high-level object helpers moved to `siumai_extras`
+  - `siumai::orchestrator::*` and `siumai::highlevel::object::*` are now provided by `siumai_extras::orchestrator` and `siumai_extras::highlevel::object`
+  - Core `siumai` focuses on low-level provider/client APIs; application-level workflows (agents, structured objects with schema validation) live in `siumai_extras`
+- `siumai-extras` structured output API clean-up
+  - Renamed extras-side decode config from `StructuredOutputConfig` to `OutputDecodeConfig` to clarify separation from provider-native structured output configs (e.g., OpenAI)
+  - High-level `generate_object` / `stream_object`, `ToolLoopAgent` structured output, `Orchestrator::run_typed`, and `Workflow::run_typed` are all backed by the same decode pipeline
+- Orchestrator / workflow ergonomics
+  - Added `tool_choice(...)` and `active_tools(...)` builders on `OrchestratorBuilder`, `Orchestrator`, and `WorkflowBuilder`
+  - These are thin sugar over `prepare_step`, mirroring Vercel AI SDK's `toolChoice` / `activeTools` for common cases
 - Provider registry metadata
   - Added a native `anthropic-vertex` entry (with alias `google-vertex-anthropic` and `claude` model prefix) to align routing between builder and registry
 
@@ -76,10 +99,10 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
   - Built-in `LoggingInterceptor`
 - Execution layer and middleware system (`execution::{executors,transformers,middleware}`)
   - Auto middlewares based on provider/model (defaults/clamping/reasoning extraction)
-- Orchestrator rework (`siumai/src/orchestrator/*`)
+- Orchestrator rework (`siumai-extras/src/orchestrator/*`)
   - Multi-step tool calling, agent pattern, tool approval, streaming tool execution
   - See examples under `siumai/examples/03-advanced-features/orchestrator/`
-- High-level object APIs (`siumai::highlevel::object`)
+- High-level object APIs (`siumai_extras::highlevel::object`)
   - `generate_object` / `stream_object` for provider-agnostic typed JSON outputs
   - Optional JSON repair and schema validation; partial object streaming
 - `siumai-extras` crate
@@ -215,12 +238,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = Siumai::builder().openai().build().await?;
 
     // 3. Use with orchestrator
-    let (response, _) = siumai::orchestrator::generate(
+    let (response, _) = siumai_extras::orchestrator::generate(
         &model,
         messages,
         Some(tools),
         Some(&resolver),
-        vec![siumai::orchestrator::step_count_is(10)],
+        vec![siumai_extras::orchestrator::step_count_is(10)],
         Default::default(),
     ).await?;
 

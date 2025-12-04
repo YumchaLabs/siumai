@@ -18,7 +18,7 @@ pub trait StopCondition: Send + Sync {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::orchestrator::{step_count_is, generate};
+/// use siumai_extras::orchestrator::{step_count_is, generate};
 ///
 /// let stop_condition = step_count_is(5);
 /// ```
@@ -52,7 +52,7 @@ pub fn step_count_is(count: usize) -> Box<dyn StopCondition> {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::orchestrator::{has_tool_call, generate};
+/// use siumai_extras::orchestrator::{has_tool_call, generate};
 ///
 /// let stop_condition = has_tool_call("finalAnswer");
 /// ```
@@ -64,7 +64,7 @@ impl StopCondition for HasToolCall {
     fn should_stop(&self, steps: &[StepResult]) -> bool {
         if let Some(last_step) = steps.last() {
             last_step.tool_calls.iter().any(|call| {
-                if let crate::types::ContentPart::ToolCall { tool_name, .. } = call {
+                if let siumai::types::ContentPart::ToolCall { tool_name, .. } = call {
                     tool_name == &self.tool_name
                 } else {
                     false
@@ -287,10 +287,10 @@ pub fn has_no_tool_calls() -> Box<dyn StopCondition> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ChatMessage;
+    use siumai::types::ChatMessage;
 
     fn create_step_with_tools(tool_names: Vec<&str>) -> StepResult {
-        use crate::types::ContentPart;
+        use siumai::types::ContentPart;
 
         StepResult {
             messages: vec![],
@@ -419,7 +419,7 @@ mod tests {
             finish_reason: None,
             usage: None,
             tool_calls: vec![],
-            tool_results: vec![crate::types::ContentPart::Text {
+            tool_results: vec![siumai::types::ContentPart::Text {
                 text: "result".to_string(),
             }],
             warnings: None,

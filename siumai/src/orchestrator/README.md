@@ -40,7 +40,7 @@ orchestrator/
 ### Basic Usage
 
 ```rust
-use siumai::orchestrator::{generate, step_count_is, OrchestratorOptions, ToolResolver};
+use siumai_extras::orchestrator::{generate, step_count_is, OrchestratorOptions, ToolResolver};
 use siumai::prelude::*;
 
 // 1. Implement ToolResolver
@@ -94,7 +94,7 @@ println!("Total steps: {}", steps.len());
 ### Using the Agent Pattern
 
 ```rust
-use siumai::orchestrator::{ToolLoopAgent, step_count_is};
+use siumai_extras::orchestrator::{ToolLoopAgent, step_count_is};
 
 // Create a reusable agent
 let agent = ToolLoopAgent::new(client, tools, vec![step_count_is(10)])
@@ -116,7 +116,7 @@ let (response2, _) = agent.generate(messages2, &resolver).await?;
 Control when orchestration should stop using the `StopCondition` trait:
 
 ```rust
-use siumai::orchestrator::*;
+use siumai_extras::orchestrator::*;
 
 // Built-in conditions
 let c1 = step_count_is(10);              // Stop after N steps
@@ -145,7 +145,7 @@ let c6 = custom_condition(|steps: &[StepResult]| {
 Control tool execution with approval workflows:
 
 ```rust
-use siumai::orchestrator::{OrchestratorOptions, ToolApproval};
+use siumai_extras::orchestrator::{OrchestratorOptions, ToolApproval};
 
 let options = OrchestratorOptions {
     on_tool_approval: Some(Arc::new(|tool_name: &str, args: &serde_json::Value| {
@@ -179,7 +179,7 @@ let options = OrchestratorOptions {
 Modify orchestrator behavior before each step:
 
 ```rust
-use siumai::orchestrator::{PrepareStepContext, PrepareStepResult, ToolChoice};
+use siumai_extras::orchestrator::{PrepareStepContext, PrepareStepResult, ToolChoice};
 
 let options = OrchestratorOptions {
     prepare_step: Some(Arc::new(|ctx: PrepareStepContext| {
@@ -249,7 +249,7 @@ let options = OrchestratorOptions {
 Real-time multi-step execution:
 
 ```rust
-use siumai::orchestrator::{generate_stream_owned, OrchestratorStreamOptions};
+use siumai_extras::orchestrator::{generate_stream_owned, OrchestratorStreamOptions};
 use siumai::stream::StreamEvent;
 
 let options = OrchestratorStreamOptions {
@@ -426,7 +426,7 @@ loop {
 
 **After (0.11.0):**
 ```rust
-use siumai::orchestrator::{generate, step_count_is};
+use siumai_extras::orchestrator::{generate, step_count_is};
 
 let (response, steps) = generate(
     &client,
@@ -446,4 +446,3 @@ The orchestrator module is designed to be extensible. You can:
 - Build higher-level abstractions on top of `ToolLoopAgent`
 
 See the [contribution guide](../../../../CONTRIBUTING.md) for more details.
-

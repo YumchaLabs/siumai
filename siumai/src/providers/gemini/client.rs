@@ -578,13 +578,17 @@ impl ChatCapability for GeminiClient {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
         if let Some(opts) = &self.retry_options {
+            let mut opts = opts.clone();
+            if opts.provider.is_none() {
+                opts.provider = Some(crate::types::ProviderType::Gemini);
+            }
             crate::retry_api::retry_with(
                 || {
                     let m = messages.clone();
                     let t = tools.clone();
                     async move { self.chat_with_tools_inner(m, t).await }
                 },
-                opts.clone(),
+                opts,
             )
             .await
         } else {

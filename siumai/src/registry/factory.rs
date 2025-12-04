@@ -14,6 +14,8 @@ use crate::execution::http::interceptor::HttpInterceptor;
 #[allow(unused_imports)]
 use crate::execution::middleware::LanguageModelMiddleware;
 #[allow(unused_imports)]
+use crate::retry_api::RetryOptions;
+#[allow(unused_imports)]
 use crate::types::{CommonParams, HttpConfig};
 #[allow(unused_imports)]
 use std::sync::Arc;
@@ -30,6 +32,7 @@ pub async fn build_openai_client(
     organization: Option<String>,
     project: Option<String>,
     _tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -51,6 +54,9 @@ pub async fn build_openai_client(
     }
 
     let mut client = crate::providers::openai::OpenAiClient::new(config, http_client);
+    if let Some(opts) = retry_options {
+        client.set_retry_options(Some(opts));
+    }
     if !interceptors.is_empty() {
         client = client.with_http_interceptors(interceptors);
     }
@@ -80,6 +86,7 @@ pub async fn build_openai_compatible_client(
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -155,6 +162,9 @@ pub async fn build_openai_compatible_client(
         http_client,
     )
     .await?;
+    if let Some(opts) = retry_options {
+        client.set_retry_options(Some(opts));
+    }
     if !interceptors.is_empty() {
         client = client.with_http_interceptors(interceptors);
     }
@@ -187,6 +197,7 @@ pub async fn build_anthropic_client(
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -202,6 +213,9 @@ pub async fn build_anthropic_client(
         anthropic_params,
         http_config,
     );
+    if let Some(opts) = retry_options {
+        client.set_retry_options(Some(opts));
+    }
     if !interceptors.is_empty() {
         client = client.with_http_interceptors(interceptors);
     }
@@ -234,6 +248,7 @@ pub async fn build_gemini_client(
         std::sync::Arc<dyn crate::auth::TokenProvider>,
     >,
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -269,6 +284,9 @@ pub async fn build_gemini_client(
 
     // Create client with provided HTTP client
     let mut client = GeminiClient::with_http_client(config, http_client)?;
+    if let Some(opts) = retry_options {
+        client.set_retry_options(Some(opts));
+    }
     if !interceptors.is_empty() {
         client = client.with_http_interceptors(interceptors);
     }
@@ -301,6 +319,8 @@ pub async fn build_anthropic_vertex_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     _tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let cfg = crate::providers::anthropic_vertex::client::VertexAnthropicConfig {
@@ -310,6 +330,12 @@ pub async fn build_anthropic_vertex_client(
     };
     let mut client =
         crate::providers::anthropic_vertex::client::VertexAnthropicClient::new(cfg, http_client);
+    if let Some(opts) = retry_options {
+        client.set_retry_options(Some(opts));
+    }
+    if !interceptors.is_empty() {
+        client = client.with_http_interceptors(interceptors);
+    }
     // No tracing guard necessary; headers are injected via ProviderHeaders.
     // Auto + user middlewares (treat as anthropic)
     let mut auto_mws =
@@ -330,6 +356,7 @@ pub async fn build_ollama_client(
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -348,6 +375,9 @@ pub async fn build_ollama_client(
     };
 
     let mut client = OllamaClient::new(config, http_client);
+    if let Some(opts) = retry_options {
+        client.set_retry_options(Some(opts));
+    }
     if !interceptors.is_empty() {
         client = client.with_http_interceptors(interceptors);
     }
@@ -376,6 +406,7 @@ pub async fn build_minimaxi_client(
     common_params: CommonParams,
     _http_config: HttpConfig,
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -390,6 +421,9 @@ pub async fn build_minimaxi_client(
 
     if let Some(tc) = tracing_config {
         client = client.with_tracing(tc);
+    }
+    if let Some(opts) = retry_options {
+        client = client.with_retry(opts);
     }
     if !interceptors.is_empty() {
         client = client.with_interceptors(interceptors);

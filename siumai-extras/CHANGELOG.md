@@ -106,12 +106,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Use with orchestrator
     let messages = vec![user!("Use the available tools to help me")];
-    let (response, _) = siumai::orchestrator::generate(
+    let (response, _) = siumai_extras::orchestrator::generate(
         &model,
         messages,
         Some(tools),
         Some(&resolver),
-        vec![siumai::orchestrator::step_count_is(10)],
+        vec![siumai_extras::orchestrator::step_count_is(10)],
         Default::default(),
     ).await?;
     
@@ -198,4 +198,3 @@ use siumai_extras::server::axum::to_sse_response;
 ## License
 
 Licensed under the same license as the main `siumai` package.
-

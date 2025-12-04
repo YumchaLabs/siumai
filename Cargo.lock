@@ -2980,6 +2980,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "siumai-extras",
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
@@ -2996,6 +2997,7 @@ dependencies = [
 name = "siumai-extras"
 version = "0.11.0-beta.4"
 dependencies = [
+ "async-stream",
  "async-trait",
  "axum",
  "chrono",
@@ -3007,6 +3009,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry-stdout",
  "opentelemetry_sdk",
+ "reqwest",
  "rmcp",
  "serde",
  "serde_json",
@@ -3017,6 +3020,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

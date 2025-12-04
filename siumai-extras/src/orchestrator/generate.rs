@@ -8,22 +8,22 @@ use super::prepare_step::{PrepareStepContext, filter_active_tools};
 use super::stop_condition::StopCondition;
 use super::types::{OrchestratorOptions, StepResult, ToolApproval, ToolResolver};
 use super::validation::validate_args_with_schema;
-use crate::error::LlmError;
-use crate::telemetry::{
+use siumai::error::LlmError;
+use siumai::telemetry::{
     TelemetryConfig,
     events::{OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
 };
-use crate::traits::ChatCapability;
-use crate::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
+use siumai::traits::ChatCapability;
+use siumai::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
 
 /// Convert orchestrator ToolChoice to types::ToolChoice
-fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> crate::types::ToolChoice {
+fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> siumai::types::ToolChoice {
     match choice {
-        super::prepare_step::ToolChoice::Auto => crate::types::ToolChoice::Auto,
-        super::prepare_step::ToolChoice::Required => crate::types::ToolChoice::Required,
-        super::prepare_step::ToolChoice::None => crate::types::ToolChoice::None,
+        super::prepare_step::ToolChoice::Auto => siumai::types::ToolChoice::Auto,
+        super::prepare_step::ToolChoice::Required => siumai::types::ToolChoice::Required,
+        super::prepare_step::ToolChoice::None => siumai::types::ToolChoice::None,
         super::prepare_step::ToolChoice::Specific { tool_name } => {
-            crate::types::ToolChoice::Tool { name: tool_name }
+            siumai::types::ToolChoice::Tool { name: tool_name }
         }
     }
 }
@@ -77,7 +77,7 @@ pub async fn generate(
             .with_attribute("max_steps", max_steps.to_string())
             .with_attribute("has_tools", tools.is_some().to_string());
 
-            crate::telemetry::emit(TelemetryEvent::SpanStart(span)).await;
+            siumai::telemetry::emit(TelemetryEvent::SpanStart(span)).await;
         }
     }
 
@@ -85,7 +85,7 @@ pub async fn generate(
         // Call prepare_step callback if provided
         let mut current_tools = tools.clone();
         let mut current_messages = history.clone();
-        let mut current_tool_choice: Option<crate::types::ToolChoice> = None;
+        let mut current_tool_choice: Option<siumai::types::ToolChoice> = None;
         let mut current_system: Option<String> = None;
 
         if let Some(ref prepare_fn) = opts.prepare_step {
@@ -126,7 +126,7 @@ pub async fn generate(
 
         // Use chat_request if we have tool_choice override or common_params
         let resp = if current_tool_choice.is_some() || opts.common_params.is_some() {
-            let mut request = crate::types::ChatRequest::new(current_messages.clone());
+            let mut request = siumai::types::ChatRequest::new(current_messages.clone());
 
             if let Some(tools) = current_tools.clone() {
                 request = request.with_tools(tools);
@@ -156,9 +156,9 @@ pub async fn generate(
             .unwrap_or_default();
         // The response content already contains tool calls, so we just use it directly
         let assistant_built = ChatMessage {
-            role: crate::types::MessageRole::Assistant,
+            role: siumai::types::MessageRole::Assistant,
             content: resp.content.clone(),
-            metadata: crate::types::MessageMetadata::default(),
+            metadata: siumai::types::MessageMetadata::default(),
         };
         history.push(assistant_built.clone());
         step_msgs.push(assistant_built);
@@ -168,7 +168,7 @@ pub async fn generate(
         if !tool_calls.is_empty() {
             if let Some(resolver) = resolver {
                 for call in tool_calls.iter() {
-                    if let crate::types::ContentPart::ToolCall {
+                    if let siumai::types::ContentPart::ToolCall {
                         tool_call_id,
                         tool_name,
                         arguments,
@@ -286,7 +286,7 @@ pub async fn generate(
         // Extract tool results from tool messages
         let tool_results: Vec<ContentPart> = step_msgs
             .iter()
-            .filter(|msg| matches!(msg.role, crate::types::MessageRole::Tool))
+            .filter(|msg| matches!(msg.role, siumai::types::MessageRole::Tool))
             .flat_map(|msg| msg.tool_results())
             .cloned()
             .collect();
@@ -373,7 +373,7 @@ async fn emit_telemetry_success(
             .with_attribute("total_steps", steps.len().to_string())
             .with_attribute("finish_reason", format!("{:?}", resp.finish_reason));
 
-            crate::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
 
             let orch_event = OrchestratorEvent {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -386,7 +386,7 @@ async fn emit_telemetry_success(
                 total_duration: std::time::SystemTime::now().duration_since(start_time).ok(),
                 metadata: std::collections::HashMap::new(),
             };
-            crate::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+            siumai::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
         }
     }
 }
@@ -411,7 +411,7 @@ async fn emit_telemetry_max_steps(
             .with_attribute("total_steps", steps.len().to_string())
             .with_attribute("max_steps_reached", "true");
 
-            crate::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
 
             let orch_event = OrchestratorEvent {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -424,7 +424,7 @@ async fn emit_telemetry_max_steps(
                 total_duration: std::time::SystemTime::now().duration_since(start_time).ok(),
                 metadata: std::collections::HashMap::new(),
             };
-            crate::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+            siumai::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
         }
     }
 }
@@ -440,7 +440,7 @@ async fn emit_telemetry_error(telemetry: &Option<TelemetryConfig>, span_id: &str
             )
             .end_error("orchestrator: no steps produced".to_string());
 
-            crate::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
         }
     }
 }

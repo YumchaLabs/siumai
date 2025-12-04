@@ -36,12 +36,12 @@
 //!     
 //!     // Use with orchestrator
 //!     let messages = vec![user!("Use the available tools to help me")];
-//!     let (response, _) = siumai::orchestrator::generate(
+//!     let (response, _) = siumai_extras::orchestrator::generate(
 //!         &model,
 //!         messages,
 //!         Some(tools),
 //!         Some(&resolver),
-//!         vec![siumai::orchestrator::step_count_is(10)],
+//!         vec![siumai_extras::orchestrator::step_count_is(10)],
 //!         Default::default(),
 //!     ).await?;
 //!     
@@ -76,6 +76,7 @@
 //! let (tools, resolver) = mcp_tools_from_http("http://localhost:3000/mcp").await?;
 //! ```
 
+use crate::orchestrator::ToolResolver;
 use async_trait::async_trait;
 use rmcp::{
     model::CallToolRequestParam,
@@ -84,7 +85,6 @@ use rmcp::{
 };
 use serde_json::Value;
 use siumai::error::LlmError;
-use siumai::orchestrator::ToolResolver;
 use siumai::types::Tool;
 use std::sync::Arc;
 

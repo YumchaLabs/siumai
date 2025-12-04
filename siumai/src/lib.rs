@@ -22,8 +22,8 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Create an OpenAI client
-//!     let client = LlmBuilder::new()
+//!     // Create a unified client via the Siumai builder
+//!     let client = Siumai::builder()
 //!         .openai()
 //!         .api_key("your-api-key")
 //!         .model("gpt-4")
@@ -120,9 +120,6 @@ pub mod utils;
 // Cancellation helpers are in `utils::cancel`
 pub mod web_search;
 
-// Refactor modules now part of the core (no feature gates)
-pub mod highlevel;
-pub mod orchestrator;
 pub mod provider_tools;
 pub mod standards;
 
@@ -162,15 +159,6 @@ pub use providers::openai::OpenAiBuilder;
 // Streaming
 pub use streaming::ChatStreamHandle;
 pub use streaming::{ChatStream, ChatStreamEvent};
-// High-level object generation
-pub use highlevel::object::{
-    GenerateMode, GenerateObjectOptions, OutputKind, StreamObjectEvent, StreamObjectOptions,
-    generate_object, stream_object,
-};
-#[cfg(feature = "openai")]
-pub use highlevel::object::{generate_object_openai, stream_object_openai};
-// Provider-agnostic auto (provider params hints)
-pub use highlevel::object::{generate_object_auto, stream_object_auto};
 
 // Web search (use types re-export)
 pub use types::{WebSearchConfig, WebSearchResult};

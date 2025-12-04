@@ -81,9 +81,7 @@ impl Siumai {
     ///
     /// This allows using the Vercel-style `registry.language_model("provider:model")`
     /// entry point and still benefit from the unified `Siumai` interface.
-    pub fn from_language_model_handle(
-        handle: crate::registry::LanguageModelHandle,
-    ) -> Self {
+    pub fn from_language_model_handle(handle: crate::registry::LanguageModelHandle) -> Self {
         let provider_id = handle.provider_id.clone();
         let provider_type = ProviderType::from_name(&provider_id);
 
@@ -115,8 +113,7 @@ impl Siumai {
 
     /// Convenience constructor: build from a registry model id like `"openai:gpt-4"`.
     pub fn from_registry_model(id: &str) -> Result<Self, LlmError> {
-        let handle = crate::registry::global()
-            .language_model(id)?;
+        let handle = crate::registry::global().language_model(id)?;
         Ok(Self::from_language_model_handle(handle))
     }
 

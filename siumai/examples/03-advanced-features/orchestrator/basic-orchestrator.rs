@@ -8,11 +8,11 @@
 //!
 //! Run with: cargo run --example basic-orchestrator --features openai
 
-use siumai::orchestrator::{
-    OrchestratorOptions, StepResult, ToolResolver, generate, step_count_is,
-};
 use siumai::prelude::*;
 use siumai::types::Tool;
+use siumai_extras::orchestrator::{
+    OrchestratorOptions, StepResult, ToolResolver, generate, step_count_is,
+};
 use std::sync::Arc;
 
 // Simple tool resolver that implements weather and calculator tools

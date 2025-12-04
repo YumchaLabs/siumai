@@ -480,8 +480,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "xai")]
         ProviderType::XAI => {
             // Build unified context and delegate to XAIProviderFactory.
-            let resolved_base =
-                base_url.unwrap_or_else(|| "https://api.x.ai/v1".to_string());
+            let resolved_base = base_url.unwrap_or_else(|| "https://api.x.ai/v1".to_string());
 
             let mut ctx = BuildContext::default();
             ctx.http_client = Some(built_http_client.clone());
@@ -502,8 +501,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "ollama")]
         ProviderType::Ollama => {
             // Build unified context and delegate to OllamaProviderFactory.
-            let ollama_base_url =
-                base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
+            let ollama_base_url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
 
             let mut ctx = BuildContext::default();
             ctx.http_client = Some(built_http_client.clone());
@@ -639,6 +637,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
     };
 
-    let siumai = super::Siumai::new(client).with_retry_options(builder.retry_options.clone());
+    // Retry options are now applied directly to underlying provider clients via
+    // BuildContext and ProviderFactory. The outer Siumai wrapper keeps a
+    // separate opt-in retry layer via `with_retry_options` for advanced use.
+    let siumai = super::Siumai::new(client);
     Ok(siumai)
 }
