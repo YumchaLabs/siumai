@@ -6,7 +6,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use siumai::provider_tools::anthropic;
+//! use siumai::hosted_tools::anthropic;
 //!
 //! // Create a web search tool (2025-03-05 version)
 //! let web_search = anthropic::web_search_20250305();
@@ -81,7 +81,7 @@ impl WebSearch20250305Config {
 /// # Example
 ///
 /// ```rust
-/// use siumai::provider_tools::anthropic;
+/// use siumai::hosted_tools::anthropic;
 ///
 /// let tool = anthropic::web_search_20250305()
 ///     .with_max_uses(3)

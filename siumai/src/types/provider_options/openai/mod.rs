@@ -36,8 +36,8 @@ use crate::types::Tool;
 pub struct OpenAiOptions {
     /// Responses API configuration
     pub responses_api: Option<ResponsesApiConfig>,
-    /// Provider-defined tools for OpenAI (web_search, file_search, computer_use, etc.)
-    /// Use `siumai::provider_tools::openai::*` helpers to construct these.
+    /// Provider-defined tools for OpenAI (web_search, file_search, computer use, etc.)
+    /// Use `siumai::hosted_tools::openai::*` helpers to construct these.
     pub provider_tools: Vec<Tool>,
     /// Reasoning effort (for o1/o3 models)
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -65,7 +65,7 @@ impl OpenAiOptions {
         self
     }
 
-    /// Add a provider-defined tool (see `provider_tools::openai`)
+    /// Add a provider-defined tool (see `hosted_tools::openai`)
     pub fn with_provider_tool(mut self, tool: Tool) -> Self {
         self.provider_tools.push(tool);
         self
@@ -217,7 +217,7 @@ mod tests {
         let options = OpenAiOptions::new()
             .with_reasoning_effort(ReasoningEffort::High)
             .with_service_tier(ServiceTier::Default)
-            .with_provider_tool(crate::provider_tools::openai::web_search().build());
+            .with_provider_tool(crate::hosted_tools::openai::web_search().build());
 
         assert_eq!(options.reasoning_effort, Some(ReasoningEffort::High));
         assert_eq!(options.service_tier, Some(ServiceTier::Default));

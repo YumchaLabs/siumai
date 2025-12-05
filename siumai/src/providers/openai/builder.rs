@@ -277,7 +277,7 @@ impl OpenAiBuilder {
         self
     }
 
-    // Note: Built-in tools should be configured via OpenAiOptions + provider_tools::openai
+    // Note: Built-in tools should be configured via OpenAiOptions + hosted_tools::openai
 
     /// Builds the `OpenAI` client
     pub async fn build(self) -> Result<OpenAiClient, LlmError> {

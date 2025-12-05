@@ -6,7 +6,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use siumai::provider_tools::openai;
+//! use siumai::hosted_tools::openai;
 //!
 //! // Create a web search tool with default settings
 //! let web_search = openai::web_search();
@@ -141,7 +141,7 @@ impl UserLocation {
 /// # Example
 ///
 /// ```rust
-/// use siumai::provider_tools::openai;
+/// use siumai::hosted_tools::openai;
 ///
 /// let tool = openai::web_search();
 /// ```
@@ -241,7 +241,7 @@ impl RankingOptions {
 /// # Example
 ///
 /// ```rust
-/// use siumai::provider_tools::openai;
+/// use siumai::hosted_tools::openai;
 ///
 /// let tool = openai::file_search()
 ///     .with_vector_store_ids(vec!["vs_123".to_string()]);
@@ -261,7 +261,7 @@ pub fn file_search() -> FileSearchConfig {
 /// # Example
 ///
 /// ```rust
-/// use siumai::provider_tools::openai;
+/// use siumai::hosted_tools::openai;
 ///
 /// let tool = openai::computer_use(1920, 1080, "headless");
 /// ```

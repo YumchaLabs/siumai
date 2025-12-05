@@ -19,7 +19,7 @@ use siumai::prelude::Siumai;
 use siumai::types::{ChatMessage, OutputSchema, Tool};
 use siumai_extras::orchestrator::{
     InMemoryWorkflowMemory, ToolLoopAgent, ToolResolver, WORKER_CODER, WORKER_PLANNER,
-    WorkflowBuilder,
+    WorkflowBuilder, WorkflowMemory,
 };
 
 /// Dummy base tool resolver used for non-worker tools.

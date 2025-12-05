@@ -130,7 +130,7 @@ impl ProviderSpec for OpenAiSpec {
             prediction,
             web_search_options,
         ) = if let ProviderOptions::OpenAi(ref options) = req.provider_options {
-            // Build built-in tools JSON from provider_tools using appropriate format
+            // Build built-in tools JSON from hosted_tools using appropriate format
             let use_responses = self.use_responses_api(req, _ctx);
             let tools_json: Vec<serde_json::Value> = if use_responses {
                 crate::providers::openai::utils::convert_tools_to_responses_format(

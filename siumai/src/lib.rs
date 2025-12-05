@@ -80,22 +80,43 @@
 /// Enabled providers at compile time
 pub const ENABLED_PROVIDERS: &str = env!("SIUMAI_ENABLED_PROVIDERS");
 
-/// Number of enabled providers at compile time  
+/// Number of enabled providers at compile time
 pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 
+// Developer tooling / diagnostics (kept public but not in prelude)
+#[deprecated(
+    since = "0.11.0-beta.5",
+    note = "Moved to siumai-extras::analysis; this module will be removed in a future release"
+)]
 pub mod analysis;
 pub mod auth;
+#[deprecated(
+    since = "0.11.0-beta.5",
+    note = "Moved to siumai-extras::benchmarks; this module will be removed in a future release"
+)]
 pub mod benchmarks;
+
+// Core builder and client abstractions
 pub mod builder;
 pub mod client;
+
+// Core engine: provider spec, execution pipeline, and shared types
 pub mod core;
 pub mod custom_provider;
 pub mod defaults;
 pub mod error;
 pub mod execution;
+
+// Logging & in-process observability primitives
 pub mod observability;
+
+// Request/response parameters and configuration
 pub mod params;
+
+// Performance benchmarking helpers (used by `benchmarks` and tracing)
 pub mod performance;
+
+// Unified interface (`Siumai`) and builder
 pub mod provider;
 pub mod provider_builders;
 pub mod provider_features;
@@ -109,18 +130,27 @@ pub mod provider_features;
     feature = "minimaxi"
 ))]
 pub mod providers;
+
+// Registry & integration points
 pub mod registry;
 pub mod retry;
 pub mod retry_api;
 pub mod streaming;
+
+// Telemetry event bus (structured events; re-export of `observability::telemetry`)
 pub mod telemetry;
+
+// Capability traits and shared domain types
 pub mod traits;
 pub mod types;
+
+// Misc utilities and web search helpers
 pub mod utils;
 // Cancellation helpers are in `utils::cancel`
 pub mod web_search;
 
-pub mod provider_tools;
+// Higher-level feature layers
+pub mod hosted_tools;
 pub mod standards;
 
 // Re-export main types and traits
@@ -192,25 +222,33 @@ pub use types::models::constants;
 
 /// Convenient pre-import module
 pub mod prelude {
-    pub use crate::benchmarks::*;
-    pub use crate::builder::*;
-    pub use crate::client::*;
-    pub use crate::custom_provider::*;
+    // Error & core traits/types
     pub use crate::error::LlmError;
-    // Multimodal utilities are internal; integrate via provider capabilities
-    // Performance helpers are available via `crate::performance` but not in prelude
-    pub use crate::provider::Siumai;
-    pub use crate::provider::*;
-    pub use crate::provider_features::*;
-    pub use crate::retry_api::*;
-    pub use crate::streaming::*;
     pub use crate::traits::*;
     pub use crate::types::*;
+
+    // Core client / builder interfaces
+    pub use crate::LlmBuilder;
+    pub use crate::LlmClient;
+    pub use crate::Provider;
+    pub use crate::provider::Siumai;
+    pub use crate::provider::SiumaiBuilder;
+
+    // Custom provider support and feature flags
+    pub use crate::custom_provider::*;
+    pub use crate::provider_features::*;
+
+    // Retry & streaming helpers
+    pub use crate::retry_api::*;
+    pub use crate::streaming::*;
+
+    // Web search feature (provider-agnostic config + helpers)
     pub use crate::web_search::*;
+
     // Model constants for easy access
     pub use crate::constants;
     pub use crate::models;
-    pub use crate::{Provider, assistant, provider, system, tool, user, user_with_image};
+    pub use crate::{assistant, provider, system, tool, user, user_with_image};
     pub use crate::{conversation, conversation_with_system, messages, quick_chat};
 
     // Registry - unified provider access

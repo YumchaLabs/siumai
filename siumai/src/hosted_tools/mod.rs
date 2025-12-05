@@ -21,7 +21,7 @@
 //!
 //! ```rust,ignore
 //! use siumai::prelude::*;
-//! use siumai::provider_tools::openai;
+//! use siumai::hosted_tools::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = Siumai::builder()
@@ -51,7 +51,7 @@
 //!
 //! ```rust,ignore
 //! use siumai::prelude::*;
-//! use siumai::provider_tools::anthropic;
+//! use siumai::hosted_tools::anthropic;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = Siumai::builder()
@@ -82,7 +82,7 @@
 //!
 //! ```rust,ignore
 //! use siumai::prelude::*;
-//! use siumai::provider_tools::google;
+//! use siumai::hosted_tools::google;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = Siumai::builder()
@@ -106,13 +106,13 @@
 //! # }
 //! ```
 //!
-//! ## Mixing Provider Tools with User Functions
+//! ## Mixing Hosted Tools with User Functions
 //!
 //! You can mix provider-defined tools with user-defined function tools:
 //!
 //! ```rust,ignore
 //! use siumai::prelude::*;
-//! use siumai::provider_tools::openai;
+//! use siumai::hosted_tools::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = Siumai::builder()
@@ -124,7 +124,7 @@
 //!
 //! let messages = vec![user!("Search for weather in SF and get the temperature")];
 //!
-//! // Provider-defined tool (executed by OpenAI)
+//! // Provider-hosted tool (executed by OpenAI)
 //! let web_search = openai::web_search().build();
 //!
 //! // User-defined function (executed by your code)

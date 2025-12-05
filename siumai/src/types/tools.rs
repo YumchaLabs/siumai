@@ -177,8 +177,8 @@ impl Tool {
     /// use siumai::types::Tool;
     ///
     /// let tool = Tool::function(
-    ///     "get_weather".to_string(),
-    ///     "Get weather information".to_string(),
+    ///     "get_weather",
+    ///     "Get weather information",
     ///     serde_json::json!({
     ///         "type": "object",
     ///         "properties": {
@@ -187,11 +187,15 @@ impl Tool {
     ///     })
     /// );
     /// ```
-    pub fn function(name: String, description: String, parameters: serde_json::Value) -> Self {
+    pub fn function(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Self {
         Self::Function {
             function: ToolFunction {
-                name,
-                description,
+                name: name.into(),
+                description: description.into(),
                 parameters,
             },
         }
@@ -363,7 +367,7 @@ impl ToolChoice {
 ///
 /// # Deprecation Notice
 ///
-/// This enum is deprecated in favor of the new `provider_tools` module which provides
+/// This enum is deprecated in favor of the new `hosted_tools` module which provides
 /// a more flexible and type-safe API for provider-defined tools.
 ///
 /// ## Migration Guide
@@ -377,7 +381,7 @@ impl ToolChoice {
 ///
 /// **New way (recommended)**:
 /// ```rust
-/// use siumai::provider_tools::openai;
+/// use siumai::hosted_tools::openai;
 ///
 /// let tool = openai::web_search().build();
 /// ```
@@ -395,7 +399,7 @@ impl ToolChoice {
 /// }
 ///
 /// // New
-/// use siumai::provider_tools::openai;
+/// use siumai::hosted_tools::openai;
 /// openai::web_search()
 ///     .with_search_context_size("high")
 ///     .with_user_location(openai::UserLocation::new("approximate").with_country("US"))
@@ -413,7 +417,7 @@ impl ToolChoice {
 /// }
 ///
 /// // New
-/// use siumai::provider_tools::openai;
+/// use siumai::hosted_tools::openai;
 /// openai::file_search()
 ///     .with_vector_store_ids(vec!["vs_123".to_string()])
 ///     .with_max_num_results(10)
@@ -430,14 +434,14 @@ impl ToolChoice {
 /// }
 ///
 /// // New
-/// use siumai::provider_tools::openai;
+/// use siumai::hosted_tools::openai;
 /// openai::computer_use(1920, 1080, "headless")
 /// ```
 ///
-/// See the `provider_tools` module documentation for more examples.
+/// See the `hosted_tools` module documentation for more examples.
 #[deprecated(
     since = "0.12.0",
-    note = "Use `provider_tools::openai` module instead. See migration guide in the documentation."
+    note = "Use `hosted_tools::openai` module instead. See migration guide in the documentation."
 )]
 #[cfg(any())]
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -93,3 +93,18 @@ pub mod highlevel;
 
 /// Orchestrator and agent utilities for multi-step tool calling.
 pub mod orchestrator;
+
+/// Benchmarking utilities (re-exported from the core `siumai` crate).
+pub mod benchmarks {
+    pub use siumai::benchmarks::*;
+}
+
+/// Thinking/analysis utilities (re-exported from the core `siumai` crate).
+pub mod analysis {
+    pub use siumai::analysis::*;
+}
+
+/// Performance metrics helpers (re-exported from the core `siumai` crate).
+pub mod performance {
+    pub use siumai::performance::*;
+}

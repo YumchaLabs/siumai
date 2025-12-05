@@ -6,7 +6,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use siumai::provider_tools::google;
+//! use siumai::hosted_tools::google;
 //!
 //! // Create a code execution tool
 //! let code_exec = google::code_execution();
@@ -21,7 +21,7 @@ use crate::types::{ProviderDefinedTool, Tool};
 /// # Example
 ///
 /// ```rust
-/// use siumai::provider_tools::google;
+/// use siumai::hosted_tools::google;
 ///
 /// let tool = google::code_execution();
 /// ```

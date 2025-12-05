@@ -1116,7 +1116,7 @@ mod tests {
         let client = client.with_http_interceptors(vec![Arc::new(cap)]);
 
         // Create request with provider_options for Responses API
-        use crate::provider_tools::openai as openai_tools;
+        use crate::hosted_tools::openai as openai_tools;
         use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
@@ -1181,7 +1181,7 @@ mod tests {
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with duplicate built-in tools
-        use crate::provider_tools::openai as openai_tools;
+        use crate::hosted_tools::openai as openai_tools;
         use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
@@ -1232,7 +1232,7 @@ mod tests {
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different max_num_results
-        use crate::provider_tools::openai as openai_tools;
+        use crate::hosted_tools::openai as openai_tools;
         use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
@@ -1303,7 +1303,7 @@ mod tests {
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different ranking_options
-        use crate::provider_tools::openai as openai_tools;
+        use crate::hosted_tools::openai as openai_tools;
         use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
@@ -1378,7 +1378,7 @@ mod tests {
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different max_num_results
-        use crate::provider_tools::openai as openai_tools;
+        use crate::hosted_tools::openai as openai_tools;
         use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
