@@ -22,7 +22,7 @@ pub mod http {
     pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// Default User-Agent string for HTTP requests
-    pub const USER_AGENT: &str = "siumai/0.1.0";
+    pub const USER_AGENT: &str = "siumai/0.11.0-beta.4";
 
     /// Default maximum number of idle connections per host
     pub const MAX_IDLE_PER_HOST: usize = 10;
@@ -406,7 +406,7 @@ mod tests {
     fn test_http_defaults() {
         assert_eq!(http::REQUEST_TIMEOUT, Duration::from_secs(60));
         assert_eq!(http::CONNECT_TIMEOUT, Duration::from_secs(10));
-        assert_eq!(http::USER_AGENT, "siumai/0.1.0");
+        assert_eq!(http::USER_AGENT, "siumai/0.11.0-beta.4");
     }
 
     #[test]

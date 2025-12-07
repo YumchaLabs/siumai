@@ -85,9 +85,31 @@ impl ProviderCore {
         let inherited_interceptors = base.http_interceptors.clone();
         let inherited_debug = base.http_debug;
 
+        // Derive initial HttpConfig from the base LlmBuilder so that
+        // LlmBuilder-level HTTP settings (timeout, proxy, headers, UA)
+        // are honored by provider builders. ProviderCore-specific methods
+        // (timeout/connect_timeout/headers/...) can then override these
+        // values per-provider.
+        let mut http_config = HttpConfig::default();
+        if let Some(timeout) = base.timeout {
+            http_config.timeout = Some(timeout);
+        }
+        if let Some(connect_timeout) = base.connect_timeout {
+            http_config.connect_timeout = Some(connect_timeout);
+        }
+        if let Some(ref proxy) = base.proxy {
+            http_config.proxy = Some(proxy.clone());
+        }
+        if let Some(ref ua) = base.user_agent {
+            http_config.user_agent = Some(ua.clone());
+        }
+        if !base.default_headers.is_empty() {
+            http_config.headers.extend(base.default_headers.clone());
+        }
+
         Self {
             base,
-            http_config: HttpConfig::default(),
+            http_config,
             tracing_config: None,
             retry_options: None,
             http_interceptors: inherited_interceptors,
@@ -261,7 +283,14 @@ impl ProviderCore {
     ///
     /// This is used internally by provider builders during the build process.
     pub fn build_http_client(&self) -> Result<reqwest::Client, LlmError> {
-        self.base.build_http_client()
+        // Prefer a custom client when provided at the base builder level.
+        if let Some(client) = &self.base.http_client {
+            return Ok(client.clone());
+        }
+
+        // Otherwise, build from the effective HttpConfig derived from
+        // LlmBuilder + ProviderCore overrides.
+        crate::execution::http::client::build_http_client_from_config(&self.http_config)
     }
 
     /// Get HTTP interceptors including debug interceptor if enabled

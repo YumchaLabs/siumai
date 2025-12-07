@@ -24,7 +24,7 @@ This README keeps things straightforward: what you can do, how to customize, and
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.1"
+siumai = "0.11.0-beta.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -32,21 +32,21 @@ Feature flags (enable only what you need):
 
 ```toml
 # One provider
-siumai = { version = "0.11.0-beta.1", features = ["openai"] }
+siumai = { version = "0.11.0-beta.4", features = ["openai"] }
 
 # Multiple providers
-siumai = { version = "0.11.0-beta.1", features = ["openai", "anthropic", "google"] }
+siumai = { version = "0.11.0-beta.4", features = ["openai", "anthropic", "google"] }
 
 # All (default)
-siumai = { version = "0.11.0-beta.1", features = ["all-providers"] }
+siumai = { version = "0.11.0-beta.4", features = ["all-providers"] }
 ```
 
 Optional package for advanced utilities:
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.1"
-siumai-extras = { version = "0.11.0-beta.1", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
+siumai = "0.11.0-beta.4"
+siumai-extras = { version = "0.11.0-beta.4", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
 ```
 
 ## Usage
@@ -71,10 +71,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Supported examples of `provider:model`:
 - `openai:gpt-4o`, `openai:gpt-4o-mini`
 - `anthropic:claude-3-5-sonnet-20240620`
+- `anthropic-vertex:claude-3-5-sonnet-20240620`
 - `gemini:gemini-2.0-flash-exp`
 - `groq:llama-3.1-70b-versatile`
 - `xai:grok-beta`
 - `ollama:llama3.2`
+- `minimaxi:minimax-text-01`
 
 OpenAI‑compatible vendors follow the same pattern (API keys read as `{PROVIDER_ID}_API_KEY` when possible). See docs for details.
 

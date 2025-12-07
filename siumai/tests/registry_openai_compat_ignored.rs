@@ -21,6 +21,7 @@ async fn registry_openrouter_smoke() -> Result<(), Box<dyn std::error::Error>> {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
             http_interceptors: Vec::new(),
+            http_config: None,
             retry_options: None,
             max_cache_entries: None,
             client_ttl: None,

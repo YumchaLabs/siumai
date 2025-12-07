@@ -112,7 +112,6 @@ pub mod params;
 // Unified interface (`Siumai`) and builder
 pub mod provider;
 pub mod provider_builders;
-pub mod provider_features;
 #[cfg(any(
     feature = "openai",
     feature = "anthropic",
@@ -189,9 +188,6 @@ pub use retry_api::{RetryBackend, RetryOptions, retry, retry_for_provider, retry
 // Custom provider support
 pub use custom_provider::{CustomProvider, CustomProviderConfig};
 
-// Provider features
-pub use provider_features::ProviderFeatures;
-
 // Registry - unified provider access (recommended)
 pub use registry::{
     EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderRegistryHandle,
@@ -220,7 +216,6 @@ pub mod prelude {
 
     // Custom provider support and feature flags
     pub use crate::custom_provider::*;
-    pub use crate::provider_features::*;
 
     // Retry & streaming helpers
     pub use crate::retry_api::*;

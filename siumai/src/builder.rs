@@ -233,13 +233,21 @@ pub async fn quick_xai_with_model(
 ///
 /// `LlmBuilder` itself does not know about registry or factories; provider
 /// selection is done via the provider-specific builders in `providers::*` and
-/// by the unified `SiumaiBuilder`. Both the provider builders and
-/// `SiumaiBuilder::build()` ultimately construct clients through
-/// `ProviderFactory::language_model_with_ctx(...)`, so the HTTP/timeout/proxy
-/// behavior is consistent whether you use:
-/// - `LlmBuilder::new().openai()...build().await`
-/// - `Siumai::builder().openai()...build().await`
-/// - `registry::global().language_model("openai:model")`
+/// by the unified `SiumaiBuilder`.
+///
+/// - Provider-specific builders (e.g. `LlmBuilder::new().openai()...build()`)
+///   construct clients directly via each provider's `*Builder` type.
+/// - The unified `SiumaiBuilder` and the provider registry both build clients
+///   through a shared `BuildContext` + `ProviderFactory::language_model_with_ctx(...)`
+///   path, so HTTP timeout/proxy/client, tracing, interceptors, middlewares,
+///   and retry options behave consistently across:
+///   - `Siumai::builder()...build().await`
+///   - `registry::global().language_model("provider:model")`
+///
+/// In other words:
+/// - Use provider builders when you need low-level, provider-specific control.
+/// - Use `SiumaiBuilder` / registry when you want configuration and behavior
+///   aligned with the unified registry semantics.
 #[derive(Clone)]
 pub struct LlmBuilder {
     /// Custom HTTP client (key requirement from design doc)

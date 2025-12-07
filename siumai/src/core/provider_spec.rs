@@ -415,15 +415,19 @@ pub trait ProviderSpec: Send + Sync {
 
 /// Default hook for CustomProviderOptions injection
 ///
-/// This function provides a standard implementation for injecting custom provider options
-/// into the request JSON body. All providers automatically support CustomProviderOptions
-/// through this default implementation.
+/// This function provides a standard implementation for injecting custom provider
+/// options into the request JSON body. All providers automatically support
+/// `CustomProviderOptions` through this default implementation.
 ///
-/// Note: this helper currently relies on `registry::helpers::matches_provider_id`
-/// to resolve provider id aliases using the global registry. When the architecture
-/// is split into `siumai-core` / `siumai-providers`, this alias resolution logic
-/// will be moved out of the core module into a thin adapter layer to keep
-/// `ProviderSpec` independent of registry state.
+/// Architecture note:
+/// - This helper currently relies on `registry::helpers::matches_provider_id`
+///   to resolve provider id aliases using the global registry. It is the only
+///   place where `core::ProviderSpec` depends on the registry module.
+/// - When the architecture is split into `siumai-core` / `siumai-providers` /
+///   `siumai-extras`, this alias resolution logic will be moved into a thin
+///   adapter layer so that the core crate remains independent of registry
+///   state. The *behavior* of merging custom options into the outbound JSON
+///   body will remain the same.
 ///
 /// # Example
 ///

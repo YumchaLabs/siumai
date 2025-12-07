@@ -146,6 +146,10 @@ pub struct RegistryOptions {
     pub language_model_middleware: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// HTTP interceptors applied to all clients created via the registry
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional HTTP configuration applied to all clients created via the registry.
+    /// When set, this configuration is passed through BuildContext to provider
+    /// factories so they can build HTTP clients consistently with SiumaiBuilder.
+    pub http_config: Option<crate::types::HttpConfig>,
     /// Unified retry options applied to clients created via the registry (optional)
     pub retry_options: Option<RetryOptions>,
     /// Maximum number of cached clients (LRU eviction when exceeded)
@@ -172,6 +176,8 @@ pub struct ProviderRegistryHandle {
     pub(crate) middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// HTTP interceptors to apply to clients created via this registry
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level HTTP configuration propagated via BuildContext.
+    http_config: Option<crate::types::HttpConfig>,
     /// LRU cache for language model clients (key: "provider:model")
     /// Uses async Mutex for concurrent access and per-key build de-duplication
     language_model_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
@@ -297,6 +303,7 @@ impl ProviderRegistryHandle {
             cache: self.language_model_cache.clone(),
             client_ttl: self.client_ttl,
             http_interceptors: self.http_interceptors.clone(),
+            http_config: self.http_config.clone(),
             retry_options: self.retry_options.clone(),
         })
     }
@@ -310,6 +317,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            http_config: self.http_config.clone(),
             retry_options: self.retry_options.clone(),
         })
     }
@@ -323,6 +331,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            http_config: self.http_config.clone(),
             retry_options: self.retry_options.clone(),
         })
     }
@@ -336,6 +345,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            http_config: self.http_config.clone(),
             retry_options: self.retry_options.clone(),
         })
     }
@@ -349,6 +359,7 @@ impl ProviderRegistryHandle {
             factory: factory.clone(),
             model_id,
             http_interceptors: self.http_interceptors.clone(),
+            http_config: self.http_config.clone(),
             retry_options: self.retry_options.clone(),
         })
     }
@@ -379,6 +390,7 @@ pub fn create_provider_registry(
         separator,
         middlewares,
         http_interceptors,
+        http_config,
         retry_options,
         max_cache_entries,
         client_ttl,
@@ -388,6 +400,7 @@ pub fn create_provider_registry(
             o.separator,
             o.language_model_middleware,
             o.http_interceptors,
+            o.http_config,
             o.retry_options,
             o.max_cache_entries,
             o.client_ttl,
@@ -395,7 +408,7 @@ pub fn create_provider_registry(
         )
     } else {
         // Defaults: no middlewares, no interceptors, auto middleware enabled
-        (':', Vec::new(), Vec::new(), None, None, None, true)
+        (':', Vec::new(), Vec::new(), None, None, None, None, true)
     };
 
     // Create LRU cache with specified capacity (default: 100 entries)
@@ -411,6 +424,7 @@ pub fn create_provider_registry(
         language_model_cache: Arc::new(TokioMutex::new(cache)),
         client_ttl,
         auto_middleware,
+        http_config,
         retry_options,
     }
 }
@@ -434,6 +448,8 @@ pub struct LanguageModelHandle {
     pub middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Registry-level HTTP interceptors to attempt injecting into clients
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level HTTP configuration copied into the handle
+    http_config: Option<crate::types::HttpConfig>,
     /// Shared LRU cache for clients
     cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
     /// TTL for cached clients
@@ -476,6 +492,7 @@ impl LanguageModelHandle {
         let mut ctx = BuildContext::default();
         ctx.http_interceptors = self.http_interceptors.clone();
         ctx.retry_options = self.retry_options.clone();
+        ctx.http_config = self.http_config.clone();
         // Note: model_middlewares are applied at the handle level; factories
         // should not re-apply them.
         let client_built = self.factory.language_model_with_ctx(model_id, &ctx).await?;
@@ -610,6 +627,8 @@ pub struct EmbeddingModelHandle {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Registry-level retry options copied into the handle
     retry_options: Option<RetryOptions>,
+    /// Registry-level HTTP configuration copied into the handle
+    http_config: Option<crate::types::HttpConfig>,
 }
 
 /// Implementation of EmbeddingCapability for EmbeddingModelHandle
@@ -623,6 +642,7 @@ impl EmbeddingCapability for EmbeddingModelHandle {
         let mut ctx = BuildContext::default();
         ctx.http_interceptors = self.http_interceptors.clone();
         ctx.retry_options = self.retry_options.clone();
+        ctx.http_config = self.http_config.clone();
         let client_raw = self
             .factory
             .embedding_model_with_ctx(&self.model_id, &ctx)
@@ -657,6 +677,8 @@ pub struct ImageModelHandle {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Registry-level retry options copied into the handle
     retry_options: Option<RetryOptions>,
+    /// Registry-level HTTP configuration copied into the handle
+    http_config: Option<crate::types::HttpConfig>,
 }
 
 /// Implementation of ImageGenerationCapability for ImageModelHandle
@@ -673,6 +695,7 @@ impl ImageGenerationCapability for ImageModelHandle {
         let mut ctx = BuildContext::default();
         ctx.http_interceptors = self.http_interceptors.clone();
         ctx.retry_options = self.retry_options.clone();
+        ctx.http_config = self.http_config.clone();
         let client_raw = self
             .factory
             .image_model_with_ctx(&self.model_id, &ctx)
@@ -714,6 +737,8 @@ pub struct SpeechModelHandle {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Registry-level retry options copied into the handle
     retry_options: Option<RetryOptions>,
+    /// Registry-level HTTP configuration copied into the handle
+    http_config: Option<crate::types::HttpConfig>,
 }
 
 /// Implementation of AudioCapability for SpeechModelHandle
@@ -732,6 +757,7 @@ impl AudioCapability for SpeechModelHandle {
         let mut ctx = BuildContext::default();
         ctx.http_interceptors = self.http_interceptors.clone();
         ctx.retry_options = self.retry_options.clone();
+        ctx.http_config = self.http_config.clone();
         let client_raw = self
             .factory
             .speech_model_with_ctx(&self.model_id, &ctx)
@@ -772,6 +798,8 @@ pub struct TranscriptionModelHandle {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Registry-level retry options copied into the handle
     retry_options: Option<RetryOptions>,
+    /// Registry-level HTTP configuration copied into the handle
+    http_config: Option<crate::types::HttpConfig>,
 }
 
 /// Implementation of AudioCapability for TranscriptionModelHandle
@@ -790,6 +818,7 @@ impl AudioCapability for TranscriptionModelHandle {
         let mut ctx = BuildContext::default();
         ctx.http_interceptors = self.http_interceptors.clone();
         ctx.retry_options = self.retry_options.clone();
+        ctx.http_config = self.http_config.clone();
         let client_raw = self
             .factory
             .transcription_model_with_ctx(&self.model_id, &ctx)
@@ -958,6 +987,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: Vec::new(),
+                http_config: None,
                 retry_options: None,
                 max_cache_entries: Some(2),
                 client_ttl: None,
@@ -1019,6 +1049,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: Vec::new(),
+                http_config: None,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: Some(Duration::from_millis(100)),
@@ -1070,6 +1101,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: vec![Arc::new(LoggingInterceptor)],
+                http_config: None,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,
@@ -1101,6 +1133,7 @@ mod tests {
                 separator: ':',
                 language_model_middleware: Vec::new(),
                 http_interceptors: vec![Arc::new(LoggingInterceptor)],
+                http_config: None,
                 retry_options: None,
                 max_cache_entries: None,
                 client_ttl: None,

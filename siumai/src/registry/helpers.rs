@@ -112,6 +112,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
             http_interceptors: vec![std::sync::Arc::new(LoggingInterceptor)],
+            http_config: None,
             retry_options: None,
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
@@ -130,6 +131,7 @@ pub fn create_empty_registry() -> ProviderRegistryHandle {
             separator: ':',
             language_model_middleware: Vec::new(),
             http_interceptors: Vec::new(),
+            http_config: None,
             retry_options: None,
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
@@ -147,6 +149,7 @@ pub fn create_bare_registry() -> ProviderRegistryHandle {
             separator: ':',
             language_model_middleware: Vec::new(),
             http_interceptors: Vec::new(),
+            http_config: None,
             retry_options: None,
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
