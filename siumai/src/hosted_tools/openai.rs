@@ -1,7 +1,8 @@
 //! OpenAI Provider-Defined Tools
 //!
-//! This module provides factory functions for creating OpenAI-specific provider-defined tools.
-//! These tools are executed by OpenAI's servers and include web search, file search, and computer use.
+//! Factory functions for creating OpenAI-specific provider-defined tools.
+//! These tools are executed by OpenAI's servers and include web search,
+//! file search, and computer use.
 //!
 //! # Examples
 //!
@@ -17,7 +18,7 @@
 //!     .with_user_location(
 //!         openai::UserLocation::new("approximate")
 //!             .with_country("US")
-//!             .with_city("San Francisco")
+//!             .with_city("San Francisco"),
 //!     );
 //!
 //! // Create a file search tool
@@ -137,14 +138,6 @@ impl UserLocation {
 }
 
 /// Create a web search tool with default settings
-///
-/// # Example
-///
-/// ```rust
-/// use siumai::hosted_tools::openai;
-///
-/// let tool = openai::web_search();
-/// ```
 pub fn web_search() -> WebSearchConfig {
     WebSearchConfig::new()
 }
@@ -237,137 +230,19 @@ impl RankingOptions {
 }
 
 /// Create a file search tool with default settings
-///
-/// # Example
-///
-/// ```rust
-/// use siumai::hosted_tools::openai;
-///
-/// let tool = openai::file_search()
-///     .with_vector_store_ids(vec!["vs_123".to_string()]);
-/// ```
 pub fn file_search() -> FileSearchConfig {
     FileSearchConfig::new()
 }
 
 /// Create a computer use tool
-///
-/// # Arguments
-///
-/// * `display_width` - Display width in pixels
-/// * `display_height` - Display height in pixels
-/// * `environment` - Environment type (e.g., "headless", "desktop")
-///
-/// # Example
-///
-/// ```rust
-/// use siumai::hosted_tools::openai;
-///
-/// let tool = openai::computer_use(1920, 1080, "headless");
-/// ```
-pub fn computer_use(
-    display_width: u32,
-    display_height: u32,
-    environment: impl Into<String>,
-) -> Tool {
+pub fn computer_use(display_width: u32, display_height: u32, environment: &str) -> Tool {
     let args = serde_json::json!({
         "display_width": display_width,
         "display_height": display_height,
-        "environment": environment.into()
+        "environment": environment,
     });
 
     Tool::ProviderDefined(
         ProviderDefinedTool::new("openai.computer_use", "computer_use").with_args(args),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_web_search_default() {
-        let tool = web_search().build();
-        match tool {
-            Tool::ProviderDefined(pt) => {
-                assert_eq!(pt.id, "openai.web_search");
-                assert_eq!(pt.name, "web_search");
-                assert_eq!(pt.provider(), Some("openai"));
-            }
-            _ => panic!("Expected ProviderDefined variant"),
-        }
-    }
-
-    #[test]
-    fn test_web_search_with_config() {
-        let tool = web_search()
-            .with_search_context_size("high")
-            .with_user_location(
-                UserLocation::new("approximate")
-                    .with_country("US")
-                    .with_city("SF"),
-            )
-            .build();
-
-        match tool {
-            Tool::ProviderDefined(pt) => {
-                assert_eq!(pt.id, "openai.web_search");
-                assert_eq!(
-                    pt.args.get("searchContextSize").and_then(|v| v.as_str()),
-                    Some("high")
-                );
-                let loc = pt.args.get("userLocation").unwrap();
-                assert_eq!(loc.get("country").and_then(|v| v.as_str()), Some("US"));
-                assert_eq!(loc.get("city").and_then(|v| v.as_str()), Some("SF"));
-            }
-            _ => panic!("Expected ProviderDefined variant"),
-        }
-    }
-
-    #[test]
-    fn test_file_search() {
-        let tool = file_search()
-            .with_vector_store_ids(vec!["vs_123".to_string()])
-            .with_max_num_results(10)
-            .build();
-
-        match tool {
-            Tool::ProviderDefined(pt) => {
-                assert_eq!(pt.id, "openai.file_search");
-                assert_eq!(pt.name, "file_search");
-                let ids = pt.args.get("vector_store_ids").unwrap().as_array().unwrap();
-                assert_eq!(ids.len(), 1);
-                assert_eq!(
-                    pt.args.get("max_num_results").and_then(|v| v.as_u64()),
-                    Some(10)
-                );
-            }
-            _ => panic!("Expected ProviderDefined variant"),
-        }
-    }
-
-    #[test]
-    fn test_computer_use() {
-        let tool = computer_use(1920, 1080, "headless");
-
-        match tool {
-            Tool::ProviderDefined(pt) => {
-                assert_eq!(pt.id, "openai.computer_use");
-                assert_eq!(pt.name, "computer_use");
-                assert_eq!(
-                    pt.args.get("display_width").and_then(|v| v.as_u64()),
-                    Some(1920)
-                );
-                assert_eq!(
-                    pt.args.get("display_height").and_then(|v| v.as_u64()),
-                    Some(1080)
-                );
-                assert_eq!(
-                    pt.args.get("environment").and_then(|v| v.as_str()),
-                    Some("headless")
-                );
-            }
-            _ => panic!("Expected ProviderDefined variant"),
-        }
-    }
 }

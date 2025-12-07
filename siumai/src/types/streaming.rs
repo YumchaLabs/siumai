@@ -2,8 +2,8 @@
 //! Streaming event types for real-time responses
 
 use super::chat::ChatResponse;
-use super::common::{ResponseMetadata, Usage};
 use crate::error::LlmError;
+use crate::types::{ResponseMetadata, Usage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

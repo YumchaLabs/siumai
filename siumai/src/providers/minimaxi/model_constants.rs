@@ -71,10 +71,10 @@ pub mod audio {
 
 /// Voice ID constants for text-to-speech
 pub mod voice {
-    /// Male voice - Qingse (清澈)
+    /// Male voice - Qingse (clear/bright tone)
     pub const MALE_QN_QINGSE: &str = "male-qn-qingse";
 
-    /// Female voice - Shaonv (少女)
+    /// Female voice - Shaonv (youthful female tone)
     pub const FEMALE_SHAONV: &str = "female-shaonv";
 
     /// All available voices

@@ -4,7 +4,7 @@ This directory contains examples for OpenAI-compatible providers that use the un
 
 ## 🌙 Moonshot AI (Kimi)
 
-Moonshot AI, developed by Dark Side of the Moon (月之暗面), specializes in long-context understanding and Chinese language processing.
+Moonshot AI, developed by Dark Side of the Moon, specializes in long-context understanding and Chinese language processing.
 
 ### Features
 
@@ -214,4 +214,3 @@ When adding new examples:
 - Add setup instructions and prerequisites
 - Demonstrate provider-specific features
 - Include error handling and best practices
-

@@ -224,7 +224,7 @@ where
     }
 
     /// Set telemetry configuration (applies to both variants).
-    pub fn telemetry(mut self, cfg: siumai::telemetry::TelemetryConfig) -> Self {
+    pub fn telemetry(mut self, cfg: siumai::observability::telemetry::TelemetryConfig) -> Self {
         self.builder = self.builder.telemetry(cfg);
         self
     }

@@ -7,8 +7,8 @@ use serde_json::Value;
 
 use super::prepare_step::PrepareStepFn;
 use siumai::error::LlmError;
+use siumai::observability::telemetry::TelemetryConfig;
 use siumai::streaming::ChatStreamEvent;
-use siumai::telemetry::TelemetryConfig;
 use siumai::types::{
     ChatMessage, ChatResponse, CommonParams, ContentPart, FinishReason, Usage, Warning,
 };

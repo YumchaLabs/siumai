@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use super::content::{ContentPart, MessageContent};
 use super::message::{ChatMessage, MessageRole};
 use super::metadata::MessageMetadata;
-use crate::types::common::{FinishReason, Usage, Warning};
+use crate::types::{FinishReason, Usage, Warning};
 
 /// Audio output from the model
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

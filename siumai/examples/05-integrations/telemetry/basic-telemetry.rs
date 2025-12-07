@@ -19,7 +19,11 @@
 //! - stream_telemetry.rs - Streaming with telemetry
 
 use siumai::prelude::*;
-use siumai::telemetry::{TelemetryConfig, events::TelemetryEvent, exporters::TelemetryExporter};
+use siumai::observability::telemetry::{
+    TelemetryConfig,
+    events::TelemetryEvent,
+    exporters::TelemetryExporter,
+};
 use std::sync::Arc;
 
 // Simple console exporter for demonstration

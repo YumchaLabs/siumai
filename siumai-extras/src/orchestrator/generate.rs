@@ -9,7 +9,7 @@ use super::stop_condition::StopCondition;
 use super::types::{OrchestratorOptions, StepResult, ToolApproval, ToolResolver};
 use super::validation::validate_args_with_schema;
 use siumai::error::LlmError;
-use siumai::telemetry::{
+use siumai::observability::telemetry::{
     TelemetryConfig,
     events::{OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
 };
@@ -77,7 +77,7 @@ pub async fn generate(
             .with_attribute("max_steps", max_steps.to_string())
             .with_attribute("has_tools", tools.is_some().to_string());
 
-            siumai::telemetry::emit(TelemetryEvent::SpanStart(span)).await;
+            siumai::observability::telemetry::emit(TelemetryEvent::SpanStart(span)).await;
         }
     }
 
@@ -373,7 +373,7 @@ async fn emit_telemetry_success(
             .with_attribute("total_steps", steps.len().to_string())
             .with_attribute("finish_reason", format!("{:?}", resp.finish_reason));
 
-            siumai::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::observability::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
 
             let orch_event = OrchestratorEvent {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -386,7 +386,7 @@ async fn emit_telemetry_success(
                 total_duration: std::time::SystemTime::now().duration_since(start_time).ok(),
                 metadata: std::collections::HashMap::new(),
             };
-            siumai::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+            siumai::observability::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
         }
     }
 }
@@ -411,7 +411,7 @@ async fn emit_telemetry_max_steps(
             .with_attribute("total_steps", steps.len().to_string())
             .with_attribute("max_steps_reached", "true");
 
-            siumai::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::observability::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
 
             let orch_event = OrchestratorEvent {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -424,7 +424,7 @@ async fn emit_telemetry_max_steps(
                 total_duration: std::time::SystemTime::now().duration_since(start_time).ok(),
                 metadata: std::collections::HashMap::new(),
             };
-            siumai::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+            siumai::observability::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
         }
     }
 }
@@ -440,7 +440,7 @@ async fn emit_telemetry_error(telemetry: &Option<TelemetryConfig>, span_id: &str
             )
             .end_error("orchestrator: no steps produced".to_string());
 
-            siumai::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::observability::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
         }
     }
 }

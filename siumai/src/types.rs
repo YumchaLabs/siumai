@@ -1,11 +1,16 @@
 //! Core Data Type Definitions
 //!
-//! This module contains all data structures used in the LLM library, organized by functionality.
+//! This module contains all data structures used in the LLM library, organized by
+//! functionality. The public API is surfaced from this root module; internal
+//! submodules like `params`, `http`, and `usage` are implementation details.
 //!
 //! ## Module Organization
 //!
 //! - **`chat/`** - Chat-related types (messages, requests, responses, content)
-//! - **`common`** - Common parameters and types shared across providers
+//! - **`common`** - Common enums/metadata shared across providers
+//! - **`params`** - Common AI parameters (model, temperature, max_tokens, etc.)
+//! - **`http`** - HTTP configuration (`HttpConfig` and builder)
+//! - **`usage`** - Token usage and detailed usage breakdown
 //! - **`embedding`** - Embedding request/response types
 //! - **`image`** - Image generation types
 //! - **`audio`** - Audio transcription/generation types
@@ -33,7 +38,10 @@
 //! ### For Library Developers
 //!
 //! When adding new types:
-//! - **Common types** → `common.rs`
+//! - **Common enums/metadata** → `common.rs`
+//! - **Shared AI parameters** → `params.rs`
+//! - **HTTP configuration** → `http.rs`
+//! - **Usage accounting** → `usage.rs`
 //! - **Chat-related** → `chat/` subdirectory
 //! - **Provider-specific options** → `provider_options/<provider>.rs`
 //! - **Provider-specific metadata** → `provider_metadata/<provider>.rs`
@@ -53,9 +61,12 @@
 //! - `AudioResponse` - Audio transcription/generation results
 //!
 //! ### Common Types
-//! - `CommonParams` - Parameters shared across all providers (temperature, max_tokens, etc.)
+//! - `CommonParams` - Parameters shared across all providers
+//! - `HttpConfig` - HTTP configuration shared across providers
 //! - `Usage` - Token usage information
 //! - `FinishReason` - Completion finish reasons
+//! - `ProviderType` - Provider identifier enum
+//! - `ResponseMetadata` - Shared response metadata
 //!
 //! ### Provider-Specific Types
 //! - `OpenAiOptions` - OpenAI-specific options
@@ -69,35 +80,41 @@ pub mod common;
 pub mod completion;
 pub mod embedding;
 pub mod files;
+pub mod http;
 pub mod image;
 pub mod models;
 pub mod moderation;
 pub mod music;
+pub mod params;
 pub mod provider_metadata;
 pub mod provider_options;
 pub mod rerank;
 pub mod schema;
 pub mod streaming;
 pub mod tools;
+pub mod usage;
 pub mod video;
 pub mod web_search;
 
-// Re-export all types for backward compatibility
+// Re-export all types for convenience
 pub use audio::*;
 pub use chat::*;
 pub use common::*;
 pub use completion::*;
 pub use embedding::*;
 pub use files::*;
+pub use http::*;
 pub use image::*;
 pub use models::*;
 pub use moderation::*;
 pub use music::*;
+pub use params::*;
 pub use provider_options::*;
 pub use rerank::*;
 pub use schema::*;
 pub use streaming::*;
 pub use tools::*;
+pub use usage::*;
 pub use video::*;
 pub use web_search::*;
 

@@ -286,7 +286,7 @@ pub fn is_model_supported(provider_type: &ProviderType, model: &str) -> bool {
 /// Get the default model for a provider
 pub const fn get_default_model(provider_type: &ProviderType) -> Option<&'static str> {
     #[cfg(any(feature = "openai", feature = "anthropic", feature = "google"))]
-    use crate::types::models::model_constants as models;
+    use crate::models;
 
     match provider_type {
         #[cfg(feature = "openai")]

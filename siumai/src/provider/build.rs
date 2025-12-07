@@ -161,7 +161,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     if common_params.model.is_empty() {
         // Set default model based on provider type
         #[cfg(any(feature = "openai", feature = "anthropic", feature = "google"))]
-        use crate::types::models::model_constants as models;
+        use crate::models;
 
         common_params.model = match provider_type {
             #[cfg(feature = "openai")]
@@ -276,7 +276,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             // Resolve defaults via ProviderRegistry v2 (native provider) to keep
             // metadata (aliases, prefixes) in sync; base URL still flows through
             // BuildContext into the OpenAI provider factory.
-            let resolved_base = {
+            let resolved_base_opt = {
                 let registry = crate::registry::global_registry();
                 let mut guard = registry
                     .write()
@@ -295,9 +295,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 }
                 guard.resolve("openai").and_then(|r| r.base_url.clone())
             };
-            let resolved_base = base_url
-                .or(resolved_base)
-                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            let default_base =
+                resolved_base_opt.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            let resolved_base =
+                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             // Build unified context and delegate to OpenAIProviderFactory.
             let mut ctx = BuildContext::default();
@@ -420,7 +421,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::Gemini => {
             // Resolve defaults via ProviderRegistry v2 (native provider) to ensure
             // aliases and model prefixes are registered for routing.
-            let resolved_base = {
+            let resolved_base_opt = {
                 let registry = crate::registry::global_registry();
                 let mut guard = registry
                     .write()
@@ -448,9 +449,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 }
                 guard.resolve("gemini").and_then(|r| r.base_url.clone())
             };
-            let resolved_base = base_url
-                .or(resolved_base)
+            let default_base = resolved_base_opt
                 .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string());
+            let resolved_base =
+                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             // Build unified context and delegate to GeminiProviderFactory.
             let mut ctx = BuildContext::default();
@@ -480,7 +482,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "xai")]
         ProviderType::XAI => {
             // Build unified context and delegate to XAIProviderFactory.
-            let resolved_base = base_url.unwrap_or_else(|| "https://api.x.ai/v1".to_string());
+            let default_base = "https://api.x.ai/v1".to_string();
+            let resolved_base =
+                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             let mut ctx = BuildContext::default();
             ctx.http_client = Some(built_http_client.clone());
@@ -501,7 +505,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "ollama")]
         ProviderType::Ollama => {
             // Build unified context and delegate to OllamaProviderFactory.
-            let ollama_base_url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
+            let ollama_base_url =
+                crate::utils::builder_helpers::resolve_base_url(base_url, "http://localhost:11434");
 
             let mut ctx = BuildContext::default();
             ctx.http_client = Some(built_http_client.clone());
@@ -608,9 +613,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "minimaxi")]
         ProviderType::MiniMaxi => {
             // Use Anthropic-compatible endpoint by default
-            let resolved_base = base_url.unwrap_or_else(|| {
-                crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string()
-            });
+            let default_base =
+                crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string();
+            let resolved_base =
+                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             // Build unified context and delegate to MiniMaxiProviderFactory.
             let mut ctx = BuildContext::default();

@@ -13,6 +13,22 @@ use crate::types::{CommonParams, HttpConfig, ProviderType};
 /// Provides a unified interface for creating LLM clients across providers
 /// while abstracting provider-specific details. Public API unchanged from
 /// its original location in `provider.rs`.
+///
+/// # Relationship to LlmBuilder and ProviderFactory
+///
+/// `SiumaiBuilder::build()` does not construct HTTP clients or provider
+/// implementations directly. Instead it:
+/// - collects unified configuration (HTTP, tracing, retry, model middlewares)
+/// - maps `ProviderType` / `provider_id` and default models
+/// - builds a `BuildContext`
+/// - delegates to the appropriate `ProviderFactory::language_model_with_ctx(...)`
+///
+/// This means:
+/// - the unified builder and the registry path share the same construction
+///   pipeline for provider clients
+/// - retry options are applied at the provider client layer via
+///   `BuildContext.retry_options`; the outer `Siumai` wrapper keeps an
+///   explicit `.with_retry_options(...)` for advanced, opt-in scenarios
 pub struct SiumaiBuilder {
     pub(crate) provider_type: Option<ProviderType>,
     pub(crate) provider_id: Option<String>,

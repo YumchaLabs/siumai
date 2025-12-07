@@ -220,6 +220,13 @@ fn extract_details(err: &LlmError) -> Option<serde_json::Value> {
 }
 
 /// Best-effort provider hint by model id (using registry prefixes/aliases).
+/// Best-effort provider hint by model id (using registry prefixes/aliases).
+///
+/// This helper currently relies on the global provider registry to resolve
+/// model → provider mappings (including aliases and model prefixes). When the
+/// workspace is split into `siumai-core` / `siumai-providers`, this lookup
+/// will move behind a thin adapter so that core error types remain independent
+/// of any particular registry implementation.
 pub fn provider_hint_for_model(model: Option<&str>) -> Option<ProviderHint> {
     let model = model?;
     if model.is_empty() {

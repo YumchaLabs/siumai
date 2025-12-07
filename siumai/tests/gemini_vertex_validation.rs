@@ -29,6 +29,15 @@ async fn build_gemini_without_key_and_without_bearer_should_fail() {
     // Regular GenAI base_url to validate the failure branch when both Key and Bearer are missing
     let genai_base = "https://generativelanguage.googleapis.com/v1beta";
 
+    // Ensure environment does not provide GEMINI_API_KEY for this test branch
+    // so that we truly exercise the "no key, no bearer" path.
+    // NOTE: On newer Rust versions `std::env::remove_var` is marked `unsafe`
+    // because changing process-wide env can cause data races with other threads.
+    // Tests run in a controlled context, so we use an explicit `unsafe` block here.
+    unsafe {
+        std::env::remove_var("GEMINI_API_KEY");
+    }
+
     let result = SiumaiBuilder::new()
         .provider(ProviderType::Gemini)
         .model("gemini-1.5-flash")

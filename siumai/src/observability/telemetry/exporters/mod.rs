@@ -6,7 +6,7 @@ pub mod helicone;
 pub mod langfuse;
 
 use crate::error::LlmError;
-use crate::telemetry::events::TelemetryEvent;
+use crate::observability::telemetry::events::TelemetryEvent;
 
 /// Trait for telemetry exporters
 #[async_trait::async_trait]

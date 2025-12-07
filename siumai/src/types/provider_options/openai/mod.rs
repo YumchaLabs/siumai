@@ -184,6 +184,7 @@ impl OpenAiOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Tool;
 
     #[test]
     fn test_openai_options_default() {
@@ -217,7 +218,7 @@ mod tests {
         let options = OpenAiOptions::new()
             .with_reasoning_effort(ReasoningEffort::High)
             .with_service_tier(ServiceTier::Default)
-            .with_provider_tool(crate::hosted_tools::openai::web_search().build());
+            .with_provider_tool(Tool::provider_defined("openai.web_search", "web_search"));
 
         assert_eq!(options.reasoning_effort, Some(ReasoningEffort::High));
         assert_eq!(options.service_tier, Some(ServiceTier::Default));

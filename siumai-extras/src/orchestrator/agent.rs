@@ -399,17 +399,20 @@ where
     /// Attach a telemetry configuration to this agent.
     ///
     /// This enables structured telemetry events (spans, orchestrator events,
-    /// tool execution events) to be emitted via `siumai::telemetry`.
+    /// tool execution events) to be emitted via `siumai::observability::telemetry`.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::telemetry::TelemetryConfig;
+    /// use siumai::observability::telemetry::TelemetryConfig;
     ///
     /// let telemetry = TelemetryConfig::minimal();
     /// let agent = agent.with_telemetry(telemetry);
     /// ```
-    pub fn with_telemetry(mut self, cfg: siumai::telemetry::TelemetryConfig) -> Self {
+    pub fn with_telemetry(
+        mut self,
+        cfg: siumai::observability::telemetry::TelemetryConfig,
+    ) -> Self {
         self.options.telemetry = Some(cfg);
         self
     }

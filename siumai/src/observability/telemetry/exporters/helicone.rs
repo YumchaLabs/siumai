@@ -9,7 +9,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use siumai::telemetry::exporters::helicone::HeliconeExporter;
+//! use siumai::observability::telemetry::exporters::helicone::HeliconeExporter;
 //! use std::collections::HashMap;
 //!
 //! let exporter = HeliconeExporter::new("your-api-key");
@@ -20,8 +20,8 @@
 //! ```
 
 use crate::error::LlmError;
-use crate::telemetry::events::TelemetryEvent;
-use crate::telemetry::exporters::TelemetryExporter;
+use crate::observability::telemetry::events::TelemetryEvent;
+use crate::observability::telemetry::exporters::TelemetryExporter;
 use std::collections::HashMap;
 
 /// Helicone exporter

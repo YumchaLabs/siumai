@@ -96,10 +96,33 @@ pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
     crate::utils::model_alias::normalize_model_id(provider_id, model)
 }
 
-/// Resolve base URL with intelligent path handling
+/// Resolve CommonParams for a given model id using optional context overrides.
 ///
-/// If a custom base URL is provided without a path component,
-/// automatically append the provider's default path suffix.
+/// This helper is shared between registry factories and other construction
+/// paths to avoid duplicating the "if empty, fall back to model_id" logic.
+pub fn resolve_common_params(
+    ctx_params: Option<crate::types::CommonParams>,
+    model_id: &str,
+) -> crate::types::CommonParams {
+    let mut common = ctx_params.unwrap_or_else(|| crate::types::CommonParams {
+        model: model_id.to_string(),
+        ..Default::default()
+    });
+    if common.model.is_empty() {
+        common.model = model_id.to_string();
+    }
+    common
+}
+
+/// Resolve base URL with simple override semantics.
+///
+/// If a custom base URL is provided, it is used as‑is (apart from removing a
+/// trailing `/`). The `default_url` is only used when no custom URL is given.
+///
+/// This matches the behavior of providers in the Vercel AI SDK, where:
+/// - `baseURL` is treated as the full API prefix (including any path),
+/// - the library does not try to infer or append additional path segments
+///   like `/v1` or `/v1beta` when a custom base is supplied.
 ///
 /// # Arguments
 /// * `custom_url` - Custom base URL (if any)
@@ -115,34 +138,18 @@ pub fn normalize_model_id(provider_id: &str, model: &str) -> String {
 ///     Some("https://my-server.com".to_string()),
 ///     "https://api.moonshot.cn/v1"
 /// );
-/// // Returns "https://my-server.com/v1"
+/// // Returns "https://my-server.com"
 ///
 /// // Custom URL with path
 /// let url = resolve_base_url(
 ///     Some("https://my-server.com/api/v2".to_string()),
 ///     "https://api.moonshot.cn/v1"
 /// );
-/// // Returns "https://my-server.com/api/v2" (unchanged)
+/// // Returns "https://my-server.com/api/v2"
 /// ```
 pub fn resolve_base_url(custom_url: Option<String>, default_url: &str) -> String {
-    if let Some(custom) = custom_url {
-        // Extract path part from default (after scheme://host)
-        let def_path = default_url.splitn(4, '/').nth(3).unwrap_or("");
-        let custom_path = custom.splitn(4, '/').nth(3).unwrap_or("");
-
-        // If custom URL has no path but default does, append default path
-        if custom_path.is_empty() && !def_path.is_empty() {
-            format!(
-                "{}/{}",
-                custom.trim_end_matches('/'),
-                def_path.trim_start_matches('/')
-            )
-        } else {
-            custom
-        }
-    } else {
-        default_url.to_string()
-    }
+    let url = custom_url.unwrap_or_else(|| default_url.to_string());
+    url.trim_end_matches('/').to_string()
 }
 
 /// Resolve base URL using provider adapter
@@ -160,7 +167,8 @@ pub fn resolve_base_url_with_adapter(
     custom_url: Option<String>,
     adapter: &Arc<dyn crate::providers::openai_compatible::ProviderAdapter>,
 ) -> String {
-    resolve_base_url(custom_url, adapter.base_url())
+    let url = custom_url.unwrap_or_else(|| adapter.base_url().to_string());
+    url.trim_end_matches('/').to_string()
 }
 
 #[cfg(test)]
@@ -210,7 +218,7 @@ mod tests {
             Some("https://my-server.com".to_string()),
             "https://api.moonshot.cn/v1",
         );
-        assert_eq!(url, "https://my-server.com/v1");
+        assert_eq!(url, "https://my-server.com");
 
         // Test custom URL with path
         let url = resolve_base_url(
@@ -228,6 +236,6 @@ mod tests {
             Some("https://my-server.com/".to_string()),
             "https://api.moonshot.cn/v1",
         );
-        assert_eq!(url, "https://my-server.com/v1");
+        assert_eq!(url, "https://my-server.com");
     }
 }

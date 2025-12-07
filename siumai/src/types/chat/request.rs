@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::message::ChatMessage;
-use crate::types::common::{CommonParams, HttpConfig};
 use crate::types::tools::Tool;
+use crate::types::{CommonParams, HttpConfig};
 
 /// Chat request configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -47,7 +47,7 @@ pub struct ChatRequest {
     pub stream: bool,
     /// Optional telemetry configuration
     #[serde(skip)]
-    pub telemetry: Option<crate::telemetry::TelemetryConfig>,
+    pub telemetry: Option<crate::observability::telemetry::TelemetryConfig>,
 }
 
 impl ChatRequest {

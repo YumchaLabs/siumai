@@ -315,7 +315,7 @@ pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
 
 /// Get default models for Anthropic according to latest available models
 pub fn get_default_models() -> Vec<String> {
-    use crate::types::models::model_constants::anthropic;
+    use crate::models::anthropic;
 
     let models = vec![
         anthropic::CLAUDE_OPUS_4_1.to_string(),

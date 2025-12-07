@@ -419,6 +419,12 @@ pub trait ProviderSpec: Send + Sync {
 /// into the request JSON body. All providers automatically support CustomProviderOptions
 /// through this default implementation.
 ///
+/// Note: this helper currently relies on `registry::helpers::matches_provider_id`
+/// to resolve provider id aliases using the global registry. When the architecture
+/// is split into `siumai-core` / `siumai-providers`, this alias resolution logic
+/// will be moved out of the core module into a thin adapter layer to keep
+/// `ProviderSpec` independent of registry state.
+///
 /// # Example
 ///
 /// ```rust,ignore

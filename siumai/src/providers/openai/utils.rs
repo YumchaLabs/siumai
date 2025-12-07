@@ -373,7 +373,7 @@ pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
 
 /// Get default models for `OpenAI`
 pub fn get_default_models() -> Vec<String> {
-    use crate::types::models::model_constants::openai;
+    use crate::models::openai;
 
     let models = vec![
         openai::GPT_5.to_string(),

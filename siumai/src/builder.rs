@@ -90,8 +90,6 @@ use std::time::Duration;
 
 use crate::error::LlmError;
 
-// Note: Removed unused import crate::providers::* to fix warning
-
 /// Quick `OpenAI` client creation with minimal configuration (low-level).
 ///
 /// This helper returns the provider-specific `OpenAiClient` directly.
@@ -232,6 +230,16 @@ pub async fn quick_xai_with_model(
 /// - Support for custom HTTP clients (key requirement)
 /// - Fluent API with method chaining
 /// - Validation at build time
+///
+/// `LlmBuilder` itself does not know about registry or factories; provider
+/// selection is done via the provider-specific builders in `providers::*` and
+/// by the unified `SiumaiBuilder`. Both the provider builders and
+/// `SiumaiBuilder::build()` ultimately construct clients through
+/// `ProviderFactory::language_model_with_ctx(...)`, so the HTTP/timeout/proxy
+/// behavior is consistent whether you use:
+/// - `LlmBuilder::new().openai()...build().await`
+/// - `Siumai::builder().openai()...build().await`
+/// - `registry::global().language_model("openai:model")`
 #[derive(Clone)]
 pub struct LlmBuilder {
     /// Custom HTTP client (key requirement from design doc)

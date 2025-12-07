@@ -1,50 +1,7 @@
-//! Performance Module - Metrics Collection and Monitoring
+//! Performance Module - Metrics Collection and Monitoring (extras crate)
 //!
-//! ## 📋 Purpose
-//!
-//! This module provides **metrics collection and performance monitoring** capabilities
-//! for the Siumai library. It allows you to track, measure, and analyze the performance
-//! characteristics of your LLM applications, including latency, throughput, error rates,
-//! and resource usage.
-//!
-//! ## 🎯 Responsibilities
-//!
-//! 1. **Metrics Collection**: Collect performance metrics (latency, throughput, errors)
-//! 2. **Performance Monitoring**: Track request latency, token throughput, error rates
-//! 3. **Performance Analysis**: Provide statistical summaries, identify bottlenecks
-//!
-//! ## 🔄 Relationship with Other Modules
-//!
-//! - **vs. `tracing/`**: `tracing` = logs individual events for debugging;
-//!   `performance` = aggregates metrics for monitoring and analysis
-//! - **vs. `telemetry/`**: `telemetry` = exports events to external platforms;
-//!   `performance` = collects and stores metrics internally
-//!
-//! ## 📚 Documentation
-//!
-//! See `docs/developer/performance_module.md` for detailed documentation and examples.
-//!
-//! ## 🚀 Quick Start
-//!
-//! ```rust,ignore
-//! // Use the performance module types in your application.
-//!
-//! # async fn example() {
-//! let collector = MetricsCollector::new();
-//!
-//! // Time a request
-//! let timer = RequestTimer::start();
-//! // ... make LLM request ...
-//! let duration = timer.elapsed();
-//!
-//! // Record the request
-//! collector.record_request("openai", "gpt-4", duration, true).await;
-//!
-//! // Get metrics
-//! let metrics = collector.get_metrics().await;
-//! println!("P95 latency: {:?}", metrics.latency.p95_latency);
-//! # }
-//! ```
+//! Extracted from the core `siumai` crate. Provides metrics collection and
+//! performance monitoring for applications built on top of Siumai.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -94,7 +51,7 @@ impl Default for LatencyMetrics {
             p95_latency: Duration::ZERO,
             p99_latency: Duration::ZERO,
             max_latency: Duration::ZERO,
-            min_latency: Duration::MAX,
+            min_latency: Duration::ZERO,
             total_requests: 0,
         }
     }
@@ -260,7 +217,7 @@ pub struct PerformanceMonitor {
     metrics: Arc<RwLock<PerformanceMetrics>>,
     /// Request timing storage
     request_timings: Arc<RwLock<Vec<Duration>>>,
-    /// Configuration (used by extended reporting; kept for future hooks)
+    /// Configuration
     #[allow(dead_code)]
     config: MonitorConfig,
 }
@@ -336,7 +293,7 @@ impl PerformanceMonitor {
         metrics.clone()
     }
 
-    /// Update latency metrics (currently used by extended reporting; keep for future hook)
+    /// Update latency metrics (currently unused but kept for potential extensions)
     #[allow(dead_code)]
     async fn update_latency_metrics(&self) {
         let timings = self.request_timings.read().await;
@@ -369,7 +326,7 @@ impl PerformanceMonitor {
 /// Request timer for measuring individual request performance
 pub struct RequestTimer {
     start_time: Instant,
-    #[allow(dead_code)] // reserved for live updates in extended reporting
+    #[allow(dead_code)]
     metrics: Arc<RwLock<PerformanceMetrics>>,
     timings: Arc<RwLock<Vec<Duration>>>,
 }
@@ -392,8 +349,8 @@ impl RequestTimer {
         timings.push(duration);
 
         // Keep only recent timings to avoid memory growth
-        if timings.len() > 10000 {
-            timings.drain(0..5000);
+        if timings.len() > 10_000 {
+            timings.drain(0..5_000);
         }
 
         duration
@@ -403,154 +360,58 @@ impl RequestTimer {
 /// Performance monitor configuration
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
-    /// Whether to enable detailed metrics collection
-    pub detailed_metrics: bool,
-    /// Maximum number of timing samples to keep
-    pub max_timing_samples: usize,
-    /// Metrics update interval
-    pub update_interval: Duration,
     /// Whether to enable memory tracking
-    pub memory_tracking: bool,
+    pub track_memory: bool,
+    /// Whether to track provider-specific metrics
+    pub track_per_provider: bool,
 }
 
 impl Default for MonitorConfig {
     fn default() -> Self {
         Self {
-            detailed_metrics: true,
-            max_timing_samples: 10000,
-            update_interval: Duration::from_secs(60),
-            memory_tracking: false, // Disabled by default due to overhead
+            track_memory: false,
+            track_per_provider: true,
         }
     }
 }
 
-// Re-export commonly used types at module level
-pub use optimization::{CacheStats, ResponseCache};
-
-/// Performance optimization utilities
-pub mod optimization {
+/// In-memory cache for chat responses (simple LRU-style)
+pub mod cache {
     use super::*;
+    use std::collections::{HashMap, VecDeque};
 
-    /// Connection pool configuration for HTTP clients
+    /// Cached chat response with metadata
     #[derive(Debug, Clone)]
-    pub struct ConnectionPoolConfig {
-        /// Maximum number of idle connections per host
-        pub max_idle_per_host: usize,
-        /// Maximum total idle connections
-        pub max_idle_total: usize,
-        /// Connection timeout
-        pub connect_timeout: Duration,
-        /// Request timeout
-        pub request_timeout: Duration,
-        /// Keep-alive timeout
-        pub keep_alive_timeout: Duration,
+    pub struct CachedResponse {
+        pub response: siumai::types::ChatResponse,
+        pub timestamp: Instant,
+        pub access_count: u64,
     }
 
-    impl Default for ConnectionPoolConfig {
-        fn default() -> Self {
-            Self {
-                max_idle_per_host: crate::defaults::http::MAX_IDLE_PER_HOST,
-                max_idle_total: crate::defaults::http::MAX_IDLE_TOTAL,
-                connect_timeout: crate::defaults::http::CONNECT_TIMEOUT,
-                request_timeout: crate::defaults::http::REQUEST_TIMEOUT,
-                keep_alive_timeout: crate::defaults::http::KEEP_ALIVE_TIMEOUT,
-            }
-        }
-    }
-
-    /// Create an optimized HTTP client
-    pub fn create_optimized_client(
-        config: ConnectionPoolConfig,
-    ) -> Result<reqwest::Client, Box<dyn std::error::Error>> {
-        let client = reqwest::Client::builder()
-            .pool_max_idle_per_host(config.max_idle_per_host)
-            .pool_idle_timeout(config.keep_alive_timeout)
-            .connect_timeout(config.connect_timeout)
-            .timeout(config.request_timeout)
-            .tcp_keepalive(crate::defaults::http::TCP_KEEP_ALIVE)
-            .tcp_nodelay(true)
-            .build()?;
-
-        Ok(client)
-    }
-
-    /// Memory-efficient string interning for common values
-    ///
-    /// Note: This is a simplified implementation that uses a HashMap for deduplication.
-    /// For production use, consider using a proper string interner library like `string-interner`.
-    #[allow(dead_code)]
-    pub struct StringInterner {
-        strings: std::collections::HashMap<String, String>,
-    }
-
-    impl Default for StringInterner {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl StringInterner {
-        pub fn new() -> Self {
-            Self {
-                strings: std::collections::HashMap::new(),
-            }
-        }
-
-        /// Intern a string (safe implementation without memory leaks)
-        ///
-        /// Returns a reference to the interned string. The string will be kept
-        /// alive as long as this StringInterner instance exists.
-        pub fn intern(&mut self, s: String) -> &str {
-            // Use entry API to avoid cloning if the string already exists
-            self.strings.entry(s.clone()).or_insert(s).as_str()
-        }
-
-        /// Get the number of interned strings
-        pub fn len(&self) -> usize {
-            self.strings.len()
-        }
-
-        /// Check if the interner is empty
-        pub fn is_empty(&self) -> bool {
-            self.strings.is_empty()
-        }
-
-        /// Clear all interned strings
-        pub fn clear(&mut self) {
-            self.strings.clear();
-        }
-    }
-
-    /// High-performance LRU cache for chat responses
-    pub struct ResponseCache {
-        cache: std::collections::HashMap<String, CachedResponse>,
-        access_order: std::collections::VecDeque<String>,
+    /// Simple LRU cache for chat responses
+    #[derive(Debug)]
+    pub struct ChatResponseCache {
+        cache: HashMap<String, CachedResponse>,
+        access_order: VecDeque<String>,
         max_size: usize,
         hit_count: u64,
         miss_count: u64,
     }
 
-    #[derive(Clone)]
-    struct CachedResponse {
-        response: crate::types::ChatResponse,
-        timestamp: std::time::Instant,
-        access_count: u32,
-    }
-
-    impl ResponseCache {
-        /// Create a new response cache with specified capacity
+    impl ChatResponseCache {
+        /// Create a new cache with the given capacity
         pub fn new(max_size: usize) -> Self {
             Self {
-                cache: std::collections::HashMap::with_capacity(max_size),
-                access_order: std::collections::VecDeque::with_capacity(max_size),
+                cache: HashMap::new(),
+                access_order: VecDeque::new(),
                 max_size,
                 hit_count: 0,
                 miss_count: 0,
             }
         }
 
-        /// Generate cache key from messages (optimized for performance)
-        pub fn cache_key(messages: &[crate::types::ChatMessage]) -> String {
+        /// Generate a cache key from messages
+        pub fn key_from_messages(messages: &[siumai::types::ChatMessage]) -> String {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
 
@@ -565,7 +426,7 @@ pub mod optimization {
         }
 
         /// Get cached response if available
-        pub fn get(&mut self, key: &str) -> Option<crate::types::ChatResponse> {
+        pub fn get(&mut self, key: &str) -> Option<siumai::types::ChatResponse> {
             if let Some(cached) = self.cache.get_mut(key) {
                 // Update access statistics
                 cached.access_count += 1;
@@ -585,7 +446,7 @@ pub mod optimization {
         }
 
         /// Store response in cache
-        pub fn put(&mut self, key: String, response: crate::types::ChatResponse) {
+        pub fn put(&mut self, key: String, response: siumai::types::ChatResponse) {
             // Remove oldest entry if at capacity
             if self.cache.len() >= self.max_size
                 && let Some(oldest_key) = self.access_order.pop_back()
@@ -595,7 +456,7 @@ pub mod optimization {
 
             let cached = CachedResponse {
                 response,
-                timestamp: std::time::Instant::now(),
+                timestamp: Instant::now(),
                 access_count: 1,
             };
 
@@ -614,8 +475,8 @@ pub mod optimization {
         }
 
         /// Clear expired entries
-        pub fn cleanup_expired(&mut self, max_age: std::time::Duration) {
-            let now = std::time::Instant::now();
+        pub fn cleanup_expired(&mut self, max_age: Duration) {
+            let now = Instant::now();
             let mut expired_keys = Vec::new();
 
             for (key, cached) in &self.cache {

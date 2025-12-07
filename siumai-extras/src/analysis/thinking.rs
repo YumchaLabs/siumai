@@ -1,7 +1,8 @@
+#![allow(clippy::collapsible_if)]
 //! Thinking Content Analysis
 //!
-//! This module provides tools for analyzing thinking content from AI models,
-//! inspired by Cherry Studio's thinking analysis capabilities.
+//! Tools for analyzing thinking content from AI models, inspired by Cherry Studio's
+//! thinking analysis capabilities.
 
 use serde::{Deserialize, Serialize};
 

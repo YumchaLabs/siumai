@@ -1,6 +1,6 @@
 //! Text completion types (non-chat)
 
-use super::common::Usage;
+use crate::types::Usage;
 use std::collections::HashMap;
 
 /// Text completion request

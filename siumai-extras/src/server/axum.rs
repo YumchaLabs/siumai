@@ -288,9 +288,9 @@ pub fn to_text_stream(
 mod tests {
     use super::*;
     use futures::stream;
+    use siumai::types::ResponseMetadata;
     use siumai::types::Usage;
     use siumai::types::chat::{ChatResponse, MessageContent};
-    use siumai::types::common::ResponseMetadata;
 
     #[tokio::test]
     async fn test_to_sse_response_basic() {

@@ -4,12 +4,15 @@
 pub mod chat {
     use std::time::SystemTime;
 
-    use crate::telemetry::{self, GenerationEvent, TelemetryEvent};
+    use crate::observability::telemetry::{
+        self,
+        events::{GenerationEvent, TelemetryEvent},
+    };
     use crate::types::{ChatRequest, ChatResponse};
 
     /// Emit a span start for chat execution if telemetry is enabled.
     pub async fn span_start(
-        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        telemetry_config: Option<&crate::observability::telemetry::TelemetryConfig>,
         trace_id: &str,
         span_id: &str,
         provider_id: &str,
@@ -18,7 +21,7 @@ pub mod chat {
     ) {
         if let Some(cfg) = telemetry_config {
             if cfg.enabled {
-                let span = crate::telemetry::events::SpanEvent::start(
+                let span = crate::observability::telemetry::events::SpanEvent::start(
                     span_id.to_string(),
                     None,
                     trace_id.to_string(),
@@ -34,7 +37,7 @@ pub mod chat {
 
     /// Emit a successful span end. Optionally annotate short_circuit or finish_reason.
     pub async fn span_end_ok(
-        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        telemetry_config: Option<&crate::observability::telemetry::TelemetryConfig>,
         trace_id: &str,
         span_id: &str,
         short_circuit: bool,
@@ -42,7 +45,7 @@ pub mod chat {
     ) {
         if let Some(cfg) = telemetry_config {
             if cfg.enabled {
-                let mut span = crate::telemetry::events::SpanEvent::start(
+                let mut span = crate::observability::telemetry::events::SpanEvent::start(
                     span_id.to_string(),
                     None,
                     trace_id.to_string(),
@@ -62,14 +65,14 @@ pub mod chat {
 
     /// Emit an error span end when chat execution fails.
     pub async fn span_end_err(
-        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        telemetry_config: Option<&crate::observability::telemetry::TelemetryConfig>,
         trace_id: &str,
         span_id: &str,
         error: &crate::error::LlmError,
     ) {
         if let Some(cfg) = telemetry_config {
             if cfg.enabled {
-                let span = crate::telemetry::events::SpanEvent::start(
+                let span = crate::observability::telemetry::events::SpanEvent::start(
                     span_id.to_string(),
                     None,
                     trace_id.to_string(),
@@ -85,7 +88,7 @@ pub mod chat {
 
     /// Emit a span start for chat streaming execution.
     pub async fn span_start_stream(
-        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        telemetry_config: Option<&crate::observability::telemetry::TelemetryConfig>,
         trace_id: &str,
         span_id: &str,
         provider_id: &str,
@@ -93,7 +96,7 @@ pub mod chat {
     ) {
         if let Some(cfg) = telemetry_config {
             if cfg.enabled {
-                let span = crate::telemetry::events::SpanEvent::start(
+                let span = crate::observability::telemetry::events::SpanEvent::start(
                     span_id.to_string(),
                     None,
                     trace_id.to_string(),
@@ -109,7 +112,7 @@ pub mod chat {
 
     /// Emit an OK span end for streaming execution.
     pub async fn span_end_ok_stream(
-        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        telemetry_config: Option<&crate::observability::telemetry::TelemetryConfig>,
         trace_id: &str,
         span_id: &str,
         short_circuit: bool,
@@ -117,7 +120,7 @@ pub mod chat {
     ) {
         if let Some(cfg) = telemetry_config {
             if cfg.enabled {
-                let mut span = crate::telemetry::events::SpanEvent::start(
+                let mut span = crate::observability::telemetry::events::SpanEvent::start(
                     span_id.to_string(),
                     None,
                     trace_id.to_string(),
@@ -137,14 +140,14 @@ pub mod chat {
 
     /// Emit an error span end for streaming execution.
     pub async fn span_end_err_stream(
-        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        telemetry_config: Option<&crate::observability::telemetry::TelemetryConfig>,
         trace_id: &str,
         span_id: &str,
         error: &crate::error::LlmError,
     ) {
         if let Some(cfg) = telemetry_config {
             if cfg.enabled {
-                let span = crate::telemetry::events::SpanEvent::start(
+                let span = crate::observability::telemetry::events::SpanEvent::start(
                     span_id.to_string(),
                     None,
                     trace_id.to_string(),
@@ -158,7 +161,7 @@ pub mod chat {
 
     /// Emit a generation event for a finished chat response.
     pub async fn generation(
-        telemetry_config: Option<&crate::telemetry::TelemetryConfig>,
+        telemetry_config: Option<&crate::observability::telemetry::TelemetryConfig>,
         trace_id: &str,
         provider_id: &str,
         model: &str,

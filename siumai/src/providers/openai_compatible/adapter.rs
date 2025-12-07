@@ -179,7 +179,8 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// Apply HTTP configuration to the adapter
     ///
     /// This allows the adapter to customize HTTP settings based on provider requirements.
-    /// Integrates with our existing HttpConfig system from types/common.rs.
+    /// Integrates with our existing `HttpConfig` system (defined in `types::http` and
+    /// re-exported at `siumai::types::HttpConfig`).
     ///
     /// # Arguments
     /// * `http_config` - The base HTTP configuration to modify

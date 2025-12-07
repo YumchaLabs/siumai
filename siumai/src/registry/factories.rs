@@ -56,23 +56,16 @@ impl ProviderFactory for OpenAIProviderFactory {
         };
 
         // Resolve base URL (context override → default).
-        let base_url = ctx
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+        let base_url = crate::utils::builder_helpers::resolve_base_url(
+            ctx.base_url.clone(),
+            "https://api.openai.com/v1",
+        );
 
         // Resolve common parameters (model, temperature, max_tokens, etc.).
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        // Ensure model is always set.
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         // Delegate to the shared OpenAI client builder used by SiumaiBuilder.
         crate::registry::factory::build_openai_client(
@@ -172,22 +165,16 @@ impl ProviderFactory for AnthropicProviderFactory {
         };
 
         // Resolve base URL (context override → default).
-        let base_url = ctx
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+        let base_url = crate::utils::builder_helpers::resolve_base_url(
+            ctx.base_url.clone(),
+            "https://api.anthropic.com",
+        );
 
         // Resolve common parameters (model, temperature, max_tokens, etc.).
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_anthropic_client(
             api_key,
@@ -276,16 +263,10 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         };
 
         // Resolve common parameters (model id, etc.).
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         // For Vertex AI, base URL must point at the Vertex endpoint.
         // We do not synthesize a default here; callers should provide
@@ -399,22 +380,16 @@ impl ProviderFactory for GeminiProviderFactory {
         };
 
         // Resolve base URL (context override → default).
-        let base_url = ctx
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string());
+        let base_url = crate::utils::builder_helpers::resolve_base_url(
+            ctx.base_url.clone(),
+            "https://generativelanguage.googleapis.com/v1beta",
+        );
 
         // Resolve common parameters.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_gemini_client(
             api_key,
@@ -511,16 +486,10 @@ impl ProviderFactory for GroqProviderFactory {
         };
 
         // Resolve common parameters.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_openai_compatible_client(
             "groq".to_string(),
@@ -619,22 +588,16 @@ impl ProviderFactory for XAIProviderFactory {
         };
 
         // Resolve base URL (context override → default).
-        let base_url = ctx
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://api.x.ai/v1".to_string());
+        let base_url = crate::utils::builder_helpers::resolve_base_url(
+            ctx.base_url.clone(),
+            "https://api.x.ai/v1",
+        );
 
         // Resolve common parameters for model selection.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         // Build XAI config and client.
         let xai_cfg = XaiConfig::new(api_key)
@@ -737,22 +700,16 @@ impl ProviderFactory for OllamaProviderFactory {
         };
 
         // Resolve base URL (context override → default).
-        let base_url = ctx
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "http://localhost:11434".to_string());
+        let base_url = crate::utils::builder_helpers::resolve_base_url(
+            ctx.base_url.clone(),
+            "http://localhost:11434",
+        );
 
         // Resolve common parameters.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_ollama_client(
             base_url,
@@ -847,21 +804,16 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         };
 
         // Resolve base URL (context override → config default).
-        let base_url = ctx.base_url.clone().unwrap_or_else(|| {
-            crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string()
-        });
+        let base_url = crate::utils::builder_helpers::resolve_base_url(
+            ctx.base_url.clone(),
+            crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL,
+        );
 
         // Resolve common parameters.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_minimaxi_client(
             api_key,
@@ -949,16 +901,10 @@ impl ProviderFactory for OpenRouterProviderFactory {
             crate::utils::builder_helpers::get_api_key_with_env(ctx.api_key.clone(), "openrouter")?;
 
         // Resolve common parameters.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_openai_compatible_client(
             "openrouter".to_string(),
@@ -1048,16 +994,10 @@ impl ProviderFactory for DeepSeekProviderFactory {
             crate::utils::builder_helpers::get_api_key_with_env(ctx.api_key.clone(), "deepseek")?;
 
         // Resolve common parameters.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_openai_compatible_client(
             "deepseek".to_string(),
@@ -1158,16 +1098,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         )?;
 
         // Resolve common parameters.
-        let mut common_params =
-            ctx.common_params
-                .clone()
-                .unwrap_or_else(|| crate::types::CommonParams {
-                    model: model_id.to_string(),
-                    ..Default::default()
-                });
-        if common_params.model.is_empty() {
-            common_params.model = model_id.to_string();
-        }
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
 
         crate::registry::factory::build_openai_compatible_client(
             self.provider_id.clone(),

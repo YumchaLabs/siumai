@@ -1,22 +1,15 @@
-//! Web Search Functionality
+//! Web Search Functionality (extras crate)
 //!
 //! This module provides unified web search capabilities across different AI providers.
-//! Each provider implements web search differently:
-//! - `OpenAI`: Built-in web search tools via Responses API
-//! - Anthropic: `web_search` tool
-//!
-//! Note: OpenAI Responses API `web_search` is currently not implemented in this crate and will
-//! return `UnsupportedOperation`. Track the implementation status in the changelog and README.
-//! - xAI: Live Search with `search_parameters`
-//! - Gemini: Search-augmented generation
-//! - `OpenRouter`: `search_prompt` parameter
+//! It is a direct extraction from the core `siumai` crate, adapted to depend on the
+//! public `siumai` API instead of internal modules.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::error::LlmError;
-use crate::types::{WebSearchConfig, WebSearchContextSize, WebSearchResult, WebSearchStrategy};
+use siumai::error::LlmError;
+use siumai::types::{WebSearchConfig, WebSearchContextSize, WebSearchResult, WebSearchStrategy};
 
 /// Web search capability trait
 #[async_trait]
@@ -73,7 +66,7 @@ impl WebSearchProvider {
         }
 
         // Merge typed ProviderOptions if present (OpenAI)
-        if let crate::types::ProviderOptions::OpenAi(ref boxed) = self.config.provider_options
+        if let siumai::types::ProviderOptions::OpenAi(ref boxed) = self.config.provider_options
             && let Some(ws) = &boxed.web_search_options
         {
             // Map fields to equivalent key/value pairs
@@ -110,7 +103,7 @@ impl WebSearchProvider {
         }
 
         // Merge typed ProviderOptions if present (xAI)
-        if let crate::types::ProviderOptions::Xai(ref xai) = self.config.provider_options
+        if let siumai::types::ProviderOptions::Xai(ref xai) = self.config.provider_options
             && let Some(sp) = &xai.search_parameters
             && let Ok(v) = serde_json::to_value(sp)
         {
@@ -206,7 +199,7 @@ impl AnthropicWebSearchTool {
     }
 
     /// Convert to tool definition
-    pub fn to_tool(&self) -> crate::types::Tool {
+    pub fn to_tool(&self) -> siumai::types::Tool {
         let mut parameters = serde_json::json!({
             "type": "object",
             "properties": {
@@ -225,7 +218,7 @@ impl AnthropicWebSearchTool {
             });
         }
 
-        crate::types::Tool::function(
+        siumai::types::Tool::function(
             "web_search".to_string(),
             "Search the web for current information".to_string(),
             parameters,
@@ -338,7 +331,7 @@ impl GeminiSearchConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Tool;
+    use siumai::types::Tool;
 
     #[test]
     fn test_web_search_config() {
@@ -348,7 +341,7 @@ mod tests {
             context_size: Some(WebSearchContextSize::Medium),
             search_prompt: Some("Custom search prompt".to_string()),
             strategy: WebSearchStrategy::Auto,
-            provider_options: crate::types::ProviderOptions::None,
+            provider_options: siumai::types::ProviderOptions::None,
         };
 
         assert!(config.enabled);

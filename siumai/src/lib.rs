@@ -84,17 +84,13 @@ pub const ENABLED_PROVIDERS: &str = env!("SIUMAI_ENABLED_PROVIDERS");
 pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 
 // Developer tooling / diagnostics (kept public but not in prelude)
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Moved to siumai-extras::analysis; this module will be removed in a future release"
-)]
-pub mod analysis;
 pub mod auth;
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Moved to siumai-extras::benchmarks; this module will be removed in a future release"
-)]
-pub mod benchmarks;
+
+// Provider-agnostic model catalogs (re-exported as `models` and `constants`)
+pub mod model_catalog;
+
+/// Provider-defined tools (hosted tools such as web search, file search, etc.)
+pub mod hosted_tools;
 
 // Core builder and client abstractions
 pub mod builder;
@@ -112,9 +108,6 @@ pub mod observability;
 
 // Request/response parameters and configuration
 pub mod params;
-
-// Performance benchmarking helpers (used by `benchmarks` and tracing)
-pub mod performance;
 
 // Unified interface (`Siumai`) and builder
 pub mod provider;
@@ -137,20 +130,17 @@ pub mod retry;
 pub mod retry_api;
 pub mod streaming;
 
-// Telemetry event bus (structured events; re-export of `observability::telemetry`)
-pub mod telemetry;
+// Telemetry event bus (structured events) lives under `observability::telemetry`
 
 // Capability traits and shared domain types
 pub mod traits;
 pub mod types;
 
-// Misc utilities and web search helpers
+// Misc utilities
 pub mod utils;
 // Cancellation helpers are in `utils::cancel`
-pub mod web_search;
 
 // Higher-level feature layers
-pub mod hosted_tools;
 pub mod standards;
 
 // Re-export main types and traits
@@ -193,14 +183,8 @@ pub use streaming::{ChatStream, ChatStreamEvent};
 // Web search (use types re-export)
 pub use types::{WebSearchConfig, WebSearchResult};
 
-// Performance monitoring
-// Performance types are available under `crate::performance` module; no top-level re-export
-
 // Unified retry facade
 pub use retry_api::{RetryBackend, RetryOptions, retry, retry_for_provider, retry_with};
-
-// Benchmarks
-// Benchmark types are available under `crate::benchmarks` module; no top-level re-export
 
 // Custom provider support
 pub use custom_provider::{CustomProvider, CustomProviderConfig};
@@ -215,10 +199,10 @@ pub use registry::{
 };
 
 // Model constants (simplified access)
-pub use types::models::model_constants as models;
+pub use model_catalog::model_constants as models;
 
 // Model constants (detailed access)
-pub use types::models::constants;
+pub use model_catalog::constants;
 
 /// Convenient pre-import module
 pub mod prelude {
@@ -241,9 +225,6 @@ pub mod prelude {
     // Retry & streaming helpers
     pub use crate::retry_api::*;
     pub use crate::streaming::*;
-
-    // Web search feature (provider-agnostic config + helpers)
-    pub use crate::web_search::*;
 
     // Model constants for easy access
     pub use crate::constants;
@@ -275,13 +256,13 @@ pub mod prelude {
 
     // Conditional provider quick functions
     #[cfg(feature = "anthropic")]
-    pub use crate::{quick_anthropic, quick_anthropic_with_model};
+    pub use crate::builder::{quick_anthropic, quick_anthropic_with_model};
     #[cfg(feature = "google")]
-    pub use crate::{quick_gemini, quick_gemini_with_model};
+    pub use crate::builder::{quick_gemini, quick_gemini_with_model};
     #[cfg(feature = "groq")]
-    pub use crate::{quick_groq, quick_groq_with_model};
+    pub use crate::builder::{quick_groq, quick_groq_with_model};
     #[cfg(feature = "openai")]
-    pub use crate::{quick_openai, quick_openai_with_model};
+    pub use crate::builder::{quick_openai, quick_openai_with_model};
 }
 
 /// Provider entry point for creating specific provider clients
@@ -391,44 +372,8 @@ impl crate::provider::Siumai {
     }
 }
 
-// Re-export convenience functions
-#[cfg(feature = "anthropic")]
-pub use crate::builder::quick_anthropic;
-#[cfg(feature = "anthropic")]
-pub use crate::builder::quick_anthropic_with_model;
-#[cfg(feature = "google")]
-pub use crate::builder::quick_gemini;
-#[cfg(feature = "google")]
-pub use crate::builder::quick_gemini_with_model;
-#[cfg(feature = "groq")]
-pub use crate::builder::quick_groq;
-#[cfg(feature = "groq")]
-pub use crate::builder::quick_groq_with_model;
-#[cfg(feature = "openai")]
-pub use crate::builder::quick_openai;
-#[cfg(feature = "openai")]
-pub use crate::builder::quick_openai_with_model;
-
 // Macros moved to a dedicated module for cleanliness
 mod macros;
-
-// Re-export provider convenience functions for easy access
-#[cfg(feature = "anthropic")]
-pub use providers::convenience::core::anthropic;
-#[cfg(feature = "google")]
-pub use providers::convenience::core::gemini;
-#[cfg(feature = "groq")]
-pub use providers::convenience::core::groq;
-#[cfg(feature = "ollama")]
-pub use providers::convenience::core::ollama;
-#[cfg(feature = "openai")]
-pub use providers::convenience::core::openai;
-#[cfg(feature = "xai")]
-pub use providers::convenience::core::xai;
-
-// Re-export all OpenAI-compatible provider functions
-#[cfg(feature = "openai")]
-pub use providers::convenience::openai_compatible::*;
 
 #[cfg(test)]
 mod tests {

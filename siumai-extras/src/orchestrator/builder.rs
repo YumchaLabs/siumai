@@ -149,7 +149,7 @@ impl OrchestratorBuilder {
     }
 
     /// Set telemetry configuration (applies to both variants).
-    pub fn telemetry(mut self, cfg: siumai::telemetry::TelemetryConfig) -> Self {
+    pub fn telemetry(mut self, cfg: siumai::observability::telemetry::TelemetryConfig) -> Self {
         let some = Some(cfg);
         self.stream_options.telemetry = some.clone();
         self.options.telemetry = some;

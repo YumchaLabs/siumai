@@ -8,6 +8,10 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::error::LlmError;
+use crate::observability::telemetry::{
+    self,
+    events::{GenerationEvent, TelemetryEvent},
+};
 use crate::streaming::{ChatStream, ChatStreamEvent, StreamProcessor};
 use crate::types::{ChatMessage, FinishReason};
 
@@ -15,7 +19,7 @@ use crate::types::{ChatMessage, FinishReason};
 struct TelemetryStreamWrapper {
     inner: ChatStream,
     processor: StreamProcessor,
-    telemetry_config: Arc<crate::telemetry::TelemetryConfig>,
+    telemetry_config: Arc<telemetry::TelemetryConfig>,
     trace_id: String,
     provider_id: String,
     model: String,
@@ -53,7 +57,7 @@ impl Stream for TelemetryStreamWrapper {
                         .duration_since(self.start_time)
                         .ok();
 
-                    let mut gen_event = crate::telemetry::events::GenerationEvent::new(
+                    let mut gen_event = GenerationEvent::new(
                         uuid::Uuid::new_v4().to_string(),
                         self.trace_id.clone(),
                         self.provider_id.clone(),
@@ -84,10 +88,7 @@ impl Stream for TelemetryStreamWrapper {
 
                     // Spawn a task to send telemetry event asynchronously
                     tokio::spawn(async move {
-                        crate::telemetry::emit(
-                            crate::telemetry::events::TelemetryEvent::Generation(gen_event),
-                        )
-                        .await;
+                        telemetry::emit(TelemetryEvent::Generation(gen_event)).await;
                     });
                 }
             }
@@ -115,7 +116,7 @@ impl Stream for TelemetryStreamWrapper {
 /// A wrapped ChatStream that emits telemetry events
 pub fn wrap_stream_with_telemetry(
     stream: ChatStream,
-    telemetry_config: Arc<crate::telemetry::TelemetryConfig>,
+    telemetry_config: Arc<telemetry::TelemetryConfig>,
     trace_id: String,
     provider_id: String,
     model: String,
@@ -143,13 +144,10 @@ mod tests {
     use futures::StreamExt;
     use std::sync::{Arc, Mutex};
 
-    struct CaptureExporter(Arc<Mutex<Vec<crate::telemetry::TelemetryEvent>>>);
+    struct CaptureExporter(Arc<Mutex<Vec<TelemetryEvent>>>);
     #[async_trait::async_trait]
-    impl crate::telemetry::TelemetryExporter for CaptureExporter {
-        async fn export(
-            &self,
-            event: &crate::telemetry::TelemetryEvent,
-        ) -> Result<(), crate::error::LlmError> {
+    impl telemetry::TelemetryExporter for CaptureExporter {
+        async fn export(&self, event: &TelemetryEvent) -> Result<(), crate::error::LlmError> {
             self.0.lock().unwrap().push(event.clone());
             Ok(())
         }
@@ -173,11 +171,11 @@ mod tests {
 
         let sink = Arc::new(Mutex::new(Vec::new()));
         // Ensure clean state
-        crate::telemetry::clear_exporters().await;
-        crate::telemetry::add_exporter(Box::new(CaptureExporter(sink.clone()))).await;
+        telemetry::clear_exporters().await;
+        telemetry::add_exporter(Box::new(CaptureExporter(sink.clone()))).await;
 
         let cfg = Arc::new(
-            crate::telemetry::TelemetryConfig::builder()
+            telemetry::TelemetryConfig::builder()
                 .enabled(true)
                 .record_inputs(true)
                 .record_outputs(true)
@@ -205,7 +203,7 @@ mod tests {
         assert!(
             captured
                 .iter()
-                .any(|e| matches!(e, crate::telemetry::TelemetryEvent::Generation(_)))
+                .any(|e| matches!(e, TelemetryEvent::Generation(_)))
         );
     }
 }

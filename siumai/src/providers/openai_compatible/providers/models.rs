@@ -488,7 +488,8 @@ pub mod groq {
 
 /// Moonshot AI model constants
 ///
-/// Moonshot AI (月之暗面) provides models with exceptional long-context capabilities.
+/// Moonshot AI ("Dark Side of the Moon") provides models with exceptional
+/// long-context capabilities.
 /// Reference: https://platform.moonshot.cn/docs/intro
 pub mod moonshot {
     /// Kimi K2 0905 Preview - Latest model with enhanced Agentic Coding capabilities

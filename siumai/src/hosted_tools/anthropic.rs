@@ -1,21 +1,7 @@
 //! Anthropic Provider-Defined Tools
 //!
-//! This module provides factory functions for creating Anthropic-specific provider-defined tools.
+//! Factory functions for creating Anthropic-specific provider-defined tools.
 //! These tools are executed by Anthropic's servers.
-//!
-//! # Examples
-//!
-//! ```rust
-//! use siumai::hosted_tools::anthropic;
-//!
-//! // Create a web search tool (2025-03-05 version)
-//! let web_search = anthropic::web_search_20250305();
-//!
-//! // Create a web search tool with custom configuration
-//! let web_search_custom = anthropic::web_search_20250305()
-//!     .with_max_uses(5)
-//!     .with_allowed_domains(vec!["github.com".to_string(), "docs.rs".to_string()]);
-//! ```
 
 use crate::types::{ProviderDefinedTool, Tool};
 
@@ -75,61 +61,6 @@ impl WebSearch20250305Config {
 }
 
 /// Create a web search tool (2025-03-05 version)
-///
-/// This is Anthropic's web search tool with the 2025-03-05 API version.
-///
-/// # Example
-///
-/// ```rust
-/// use siumai::hosted_tools::anthropic;
-///
-/// let tool = anthropic::web_search_20250305()
-///     .with_max_uses(3)
-///     .with_allowed_domains(vec!["github.com".to_string()]);
-/// ```
 pub fn web_search_20250305() -> WebSearch20250305Config {
     WebSearch20250305Config::new()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_web_search_20250305_default() {
-        let tool = web_search_20250305().build();
-        match tool {
-            Tool::ProviderDefined(pt) => {
-                assert_eq!(pt.id, "anthropic.web_search_20250305");
-                assert_eq!(pt.name, "web_search_20250305");
-                assert_eq!(pt.provider(), Some("anthropic"));
-            }
-            _ => panic!("Expected ProviderDefined variant"),
-        }
-    }
-
-    #[test]
-    fn test_web_search_20250305_with_config() {
-        let tool = web_search_20250305()
-            .with_max_uses(5)
-            .with_allowed_domains(vec!["github.com".to_string(), "docs.rs".to_string()])
-            .with_blocked_domains(vec!["spam.com".to_string()])
-            .build();
-
-        match tool {
-            Tool::ProviderDefined(pt) => {
-                assert_eq!(pt.id, "anthropic.web_search_20250305");
-                assert_eq!(pt.args.get("max_uses").and_then(|v| v.as_u64()), Some(5));
-
-                let allowed = pt.args.get("allowed_domains").unwrap().as_array().unwrap();
-                assert_eq!(allowed.len(), 2);
-                assert_eq!(allowed[0].as_str(), Some("github.com"));
-
-                let blocked = pt.args.get("blocked_domains").unwrap().as_array().unwrap();
-                assert_eq!(blocked.len(), 1);
-                assert_eq!(blocked[0].as_str(), Some("spam.com"));
-            }
-            _ => panic!("Expected ProviderDefined variant"),
-        }
-    }
 }

@@ -6,8 +6,8 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use siumai::telemetry::exporters::langfuse::LangfuseExporter;
-//! use siumai::telemetry;
+//! use siumai::observability::telemetry::exporters::langfuse::LangfuseExporter;
+//! use siumai::observability::telemetry;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create Langfuse exporter
@@ -24,8 +24,8 @@
 //! ```
 
 use crate::error::LlmError;
-use crate::telemetry::events::{GenerationEvent, SpanEvent, TelemetryEvent};
-use crate::telemetry::exporters::TelemetryExporter;
+use crate::observability::telemetry::events::{GenerationEvent, SpanEvent, TelemetryEvent};
+use crate::observability::telemetry::exporters::TelemetryExporter;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -64,9 +64,11 @@ impl LangfuseExporter {
             end_time: span.end_time,
             metadata: span.attributes.clone(),
             level: match span.status {
-                crate::telemetry::events::SpanStatus::Ok => "DEFAULT".to_string(),
-                crate::telemetry::events::SpanStatus::Error => "ERROR".to_string(),
-                crate::telemetry::events::SpanStatus::InProgress => "DEFAULT".to_string(),
+                crate::observability::telemetry::events::SpanStatus::Ok => "DEFAULT".to_string(),
+                crate::observability::telemetry::events::SpanStatus::Error => "ERROR".to_string(),
+                crate::observability::telemetry::events::SpanStatus::InProgress => {
+                    "DEFAULT".to_string()
+                }
             },
             status_message: span.error.clone(),
         };

@@ -24,6 +24,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
+- Base URL override semantics for native providers
+  - Custom `base_url` values for OpenAI, Gemini, Anthropic, Ollama, xAI, and MiniMaxi are now treated as full API prefixes
+  - When a custom `base_url` is set, Siumai no longer appends provider default paths such as `/v1` or `/v1beta`; callers must include any required path segments explicitly
+  - Default base URLs (e.g. `https://api.openai.com/v1`, `https://generativelanguage.googleapis.com/v1beta`) are still used when no override is provided
 - Unified construction path for `SiumaiBuilder` and Registry
   - `SiumaiBuilder::build()` no longer calls provider helpers directly
   - Instead, it builds a `BuildContext` and delegates to the corresponding `ProviderFactory::language_model_with_ctx()`
@@ -50,6 +54,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - These are thin sugar over `prepare_step`, mirroring Vercel AI SDK's `toolChoice` / `activeTools` for common cases
 - Provider registry metadata
   - Added a native `anthropic-vertex` entry (with alias `google-vertex-anthropic` and `claude` model prefix) to align routing between builder and registry
+
+### Removed
+
+- Deprecated top-level helper modules from the core crate
+  - Removed `siumai::benchmarks`; benchmarking and diagnostics helpers now live in `siumai-extras` or in user code
+  - Removed the `siumai::telemetry` shim; telemetry is now wired via `siumai::observability::telemetry` in the core crate and `siumai-extras::telemetry` for subscriber setup
 
 ## [0.11.0-beta.3] - 2025-11-09
 
@@ -130,6 +140,9 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
 
 ### Stability
 - This is a beta pre-release; minor API adjustments may follow.
+
+### Roadmap
+- Starting with `0.11.0-beta.5`, the workspace will be split into multiple crates (core / providers / extras) to mirror the architectural separation already present in the code. The `0.11.0-beta.4` release focuses on closing the feature loop and stabilizing the unified crate API before this split.
 
 ### API Keys and Environment Variables
 
