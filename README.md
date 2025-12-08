@@ -379,7 +379,7 @@ cargo run --example basic-orchestrator --features openai
 
 ## Status and notes
 
-- OpenAI Responses API web_search is not implemented yet and returns `UnsupportedOperation`.
+- OpenAI Responses API `web_search` is wired through `hosted_tools::openai::web_search` and the OpenAI Responses pipeline, but is still considered experimental and may change.
 - Several modules were reorganized in 0.11: HTTP helpers live under `execution::http::*`, Vertex helpers under `auth::vertex`. See CHANGELOG for migration notes.
 
 API keys and environment variables:

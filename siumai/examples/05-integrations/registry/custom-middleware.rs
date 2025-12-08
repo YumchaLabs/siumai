@@ -101,6 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             separator: ':',
             language_model_middleware: vec![temp_middleware, override_middleware],
             http_interceptors: Vec::new(),
+            http_config: None,
             retry_options: None,
             max_cache_entries: None,
             client_ttl: None,
