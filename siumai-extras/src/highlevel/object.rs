@@ -115,12 +115,19 @@ pub async fn generate_object<T: DeserializeOwned>(
 
 /// Stream options for `stream_object`.
 pub struct StreamObjectOptions {
+    /// Optional JSON Schema definition used for validation hints.
     pub schema: Option<serde_json::Value>,
+    /// Optional human-readable schema name passed as a hint to the model.
     pub schema_name: Option<String>,
+    /// Optional human-readable schema description passed as a hint to the model.
     pub schema_description: Option<String>,
+    /// Desired output shape (object/array/enum) used to guide decoding.
     pub output: OutputKind,
+    /// Output generation mode (auto/strict) controlling how strongly to enforce shape.
     pub mode: GenerateMode,
+    /// Optional custom text repair function applied before JSON parsing.
     pub repair_text: Option<RepairFn>,
+    /// Maximum number of repair attempts before giving up.
     pub max_repair_rounds: usize,
     /// Whether to attempt partial JSON parsing on each delta and emit partial updates.
     pub emit_partial_object: bool,
@@ -144,13 +151,27 @@ impl Default for StreamObjectOptions {
 /// Streaming events for object generation.
 pub enum StreamObjectEvent<T> {
     /// Raw text delta from the model.
-    TextDelta { delta: String },
+    TextDelta {
+        /// The raw text chunk emitted by the model.
+        delta: String,
+    },
     /// Parsed partial object update if current buffer is valid JSON.
-    PartialObject { partial: serde_json::Value },
+    PartialObject {
+        /// Latest parsed JSON value built from the accumulated stream buffer.
+        partial: serde_json::Value,
+    },
     /// Usage update passthrough.
-    UsageUpdate { usage: Usage },
+    UsageUpdate {
+        /// Updated token usage statistics.
+        usage: Usage,
+    },
     /// Final parsed and validated object with the underlying response.
-    Final { object: T, response: ChatResponse },
+    Final {
+        /// The final typed object decoded from the model output.
+        object: T,
+        /// The underlying raw chat response used to build the object.
+        response: ChatResponse,
+    },
 }
 
 /// Stream a typed object `T` from a chat model.

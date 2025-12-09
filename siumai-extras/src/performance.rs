@@ -177,6 +177,7 @@ pub struct ProviderMetrics {
 }
 
 impl ProviderMetrics {
+    /// Create a new metrics accumulator for a provider.
     pub const fn new(provider: String) -> Self {
         Self {
             provider,
@@ -383,8 +384,11 @@ pub mod cache {
     /// Cached chat response with metadata
     #[derive(Debug, Clone)]
     pub struct CachedResponse {
+        /// Cached chat response value.
         pub response: siumai::types::ChatResponse,
+        /// Time when the response was cached.
         pub timestamp: Instant,
+        /// How many times this entry has been accessed.
         pub access_count: u64,
     }
 
@@ -505,12 +509,18 @@ pub mod cache {
         }
     }
 
+    /// Snapshot of cache statistics.
     #[derive(Debug, Clone)]
     pub struct CacheStats {
+        /// Current number of entries stored in the cache.
         pub size: usize,
+        /// Maximum number of entries the cache can hold.
         pub capacity: usize,
+        /// Number of cache hits since creation.
         pub hit_count: u64,
+        /// Number of cache misses since creation.
         pub miss_count: u64,
+        /// Hit rate in the range 0.0–1.0.
         pub hit_rate: f64,
     }
 }

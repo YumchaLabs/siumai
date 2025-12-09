@@ -13,9 +13,11 @@ use siumai::streaming::{ChatStream, ChatStreamEvent};
 use siumai::traits::ChatCapability;
 use siumai::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
 
-/// Stream handle that carries the stream and a oneshot receiver for steps summary.
+/// Stream handle that carries the stream, step summary, and a cancel handle.
 pub struct StreamOrchestration {
+    /// Combined chat stream across all orchestration steps.
     pub stream: ChatStream,
+    /// Receiver for the list of step results produced by the orchestrator.
     pub steps: oneshot::Receiver<Vec<StepResult>>,
     /// A cancel handle to abort the orchestration.
     pub cancel: siumai::utils::cancel::CancelHandle,

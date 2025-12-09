@@ -419,27 +419,6 @@ impl LlmBuilder {
 
     // Provider builder methods are now defined in src/providers/builders.rs
     // This keeps the main builder clean and organized
-
-    /// Build the HTTP client with the configured settings.
-    ///
-    /// This is used internally by provider builders to create the HTTP client.
-    /// Implementation unified via the shared HTTP client builder.
-    pub(crate) fn build_http_client(&self) -> Result<reqwest::Client, LlmError> {
-        // If a custom client was provided, use it
-        if let Some(client) = &self.http_client {
-            return Ok(client.clone());
-        }
-
-        // Build from HttpConfig using the shared helper (via HttpConfig builder)
-        let config = crate::types::HttpConfig::builder()
-            .timeout(self.timeout)
-            .connect_timeout(self.connect_timeout)
-            .headers(self.default_headers.clone())
-            .proxy(self.proxy.clone())
-            .user_agent(self.user_agent.clone())
-            .build();
-        crate::execution::http::client::build_http_client_from_config(&config)
-    }
 }
 
 impl fmt::Debug for LlmBuilder {

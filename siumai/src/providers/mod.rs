@@ -19,6 +19,9 @@ pub mod openai_compatible;
 #[cfg(feature = "xai")]
 pub mod xai;
 
+/// Static metadata helpers for native providers.
+pub mod metadata;
+
 // Provider builder methods and convenience functions
 pub mod builders;
 pub mod convenience;
@@ -82,6 +85,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
         };
 
     let mut out = Vec::new();
+    let native_metas = metadata::native_providers_metadata();
     for rec in providers_iter {
         let ptype = ProviderType::from_name(&rec.id);
         // When some provider features are disabled via cargo features,
@@ -90,6 +94,10 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
         match ptype {
             #[cfg(feature = "openai")]
             ProviderType::OpenAi => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == "openai")
+                    .expect("OpenAI metadata should be registered");
                 use crate::constants::openai;
                 let mut models: Vec<&'static str> = Vec::new();
                 models.extend_from_slice(openai::gpt_4o::ALL);
@@ -108,16 +116,19 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 models.extend_from_slice(openai::moderation::ALL);
                 out.push(ProviderInfo {
                     provider_type: ptype,
-                    name: "OpenAI",
-                    description:
-                        "OpenAI GPT models including GPT-4, GPT-3.5, and specialized models",
+                    name: meta.name,
+                    description: meta.description,
                     capabilities: rec.capabilities.clone(),
-                    default_base_url: "https://api.openai.com/v1",
+                    default_base_url: meta.default_base_url.unwrap_or("https://api.openai.com/v1"),
                     supported_models: models,
                 });
             }
             #[cfg(feature = "anthropic")]
             ProviderType::Anthropic => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == "anthropic")
+                    .expect("Anthropic metadata should be registered");
                 use crate::constants::anthropic;
                 let mut models: Vec<&'static str> = Vec::new();
                 models.extend_from_slice(anthropic::claude_opus_4_1::ALL);
@@ -131,15 +142,19 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 models.extend_from_slice(anthropic::claude_sonnet_3::ALL);
                 out.push(ProviderInfo {
                     provider_type: ptype,
-                    name: "Anthropic",
-                    description: "Anthropic Claude models with advanced reasoning capabilities",
+                    name: meta.name,
+                    description: meta.description,
                     capabilities: rec.capabilities.clone(),
-                    default_base_url: "https://api.anthropic.com",
+                    default_base_url: meta.default_base_url.unwrap_or("https://api.anthropic.com"),
                     supported_models: models,
                 });
             }
             #[cfg(feature = "google")]
             ProviderType::Gemini => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == "gemini")
+                    .expect("Gemini metadata should be registered");
                 use crate::constants::gemini;
                 let mut models: Vec<&'static str> = Vec::new();
                 models.extend_from_slice(gemini::gemini_2_5_pro::ALL);
@@ -152,22 +167,26 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 models.extend_from_slice(gemini::gemini_1_5_pro::ALL);
                 out.push(ProviderInfo {
                     provider_type: ptype,
-                    name: "Google Gemini",
-                    description:
-                        "Google Gemini models with multimodal capabilities and code execution",
+                    name: meta.name,
+                    description: meta.description,
                     capabilities: rec.capabilities.clone(),
+                    // Keep the documented default path with `/v1beta` for compatibility.
                     default_base_url: "https://generativelanguage.googleapis.com/v1beta",
                     supported_models: models,
                 });
             }
             #[cfg(feature = "ollama")]
             ProviderType::Ollama => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == "ollama")
+                    .expect("Ollama metadata should be registered");
                 out.push(ProviderInfo {
                     provider_type: ptype,
-                    name: "Ollama",
-                    description: "Local Ollama models with full control and privacy",
+                    name: meta.name,
+                    description: meta.description,
                     capabilities: rec.capabilities.clone(),
-                    default_base_url: "http://localhost:11434",
+                    default_base_url: meta.default_base_url.unwrap_or("http://localhost:11434"),
                     supported_models: vec![
                         "llama3.2:latest",
                         "llama3.2:3b",
@@ -202,35 +221,50 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "xai")]
             ProviderType::XAI => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == "xai")
+                    .expect("xAI metadata should be registered");
                 out.push(ProviderInfo {
                     provider_type: ptype,
-                    name: "xAI",
-                    description: "xAI Grok models with advanced reasoning capabilities",
+                    name: meta.name,
+                    description: meta.description,
                     capabilities: rec.capabilities.clone(),
-                    default_base_url: "https://api.x.ai/v1",
+                    default_base_url: meta.default_base_url.unwrap_or("https://api.x.ai/v1"),
                     supported_models: crate::providers::xai::models::all_models(),
                 });
             }
             #[cfg(feature = "groq")]
             ProviderType::Groq => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == "groq")
+                    .expect("Groq metadata should be registered");
                 out.push(ProviderInfo {
                     provider_type: ptype,
-                    name: "Groq",
-                    description: "Groq models with ultra-fast inference",
+                    name: meta.name,
+                    description: meta.description,
                     capabilities: rec.capabilities.clone(),
-                    default_base_url: "https://api.groq.com/openai/v1",
+                    default_base_url: meta
+                        .default_base_url
+                        .unwrap_or("https://api.groq.com/openai/v1"),
                     supported_models: crate::providers::groq::models::all_models(),
                 });
             }
             #[cfg(feature = "minimaxi")]
             ProviderType::MiniMaxi => {
+                let meta = native_metas
+                    .iter()
+                    .find(|m| m.id == "minimaxi")
+                    .expect("MiniMaxi metadata should be registered");
                 out.push(ProviderInfo {
                     provider_type: ptype,
-                    name: "MiniMaxi",
-                    description:
-                        "MiniMaxi models with multi-modal capabilities (text, speech, video, music)",
+                    name: meta.name,
+                    description: meta.description,
                     capabilities: rec.capabilities.clone(),
-                    default_base_url: "https://api.minimaxi.com/v1",
+                    default_base_url: meta
+                        .default_base_url
+                        .unwrap_or("https://api.minimaxi.com/v1"),
                     supported_models: vec![
                         "MiniMax-M2",
                         "speech-2.6-hd",

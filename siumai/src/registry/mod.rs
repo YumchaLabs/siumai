@@ -93,50 +93,22 @@ impl ProviderRegistry {
 
     /// Register native providers (OpenAI, Anthropic, Gemini, etc.)
     fn register_native_providers(&mut self) {
-        // OpenAI
-        #[cfg(feature = "openai")]
-        self.register_native(
-            "openai",
-            "OpenAI",
-            Some("https://api.openai.com/v1".to_string()),
-            ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools()
-                .with_vision()
-                .with_embedding()
-                .with_custom_feature("image_generation", true)
-                .with_custom_feature("audio", true)
-                .with_custom_feature("files", true)
-                .with_custom_feature("rerank", true),
-        );
-
-        // Anthropic
-        #[cfg(feature = "anthropic")]
-        self.register_native(
-            "anthropic",
-            "Anthropic",
-            Some("https://api.anthropic.com".to_string()),
-            ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools()
-                .with_vision()
-                .with_custom_feature("thinking", true),
-        );
+        // Register native providers from the shared metadata table so that
+        // names, base URLs, and capabilities stay consistent across the
+        // registry and documentation helpers.
+        let metas = crate::providers::metadata::native_providers_metadata();
+        for meta in metas {
+            self.register_native(
+                meta.id,
+                meta.name,
+                meta.default_base_url.map(|url| url.to_string()),
+                meta.capabilities.clone(),
+            );
+        }
 
         // Anthropic on Vertex AI (native wrapper around Anthropic via Vertex)
         #[cfg(feature = "anthropic")]
         {
-            self.register_native(
-                "anthropic-vertex",
-                "Anthropic on Vertex",
-                None,
-                ProviderCapabilities::new()
-                    .with_chat()
-                    .with_streaming()
-                    .with_tools(),
-            );
             // Add common alias and model prefix to ease lookup/routing.
             if let Some(rec) = self.resolve("anthropic-vertex").cloned() {
                 let rec = rec
@@ -146,78 +118,12 @@ impl ProviderRegistry {
             }
         }
 
-        // Google Gemini
+        // Google Gemini alias
         #[cfg(feature = "google")]
         {
-            self.register_native(
-                "gemini",
-                "Google Gemini",
-                Some("https://generativelanguage.googleapis.com".to_string()),
-                ProviderCapabilities::new()
-                    .with_chat()
-                    .with_streaming()
-                    .with_tools()
-                    .with_vision()
-                    .with_embedding()
-                    .with_custom_feature("thinking", true),
-            );
             // Add "google" as an alias for "gemini"
             self.add_alias("gemini", "google");
         }
-
-        // Groq
-        #[cfg(feature = "groq")]
-        self.register_native(
-            "groq",
-            "Groq",
-            Some("https://api.groq.com/openai/v1".to_string()),
-            ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools(),
-        );
-
-        // xAI
-        #[cfg(feature = "xai")]
-        self.register_native(
-            "xai",
-            "xAI",
-            Some("https://api.x.ai/v1".to_string()),
-            ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools()
-                .with_custom_feature("thinking", true),
-        );
-
-        // Ollama
-        #[cfg(feature = "ollama")]
-        self.register_native(
-            "ollama",
-            "Ollama",
-            Some("http://localhost:11434".to_string()),
-            ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools()
-                .with_embedding(),
-        );
-
-        // MiniMaxi
-        #[cfg(feature = "minimaxi")]
-        self.register_native(
-            "minimaxi",
-            "MiniMaxi",
-            Some("https://api.minimaxi.com/v1".to_string()),
-            ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools()
-                .with_custom_feature("speech", true)
-                .with_custom_feature("video", true)
-                .with_custom_feature("image_generation", true)
-                .with_custom_feature("music", true),
-        );
     }
 
     /// Register all OpenAI-compatible providers from config

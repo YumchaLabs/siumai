@@ -32,7 +32,7 @@ fn ensure_provider_available() {
 
     if !providers.iter().any(|&enabled| enabled) {
         panic!(
-            "At least one provider feature must be enabled. Available features: openai, anthropic, google, ollama, xai, groq"
+            "At least one provider feature must be enabled. Available features: openai, anthropic, google, ollama, xai, groq, minimaxi"
         );
     }
 }

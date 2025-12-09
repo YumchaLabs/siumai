@@ -242,7 +242,10 @@ pub enum ToolApproval {
     /// Modify arguments before execution.
     Modify(Value),
     /// Deny tool call with reason; orchestrator will emit an error result as tool message.
-    Deny { reason: String },
+    Deny {
+        /// Human-readable reason explaining why the tool call was denied.
+        reason: String,
+    },
 }
 
 /// Tool execution result - can be preliminary (intermediate) or final.
@@ -417,16 +420,23 @@ impl Default for OrchestratorOptions {
 /// Orchestrator options for streaming generate.
 #[derive(Clone)]
 pub struct OrchestratorStreamOptions {
+    /// Maximum steps to perform (including the final response step).
     pub max_steps: usize,
+    /// Optional streaming chunk callback invoked for each `ChatStreamEvent`.
     pub on_chunk: Option<Arc<dyn Fn(&ChatStreamEvent) + Send + Sync>>,
+    /// Step-finish callback.
     pub on_step_finish: Option<Arc<dyn Fn(&StepResult) + Send + Sync>>,
+    /// Finish callback with all steps.
     pub on_finish: Option<Arc<dyn Fn(&[StepResult]) + Send + Sync>>,
+    /// Optional tool approval callback. Allows approve/deny/modify tool arguments.
     pub on_tool_approval: Option<Arc<dyn Fn(&str, &Value) -> ToolApproval + Send + Sync>>,
     /// Optional preliminary tool result callback.
     /// Called when a tool returns intermediate results during execution.
     /// Receives: (tool_name, tool_call_id, preliminary_output)
     pub on_preliminary_tool_result: Option<Arc<dyn Fn(&str, &str, &Value) + Send + Sync>>,
+    /// Optional abort callback invoked when streaming is cancelled.
     pub on_abort: Option<Arc<dyn Fn(&[StepResult]) + Send + Sync>>,
+    /// Optional telemetry configuration.
     pub telemetry: Option<TelemetryConfig>,
     /// Agent-level model parameters (temperature, max_tokens, etc.).
     ///

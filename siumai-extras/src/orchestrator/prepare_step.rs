@@ -76,7 +76,10 @@ pub enum ToolChoice {
     /// Prevent the model from calling any tools.
     None,
     /// Force the model to call a specific tool.
-    Specific { tool_name: String },
+    Specific {
+        /// Name of the tool that must be called.
+        tool_name: String,
+    },
 }
 
 /// Callback function for preparing each step.
