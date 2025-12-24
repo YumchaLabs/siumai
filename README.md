@@ -3,6 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/siumai.svg)](https://crates.io/crates/siumai)
 [![Documentation](https://docs.rs/siumai/badge.svg)](https://docs.rs/siumai)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/YumchaLabs/siumai)
 
 Siumai (烧卖) is a type-safe Rust library that provides a single, consistent API over multiple LLM providers. It focuses on clear abstractions, predictable behavior, and practical extensibility.
 
