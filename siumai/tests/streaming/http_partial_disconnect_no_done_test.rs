@@ -1,7 +1,7 @@
-use axum::{routing::post, Router};
+use axum::body::Bytes;
 use axum::http::HeaderValue;
 use axum::response::Response;
-use bytes::Bytes;
+use axum::{Router, routing::post};
 use futures::StreamExt;
 use std::time::Duration;
 
@@ -30,7 +30,7 @@ async fn http_partial_disconnect_without_done_yields_no_stream_end() {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let server_task = tokio::spawn(axum::serve(listener, app));
+    let server_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     // Build client pointing to the mock server
     use siumai::prelude::*;
@@ -51,10 +51,17 @@ async fn http_partial_disconnect_without_done_yields_no_stream_end() {
 
     let events: Vec<_> = stream.collect().await;
     // Should have at least one delta
-    assert!(events.iter().any(|e| matches!(e, Ok(ChatStreamEvent::ContentDelta { .. }))));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::ContentDelta { .. })))
+    );
     // No StreamEnd because server closed without [DONE]
-    assert!(!events.iter().any(|e| matches!(e, Ok(ChatStreamEvent::StreamEnd { .. }))));
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::StreamEnd { .. })))
+    );
 
     drop(server_task);
 }
-

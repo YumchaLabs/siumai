@@ -2,7 +2,7 @@
 //! We simulate a server that returns `application/json` (no SSE) on a streaming
 //! endpoint and verify that the StreamFactory fallback kicks in.
 
-use axum::{routing::post, Router};
+use axum::{Router, routing::post};
 use futures::StreamExt;
 use siumai::prelude::*;
 use std::net::SocketAddr;
@@ -27,7 +27,9 @@ async fn spawn_json_server() -> (SocketAddr, JoinHandle<()>) {
         axum::response::Response::builder()
             .status(200)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
-            .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_string(&body).unwrap(),
+            ))
             .unwrap()
     }
 
@@ -75,9 +77,11 @@ async fn non_sse_json_fallback_yields_delta_and_end() {
         }
     }
 
-    assert!(!deltas.is_empty(), "should have content deltas on JSON fallback");
+    assert!(
+        !deltas.is_empty(),
+        "should have content deltas on JSON fallback"
+    );
     assert!(saw_end, "should emit StreamEnd on JSON fallback");
     let text = deltas.join("");
     assert_eq!(text, "Hello");
 }
-

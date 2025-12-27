@@ -5,6 +5,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,25 +34,73 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Run fast tests (PR safety net)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          cargo test -p siumai-core --lib
+          cargo test -p siumai-registry --lib
+          cargo test -p siumai-providers --lib
+
+      - name: Clippy (core crates)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: cargo clippy -p siumai-core -p siumai-registry -p siumai-providers -- -D warnings
+
+      - name: Clippy (facade minimal features)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: cargo clippy -p siumai --no-default-features --features openai -- -D warnings
+
+      - name: Check (extras minimal features)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: cargo check -p siumai-extras --no-default-features --features openai
+
       - name: Install nextest
+        if: ${{ github.event_name != 'pull_request' }}
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
 
       - name: Run tests (nextest)
-        run: cargo nextest run --all-features --workspace --no-fail-fast
+        if: ${{ github.event_name != 'pull_request' }}
+        run: cargo nextest run --profile ci --all-features --workspace
 
       - name: Run clippy (core)
+        if: ${{ github.event_name != 'pull_request' }}
         run: cargo clippy -p siumai --all-features -- -D warnings
 
       - name: Run clippy (extras)
+        if: ${{ github.event_name != 'pull_request' }}
         run: cargo clippy -p siumai-extras --all-features -- -D warnings
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  pr-provider-smoke:
+    name: PR Provider Smoke (facade)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - openai
+          - anthropic
+          - google
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo check (siumai)
+        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }}
+
   feature-build-matrix:
     name: Feature Build Matrix (core)
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -86,6 +135,7 @@ jobs:
 
   extras-build-matrix:
     name: Feature Build Matrix (extras)
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -116,6 +166,7 @@ jobs:
 
   docs:
     name: Documentation
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

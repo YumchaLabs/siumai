@@ -19,29 +19,39 @@ export MINIMAXI_API_KEY="your-api-key-here"
 
 ## 📚 Examples
 
-### 1. Basic Chat (`basic.rs`)
+### 1. Basic Chat (`minimaxi_basic.rs`)
 
 Basic chat completion with MiniMaxi's MiniMax-M2 model.
 
 **Run:**
 ```bash
-cargo run --example basic --features minimaxi
+cargo run -p siumai --example minimaxi_basic --features minimaxi
 ```
 
 **Features:**
 - Simple chat completion
 - Streaming responses
 - Multi-modal chat (text + images)
-- Audio generation (TTS)
 - Image generation
-- Video generation
-- Music generation
+- Speech (TTS) via unified `SpeechCapability`
+- MiniMaxi video/music via extension APIs (see below)
+
+### 2. Provider Extensions (`*_ext.rs`)
+
+MiniMaxi exposes vendor-specific knobs via `siumai::provider_ext::minimaxi::*` helpers.
+
+**Run:**
+```bash
+cargo run -p siumai --example minimaxi_tts-ext --features minimaxi
+cargo run -p siumai --example minimaxi_video-ext --features minimaxi
+cargo run -p siumai --example minimaxi_music-ext --features minimaxi
+```
 
 ## 🎵 Music Generation
 
 MiniMaxi supports AI music generation with the `music-2.0` model.
 
-**See:** [`music-generation.md`](./music-generation.md)
+**See:** [`music-generation.md`](./music-generation.md) and [`music-ext.rs`](./music-ext.rs)
 
 **Features:**
 - Generate music from text prompts
@@ -51,16 +61,20 @@ MiniMaxi supports AI music generation with the `music-2.0` model.
 
 **Example:**
 ```rust
-use siumai::prelude::*;
-use siumai::types::music::MusicGenerationRequest;
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
 
-let client = MinimaxiClient::from_env()?;
+let client = Siumai::builder()
+    .minimaxi()
+    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
+    .build()
+    .await?;
 
-let request = MusicGenerationRequest::new(
-    "music-2.0",
-    "Indie folk, melancholic, introspective"
-)
-.with_lyrics("[verse]\nWalking down the empty street\n[chorus]\nMemories fade away");
+let request = MinimaxiMusicRequestBuilder::new("Indie folk, melancholic, introspective")
+    .lyrics_template()
+    .format("mp3")
+    .build();
 
 let response = client.generate_music(request).await?;
 std::fs::write("output.mp3", &response.audio_data)?;
@@ -80,17 +94,23 @@ MiniMaxi supports AI video generation with the `hailuo-2.3` model.
 
 **Example:**
 ```rust
-use siumai::prelude::*;
-use siumai::types::video::VideoGenerationRequest;
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
 
-let client = MinimaxiClient::from_env()?;
+let client = Siumai::builder()
+    .minimaxi()
+    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
+    .build()
+    .await?;
 
-let request = VideoGenerationRequest::new(
+let request = MinimaxiVideoRequestBuilder::new(
     "hailuo-2.3",
     "A beautiful sunset over the ocean with waves crashing"
 )
-.with_duration(6)
-.with_resolution("1080P");
+.duration(6)
+.resolution("1080P")
+.build();
 
 // Create video generation task
 let response = client.create_video_task(request).await?;
@@ -123,20 +143,28 @@ Generate images using MiniMaxi's image generation models.
 
 **Example:**
 ```rust
-use siumai::prelude::*;
-use siumai::types::image::ImageGenerationRequest;
+use siumai::prelude::unified::*;
+use siumai::types::ImageGenerationRequest;
 
-let client = MinimaxiClient::from_env()?;
+let client = Siumai::builder()
+    .minimaxi()
+    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
+    .build()
+    .await?;
 
-let request = ImageGenerationRequest::new(
-    "A serene mountain landscape at dawn"
-)
-.with_model("image-model-v1")
-.with_size("1024x1024");
+let request = ImageGenerationRequest {
+    prompt: "A serene mountain landscape at dawn".to_string(),
+    model: Some("image-01".to_string()),
+    size: Some("1024x1024".to_string()),
+    count: 1,
+    ..Default::default()
+};
 
-let response = client.generate_image(request).await?;
+let response = client.generate_images(request).await?;
 for (i, image) in response.images.iter().enumerate() {
-    std::fs::write(format!("image_{}.png", i), &image.data)?;
+    if let Some(url) = &image.url {
+        println!("image[{i}] url = {url}");
+    }
 }
 ```
 
@@ -146,16 +174,22 @@ Convert text to speech using MiniMaxi's TTS models.
 
 **Example:**
 ```rust
-use siumai::prelude::*;
-use siumai::types::audio::TtsRequest;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::tts::MinimaxiTtsRequestBuilder;
 
-let client = MinimaxiClient::from_env()?;
+let client = Siumai::builder()
+    .minimaxi()
+    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
+    .build()
+    .await?;
 
-let request = TtsRequest::new("Hello, this is a test of MiniMaxi TTS".to_string())
-    .with_model("speech-2.6-hd")
-    .with_voice("female-tianmei");
+let request = MinimaxiTtsRequestBuilder::new("Hello, this is a test of MiniMaxi TTS")
+    .model("speech-2.6-hd")
+    .voice_id("female-tianmei")
+    .format("mp3")
+    .build();
 
-let response = client.text_to_speech(request).await?;
+let response = client.tts(request).await?;
 std::fs::write("speech.mp3", &response.audio_data)?;
 ```
 
@@ -197,21 +231,23 @@ std::fs::write("speech.mp3", &response.audio_data)?;
 You can customize the MiniMaxi client:
 
 ```rust
-use siumai::providers::minimaxi::{MinimaxiConfig, MinimaxiClient};
+use siumai::prelude::*;
+use siumai::retry_api::RetryOptions;
 
-let config = MinimaxiConfig::new("your-api-key")
-    .with_base_url("https://api.minimax.io")  // Use global endpoint
-    .with_model("MiniMax-M2");
-
-let client = MinimaxiClient::new(config, reqwest::Client::new())
+let client = Siumai::builder()
+    .minimaxi()
+    .api_key("your-api-key")
+    .base_url("https://api.minimax.io") // Use global endpoint
+    .model("MiniMax-M2")
     .with_retry(RetryOptions::backoff().with_max_attempts(3))
-    .with_interceptors(vec![Arc::new(LoggingInterceptor::new())]);
+    .http_debug(true)
+    .build()
+    .await?;
 ```
 
 ## 🚀 Next Steps
 
-1. Try the basic example: `cargo run --example basic --features minimaxi`
+1. Try the basic example: `cargo run -p siumai --example minimaxi_basic --features minimaxi`
 2. Explore music generation: Read [`music-generation.md`](./music-generation.md)
 3. Explore video generation: Read [`video-generation.md`](./video-generation.md)
 4. Check out the [main examples README](../../README.md) for more examples
-

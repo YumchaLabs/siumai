@@ -49,12 +49,18 @@ async fn responses_function_call_arguments_sequence_fixture() {
     let combined_args = events
         .iter()
         .filter_map(|e| match e {
-            ChatStreamEvent::ToolCallDelta { id, arguments_delta: Some(a), .. } if id == "call_1" => Some(a.clone()),
+            ChatStreamEvent::ToolCallDelta {
+                id,
+                arguments_delta: Some(a),
+                ..
+            } if id == "call_1" => Some(a.clone()),
             _ => None,
         })
         .collect::<Vec<_>>()
         .join("");
-    let saw_end = events.iter().any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
+    let saw_end = events
+        .iter()
+        .any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
 
     assert!(saw_init, "expect function call init delta with name only");
     assert_eq!(combined_args, "{\"q\":\"rust\"}");
@@ -63,10 +69,9 @@ async fn responses_function_call_arguments_sequence_fixture() {
 
 #[tokio::test]
 async fn responses_usage_mixed_case_fixture() {
-    let bytes = support::load_sse_fixture_as_bytes(
-        "tests/fixtures/openai/responses/usage_mixed_case.sse",
-    )
-    .expect("load fixture");
+    let bytes =
+        support::load_sse_fixture_as_bytes("tests/fixtures/openai/responses/usage_mixed_case.sse")
+            .expect("load fixture");
 
     let converter = OpenAiResponsesEventConverter::new();
     let events = support::collect_sse_events(bytes, converter).await;
@@ -80,18 +85,19 @@ async fn responses_usage_mixed_case_fixture() {
 
 #[tokio::test]
 async fn responses_error_event_fixture() {
-    let bytes = support::load_sse_fixture_as_bytes(
-        "tests/fixtures/openai/responses/error_event.sse",
-    )
-    .expect("load fixture");
+    let bytes =
+        support::load_sse_fixture_as_bytes("tests/fixtures/openai/responses/error_event.sse")
+            .expect("load fixture");
 
     let converter = OpenAiResponsesEventConverter::new();
     let events = support::collect_sse_events(bytes, converter).await;
 
-    let saw_error = events.iter().any(|e| matches!(
-        e,
-        ChatStreamEvent::Error { error } if error.contains("Rate limit exceeded")
-    ));
+    let saw_error = events.iter().any(|e| {
+        matches!(
+            e,
+            ChatStreamEvent::Error { error } if error.contains("Rate limit exceeded")
+        )
+    });
     assert!(saw_error, "expect an Error event for response.error");
 }
 
@@ -105,10 +111,17 @@ async fn responses_partial_without_completed_fixture() {
 
     let converter = OpenAiResponsesEventConverter::new();
     let events = support::collect_sse_events(bytes, converter).await;
-    let saw_content = events.iter().any(|e| matches!(e, ChatStreamEvent::ContentDelta { .. }));
-    let saw_end = events.iter().any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
+    let saw_content = events
+        .iter()
+        .any(|e| matches!(e, ChatStreamEvent::ContentDelta { .. }));
+    let saw_end = events
+        .iter()
+        .any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
     assert!(saw_content, "expect at least one content delta");
-    assert!(!saw_end, "should not see StreamEnd without 'response.completed'");
+    assert!(
+        !saw_end,
+        "should not see StreamEnd without 'response.completed'"
+    );
 }
 
 #[tokio::test]
@@ -128,12 +141,18 @@ async fn responses_tool_call_then_arguments_then_completed_fixture() {
     let args = events
         .iter()
         .filter_map(|e| match e {
-            ChatStreamEvent::ToolCallDelta { id, arguments_delta: Some(a), .. } if id == "call_1" => Some(a.clone()),
+            ChatStreamEvent::ToolCallDelta {
+                id,
+                arguments_delta: Some(a),
+                ..
+            } if id == "call_1" => Some(a.clone()),
             _ => None,
         })
         .collect::<Vec<_>>()
         .join("");
-    let saw_end = events.iter().any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
+    let saw_end = events
+        .iter()
+        .any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }));
 
     assert!(saw_init, "expect tool call init with name");
     assert_eq!(args, "{\"q\":\"hello world\"}");
@@ -149,6 +168,13 @@ async fn responses_partial_then_error_fixture() {
     let converter = OpenAiResponsesEventConverter::new();
     let events = support::collect_sse_events(bytes, converter).await;
     assert!(events.iter().any(|e| matches!(e, ChatStreamEvent::ContentDelta { delta, .. } if delta.contains("Chunk before error"))));
-    assert!(events.iter().any(|e| matches!(e, ChatStreamEvent::Error { error } if error.contains("Upstream failure"))));
-    assert!(!events.iter().any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. })), "no end expected after error");
+    assert!(events.iter().any(
+        |e| matches!(e, ChatStreamEvent::Error { error } if error.contains("Upstream failure"))
+    ));
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::StreamEnd { .. })),
+        "no end expected after error"
+    );
 }

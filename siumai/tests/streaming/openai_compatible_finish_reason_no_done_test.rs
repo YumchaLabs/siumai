@@ -7,33 +7,49 @@ use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
 use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
 use siumai::providers::openai_compatible::types::FieldMappings;
 use siumai::streaming::ChatStreamEvent;
+use siumai::streaming::{SseEventConverter, SseStreamExt};
 use siumai::traits::ProviderCapabilities;
-use siumai::utils::sse_stream::SseStreamExt;
-use siumai::utils::streaming::SseEventConverter;
 use std::sync::Arc;
 
 fn make_converter() -> OpenAiCompatibleEventConverter {
     #[derive(Debug, Clone)]
     struct Adapter;
     impl ProviderAdapter for Adapter {
-        fn provider_id(&self) -> &'static str { "openai" }
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("openai")
+        }
         fn transform_request_params(
             &self,
             _params: &mut serde_json::Value,
             _model: &str,
             _ty: siumai::providers::openai_compatible::types::RequestType,
-        ) -> Result<(), siumai::error::LlmError> { Ok(()) }
-        fn get_field_mappings(&self, _model: &str) -> FieldMappings { FieldMappings::standard() }
+        ) -> Result<(), siumai::error::LlmError> {
+            Ok(())
+        }
+        fn get_field_mappings(&self, _model: &str) -> FieldMappings {
+            FieldMappings::standard()
+        }
         fn get_model_config(
             &self,
             _model: &str,
-        ) -> siumai::providers::openai_compatible::types::ModelConfig { Default::default() }
-        fn capabilities(&self) -> ProviderCapabilities {
-            ProviderCapabilities::new().with_chat().with_streaming().with_tools()
+        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+            Default::default()
         }
-        fn compatibility(&self) -> ProviderCompatibility { ProviderCompatibility::openai_standard() }
-        fn base_url(&self) -> &str { "https://api.openai.com/v1" }
-        fn clone_adapter(&self) -> Box<dyn ProviderAdapter> { Box::new(self.clone()) }
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools()
+        }
+        fn compatibility(&self) -> ProviderCompatibility {
+            ProviderCompatibility::openai_standard()
+        }
+        fn base_url(&self) -> &str {
+            "https://api.openai.com/v1"
+        }
+        fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+            Box::new(self.clone())
+        }
     }
     let adapter: Arc<dyn ProviderAdapter> = Arc::new(Adapter);
     let cfg = OpenAiCompatibleConfig::new(
@@ -68,10 +84,8 @@ async fn finish_reason_without_done_emits_stream_end() {
         ),
     ];
 
-    let bytes: Vec<Result<Vec<u8>, std::io::Error>> = sse_chunks
-        .into_iter()
-        .map(|s| Ok(s.into_bytes()))
-        .collect();
+    let bytes: Vec<Result<Vec<u8>, std::io::Error>> =
+        sse_chunks.into_iter().map(|s| Ok(s.into_bytes())).collect();
     let byte_stream = futures_util::stream::iter(bytes);
     let mut sse_stream = byte_stream.into_sse_stream();
 
@@ -94,4 +108,3 @@ async fn finish_reason_without_done_emits_stream_end() {
     assert!(saw_content, "should see content delta");
     assert!(saw_end, "should emit StreamEnd on finish_reason");
 }
-

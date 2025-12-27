@@ -20,8 +20,8 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         base_url: String,
     }
     impl ProviderAdapter for OpenAiStandardAdapter {
-        fn provider_id(&self) -> &'static str {
-            "openai"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("openai")
         }
         fn transform_request_params(
             &self,
@@ -69,7 +69,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
 use siumai::streaming::ChatStreamEvent;
-use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::streaming::{JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_openai_event_conversion() {
@@ -260,9 +260,23 @@ async fn test_openai_content_prioritized_over_usage() {
 
 #[tokio::test]
 async fn test_xai_content_prioritized_over_usage() {
-    use siumai::providers::xai::streaming::XaiEventConverter;
+    use siumai::providers::openai_compatible::registry::{
+        ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+    };
 
-    let converter = XaiEventConverter::new();
+    // xAI is OpenAI-compatible; test via the OpenAI-compatible converter surface.
+    let provider_config = ProviderConfig {
+        id: "xai".to_string(),
+        name: "xAI".to_string(),
+        base_url: "https://api.x.ai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: Some("grok-beta".to_string()),
+        supports_reasoning: false,
+    };
+    let adapter = std::sync::Arc::new(ConfigurableAdapter::new(provider_config));
+    let cfg = OpenAiCompatibleConfig::new("xai", "", "", adapter.clone()).with_model("grok-beta");
+    let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
 
     // Test event with both content and usage - content should be prioritized
     let event = Event {

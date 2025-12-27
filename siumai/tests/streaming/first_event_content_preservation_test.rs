@@ -21,8 +21,8 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         base_url: String,
     }
     impl ProviderAdapter for OpenAiStandardAdapter {
-        fn provider_id(&self) -> &'static str {
-            "openai"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("openai")
         }
         fn transform_request_params(
             &self,
@@ -70,7 +70,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
 use siumai::streaming::ChatStreamEvent;
-use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::streaming::{JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_openai_first_event_with_content_preservation() {

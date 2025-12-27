@@ -3,9 +3,8 @@
 //! nested delta.text, and even raw JSON string events, and that finish_reason
 //! produces a StreamEnd.
 
-use siumai::error::LlmError;
 use siumai::streaming::ChatStreamEvent;
-use siumai::utils::streaming::SseEventConverter;
+use siumai::streaming::SseEventConverter;
 
 #[tokio::test]
 async fn delta_plain_string_yields_content() {
@@ -25,8 +24,7 @@ async fn delta_plain_string_yields_content() {
     .with_model("gpt-4o-mini");
 
     let conv = siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter::new(
-        cfg,
-        adapter,
+        cfg, adapter,
     );
 
     // Responses-style: delta as a plain string
@@ -66,8 +64,7 @@ async fn delta_text_yields_content() {
     .with_model("gpt-4o-mini");
 
     let conv = siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter::new(
-        cfg,
-        adapter,
+        cfg, adapter,
     );
 
     // Responses-style: nested delta.text
@@ -107,8 +104,7 @@ async fn json_string_event_yields_content() {
     .with_model("gpt-4o-mini");
 
     let conv = siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter::new(
-        cfg,
-        adapter,
+        cfg, adapter,
     );
 
     // Entire SSE data is a JSON string (e.g., "Hi"); converter should treat it as text delta
@@ -148,8 +144,7 @@ async fn finish_reason_emits_stream_end() {
     .with_model("gpt-4o-mini");
 
     let conv = siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter::new(
-        cfg,
-        adapter,
+        cfg, adapter,
     );
 
     // Finish chunk with choices[0].finish_reason should yield a StreamEnd
@@ -163,9 +158,8 @@ async fn finish_reason_emits_stream_end() {
     assert!(!out.is_empty());
     let mut saw_end = false;
     for e in out {
-        match e.unwrap() {
-            ChatStreamEvent::StreamEnd { .. } => saw_end = true,
-            _ => {}
+        if let ChatStreamEvent::StreamEnd { .. } = e.unwrap() {
+            saw_end = true;
         }
     }
     assert!(saw_end, "expected StreamEnd emitted on finish_reason");

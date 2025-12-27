@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["siumai", "siumai-extras"]
+members = ["siumai", "siumai-core", "siumai-providers", "siumai-registry", "siumai-extras"]
 
 [workspace.package]
-version = "0.11.0-beta.4"
+version = "0.11.0-beta.5"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -56,7 +56,10 @@ infer = "0.19"
 
 # Core crate (for workspace consumption)
 # Disable default features; downstream crates must opt-in provider features explicitly
-siumai = { version = "0.11.0-beta.4", path = "siumai", default-features = false }
+siumai = { version = "0.11.0-beta.5", path = "siumai", default-features = false }
+siumai-core = { version = "0.11.0-beta.5", path = "siumai-core", default-features = false }
+siumai-providers = { version = "0.11.0-beta.5", path = "siumai-providers", default-features = false }
+siumai-registry = { version = "0.11.0-beta.5", path = "siumai-registry", default-features = false }
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }
@@ -91,3 +94,7 @@ mockito = "1.0"
 wiremock = "0.6"
 tracing-test = "0.2"
 tempfile = "3.0"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

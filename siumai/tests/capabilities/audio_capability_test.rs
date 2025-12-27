@@ -17,7 +17,7 @@
 //! cargo test test_all_provider_audio -- --ignored
 //! ```
 
-use siumai::providers::openai::{OpenAiAudio, OpenAiConfig};
+use siumai::prelude::*;
 use siumai::traits::AudioCapability;
 use siumai::types::TtsRequest;
 use std::env;
@@ -26,16 +26,18 @@ use std::env;
 async fn test_text_to_speech<T: AudioCapability>(client: &T, provider_name: &str) {
     println!("  🔊 Testing Text-to-Speech for {}...", provider_name);
 
+    let (voice, format, model) = match provider_name {
+        "OpenAI" => ("alloy", "mp3", "tts-1"),
+        "Groq" => ("Fritz-PlayAI", "wav", "playai-tts"),
+        _ => ("alloy", "mp3", "default"),
+    };
+
     let request = TtsRequest {
         text: "Hello, this is a test of text-to-speech functionality.".to_string(),
-        voice: Some("alloy".to_string()), // OpenAI voice, may not work for all providers
-        format: Some("mp3".to_string()),
+        voice: Some(voice.to_string()),
+        format: Some(format.to_string()),
         speed: Some(1.0),
-        model: Some(match provider_name {
-            "OpenAI" => "tts-1".to_string(),
-            "Groq" => "playai-tts".to_string(),
-            _ => "default".to_string(),
-        }),
+        model: Some(model.to_string()),
         extra_params: std::collections::HashMap::new(),
     };
 
@@ -137,8 +139,13 @@ async fn test_openai_audio() {
     println!("🔊 Testing OpenAI audio capabilities...");
     let api_key = env::var("OPENAI_API_KEY").unwrap();
 
-    let config = OpenAiConfig::new(&api_key);
-    let client = OpenAiAudio::new(config, reqwest::Client::new());
+    let client = LlmBuilder::new()
+        .openai()
+        .api_key(api_key)
+        .model("gpt-4o-mini")
+        .build()
+        .await
+        .expect("Failed to build OpenAI client");
 
     test_audio_features(&client, "OpenAI").await;
     test_text_to_speech(&client, "OpenAI").await;
@@ -155,9 +162,20 @@ async fn test_groq_audio() {
     }
 
     println!("⚡ Testing Groq audio capabilities...");
-    println!("    ⚠️ Groq audio testing skipped - AudioCapability trait not implemented");
-    println!("    💡 Note: Groq supports audio through their native API but not through");
-    println!("       Siumai's AudioCapability trait yet. This is a known limitation.");
+    let api_key = env::var("GROQ_API_KEY").unwrap();
+
+    let client = LlmBuilder::new()
+        .groq()
+        .api_key(api_key)
+        // Chat model is irrelevant for TTS; the request's `model` controls `/audio/speech`.
+        .model(models::groq::LLAMA_3_1_8B_INSTANT)
+        .build()
+        .await
+        .expect("Failed to build Groq client");
+
+    test_audio_features(&client, "Groq").await;
+    test_text_to_speech(&client, "Groq").await;
+    test_speech_to_text(&client, "Groq").await;
 
     println!("✅ Groq audio testing completed\n");
 }
@@ -169,7 +187,7 @@ async fn test_audio_capability_availability() {
     // Check which providers claim to support audio
     let providers_with_audio = vec![
         ("OpenAI", env::var("OPENAI_API_KEY").is_ok(), true),
-        ("Groq", env::var("GROQ_API_KEY").is_ok(), false), // Has API but no AudioCapability trait
+        ("Groq", env::var("GROQ_API_KEY").is_ok(), true),
     ];
 
     println!("  📋 Audio capability status:");
@@ -237,8 +255,12 @@ mod manual_test_utils {
         match provider {
             "openai" => {
                 if let Ok(api_key) = env::var("OPENAI_API_KEY") {
-                    let config = OpenAiConfig::new(&api_key);
-                    let client = OpenAiAudio::new(config, reqwest::Client::new());
+                    let client = LlmBuilder::new()
+                        .openai()
+                        .api_key(api_key)
+                        .model("gpt-4o-mini")
+                        .build()
+                        .await?;
 
                     let request = TtsRequest {
                         text: text.to_string(),
@@ -255,9 +277,27 @@ mod manual_test_utils {
                 }
             }
             "groq" => {
-                println!(
-                    "Groq audio testing not available - AudioCapability trait not implemented"
-                );
+                if let Ok(api_key) = env::var("GROQ_API_KEY") {
+                    let client = LlmBuilder::new()
+                        .groq()
+                        .api_key(api_key)
+                        .model(models::groq::LLAMA_3_1_8B_INSTANT)
+                        .build()
+                        .await?;
+
+                    let request = TtsRequest {
+                        text: text.to_string(),
+                        voice: Some("Fritz-PlayAI".to_string()),
+                        format: Some("wav".to_string()),
+                        speed: Some(1.0),
+                        model: Some("playai-tts".to_string()),
+                        extra_params: std::collections::HashMap::new(),
+                    };
+
+                    let response = client.text_to_speech(request).await?;
+                    std::fs::write("manual_test_output.wav", response.audio_data)?;
+                    println!("Audio saved to manual_test_output.wav");
+                }
             }
             _ => {
                 println!("Unknown provider: {}", provider);

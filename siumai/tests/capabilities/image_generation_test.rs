@@ -3,7 +3,6 @@
 //! Tests for image generation capabilities across different providers.
 
 use siumai::prelude::*;
-use siumai::traits::ImageGenerationCapability;
 use siumai::types::ImageGenerationRequest;
 
 #[tokio::test]
@@ -25,6 +24,7 @@ async fn test_openai_image_generation_request_conversion() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        http_config: None,
     };
 
     // Test that the request can be created without errors
@@ -52,6 +52,7 @@ async fn test_siliconflow_image_generation_request_conversion() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        http_config: None,
     };
 
     // Test that the request can be created without errors
@@ -195,6 +196,7 @@ fn test_image_generation_request_validation() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        http_config: None,
     };
 
     assert!(!valid_request.prompt.is_empty());
@@ -215,6 +217,7 @@ fn test_image_generation_request_validation() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        http_config: None,
     };
 
     assert_eq!(

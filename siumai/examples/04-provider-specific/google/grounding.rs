@@ -21,18 +21,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("🌐 Google Grounding Example\n");
 
-    // Enable web search grounding via provider_options
-    let gemini_options = GeminiOptions::new().with_search_grounding(SearchGroundingConfig {
-        enabled: true,
-        dynamic_retrieval_config: Some(DynamicRetrievalConfig {
-            mode: DynamicRetrievalMode::ModeDynamic,
-            dynamic_threshold: Some(0.3),
-        }),
-    });
-
+    // Enable web search grounding via provider-defined tools
     let request = ChatRequest::builder()
         .message(user!("What are the latest developments in Rust 1.85?"))
-        .gemini_options(gemini_options)
+        .tools(vec![
+            siumai::hosted_tools::google::google_search()
+                .with_mode("MODE_DYNAMIC")
+                .with_dynamic_threshold(0.3)
+                .build(),
+        ])
         .build();
 
     let response = client.chat_request(request).await?;
@@ -40,12 +37,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("AI (with web search):");
     println!("{}\n", response.content_text().unwrap());
 
-    // Check for grounding metadata via typed helper
-    if let Some(meta) = response.gemini_metadata()
-        && let Some(grounding) = &meta.grounding_metadata
-    {
-        println!("🔍 Grounding metadata:");
-        println!("{}", serde_json::to_string_pretty(grounding).unwrap());
+    // Check for grounding metadata and normalized sources via typed helper
+    if let Some(meta) = response.gemini_metadata() {
+        if let Some(grounding) = &meta.grounding_metadata {
+            println!("🔍 Grounding metadata:");
+            println!("{}", serde_json::to_string_pretty(grounding).unwrap());
+        }
+
+        if let Some(sources) = &meta.sources {
+            println!("\nSources (Vercel-aligned):");
+            println!("{}", serde_json::to_string_pretty(sources).unwrap());
+        }
     }
 
     Ok(())

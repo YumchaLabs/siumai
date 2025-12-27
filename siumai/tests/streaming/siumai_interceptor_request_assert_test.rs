@@ -6,10 +6,10 @@
 use std::sync::{Arc, Mutex};
 
 use reqwest::header::{ACCEPT, ACCEPT_ENCODING, HeaderMap};
+use siumai::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 use siumai::provider::SiumaiBuilder;
 use siumai::traits::ChatCapability;
 use siumai::types::ChatMessage;
-use siumai::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 
 #[derive(Clone, Debug)]
 struct Captured {
@@ -34,15 +34,16 @@ impl HttpInterceptor for TestInterceptor {
     fn on_before_send(
         &self,
         ctx: &HttpRequestContext,
-        builder: reqwest::RequestBuilder,
+        _builder: reqwest::RequestBuilder,
         body: &serde_json::Value,
         headers: &HeaderMap,
     ) -> Result<reqwest::RequestBuilder, siumai::error::LlmError> {
-        let mut guard = self
-            .slot
-            .lock()
-            .expect("failed to lock capture slot");
-        *guard = Some(Captured { ctx: ctx.clone(), headers: headers.clone(), body: body.clone() });
+        let mut guard = self.slot.lock().expect("failed to lock capture slot");
+        *guard = Some(Captured {
+            ctx: ctx.clone(),
+            headers: headers.clone(),
+            body: body.clone(),
+        });
         drop(guard);
         Err(siumai::error::LlmError::UnsupportedOperation(
             "interceptor_short_circuit".to_string(),
@@ -68,13 +69,27 @@ async fn siumai_openai_streaming_headers_and_body() {
     assert!(res.is_err());
     let data = captured.lock().unwrap().clone().expect("captured");
     assert!(data.ctx.stream);
-    let accept = data.headers.get(ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let accept = data
+        .headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert_eq!(accept, "text/event-stream");
-    let enc = data.headers.get(ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let enc = data
+        .headers
+        .get(ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert!(enc.is_empty() || enc == "identity");
-    let stream_flag = data.body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+    let stream_flag = data
+        .body
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     assert!(stream_flag);
-    let include_usage = data.body["stream_options"]["include_usage"].as_bool().unwrap_or(false);
+    let include_usage = data.body["stream_options"]["include_usage"]
+        .as_bool()
+        .unwrap_or(false);
     assert!(include_usage);
 }
 
@@ -95,9 +110,17 @@ async fn siumai_gemini_streaming_headers() {
     assert!(res.is_err());
     let data = captured.lock().unwrap().clone().expect("captured");
     assert!(data.ctx.stream);
-    let accept = data.headers.get(ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let accept = data
+        .headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert_eq!(accept, "text/event-stream");
-    let enc = data.headers.get(ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let enc = data
+        .headers
+        .get(ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert_eq!(enc, "identity");
 }
 
@@ -118,9 +141,17 @@ async fn siumai_anthropic_streaming_headers() {
     assert!(res.is_err());
     let data = captured.lock().unwrap().clone().expect("captured");
     assert!(data.ctx.stream);
-    let accept = data.headers.get(ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let accept = data
+        .headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert_eq!(accept, "text/event-stream");
-    let enc = data.headers.get(ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let enc = data
+        .headers
+        .get(ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert!(enc.is_empty() || enc == "identity");
 }
 
@@ -142,8 +173,16 @@ async fn siumai_anthropic_vertex_streaming_headers() {
     assert!(res.is_err());
     let data = captured.lock().unwrap().clone().expect("captured");
     assert!(data.ctx.stream);
-    let accept = data.headers.get(ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let accept = data
+        .headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert_eq!(accept, "text/event-stream");
-    let enc = data.headers.get(ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let enc = data
+        .headers
+        .get(ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     assert!(enc.is_empty() || enc == "identity");
 }

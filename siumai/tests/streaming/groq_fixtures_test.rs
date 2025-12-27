@@ -4,13 +4,29 @@
 //! All fixtures are based on official Groq API documentation:
 //! https://console.groq.com/docs/api-reference
 
-use siumai::providers::groq::streaming::GroqEventConverter;
+use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
+use siumai::providers::openai_compatible::registry::{
+    ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+};
+use siumai::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
 use siumai::streaming::ChatStreamEvent;
 
 use crate::support;
 
-fn make_groq_converter() -> GroqEventConverter {
-    GroqEventConverter::new()
+fn make_groq_converter() -> OpenAiCompatibleEventConverter {
+    let provider_config = ProviderConfig {
+        id: "groq".to_string(),
+        name: "Groq".to_string(),
+        base_url: "https://api.groq.com/openai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: Some("llama-3.3-70b-versatile".to_string()),
+        supports_reasoning: false,
+    };
+    let adapter = std::sync::Arc::new(ConfigurableAdapter::new(provider_config));
+    let cfg = OpenAiCompatibleConfig::new("groq", "", "", adapter.clone())
+        .with_model("llama-3.3-70b-versatile");
+    OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
 
 #[tokio::test]

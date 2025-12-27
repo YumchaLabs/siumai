@@ -1,7 +1,7 @@
-use axum::{routing::post, Router};
+use axum::body::Bytes;
 use axum::http::HeaderValue;
 use axum::response::Response;
-use bytes::Bytes;
+use axum::{Router, routing::post};
 use futures::StreamExt;
 use std::time::Duration;
 
@@ -34,7 +34,7 @@ async fn partial_disconnect_then_immediate_cancel() {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let server_task = tokio::spawn(axum::serve(listener, app));
+    let server_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     use siumai::prelude::*;
     let base_url = format!("http://{}:{}", addr.ip(), addr.port());
@@ -52,21 +52,23 @@ async fn partial_disconnect_then_immediate_cancel() {
         .await
         .expect("start stream");
 
-    futures::pin_mut!(handle.stream);
+    let siumai::streaming::ChatStreamHandle { mut stream, cancel } = handle;
 
-    // Receive first delta ("A") then cancel immediately
-    let first = handle.stream.next().await.expect("first").expect("ok");
-    match first {
-        ChatStreamEvent::ContentDelta { ref delta, .. } => assert_eq!(delta, "A"),
-        other => panic!("expected delta, got: {other:?}"),
+    // Receive first content delta ("A") then cancel immediately
+    let mut first_delta: Option<String> = None;
+    while let Some(ev) = stream.next().await {
+        if let ChatStreamEvent::ContentDelta { delta, .. } = ev.expect("ok") {
+            first_delta = Some(delta);
+            break;
+        }
     }
+    assert_eq!(first_delta.as_deref(), Some("A"));
 
-    handle.cancel.cancel();
+    cancel.cancel();
 
     // Collect remaining events — should be empty due to cancellation, even if server had more
-    let rest: Vec<_> = handle.stream.collect().await;
+    let rest: Vec<_> = stream.collect().await;
     assert!(rest.is_empty());
 
     drop(server_task);
 }
-

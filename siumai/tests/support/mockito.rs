@@ -5,6 +5,8 @@
 //! - Wrap `server.url()` and similar helpers to reduce direct API coupling
 //! - Insulate tests from future mockito API changes
 
+#![allow(dead_code)]
+
 use mockito::{Matcher, Server, ServerGuard};
 
 /// Start an async mockito Server

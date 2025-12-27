@@ -1,0 +1,64 @@
+[package]
+name = "siumai-registry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Registry and factories for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-registry"
+readme = "../README.md"
+keywords = ["llm", "ai"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["openai"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+siumai-providers = { workspace = true, default-features = false }
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+once_cell.workspace = true
+lru.workspace = true
+
+[features]
+default = []
+
+structured-messages = ["siumai-core/structured-messages", "siumai-providers/structured-messages"]
+
+openai = ["siumai-core/openai", "siumai-providers/openai"]
+anthropic = ["siumai-core/anthropic", "siumai-providers/anthropic"]
+google = ["siumai-core/google", "siumai-providers/google"]
+ollama = ["siumai-core/ollama", "siumai-providers/ollama"]
+xai = ["siumai-core/xai", "siumai-providers/xai"]
+groq = ["siumai-core/groq", "siumai-providers/groq"]
+minimaxi = ["siumai-core/minimaxi", "siumai-providers/minimaxi"]
+
+gcp = ["siumai-core/gcp", "siumai-providers/gcp"]
+json-repair = ["siumai-core/json-repair", "siumai-providers/json-repair"]
+
+gzip = ["siumai-core/gzip", "siumai-providers/gzip"]
+brotli = ["siumai-core/brotli", "siumai-providers/brotli"]
+
+all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true
+

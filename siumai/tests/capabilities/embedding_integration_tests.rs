@@ -90,14 +90,10 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::gemini::types::GeminiConfig {
-            api_key: api_key.clone(),
-            base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            model: "gemini-embedding-001".to_string(),
-            generation_config: None,
-            safety_settings: None,
-            timeout: Some(30),
-        };
+        let config = siumai::providers::gemini::types::GeminiConfig::new(api_key)
+            .with_base_url("https://generativelanguage.googleapis.com/v1beta".to_string())
+            // Use the official embedding model id (see `standards::gemini::embedding` tests).
+            .with_model("publishers/google/models/text-embedding-004".to_string());
         let client = match GeminiClient::with_http_client(config, reqwest::Client::new()) {
             Ok(c) => c,
             Err(e) => {
@@ -133,14 +129,9 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::gemini::types::GeminiConfig {
-            api_key: api_key.clone(),
-            base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            model: "gemini-embedding-001".to_string(),
-            generation_config: None,
-            safety_settings: None,
-            timeout: Some(30),
-        };
+        let config = siumai::providers::gemini::types::GeminiConfig::new(api_key)
+            .with_base_url("https://generativelanguage.googleapis.com/v1beta".to_string())
+            .with_model("publishers/google/models/text-embedding-004".to_string());
         let client = match GeminiClient::with_http_client(config, reqwest::Client::new()) {
             Ok(c) => c,
             Err(e) => {
@@ -149,11 +140,8 @@ mod tests {
             }
         };
 
-        // Test with task type
-        let request = EmbeddingRequest::new(vec!["Search query".to_string()]).with_provider_param(
-            "task_type",
-            serde_json::Value::String("RETRIEVAL_QUERY".to_string()),
-        );
+        // Test with task type (typed, provider-agnostic). Gemini uses this to optimize embeddings.
+        let request = EmbeddingRequest::query("Search query".to_string());
 
         let result = <GeminiClient as EmbeddingExtensions>::embed_with_config(&client, request).await;
 

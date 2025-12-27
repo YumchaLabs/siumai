@@ -57,18 +57,17 @@ For production applications:
 3. **03-advanced-features/request-building/complex-request.rs** - Full control
 4. **03-advanced-features/retry/retry-config.rs** - Resilience
 5. **05-integrations/registry/basic-registry.rs** - String-driven models
-6. **06-applications/api-server.rs** - HTTP API
+6. **07-applications/chatbot.rs** - A practical app example
 
 ### 🔬 Advanced Path
 For complex integrations:
 
-1. **03-advanced-features/orchestrator/basic-orchestrator.rs** - Multi-step tool calling
-2. **03-advanced-features/orchestrator/agent-pattern.rs** - Reusable agents
+1. **siumai-extras/examples/basic-orchestrator.rs** - Multi-step tool calling
+2. **siumai-extras/examples/agent-pattern.rs** - Reusable agents
 3. **05-integrations/registry/custom-middleware.rs** - Transform requests
 4. **03-advanced-features/middleware/http-interceptor.rs** - Observe traffic
 5. **04-provider-specific/anthropic/prompt-caching.rs** - Cost optimization
-6. **05-integrations/telemetry/basic-telemetry.rs** - Observability
-7. **05-integrations/mcp/stdio-client.rs** - MCP protocol
+6. **05-integrations/mcp/stdio-client.rs** - MCP protocol
 
 ---
 
@@ -122,12 +121,8 @@ Advanced features for production use.
 **error-handling/**
 - **error-types.rs** - Understanding LlmError
 
-**orchestrator/** ⭐ NEW in 0.11.0
-- **basic-orchestrator.rs** - Multi-step tool calling basics
-- **agent-pattern.rs** - Reusable agent abstraction
-- **stop-conditions.rs** - Flexible stop conditions
-- **tool-approval.rs** - Approve/modify/deny tool calls
-- **streaming-orchestrator.rs** - Real-time multi-step execution
+**orchestrator/** (moved to `siumai-extras`)
+- Runnable examples live under `siumai-extras/examples/*` (the `siumai` crate keeps stub entry points).
 
 ### 04-provider-specific/ (Unique Features)
 Provider-specific features that don't have cross-provider equivalents.

@@ -7,7 +7,8 @@ use siumai::{provider::SiumaiBuilder, types::ProviderType};
 #[tokio::test]
 async fn build_gemini_with_bearer_does_not_require_api_key() {
     // Simulate a Vertex AI base_url prefix (no real call, construction only)
-    let vertex_base = "https://aiplatform.googleapis.com/v1/projects/test/locations/us-central1/publishers/google";
+    let vertex_base =
+        "https://us-central1-aiplatform.googleapis.com/v1/projects/test/locations/us-central1/publishers/google";
 
     let result = SiumaiBuilder::new()
         .provider(ProviderType::Gemini)

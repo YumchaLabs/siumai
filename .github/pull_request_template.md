@@ -27,7 +27,7 @@ Before marking this PR as ready for review, please ensure you have:
 
 - [ ] 🎨 Run `cargo fmt` and code is properly formatted
 - [ ] ✅ Run `cargo clippy` and fixed all issues
-- [ ] 🧪 Run `cargo test` and all tests pass
+- [ ] 🧪 Run `./scripts/test-full.sh` and all tests pass
 - [ ] 📝 Added tests for new features (if applicable)
 - [ ] 📚 Updated documentation (if applicable)
 - [ ] 🔍 Tested with real API keys (if applicable)

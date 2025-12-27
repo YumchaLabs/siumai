@@ -48,7 +48,8 @@ async fn test_google_search_tool_serialization() {
     };
 
     let json = serde_json::to_value(&tool).unwrap();
-    assert_eq!(json, json!({"google_search": {}}));
+    // Gemini API expects camelCase keys for tool types.
+    assert_eq!(json, json!({"googleSearch": {}}));
 }
 
 #[tokio::test]
@@ -67,8 +68,8 @@ async fn test_google_search_retrieval_tool_serialization() {
     let json = serde_json::to_value(&tool).unwrap();
 
     // Verify structure (avoid floating point comparison issues)
-    assert!(json.get("google_search_retrieval").is_some());
-    let retrieval = json.get("google_search_retrieval").unwrap();
+    assert!(json.get("googleSearchRetrieval").is_some());
+    let retrieval = json.get("googleSearchRetrieval").unwrap();
     assert!(retrieval.get("dynamicRetrievalConfig").is_some());
     let config = retrieval.get("dynamicRetrievalConfig").unwrap();
     assert_eq!(config.get("mode").unwrap(), "MODE_DYNAMIC");
@@ -87,7 +88,8 @@ async fn test_url_context_tool_serialization() {
     };
 
     let json = serde_json::to_value(&tool).unwrap();
-    assert_eq!(json, json!({"url_context": {}}));
+    // Gemini API expects camelCase keys for tool types.
+    assert_eq!(json, json!({"urlContext": {}}));
 }
 
 #[tokio::test]
@@ -213,8 +215,8 @@ async fn test_combined_grounding_tools() {
     assert_eq!(
         json,
         json!([
-            {"google_search": {}},
-            {"url_context": {}}
+            {"googleSearch": {}},
+            {"urlContext": {}}
         ])
     );
 }

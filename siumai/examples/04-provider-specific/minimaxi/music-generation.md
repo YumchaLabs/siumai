@@ -2,26 +2,29 @@
 
 This example demonstrates how to use the MiniMaxi music generation capability.
 
+Recommended approach:
+
+- Use `siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder` for MiniMaxi-specific knobs.
+- Execute via the non-unified `MusicGenerationCapability` extension trait.
+
 ## Basic Usage
 
 ```rust
-use siumai::prelude::*;
-use siumai::types::music::MusicGenerationRequest;
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create MiniMaxi client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .minimaxi()
         .api_key("your-api-key")
         .build()
         .await?;
 
     // Create music generation request
-    let request = MusicGenerationRequest::new(
-        "music-2.0",
-        "Indie folk, melancholic, introspective, longing, solitary walk, coffee shop",
-        r#"[verse]
+    let lyrics = r#"[verse]
 Streetlights flicker, the night breeze sighs
 Footsteps echo on empty streets
 A lone figure walks, lost in thought
@@ -32,7 +35,14 @@ In this quiet moment, I find myself
 Between the shadows and the light
 Searching for meaning in the silence
 Of this endless night"#
-    );
+    ;
+
+    let request = MinimaxiMusicRequestBuilder::new(
+        "Indie folk, melancholic, introspective, longing, solitary walk, coffee shop",
+    )
+    .lyrics(lyrics)
+    .format("mp3")
+    .build();
 
     // Generate music
     let response = client.generate_music(request).await?;
@@ -59,26 +69,27 @@ Of this endless night"#
 ## Custom Audio Settings
 
 ```rust
-use siumai::prelude::*;
-use siumai::types::music::{MusicGenerationRequest, MusicAudioSetting};
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .minimaxi()
         .api_key("your-api-key")
         .build()
         .await?;
 
     // Create request with custom audio settings
-    let request = MusicGenerationRequest::new(
-        "music-2.0",
+    let request = MinimaxiMusicRequestBuilder::new(
         "Upbeat electronic dance music, energetic, festival vibes",
-        "[intro]\n[build-up]\n[drop]\n[outro]"
     )
-    .with_sample_rate(48000)
-    .with_bitrate(320000)
-    .with_format("mp3");
+    .lyrics("[intro]\n[build-up]\n[drop]\n[outro]")
+    .sample_rate(48_000)
+    .bitrate(320_000)
+    .format("mp3")
+    .build();
 
     let response = client.generate_music(request).await?;
     std::fs::write("edm_track.mp3", &response.audio_data)?;
@@ -100,12 +111,13 @@ MiniMaxi supports structured lyrics with tags:
 - `[Outro]` - Ending section
 
 ```rust
-use siumai::prelude::*;
-use siumai::types::music::MusicGenerationRequest;
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .minimaxi()
         .api_key("your-api-key")
         .build()
@@ -141,11 +153,12 @@ Crystal clear
 [Outro]
 Soft piano fades away"#;
 
-    let request = MusicGenerationRequest::new(
-        "music-2.0",
+    let request = MinimaxiMusicRequestBuilder::new(
         "Emotional ballad, piano-driven, nostalgic, heartfelt",
-        lyrics
-    );
+    )
+    .lyrics(lyrics)
+    .format("mp3")
+    .build();
 
     let response = client.generate_music(request).await?;
     std::fs::write("ballad.mp3", &response.audio_data)?;
@@ -161,62 +174,70 @@ Soft piano fades away"#;
 ### Rock
 
 ```rust
-let request = MusicGenerationRequest::new(
-    "music-2.0",
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
+
+let request = MinimaxiMusicRequestBuilder::new(
     "Hard rock, electric guitar, powerful drums, energetic",
-    "[verse]\nThunder rolls across the sky\n[chorus]\nWe rise!"
-);
+)
+.lyrics("[verse]\nThunder rolls across the sky\n[chorus]\nWe rise!")
+.build();
 ```
 
 ### Jazz
 
 ```rust
-let request = MusicGenerationRequest::new(
-    "music-2.0",
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
+
+let request = MinimaxiMusicRequestBuilder::new(
     "Smooth jazz, saxophone, laid-back, sophisticated",
-    "[verse]\nMoonlight on the water\n[chorus]\nSweet melody"
-);
+)
+.lyrics("[verse]\nMoonlight on the water\n[chorus]\nSweet melody")
+.build();
 ```
 
 ### Classical
 
 ```rust
-let request = MusicGenerationRequest::new(
-    "music-2.0",
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
+
+let request = MinimaxiMusicRequestBuilder::new(
     "Classical orchestral, strings, majestic, cinematic",
-    "[intro]\n[movement 1]\n[movement 2]\n[finale]"
-);
+)
+.lyrics("[intro]\n[movement 1]\n[movement 2]\n[finale]")
+.build();
 ```
 
 ### Hip-Hop
 
 ```rust
-let request = MusicGenerationRequest::new(
-    "music-2.0",
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
+
+let request = MinimaxiMusicRequestBuilder::new(
     "Hip-hop, urban beats, rhythmic, modern",
-    "[verse]\nCity lights and late nights\n[chorus]\nWe on top"
-);
+)
+.lyrics("[verse]\nCity lights and late nights\n[chorus]\nWe on top")
+.build();
 ```
 
 ## Error Handling
 
 ```rust
-use siumai::prelude::*;
-use siumai::types::music::MusicGenerationRequest;
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .minimaxi()
         .api_key("your-api-key")
         .build()
         .await?;
 
-    let request = MusicGenerationRequest::new(
-        "music-2.0",
-        "Ambient electronic, atmospheric",
-        "[verse]\nFloating through space"
-    );
+    let request = MinimaxiMusicRequestBuilder::new("Ambient electronic, atmospheric")
+        .lyrics("[verse]\nFloating through space")
+        .format("mp3")
+        .build();
 
     match client.generate_music(request).await {
         Ok(response) => {
@@ -235,12 +256,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Supported Models
 
 ```rust
-use siumai::prelude::*;
-use siumai::traits::MusicGenerationCapability;
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .minimaxi()
         .api_key("your-api-key")
         .build()
@@ -266,6 +287,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## API Reference
 
+Preferred builder:
+
+- `siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder` (MiniMaxi-specific knobs)
+
 ### MusicGenerationRequest
 
 - `new(model, prompt, lyrics)` - Create a new request
@@ -273,6 +298,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `with_bitrate(bitrate)` - Set bitrate (e.g., 256000, 320000)
 - `with_format(format)` - Set audio format (e.g., "mp3")
 - `with_audio_setting(setting)` - Set complete audio settings
+
+### MinimaxiMusicRequestBuilder (recommended)
+
+See `siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder`.
 
 ### MusicGenerationResponse
 
@@ -286,4 +315,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `music_channel: Option<u32>` - Number of channels
 - `bitrate: Option<u32>` - Bitrate
 - `music_size: Option<u32>` - File size in bytes
-

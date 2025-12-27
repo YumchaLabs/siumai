@@ -103,8 +103,5 @@ pub mod performance;
 /// Provider-hosted tools (web search, file search, code execution, etc.).
 pub mod hosted_tools;
 
-/// Web search helpers and capability abstractions.
-pub mod web_search;
-
 /// Client utilities such as client pools and managers.
 pub mod client;

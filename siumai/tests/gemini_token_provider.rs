@@ -6,7 +6,8 @@ use siumai::{auth::StaticTokenProvider, provider::SiumaiBuilder, types::Provider
 #[tokio::test]
 async fn build_gemini_with_token_provider_without_api_key() {
     // Use a Vertex-style base URL (no network calls performed during build).
-    let vertex_base = "https://aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google";
+    let vertex_base =
+        "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google";
 
     let tp = Arc::new(StaticTokenProvider::new("test-token"));
 

@@ -26,7 +26,7 @@ Thank you for your interest in contributing! 🎉
 - Follow standard Rust conventions
 - **Run `cargo fmt` before marking PR as ready** - Ensure consistent formatting
 - **Run `cargo clippy` before marking PR as ready** - Fix all warnings and errors
-- **Run `cargo test` before marking PR as ready** - Ensure all tests pass
+- **Run tests before marking PR as ready** - Ensure all tests pass
 - Add tests for new features
 - Update documentation when needed
 - Test with real API keys when possible
@@ -42,13 +42,21 @@ cargo fmt
 # Check for code issues and style violations
 cargo clippy
 
-# Run all tests to ensure nothing is broken
-cargo test
+# Run tests to ensure nothing is broken
+./scripts/test-full.sh
 ```
 
 All clippy warnings must be resolved and all tests must pass before your PR can be merged.
 
 💡 **Tip**: You can create a Draft PR while still working on your changes, and only run these checks when you're ready for review.
+
+### Fast iteration during refactors
+
+When you're iterating on a refactor, prefer the faster safety net:
+
+```bash
+./scripts/test-fast.sh
+```
 
 ## Commit Messages
 

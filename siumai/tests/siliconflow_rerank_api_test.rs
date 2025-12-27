@@ -38,7 +38,8 @@ async fn siliconflow_rerank_maps_meta_tokens_to_usage() {
         name: "SiliconFlow".to_string(),
         base_url: server.uri(),
         field_mappings: ProviderFieldMappings::default(),
-        capabilities: vec!["chat".to_string()],
+        // Rerank must be explicitly declared to pass executor capability guards.
+        capabilities: vec!["chat".to_string(), "rerank".to_string()],
         default_model: Some("bge-reranker-v2-m3".to_string()),
         supports_reasoning: false,
     };

@@ -2,6 +2,50 @@
 
 This directory contains utility scripts for the Siumai project.
 
+## ⚡ Fast Local Test Loop (recommended during refactors)
+
+### `test-fast.sh`
+
+Runs a minimal “refactor safety net” test set without `siumai`'s default `all-providers` feature
+(which is convenient but slow to compile).
+
+```bash
+./scripts/test-fast.sh
+
+# Optional: enable a small provider subset for the facade crate only
+SIUMAI_TEST_FACADE=1 SIUMAI_FEATURES="openai,google" ./scripts/test-fast.sh
+
+# Optional: enable a small provider subset for split crates too
+SIUMAI_PROVIDERS_FEATURES="openai,google" SIUMAI_REGISTRY_FEATURES="openai,google" ./scripts/test-fast.sh
+```
+
+### `test-full.sh`
+
+Runs full workspace tests with `--all-features` (CI-aligned). Uses `cargo nextest` when available
+(and the repository profile `ci` from `.config/nextest.toml`).
+
+```bash
+./scripts/test-full.sh
+```
+
+### `test-smoke.sh`
+
+Runs a feature-gated “smoke” suite that compiles protocol paths (OpenAI/Anthropic/Gemini, etc.)
+without paying the cost of `--all-features`.
+
+```bash
+./scripts/test-smoke.sh
+
+# Customize which protocol/provider features are exercised (comma-separated feature list)
+SIUMAI_CORE_FEATURES="openai,anthropic" \
+SIUMAI_PROVIDERS_FEATURES="openai,anthropic" \
+SIUMAI_REGISTRY_FEATURES="openai,anthropic" \
+./scripts/test-smoke.sh
+
+# Optional: include the facade crate (slower)
+SIUMAI_TEST_FACADE=1 SIUMAI_FEATURES="openai" ./scripts/test-smoke.sh
+```
+
 ## 🧪 Integration Test Scripts
 
 ### `run_integration_tests.sh` (Linux/macOS)

@@ -2,31 +2,39 @@
 
 This example demonstrates how to use the MiniMaxi provider's video generation capability.
 
+Recommended approach:
+
+- Use `siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder` for MiniMaxi-specific knobs.
+- Execute via the non-unified `VideoGenerationCapability` extension trait.
+
 ## Basic Usage
 
 ```rust
-use siumai::prelude::*;
-use siumai::types::video::{VideoGenerationRequest, VideoTaskStatus};
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
+use siumai::types::video::VideoTaskStatus;
 use std::time::Duration;
 use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create MiniMaxi client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .minimaxi()
         .api_key("your-api-key")
         .build()
         .await?;
 
     // Create video generation request
-    let request = VideoGenerationRequest::new(
+    let request = MinimaxiVideoRequestBuilder::new(
         "MiniMax-Hailuo-2.3",
         "A beautiful sunset over the ocean with waves gently crashing on the shore"
     )
-    .with_duration(6)
-    .with_resolution("1080P")
-    .with_prompt_optimizer(true);
+    .duration(6)
+    .resolution("1080P")
+    .prompt_optimizer(true)
+    .build();
 
     // Submit video generation task
     println!("Submitting video generation task...");
@@ -84,7 +92,7 @@ MiniMaxi supports the following video generation models:
 ## Query Supported Capabilities
 
 ```rust
-use siumai::traits::VideoGenerationCapability;
+use siumai::extensions::VideoGenerationCapability;
 
 // Get supported models
 let models = client.get_supported_models();
@@ -102,18 +110,19 @@ println!("Supported durations: {:?}", durations);
 ## Advanced Options
 
 ```rust
-use siumai::types::video::VideoGenerationRequest;
+use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
 
-let request = VideoGenerationRequest::new(
+let request = MinimaxiVideoRequestBuilder::new(
     "MiniMax-Hailuo-2.3",
     "A futuristic city at night with neon lights"
 )
-.with_duration(10)                    // 10 seconds video
-.with_resolution("1080P")             // 1080P resolution
-.with_prompt_optimizer(true)          // Enable prompt optimization
-.with_fast_pretreatment(false)        // Disable fast preprocessing
-.with_watermark(false)                // No watermark
-.with_callback_url("https://your-callback-url.com"); // Optional callback
+.duration(10)                    // 10 seconds video
+.resolution("1080P")             // 1080P resolution
+.prompt_optimizer(true)          // Enable prompt optimization
+.fast_pretreatment(false)        // Disable fast preprocessing
+.watermark(false)                // No watermark
+.callback_url("https://your-callback-url.com") // Optional callback
+.build();
 
 let response = client.create_video_task(request).await?;
 ```
@@ -179,14 +188,15 @@ match client.create_video_task(request).await {
 ## Complete Example with Timeout
 
 ```rust
-use siumai::prelude::*;
-use siumai::types::video::{VideoGenerationRequest, VideoTaskStatus};
+use siumai::prelude::extensions::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
 async fn generate_video_with_timeout(
     client: &impl VideoGenerationCapability,
-    request: VideoGenerationRequest,
+    request: siumai::types::video::VideoGenerationRequest,
     max_wait: Duration,
 ) -> Result<String, Box<dyn std::error::Error>> {
     // Submit task
@@ -214,5 +224,28 @@ async fn generate_video_with_timeout(
         Err(_) => Err("Timeout waiting for video generation".into()),
     }
 }
-```
 
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Siumai::builder()
+        .minimaxi()
+        .api_key("your-api-key")
+        .build()
+        .await?;
+
+    // Build the request with MiniMaxi-specific knobs:
+    let request = MinimaxiVideoRequestBuilder::new(
+        "MiniMax-Hailuo-2.3",
+        "A futuristic city at night with neon lights",
+    )
+    .duration(6)
+    .resolution("1080P")
+    .prompt_optimizer(true)
+    .build();
+
+    let file_id =
+        generate_video_with_timeout(&client, request, Duration::from_secs(120)).await?;
+    println!("file_id = {file_id}");
+    Ok(())
+}
+```

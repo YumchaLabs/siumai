@@ -11,7 +11,10 @@ struct ConnectRetryProvider {
 
 impl ConnectRetryProvider {
     fn new(fail_until: u32) -> Self {
-        Self { attempts: AtomicU32::new(0), fail_until }
+        Self {
+            attempts: AtomicU32::new(0),
+            fail_until,
+        }
     }
 }
 
@@ -22,7 +25,9 @@ impl ChatCapability for ConnectRetryProvider {
         _messages: Vec<ChatMessage>,
         _tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        Ok(ChatResponse::text_only("ok"))
+        Ok(ChatResponse::new(siumai::types::MessageContent::Text(
+            "ok".to_string(),
+        )))
     }
 
     async fn chat_stream(
@@ -32,11 +37,16 @@ impl ChatCapability for ConnectRetryProvider {
     ) -> Result<ChatStream, LlmError> {
         let n = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
         if n <= self.fail_until {
-            return Err(LlmError::api_error(500, format!("connect failure attempt {n}")));
+            return Err(LlmError::api_error(
+                500,
+                format!("connect failure attempt {n}"),
+            ));
         }
         let s = async_stream::stream! {
             yield Ok(ChatStreamEvent::ContentDelta { delta: "hello".to_string(), index: None });
-            let response = ChatResponse::text_only("done");
+            let response = ChatResponse::new(siumai::types::MessageContent::Text(
+                "done".to_string(),
+            ));
             yield Ok(ChatStreamEvent::StreamEnd { response });
         };
         Ok(Box::pin(s))
@@ -44,13 +54,23 @@ impl ChatCapability for ConnectRetryProvider {
 }
 
 impl LlmClient for ConnectRetryProvider {
-    fn provider_id(&self) -> std::borrow::Cow<'static, str> { std::borrow::Cow::Borrowed("mock-retry-stream") }
-    fn supported_models(&self) -> Vec<String> { vec!["mock".into()] }
-    fn capabilities(&self) -> ProviderCapabilities { ProviderCapabilities::new().with_chat().with_streaming() }
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("mock-retry-stream")
+    }
+    fn supported_models(&self) -> Vec<String> {
+        vec!["mock".into()]
+    }
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_chat().with_streaming()
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn clone_box(&self) -> Box<dyn LlmClient> {
         let cloned = ConnectRetryProvider::new(self.fail_until);
-        cloned.attempts.store(self.attempts.load(Ordering::SeqCst), Ordering::SeqCst);
+        cloned
+            .attempts
+            .store(self.attempts.load(Ordering::SeqCst), Ordering::SeqCst);
         Box::new(cloned)
     }
 }
@@ -68,7 +88,12 @@ async fn chat_stream_retries_connect_then_succeeds() {
         .expect("stream should be established after retry");
 
     let events: Vec<_> = stream.collect().await;
-    assert!(matches!(events.first(), Some(Ok(ChatStreamEvent::ContentDelta { .. }))));
-    assert!(matches!(events.last(), Some(Ok(ChatStreamEvent::StreamEnd { .. }))));
+    assert!(matches!(
+        events.first(),
+        Some(Ok(ChatStreamEvent::ContentDelta { .. }))
+    ));
+    assert!(matches!(
+        events.last(),
+        Some(Ok(ChatStreamEvent::StreamEnd { .. }))
+    ));
 }
-

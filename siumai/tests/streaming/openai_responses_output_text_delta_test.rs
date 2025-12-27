@@ -4,8 +4,7 @@ use eventsource_stream::Event;
 use futures_util::StreamExt;
 use siumai::providers::openai::responses::OpenAiResponsesEventConverter;
 use siumai::streaming::ChatStreamEvent;
-use siumai::utils::sse_stream::SseStreamExt;
-use siumai::utils::streaming::SseEventConverter;
+use siumai::streaming::{SseEventConverter, SseStreamExt};
 
 #[tokio::test]
 async fn responses_output_text_and_completed() {
@@ -23,14 +22,12 @@ async fn responses_output_text_and_completed() {
         // Completed with a final payload
         format!(
             "event: response.completed\ndata: {}\n\n",
-            r#"{"type":"response.completed","response":{"output":[{"type":"output_text","text":"Hello world"}]}}"#
+            r#"{"type":"response.completed","response":{"output":[{"content":[{"type":"output_text","text":"Hello world"}]}]}}"#
         ),
     ];
 
-    let bytes: Vec<Result<Vec<u8>, std::io::Error>> = sse_chunks
-        .into_iter()
-        .map(|s| Ok(s.into_bytes()))
-        .collect();
+    let bytes: Vec<Result<Vec<u8>, std::io::Error>> =
+        sse_chunks.into_iter().map(|s| Ok(s.into_bytes())).collect();
     let byte_stream = futures_util::stream::iter(bytes);
     let mut sse_stream = byte_stream.into_sse_stream();
 
@@ -44,7 +41,12 @@ async fn responses_output_text_and_completed() {
                 ChatStreamEvent::ContentDelta { delta, .. } => content.push_str(&delta),
                 ChatStreamEvent::StreamEnd { response } => {
                     saw_end = true;
-                    assert!(response.content_text().unwrap_or_default().contains("Hello"));
+                    assert!(
+                        response
+                            .content_text()
+                            .unwrap_or_default()
+                            .contains("Hello")
+                    );
                 }
                 _ => {}
             }
@@ -53,4 +55,3 @@ async fn responses_output_text_and_completed() {
     assert_eq!(content, "Hello world");
     assert!(saw_end, "should emit StreamEnd on response.completed");
 }
-

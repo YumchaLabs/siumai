@@ -126,6 +126,10 @@ fn test_real_world_url_cases() {
         join_url("https://api.anthropic.com/", "v1/messages"),
         "https://api.anthropic.com/v1/messages"
     );
+    assert_eq!(
+        join_url("https://api.anthropic.com/v1", "messages"),
+        "https://api.anthropic.com/v1/messages"
+    );
 
     // Ollama
     assert_eq!(
@@ -154,6 +158,34 @@ fn test_real_world_url_cases() {
             "models/gemini-1.5-pro:generateContent"
         ),
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+    );
+}
+
+#[test]
+fn test_anthropic_base_url_accepts_v1_suffix() {
+    use siumai::core::ProviderContext;
+    use siumai::core::ProviderSpec;
+    use siumai::standards::anthropic::chat::AnthropicChatStandard;
+
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1".to_string(),
+        Some("test-key".to_string()),
+        Default::default(),
+    );
+
+    let req = ChatRequest::builder()
+        .messages(vec![user!("hi")])
+        .common_params(CommonParams {
+            model: "claude-3-5-haiku-20241022".to_string(),
+            ..Default::default()
+        })
+        .build();
+
+    let spec = AnthropicChatStandard::new().create_spec("anthropic");
+    assert_eq!(
+        spec.chat_url(false, &req, &ctx),
+        "https://api.anthropic.com/v1/messages"
     );
 }
 

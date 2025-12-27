@@ -210,7 +210,9 @@ fn test_ollama_max_tokens_optional() {
 
 #[test]
 fn test_groq_max_tokens_optional() {
-    let transformer = siumai::providers::groq::transformers::GroqRequestTransformer;
+    use siumai::core::ProviderSpec;
+
+    let spec = siumai::providers::groq::spec::GroqSpec;
 
     // Test without max_tokens (Groq uses OpenAI format)
     let params_without_max_tokens = CommonParams {
@@ -227,7 +229,14 @@ fn test_groq_max_tokens_optional() {
         .messages(Vec::new())
         .common_params(params_without_max_tokens)
         .build();
-    let mapped = transformer.transform_chat(&req).unwrap();
+    let ctx = siumai::core::ProviderContext::new(
+        "groq",
+        "https://api.groq.com/openai/v1",
+        None,
+        Default::default(),
+    );
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let mapped = bundle.request.transform_chat(&req).unwrap();
 
     // Groq (OpenAI format) should not have max_tokens if not provided
     assert!(mapped.get("max_tokens").is_none());
@@ -247,7 +256,8 @@ fn test_groq_max_tokens_optional() {
         .messages(Vec::new())
         .common_params(params_with_max_tokens)
         .build();
-    let mapped_explicit = transformer.transform_chat(&req2).unwrap();
+    let bundle2 = spec.choose_chat_transformers(&req2, &ctx);
+    let mapped_explicit = bundle2.request.transform_chat(&req2).unwrap();
 
     // Should use the explicit value
     assert_eq!(mapped_explicit["max_tokens"], 2000);
@@ -255,7 +265,9 @@ fn test_groq_max_tokens_optional() {
 
 #[test]
 fn test_xai_max_tokens_optional() {
-    let transformer = siumai::providers::xai::transformers::XaiRequestTransformer;
+    use siumai::core::ProviderSpec;
+
+    let spec = siumai::providers::xai::spec::XaiSpec;
 
     // Test without max_tokens (XAI uses OpenAI format)
     let params_without_max_tokens = CommonParams {
@@ -272,7 +284,10 @@ fn test_xai_max_tokens_optional() {
         .messages(Vec::new())
         .common_params(params_without_max_tokens)
         .build();
-    let mapped = transformer.transform_chat(&req).unwrap();
+    let ctx =
+        siumai::core::ProviderContext::new("xai", "https://api.x.ai/v1", None, Default::default());
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let mapped = bundle.request.transform_chat(&req).unwrap();
 
     // XAI (OpenAI format) should not have max_tokens if not provided
     assert!(mapped.get("max_tokens").is_none());
@@ -292,7 +307,8 @@ fn test_xai_max_tokens_optional() {
         .messages(Vec::new())
         .common_params(params_with_max_tokens)
         .build();
-    let mapped_explicit = transformer.transform_chat(&req2).unwrap();
+    let bundle2 = spec.choose_chat_transformers(&req2, &ctx);
+    let mapped_explicit = bundle2.request.transform_chat(&req2).unwrap();
 
     // Should use the explicit value
     assert_eq!(mapped_explicit["max_tokens"], 2000);

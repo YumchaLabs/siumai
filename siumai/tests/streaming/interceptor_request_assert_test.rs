@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex};
 use reqwest::header::{ACCEPT, ACCEPT_ENCODING, HeaderMap};
 use siumai::builder::LlmBuilder;
 use siumai::error::LlmError;
-use siumai::types::ChatMessage;
-use siumai::traits::ChatCapability;
 use siumai::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+use siumai::traits::ChatCapability;
+use siumai::types::ChatMessage;
 
 #[derive(Clone, Debug)]
 struct Captured {
@@ -83,7 +83,10 @@ async fn openai_streaming_request_headers_and_body_inserted() {
 
     let msgs = vec![ChatMessage::user("hello").build()];
     let result = client.chat_stream(msgs, None).await;
-    assert!(result.is_err(), "interceptor must short-circuit the request");
+    assert!(
+        result.is_err(),
+        "interceptor must short-circuit the request"
+    );
 
     let data = captured
         .lock()
@@ -97,19 +100,34 @@ async fn openai_streaming_request_headers_and_body_inserted() {
         .get(ACCEPT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    assert_eq!(accept, "text/event-stream", "Accept must be SSE for streaming");
+    assert_eq!(
+        accept, "text/event-stream",
+        "Accept must be SSE for streaming"
+    );
     let enc = data
         .headers
         .get(ACCEPT_ENCODING)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     // Allow empty or identity in short-circuit environment
-    assert!(enc.is_empty() || enc == "identity", "Accept-Encoding should be identity or empty in tests");
+    assert!(
+        enc.is_empty() || enc == "identity",
+        "Accept-Encoding should be identity or empty in tests"
+    );
     // Body
-    let stream_flag = data.body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+    let stream_flag = data
+        .body
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     assert!(stream_flag, "OpenAI body must include stream=true");
-    let include_usage = data.body["stream_options"]["include_usage"].as_bool().unwrap_or(false);
-    assert!(include_usage, "OpenAI stream_options.include_usage must be true");
+    let include_usage = data.body["stream_options"]["include_usage"]
+        .as_bool()
+        .unwrap_or(false);
+    assert!(
+        include_usage,
+        "OpenAI stream_options.include_usage must be true"
+    );
 }
 
 #[cfg(feature = "google")]

@@ -1,10 +1,10 @@
 //! Verify Anthropic streaming request headers at call-site
 
-use axum::{routing::post, Router};
 use axum::body;
 use axum::extract::Request;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
+use axum::{Router, routing::post};
 use futures_util::StreamExt;
 use siumai::prelude::*;
 use siumai::streaming::ChatStreamEvent;
@@ -32,7 +32,8 @@ async fn handler(req: Request, state: Arc<Mutex<Seen>>) -> Response {
         let mut g = state.lock().await;
         *g = seen;
     }
-    let sse = "data: {\"type\":\"message_start\",\"message\":{}}\n\n".to_string() + "data: [DONE]\n\n";
+    let sse =
+        "data: {\"type\":\"message_start\",\"message\":{}}\n\n".to_string() + "data: [DONE]\n\n";
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/event-stream")
@@ -65,7 +66,9 @@ async fn anthropic_streaming_headers_default_identity() {
         .await
         .expect("stream ok");
     while let Some(ev) = stream.next().await {
-        if matches!(ev.unwrap(), ChatStreamEvent::StreamEnd { .. }) { break; }
+        if matches!(ev.unwrap(), ChatStreamEvent::StreamEnd { .. }) {
+            break;
+        }
     }
     let seen = state.lock().await.clone();
     assert!(seen.accept_is_sse);
@@ -99,11 +102,12 @@ async fn anthropic_streaming_headers_disable_identity() {
         .await
         .expect("stream ok");
     while let Some(ev) = stream.next().await {
-        if matches!(ev.unwrap(), ChatStreamEvent::StreamEnd { .. }) { break; }
+        if matches!(ev.unwrap(), ChatStreamEvent::StreamEnd { .. }) {
+            break;
+        }
     }
     let seen = state.lock().await.clone();
     assert!(seen.accept_is_sse);
     assert!(!seen.accept_encoding_identity);
     drop(server);
 }
-

@@ -5,11 +5,11 @@
 //! - Request headers include `Accept-Encoding: identity` (disable compression)
 //! - JSON body includes `stream: true` and `stream_options.include_usage: true`
 
-use axum::{routing::post, Router};
 use axum::body;
 use axum::extract::Request;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
+use axum::{Router, routing::post};
 use futures_util::StreamExt;
 use siumai::prelude::*;
 use siumai::streaming::ChatStreamEvent;
@@ -95,22 +95,21 @@ async fn openai_streaming_request_includes_sse_headers_and_stream_options() {
 
     // Issue streaming request and consume stream quickly
     let messages = vec![system!("You are a test."), user!("Hi")];
-    let mut stream = client
-        .chat_stream(messages, None)
-        .await
-        .expect("stream ok");
+    let mut stream = client.chat_stream(messages, None).await.expect("stream ok");
 
     // Drain until end
     while let Some(ev) = stream.next().await {
-        match ev.expect("event ok") {
-            ChatStreamEvent::StreamEnd { .. } => break,
-            _ => {}
+        if let ChatStreamEvent::StreamEnd { .. } = ev.expect("event ok") {
+            break;
         }
     }
 
     // Assert recorded request had expected headers/body fields
     let seen = state.lock().await.clone();
-    assert!(seen.accept_is_sse, "Accept header should be text/event-stream");
+    assert!(
+        seen.accept_is_sse,
+        "Accept header should be text/event-stream"
+    );
     assert!(
         seen.accept_encoding_identity,
         "Accept-Encoding should be identity to disable compression"
@@ -153,21 +152,20 @@ async fn openai_streaming_respects_disable_compression_flag() {
 
     // Issue streaming request and consume stream quickly
     let messages = vec![system!("You are a test."), user!("Hi")];
-    let mut stream = client
-        .chat_stream(messages, None)
-        .await
-        .expect("stream ok");
+    let mut stream = client.chat_stream(messages, None).await.expect("stream ok");
 
     while let Some(ev) = stream.next().await {
-        match ev.expect("event ok") {
-            ChatStreamEvent::StreamEnd { .. } => break,
-            _ => {}
+        if let ChatStreamEvent::StreamEnd { .. } = ev.expect("event ok") {
+            break;
         }
     }
 
     // Assert Accept-Encoding did not force identity
     let seen = state.lock().await.clone();
-    assert!(seen.accept_is_sse, "Accept header should be text/event-stream");
+    assert!(
+        seen.accept_is_sse,
+        "Accept header should be text/event-stream"
+    );
     assert!(
         !seen.accept_encoding_identity,
         "Accept-Encoding identity should be absent/disabled when flag is false"
