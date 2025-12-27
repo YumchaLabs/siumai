@@ -3,13 +3,19 @@
 //! English-only comments in code as requested.
 
 use std::collections::HashMap;
+#[cfg(feature = "builtins")]
 use std::sync::Arc;
 
+#[cfg(feature = "builtins")]
 use crate::execution::http::interceptor::LoggingInterceptor;
+#[cfg(feature = "builtins")]
 use crate::execution::middleware::samples::chain_default_and_clamp;
 use crate::registry::entry::{
-    ProviderFactory, ProviderRegistryHandle, RegistryOptions, create_provider_registry,
+    ProviderRegistryHandle, RegistryOptions, create_provider_registry,
 };
+
+#[cfg(feature = "builtins")]
+use crate::registry::entry::ProviderFactory;
 
 /// Create a registry with common defaults:
 /// - separator ':'
@@ -20,6 +26,7 @@ use crate::registry::entry::{
 /// - Built-in provider factories registered for common providers
 ///   (OpenAI, Anthropic, Anthropic Vertex, Gemini, Groq, xAI, Ollama,
 ///   MiniMaxi, and all OpenAI-compatible providers)
+#[cfg(feature = "builtins")]
 pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     // Register built-in provider factories for the handle-level registry.
     let mut providers: HashMap<String, Arc<dyn ProviderFactory>> = HashMap::new();
@@ -94,7 +101,8 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     // OpenAI-compatible provider factories (DeepSeek, SiliconFlow, OpenRouter, etc.)
     #[cfg(feature = "openai")]
     {
-        let builtin = crate::providers::openai_compatible::config::get_builtin_providers();
+        let builtin =
+            siumai_providers::providers::openai_compatible::config::get_builtin_providers();
         for (_id, cfg) in builtin {
             let id_str = cfg.id.clone();
             // Skip providers that already have native factories registered (e.g., groq, minimaxi).
@@ -166,6 +174,7 @@ pub fn create_bare_registry() -> ProviderRegistryHandle {
 /// Examples:
 /// - "gemini" and "google" are treated as the same provider when the alias is registered.
 /// - Case-sensitive comparison.
+#[cfg(feature = "builtins")]
 pub fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
     if provider_id == custom_id {
         return true;

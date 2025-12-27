@@ -6,6 +6,7 @@ use secrecy::ExposeSecret;
 use std::sync::Arc;
 
 use crate::client::LlmClient;
+use crate::error::LlmError;
 use crate::params::OpenAiParams;
 use crate::traits::*;
 use crate::types::*;
@@ -18,10 +19,6 @@ use super::utils::get_default_models;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 
-// Test-only imports
-#[cfg(test)]
-use crate::error::LlmError;
-
 // Split capability implementations into focused submodules (no API change)
 mod audio;
 mod chat;
@@ -31,6 +28,7 @@ mod image;
 mod models;
 mod moderation;
 mod rerank;
+mod responses_admin;
 mod speech_streaming;
 pub(crate) mod transcription_streaming;
 
@@ -52,6 +50,8 @@ pub struct OpenAiClient {
     openai_params: OpenAiParams,
     /// OpenAI-specific configuration
     specific_params: OpenAiSpecificParams,
+    /// Optional forced Responses API configuration (client-level default).
+    forced_responses_api: Option<crate::types::provider_options::openai::ResponsesApiConfig>,
     /// HTTP client for making requests
     http_client: reqwest::Client,
     /// Tracing configuration
@@ -82,6 +82,7 @@ impl Clone for OpenAiClient {
             common_params: self.common_params.clone(),
             openai_params: self.openai_params.clone(),
             specific_params: self.specific_params.clone(),
+            forced_responses_api: self.forced_responses_api.clone(),
             http_client: self.http_client.clone(),
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
@@ -129,7 +130,8 @@ impl OpenAiClient {
     }
 
     /// Convenience: configure structured outputs using a JSON object schema.
-    /// Only applied to Responses API requests. For chat/completions, this is ignored.
+    /// Only applied to Chat Completions requests (`POST /chat/completions`).
+    /// For the Responses API, use `OpenAiOptions.responses_api.response_format` (maps to `text.format`).
     pub fn with_json_object_schema(mut self, schema: serde_json::Value, strict: bool) -> Self {
         let fmt = serde_json::json!({
             "type": "json_object",
@@ -143,7 +145,8 @@ impl OpenAiClient {
     }
 
     /// Convenience: configure structured outputs using a named JSON schema.
-    /// Only applied to Responses API requests.
+    /// Only applied to Chat Completions requests (`POST /chat/completions`).
+    /// For the Responses API, use `OpenAiOptions.responses_api.response_format` (maps to `text.format`).
     pub fn with_json_named_schema<S: Into<String>>(
         mut self,
         name: S,
@@ -164,11 +167,29 @@ impl OpenAiClient {
 
     /// Creates a new `OpenAI` client with configuration and HTTP client
     pub fn new(config: super::OpenAiConfig, http_client: reqwest::Client) -> Self {
-        let specific_params = OpenAiSpecificParams {
+        let mut specific_params = OpenAiSpecificParams {
             organization: config.organization.clone(),
             project: config.project.clone(),
             ..Default::default()
         };
+
+        // Backward-compat: map legacy `OpenAiParams` into the per-client defaults
+        // so builder methods like `.response_format()` keep working.
+        if let Some(fmt) = config.openai_params.response_format.clone()
+            && let Ok(v) = serde_json::to_value(fmt)
+        {
+            specific_params.response_format = Some(v);
+        }
+        if let Some(bias) = config.openai_params.logit_bias.clone()
+            && let Ok(v) = serde_json::to_value(bias)
+        {
+            specific_params.logit_bias = Some(v);
+        }
+        specific_params.logprobs = config.openai_params.logprobs;
+        specific_params.top_logprobs = config.openai_params.top_logprobs;
+        specific_params.presence_penalty = config.openai_params.presence_penalty;
+        specific_params.frequency_penalty = config.openai_params.frequency_penalty;
+        specific_params.user = config.openai_params.user.clone();
 
         let models_capability = OpenAiModels::new(
             config.api_key.clone(),
@@ -199,6 +220,7 @@ impl OpenAiClient {
             common_params: config.common_params,
             openai_params: config.openai_params,
             specific_params,
+            forced_responses_api: None,
             http_client,
             tracing_config: None,
             _tracing_guard: None,
@@ -219,6 +241,14 @@ impl OpenAiClient {
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.retry_options = options;
+    }
+
+    /// Force routing chat requests through the OpenAI Responses API (`POST /responses`).
+    pub fn set_forced_responses_api(
+        &mut self,
+        cfg: Option<crate::types::provider_options::openai::ResponsesApiConfig>,
+    ) {
+        self.forced_responses_api = cfg;
     }
 
     /// Creates a new `OpenAI` client with configuration (for OpenAI-compatible providers)
@@ -253,9 +283,133 @@ impl OpenAiClient {
         use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context();
-        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
+        let mut spec = crate::providers::openai::spec::OpenAiSpec::new();
+        if let Some(cfg) = self.forced_responses_api.clone() {
+            spec = spec.with_forced_responses_api(cfg);
+        }
+        let spec = Arc::new(spec);
         let bundle = spec.choose_chat_transformers(request, &ctx);
         let before_send_hook = spec.chat_before_send(request, &ctx);
+
+        // Provider-client defaults.
+        //
+        // - Chat Completions structured output uses `response_format` (Chat schema).
+        // - Responses structured output uses `text.format` and is injected by `OpenAiSpec`
+        //   via `OpenAiOptions.responses_api.response_format`.
+        let use_responses_api = spec
+            .chat_url(false, request, &ctx)
+            .trim_end()
+            .ends_with("/responses");
+        let defaults = self.specific_params.clone();
+        let openai_params = self.openai_params.clone();
+        let client_defaults_hook: Option<crate::execution::executors::BeforeSendHook> =
+            Some(Arc::new(move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+            let mut out = body.clone();
+            let Some(obj) = out.as_object_mut() else {
+                return Ok(out);
+            };
+
+            // Cross-endpoint defaults (supported by both /chat/completions and /responses).
+            if obj.get("tool_choice").is_none()
+                && let Some(tc) = openai_params.tool_choice.clone()
+                && let Ok(v) = serde_json::to_value(tc)
+            {
+                obj.insert("tool_choice".to_string(), v);
+            }
+            if obj.get("parallel_tool_calls").is_none()
+                && let Some(v) = openai_params.parallel_tool_calls
+            {
+                obj.insert("parallel_tool_calls".to_string(), serde_json::Value::Bool(v));
+            }
+            if obj.get("store").is_none()
+                && let Some(v) = openai_params.store
+            {
+                obj.insert("store".to_string(), serde_json::Value::Bool(v));
+            }
+            if obj.get("metadata").is_none()
+                && let Some(meta) = openai_params.metadata.clone()
+                && let Ok(v) = serde_json::to_value(meta)
+            {
+                obj.insert("metadata".to_string(), v);
+            }
+            if obj.get("prompt_cache_key").is_none()
+                && let Some(v) = openai_params.prompt_cache_key.clone()
+            {
+                obj.insert("prompt_cache_key".to_string(), serde_json::Value::String(v));
+            }
+            if obj.get("service_tier").is_none()
+                && let Some(ref tier) = openai_params.service_tier
+                && let Ok(v) = serde_json::to_value(tier)
+            {
+                obj.insert("service_tier".to_string(), v);
+            }
+            if obj.get("top_logprobs").is_none()
+                && let Some(v) = openai_params.top_logprobs
+            {
+                obj.insert("top_logprobs".to_string(), serde_json::json!(v));
+            }
+
+            if !use_responses_api {
+                // Chat Completions-only defaults.
+                if obj.get("n").is_none()
+                    && let Some(v) = openai_params.n
+                {
+                    obj.insert("n".to_string(), serde_json::json!(v));
+                }
+
+                if obj.get("response_format").is_none()
+                    && let Some(v) = defaults.response_format.clone()
+                {
+                    obj.insert("response_format".to_string(), v);
+                }
+                if obj.get("logit_bias").is_none()
+                    && let Some(v) = defaults.logit_bias.clone()
+                {
+                    obj.insert("logit_bias".to_string(), v);
+                }
+                if obj.get("logprobs").is_none()
+                    && let Some(v) = defaults.logprobs
+                {
+                    obj.insert("logprobs".to_string(), serde_json::Value::Bool(v));
+                }
+                if obj.get("top_logprobs").is_none()
+                    && let Some(v) = defaults.top_logprobs
+                {
+                    obj.insert("top_logprobs".to_string(), serde_json::json!(v));
+                }
+                if obj.get("presence_penalty").is_none()
+                    && let Some(v) = defaults.presence_penalty
+                {
+                    obj.insert("presence_penalty".to_string(), serde_json::json!(v));
+                }
+                if obj.get("frequency_penalty").is_none()
+                    && let Some(v) = defaults.frequency_penalty
+                {
+                    obj.insert("frequency_penalty".to_string(), serde_json::json!(v));
+                }
+                if obj.get("user").is_none()
+                    && let Some(v) = defaults.user.clone()
+                {
+                    obj.insert("user".to_string(), serde_json::Value::String(v));
+                }
+            }
+
+            Ok(out)
+        }));
+
+        let before_send_hook = match (client_defaults_hook, before_send_hook) {
+            (None, None) => None,
+            (Some(h), None) | (None, Some(h)) => Some(h),
+            (Some(defaults), Some(spec_hook)) => {
+                let hook: crate::execution::executors::BeforeSendHook = Arc::new(
+                    move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                        let out = defaults(body)?;
+                        spec_hook(&out)
+                    },
+                );
+                Some(hook)
+            }
+        };
 
         let mut builder = ChatExecutorBuilder::new("openai", self.http_client.clone())
             .with_spec(spec)
@@ -442,6 +596,10 @@ impl LlmProvider for OpenAiClient {
             .with_vision()
             .with_audio()
             .with_embedding()
+            .with_image_generation()
+            .with_file_management()
+            .with_custom_feature("moderation", true)
+            .with_custom_feature("model_listing", true)
             .with_custom_feature("structured_output", true)
             .with_custom_feature("batch_processing", true)
     }
@@ -491,6 +649,10 @@ impl LlmClient for OpenAiClient {
 
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
         // Return the image generation capability
+        Some(self)
+    }
+
+    fn as_image_extras(&self) -> Option<&dyn crate::traits::ImageExtras> {
         Some(self)
     }
 
@@ -928,16 +1090,7 @@ mod tests {
         // Create request with response_format in provider_options
         use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let response_format = serde_json::json!({
-            "type": "json_object",
-            "json_schema": {
-                "name": "response",
-                "strict": true,
-                "schema": {
-                    "type": "object",
-                    "properties": {"name": {"type": "string"}},
-                    "required": ["name"]
-                }
-            }
+            "type": "json_object"
         });
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
@@ -948,21 +1101,13 @@ mod tests {
         let _ = futures::executor::block_on(client.chat_request(request));
         let body = captured.lock().unwrap().clone().expect("captured body");
         let rf = body
-            .get("response_format")
+            .get("text")
+            .and_then(|t| t.get("format"))
             .cloned()
-            .expect("has response_format");
+            .expect("has text.format");
         assert_eq!(
             rf.get("type").and_then(|v| v.as_str()).unwrap_or(""),
             "json_object"
-        );
-        let sch = rf
-            .get("json_schema")
-            .and_then(|v| v.get("schema"))
-            .cloned()
-            .expect("schema present");
-        assert_eq!(
-            sch.get("type").and_then(|v| v.as_str()).unwrap_or(""),
-            "object"
         );
     }
 
@@ -993,14 +1138,12 @@ mod tests {
         use crate::types::{OpenAiOptions, ResponsesApiConfig};
         let response_format = serde_json::json!({
             "type": "json_schema",
-            "json_schema": {
-                "name": "User",
-                "strict": true,
-                "schema": {
-                    "type": "object",
-                    "properties": {"age": {"type": "integer"}},
-                    "required": ["age"]
-                }
+            "name": "User",
+            "strict": true,
+            "schema": {
+                "type": "object",
+                "properties": {"age": {"type": "integer"}},
+                "required": ["age"]
             }
         });
         let mut request =
@@ -1014,16 +1157,16 @@ mod tests {
         let _ = futures::executor::block_on(client.chat_stream_request(request));
         let body = captured.lock().unwrap().clone().expect("captured body");
         let rf = body
-            .get("response_format")
+            .get("text")
+            .and_then(|t| t.get("format"))
             .cloned()
-            .expect("has response_format");
+            .expect("has text.format");
         assert_eq!(
             rf.get("type").and_then(|v| v.as_str()).unwrap_or(""),
             "json_schema"
         );
         let name = rf
-            .get("json_schema")
-            .and_then(|v| v.get("name"))
+            .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         assert_eq!(name, "User");
@@ -1123,5 +1266,148 @@ mod tests {
             meta.get("user_id").and_then(|v| v.as_str()),
             Some("test_123")
         );
+    }
+
+    #[tokio::test]
+    async fn responses_non_stream_parses_function_call_output_item() {
+        use crate::traits::ChatCapability;
+        use crate::types::{OpenAiOptions, ResponsesApiConfig};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "resp_1",
+                "model": "gpt-4o-mini",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"tokyo\"}"
+                    },
+                    {
+                        "type": "message",
+                        "content": [{"type":"output_text","text":"Done."}]
+                    }
+                ],
+                "usage": { "input_tokens": 1, "output_tokens": 2, "total_tokens": 3 },
+                "finish_reason": "function_call"
+            })))
+            .mount(&server)
+            .await;
+
+        let cfg = OpenAiConfig::new("test-key")
+            .with_base_url(format!("{}/v1", server.uri()))
+            .with_model("gpt-4o-mini");
+        let client = OpenAiClient::new(cfg, reqwest::Client::new());
+
+        let request = crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
+
+        let resp = client.chat_request(request).await.unwrap();
+        assert_eq!(resp.content_text(), Some("Done."));
+
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+        let tool = parts
+            .iter()
+            .find_map(|p| {
+                if let crate::types::ContentPart::ToolCall {
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                    provider_executed,
+                } = p
+                {
+                    Some((tool_call_id, tool_name, arguments, provider_executed))
+                } else {
+                    None
+                }
+            })
+            .expect("tool call present");
+
+        assert_eq!(tool.0, "call_1");
+        assert_eq!(tool.1, "get_weather");
+        assert!(tool.3.is_none()); // user-defined function tool call
+        assert_eq!(tool.2["location"], serde_json::json!("tokyo"));
+    }
+
+    #[tokio::test]
+    async fn responses_stream_function_call_delta_uses_call_id() {
+        use crate::traits::ChatCapability;
+        use crate::types::{OpenAiOptions, ResponsesApiConfig};
+        use futures_util::StreamExt;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+
+        let sse = concat!(
+            "event: response.output_item.added\n",
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_weather\",\"arguments\":\"\"}}\n\n",
+            "event: response.function_call_arguments.delta\n",
+            "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"item_abc\",\"output_index\":0,\"delta\":\"{\\\"location\\\":\\\"tokyo\\\"}\",\"sequence_number\":1}\n\n",
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"tokyo\\\"}\"},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done.\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":2,\"total_tokens\":3},\"finish_reason\":\"function_call\"}}\n\n",
+        );
+
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_raw(sse, "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+
+        let cfg = OpenAiConfig::new("test-key")
+            .with_base_url(format!("{}/v1", server.uri()))
+            .with_model("gpt-4o-mini");
+        let client = OpenAiClient::new(cfg, reqwest::Client::new());
+
+        let mut request =
+            crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+                .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
+        request.stream = true;
+
+        let mut stream = client.chat_stream_request(request).await.unwrap();
+
+        let mut saw_added = false;
+        let mut saw_args_delta = false;
+
+        while let Some(item) = stream.next().await {
+            let ev = item.unwrap();
+            match ev {
+                crate::streaming::ChatStreamEvent::ToolCallDelta {
+                    id,
+                    function_name,
+                    arguments_delta,
+                    ..
+                } => {
+                    // Both the "item added" and the "arguments delta" should use call_id (call_1).
+                    assert_eq!(id, "call_1");
+                    if function_name.as_deref() == Some("get_weather") && arguments_delta.is_none() {
+                        saw_added = true;
+                    }
+                    if function_name.is_none()
+                        && arguments_delta.as_deref() == Some("{\"location\":\"tokyo\"}")
+                    {
+                        saw_args_delta = true;
+                    }
+                }
+                crate::streaming::ChatStreamEvent::StreamEnd { response } => {
+                    assert_eq!(response.content_text(), Some("Done."));
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert!(saw_added);
+        assert!(saw_args_delta);
     }
 }

@@ -52,6 +52,7 @@ pub mod utils;
 // Capability modules
 pub mod api;
 pub mod chat;
+pub mod ext;
 pub mod models;
 pub mod spec;
 pub mod transformers;

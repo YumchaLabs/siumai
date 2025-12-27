@@ -74,20 +74,24 @@ async fn test_openai_client_image_generation_capability() {
     let image_capability = client.as_image_generation_capability();
     assert!(image_capability.is_some());
 
-    if let Some(capability) = image_capability {
+    if let Some(_capability) = image_capability {
+        let extras = client.as_image_extras();
+        assert!(extras.is_some());
+        let extras = extras.unwrap();
+
         // Test supported sizes
-        let sizes = capability.get_supported_sizes();
+        let sizes = extras.get_supported_sizes();
         assert!(!sizes.is_empty());
         assert!(sizes.contains(&"1024x1024".to_string()));
 
         // Test supported formats
-        let formats = capability.get_supported_formats();
+        let formats = extras.get_supported_formats();
         assert!(!formats.is_empty());
         assert!(formats.contains(&"url".to_string()));
 
         // Test capabilities
-        assert!(capability.supports_image_editing());
-        assert!(capability.supports_image_variations());
+        assert!(extras.supports_image_editing());
+        assert!(extras.supports_image_variations());
     }
 }
 
@@ -105,20 +109,24 @@ async fn test_siliconflow_client_image_generation_capability() {
     let image_capability = client.as_image_generation_capability();
     assert!(image_capability.is_some());
 
-    if let Some(capability) = image_capability {
+    if let Some(_capability) = image_capability {
+        let extras = client.as_image_extras();
+        assert!(extras.is_some());
+        let extras = extras.unwrap();
+
         // Test SiliconFlow-specific supported sizes
-        let sizes = capability.get_supported_sizes();
+        let sizes = extras.get_supported_sizes();
         assert!(!sizes.is_empty());
         assert!(sizes.contains(&"1024x1024".to_string()));
         assert!(sizes.contains(&"960x1280".to_string()));
 
         // Test SiliconFlow-specific supported formats
-        let formats = capability.get_supported_formats();
+        let formats = extras.get_supported_formats();
         assert_eq!(formats, vec!["url".to_string()]);
 
         // Test SiliconFlow-specific capabilities
-        assert!(!capability.supports_image_editing()); // SiliconFlow doesn't support editing
-        assert!(!capability.supports_image_variations()); // SiliconFlow doesn't support variations
+        assert!(!extras.supports_image_editing()); // SiliconFlow doesn't support editing
+        assert!(!extras.supports_image_variations()); // SiliconFlow doesn't support variations
     }
 }
 

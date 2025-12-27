@@ -61,6 +61,12 @@ pub enum ChatCompletionAudioVoice {
     Coral,
     /// Echo voice (less expressive)
     Echo,
+    /// Fable voice
+    Fable,
+    /// Onyx voice
+    Onyx,
+    /// Nova voice
+    Nova,
     /// Sage voice (recommended)
     Sage,
     /// Shimmer voice (less expressive)

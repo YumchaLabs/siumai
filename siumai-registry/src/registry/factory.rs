@@ -36,7 +36,7 @@ pub async fn build_openai_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let mut config = crate::providers::openai::OpenAiConfig::new(api_key)
+    let mut config = siumai_providers::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
         .with_model(common_params.model.clone());
 
@@ -53,7 +53,8 @@ pub async fn build_openai_client(
         config = config.with_project(proj);
     }
 
-    let mut client = crate::providers::openai::OpenAiClient::new(config, http_client);
+    let mut client =
+        siumai_providers::providers::openai::OpenAiClient::new(config, http_client);
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
     }
@@ -136,7 +137,7 @@ pub async fn build_openai_compatible_client(
     };
 
     // Build config
-    let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+    let mut config = siumai_providers::providers::openai_compatible::OpenAiCompatibleConfig::new(
         &resolved_id,
         &api_key,
         &resolved_base,
@@ -157,11 +158,12 @@ pub async fn build_openai_compatible_client(
     }
 
     // Create client via provided HTTP client
-    let mut client = crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
-        config,
-        http_client,
-    )
-    .await?;
+    let mut client =
+        siumai_providers::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+            config,
+            http_client,
+        )
+        .await?;
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
     }
@@ -205,7 +207,7 @@ pub async fn build_anthropic_client(
     let anthropic_params = crate::params::AnthropicParams::default();
 
     let model_id_for_mw = common_params.model.clone();
-    let mut client = crate::providers::anthropic::AnthropicClient::new(
+    let mut client = siumai_providers::providers::anthropic::AnthropicClient::new(
         api_key,
         base_url,
         http_client,
@@ -252,8 +254,8 @@ pub async fn build_gemini_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    use crate::providers::gemini::client::GeminiClient;
-    use crate::providers::gemini::types::{GeminiConfig, GenerationConfig};
+    use siumai_providers::providers::gemini::client::GeminiClient;
+    use siumai_providers::providers::gemini::types::{GeminiConfig, GenerationConfig};
 
     // Build base config
     let mut gcfg = GenerationConfig::new();
@@ -323,13 +325,16 @@ pub async fn build_anthropic_vertex_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let cfg = crate::providers::anthropic_vertex::client::VertexAnthropicConfig {
+    let cfg = siumai_providers::providers::anthropic_vertex::client::VertexAnthropicConfig {
         base_url,
         model: common_params.model.clone(),
         http_config,
     };
     let mut client =
-        crate::providers::anthropic_vertex::client::VertexAnthropicClient::new(cfg, http_client);
+        siumai_providers::providers::anthropic_vertex::client::VertexAnthropicClient::new(
+            cfg,
+            http_client,
+        );
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
     }
@@ -360,8 +365,8 @@ pub async fn build_ollama_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    use crate::providers::ollama::OllamaClient;
-    use crate::providers::ollama::config::{OllamaConfig, OllamaParams};
+    use siumai_providers::providers::ollama::OllamaClient;
+    use siumai_providers::providers::ollama::config::{OllamaConfig, OllamaParams};
 
     // Provider-specific parameters are now handled via provider_options in ChatRequest
     let ollama_params = OllamaParams::default();
@@ -410,8 +415,8 @@ pub async fn build_minimaxi_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    use crate::providers::minimaxi::client::MinimaxiClient;
-    use crate::providers::minimaxi::config::MinimaxiConfig;
+    use siumai_providers::providers::minimaxi::client::MinimaxiClient;
+    use siumai_providers::providers::minimaxi::config::MinimaxiConfig;
 
     let config = MinimaxiConfig::new(api_key)
         .with_base_url(base_url)

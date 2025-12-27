@@ -1,6 +1,6 @@
 use super::OpenAiClient;
 use crate::error::LlmError;
-use crate::traits::ImageGenerationCapability;
+use crate::traits::{ImageExtras, ImageGenerationCapability};
 use crate::types::{
     ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
 };
@@ -16,7 +16,10 @@ impl ImageGenerationCapability for OpenAiClient {
         use crate::execution::executors::image::ImageExecutor;
         ImageExecutor::execute(&*exec, request).await
     }
+}
 
+#[async_trait]
+impl ImageExtras for OpenAiClient {
     async fn edit_image(
         &self,
         request: ImageEditRequest,

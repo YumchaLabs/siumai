@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
+    /// No reasoning
+    None,
+    /// Minimal reasoning
+    Minimal,
     /// Low reasoning effort
     Low,
     /// Medium reasoning effort (default)
@@ -16,6 +20,8 @@ pub enum ReasoningEffort {
     Medium,
     /// High reasoning effort
     High,
+    /// Extra-high reasoning effort
+    Xhigh,
 }
 
 /// Service tier preference
@@ -69,6 +75,14 @@ mod tests {
     #[test]
     fn test_reasoning_effort_serialization() {
         assert_eq!(
+            serde_json::to_string(&ReasoningEffort::None).unwrap(),
+            r#""none""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::Minimal).unwrap(),
+            r#""minimal""#
+        );
+        assert_eq!(
             serde_json::to_string(&ReasoningEffort::Low).unwrap(),
             r#""low""#
         );
@@ -79,6 +93,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ReasoningEffort::High).unwrap(),
             r#""high""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::Xhigh).unwrap(),
+            r#""xhigh""#
         );
     }
 

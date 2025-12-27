@@ -79,6 +79,15 @@ pub trait LlmClient: ChatCapability + Send + Sync {
         None
     }
 
+    /// Get as image extras capability if supported (non-unified surface)
+    ///
+    /// Returns None by default. Providers that support image editing/variation
+    /// or provide provider-specific image metadata should override this method
+    /// to return Some(self).
+    fn as_image_extras(&self) -> Option<&dyn ImageExtras> {
+        None
+    }
+
     /// Get as file management capability if supported
     ///
     /// Returns None by default. Providers that support files
@@ -128,11 +137,11 @@ pub trait LlmClient: ChatCapability + Send + Sync {
     }
 }
 
-/// Client Wrapper - provides dynamic dispatch for different provider clients
+/// Client Wrapper - provides dynamic dispatch over provider clients
 ///
-/// This enum allows storing different provider clients in a unified way,
-/// enabling runtime polymorphism. It's primarily used internally by the library
-/// for implementing the unified interface.
+/// This wrapper allows storing different provider clients in a unified way,
+/// enabling runtime polymorphism. It's primarily used for advanced scenarios
+/// such as pooling or dynamic provider switching.
 ///
 /// ## Usage
 /// Most users should use the Builder pattern instead:
@@ -171,25 +180,20 @@ pub trait LlmClient: ChatCapability + Send + Sync {
 /// }
 /// ```
 pub enum ClientWrapper {
-    OpenAi(Box<dyn LlmClient>),
-    Anthropic(Box<dyn LlmClient>),
-    Gemini(Box<dyn LlmClient>),
-    Groq(Box<dyn LlmClient>),
-    XAI(Box<dyn LlmClient>),
-    Ollama(Box<dyn LlmClient>),
-    Custom(Box<dyn LlmClient>),
+    /// Provider-agnostic wrapper around a boxed `LlmClient`.
+    ///
+    /// This exists primarily for pooling and dynamic dispatch scenarios where a concrete
+    /// provider type is not known at compile time.
+    ///
+    /// Note: this intentionally does *not* encode provider identity in the type.
+    /// Use `LlmClient::provider_id()` / `LlmClient::provider_type()` when needed.
+    Client(Box<dyn LlmClient>),
 }
 
 impl Clone for ClientWrapper {
     fn clone(&self) -> Self {
         match self {
-            ClientWrapper::OpenAi(client) => ClientWrapper::OpenAi(client.clone_box()),
-            ClientWrapper::Anthropic(client) => ClientWrapper::Anthropic(client.clone_box()),
-            ClientWrapper::Gemini(client) => ClientWrapper::Gemini(client.clone_box()),
-            ClientWrapper::Groq(client) => ClientWrapper::Groq(client.clone_box()),
-            ClientWrapper::XAI(client) => ClientWrapper::XAI(client.clone_box()),
-            ClientWrapper::Ollama(client) => ClientWrapper::Ollama(client.clone_box()),
-            ClientWrapper::Custom(client) => ClientWrapper::Custom(client.clone_box()),
+            ClientWrapper::Client(client) => ClientWrapper::Client(client.clone_box()),
         }
     }
 }
@@ -197,32 +201,8 @@ impl Clone for ClientWrapper {
 impl std::fmt::Debug for ClientWrapper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClientWrapper::OpenAi(_) => f
-                .debug_tuple("ClientWrapper::OpenAi")
-                .field(&"[LlmClient]")
-                .finish(),
-            ClientWrapper::Anthropic(_) => f
-                .debug_tuple("ClientWrapper::Anthropic")
-                .field(&"[LlmClient]")
-                .finish(),
-            ClientWrapper::Gemini(_) => f
-                .debug_tuple("ClientWrapper::Gemini")
-                .field(&"[LlmClient]")
-                .finish(),
-            ClientWrapper::Groq(_) => f
-                .debug_tuple("ClientWrapper::Groq")
-                .field(&"[LlmClient]")
-                .finish(),
-            ClientWrapper::XAI(_) => f
-                .debug_tuple("ClientWrapper::XAI")
-                .field(&"[LlmClient]")
-                .finish(),
-            ClientWrapper::Ollama(_) => f
-                .debug_tuple("ClientWrapper::Ollama")
-                .field(&"[LlmClient]")
-                .finish(),
-            ClientWrapper::Custom(_) => f
-                .debug_tuple("ClientWrapper::Custom")
+            ClientWrapper::Client(_) => f
+                .debug_tuple("ClientWrapper::Client")
                 .field(&"[LlmClient]")
                 .finish(),
         }
@@ -230,65 +210,56 @@ impl std::fmt::Debug for ClientWrapper {
 }
 
 impl ClientWrapper {
+    /// Creates a provider-agnostic client wrapper.
+    pub fn new(client: Box<dyn LlmClient>) -> Self {
+        Self::Client(client)
+    }
+
     /// Creates an `OpenAI` client wrapper
     pub fn openai(client: Box<dyn LlmClient>) -> Self {
-        Self::OpenAi(client)
+        Self::new(client)
     }
 
     /// Creates an Anthropic client wrapper
     pub fn anthropic(client: Box<dyn LlmClient>) -> Self {
-        Self::Anthropic(client)
+        Self::new(client)
     }
 
     /// Creates a Gemini client wrapper
     pub fn gemini(client: Box<dyn LlmClient>) -> Self {
-        Self::Gemini(client)
+        Self::new(client)
     }
 
     /// Creates a Groq client wrapper
     pub fn groq(client: Box<dyn LlmClient>) -> Self {
-        Self::Groq(client)
+        Self::new(client)
     }
 
     /// Creates an xAI client wrapper
     pub fn xai(client: Box<dyn LlmClient>) -> Self {
-        Self::XAI(client)
+        Self::new(client)
     }
 
     /// Creates an Ollama client wrapper
     pub fn ollama(client: Box<dyn LlmClient>) -> Self {
-        Self::Ollama(client)
+        Self::new(client)
     }
 
     /// Creates a custom client wrapper
     pub fn custom(client: Box<dyn LlmClient>) -> Self {
-        Self::Custom(client)
+        Self::new(client)
     }
 
     /// Gets a reference to the internal client
     pub fn client(&self) -> &dyn LlmClient {
         match self {
-            Self::OpenAi(client) => client.as_ref(),
-            Self::Anthropic(client) => client.as_ref(),
-            Self::Gemini(client) => client.as_ref(),
-            Self::Groq(client) => client.as_ref(),
-            Self::XAI(client) => client.as_ref(),
-            Self::Ollama(client) => client.as_ref(),
-            Self::Custom(client) => client.as_ref(),
+            Self::Client(client) => client.as_ref(),
         }
     }
 
     /// Gets the provider type
     pub fn provider_type(&self) -> ProviderType {
-        match self {
-            Self::OpenAi(_) => ProviderType::OpenAi,
-            Self::Anthropic(_) => ProviderType::Anthropic,
-            Self::Gemini(_) => ProviderType::Gemini,
-            Self::Groq(_) => ProviderType::Groq,
-            Self::XAI(_) => ProviderType::XAI,
-            Self::Ollama(_) => ProviderType::Ollama,
-            Self::Custom(_) => ProviderType::Custom("unknown".to_string()),
-        }
+        self.client().provider_type()
     }
 
     /// Check if the client supports a specific capability
@@ -346,7 +317,7 @@ impl LlmClient for ClientWrapper {
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
-        self
+        self.client().as_any()
     }
 
     fn clone_box(&self) -> Box<dyn LlmClient> {
@@ -376,6 +347,10 @@ impl LlmClient for ClientWrapper {
 
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
         self.client().as_image_generation_capability()
+    }
+
+    fn as_image_extras(&self) -> Option<&dyn ImageExtras> {
+        self.client().as_image_extras()
     }
 
     fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {

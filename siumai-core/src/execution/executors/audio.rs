@@ -149,7 +149,7 @@ impl AudioExecutor for HttpAudioExecutor {
                     &config,
                     &url,
                     crate::execution::executors::common::HttpBody::Json(json),
-                    None,
+                    req.http_config.as_ref().map(|hc| &hc.headers),
                 )
                 .await?;
                 result.bytes
@@ -166,7 +166,10 @@ impl AudioExecutor for HttpAudioExecutor {
                 };
 
                 let result = crate::execution::executors::common::execute_multipart_bytes_request(
-                    &config, &url, build_form, None,
+                    &config,
+                    &url,
+                    build_form,
+                    req.http_config.as_ref().map(|hc| &hc.headers),
                 )
                 .await?;
                 result.bytes
@@ -230,7 +233,7 @@ impl AudioExecutor for HttpAudioExecutor {
             retry_options: self.policy.retry_options.clone(),
         };
 
-        let per_request_headers = None;
+        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
         let result = match body {
             AudioHttpBody::Json(mut json) => {
                 // Apply before_send if present

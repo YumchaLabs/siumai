@@ -7,7 +7,7 @@
 
 use crate::error::LlmError;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
-use crate::types::{SttRequest, TtsRequest};
+use crate::types::{ProviderOptions, SttRequest, TtsRequest};
 use std::borrow::Cow;
 
 #[derive(Debug, Clone)]
@@ -40,9 +40,24 @@ impl Default for OpenAiAudioDefaults {
     }
 }
 
+fn lookup_extra<'a>(
+    provider_id: &str,
+    provider_options: &'a ProviderOptions,
+    extra_params: &'a std::collections::HashMap<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    match provider_options {
+        ProviderOptions::Custom { provider_id: id, options } if id == provider_id => {
+            options.get(key).or_else(|| extra_params.get(key))
+        }
+        _ => extra_params.get(key),
+    }
+}
+
 fn build_tts_body_impl(
     req: &TtsRequest,
     defaults: &OpenAiAudioDefaults,
+    provider_id: &str,
 ) -> Result<AudioHttpBody, LlmError> {
     let model = req
         .model
@@ -66,9 +81,7 @@ fn build_tts_body_impl(
     if let Some(s) = speed {
         json["speed"] = serde_json::json!(s);
     }
-    if let Some(instr) = req
-        .extra_params
-        .get("instructions")
+    if let Some(instr) = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "instructions")
         .and_then(|v| v.as_str())
     {
         json["instructions"] = serde_json::json!(instr);
@@ -79,6 +92,7 @@ fn build_tts_body_impl(
 fn build_stt_body_impl(
     req: &SttRequest,
     defaults: &OpenAiAudioDefaults,
+    provider_id: &str,
 ) -> Result<AudioHttpBody, LlmError> {
     let model = req
         .model
@@ -89,9 +103,7 @@ fn build_stt_body_impl(
         .clone()
         .ok_or_else(|| LlmError::InvalidInput("audio_data required for STT".to_string()))?;
 
-    if req
-        .extra_params
-        .get("stream")
+    if lookup_extra(provider_id, &req.provider_options, &req.extra_params, "stream")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
@@ -100,14 +112,15 @@ fn build_stt_body_impl(
         ));
     }
 
-    let mut form = reqwest::multipart::Form::new().part(
-        "file",
-        reqwest::multipart::Part::bytes(audio).file_name(defaults.stt_file_name.to_string()),
-    );
+    let mut part = reqwest::multipart::Part::bytes(audio).file_name(defaults.stt_file_name.to_string());
+    if let Some(media_type) = req.media_type.as_deref() {
+        part = part
+            .mime_str(media_type)
+            .map_err(|e| LlmError::InvalidParameter(format!("Invalid STT media_type '{media_type}': {e}")))?;
+    }
+    let mut form = reqwest::multipart::Form::new().part("file", part);
     form = form.text("model", model);
-    if let Some(fmt) = req
-        .extra_params
-        .get("response_format")
+    if let Some(fmt) = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "response_format")
         .and_then(|v| v.as_str())
     {
         form = form.text("response_format", fmt.to_string());
@@ -129,30 +142,34 @@ fn build_stt_body_impl(
 
     // OpenAI-specific optional fields (escape hatches).
     // Keep these in `extra_params` to avoid expanding the unified surface.
-    if let Some(prompt) = req.extra_params.get("prompt").and_then(|v| v.as_str()) {
+    if let Some(prompt) =
+        lookup_extra(provider_id, &req.provider_options, &req.extra_params, "prompt").and_then(|v| v.as_str())
+    {
         form = form.text("prompt", prompt.to_string());
     }
-    if let Some(temp) = req.extra_params.get("temperature").and_then(|v| v.as_f64()) {
+    if let Some(temp) =
+        lookup_extra(provider_id, &req.provider_options, &req.extra_params, "temperature").and_then(|v| v.as_f64())
+    {
         form = form.text("temperature", temp.to_string());
     }
-    if let Some(strategy) = req
-        .extra_params
-        .get("chunking_strategy")
-        .and_then(|v| v.as_str())
+    if let Some(strategy) =
+        lookup_extra(provider_id, &req.provider_options, &req.extra_params, "chunking_strategy")
+            .and_then(|v| v.as_str())
     {
         form = form.text("chunking_strategy", strategy.to_string());
     }
-    if let Some(include) = req.extra_params.get("include").and_then(|v| v.as_array()) {
+    if let Some(include) =
+        lookup_extra(provider_id, &req.provider_options, &req.extra_params, "include").and_then(|v| v.as_array())
+    {
         for item in include {
             if let Some(s) = item.as_str() {
                 form = form.text("include[]", s.to_string());
             }
         }
     }
-    if let Some(names) = req
-        .extra_params
-        .get("known_speaker_names")
-        .and_then(|v| v.as_array())
+    if let Some(names) =
+        lookup_extra(provider_id, &req.provider_options, &req.extra_params, "known_speaker_names")
+            .and_then(|v| v.as_array())
     {
         for item in names {
             if let Some(s) = item.as_str() {
@@ -160,10 +177,9 @@ fn build_stt_body_impl(
             }
         }
     }
-    if let Some(refs) = req
-        .extra_params
-        .get("known_speaker_references")
-        .and_then(|v| v.as_array())
+    if let Some(refs) =
+        lookup_extra(provider_id, &req.provider_options, &req.extra_params, "known_speaker_references")
+            .and_then(|v| v.as_array())
     {
         for item in refs {
             if let Some(s) = item.as_str() {
@@ -185,11 +201,11 @@ impl AudioTransformer for OpenAiAudioTransformer {
     }
 
     fn build_tts_body(&self, req: &TtsRequest) -> Result<AudioHttpBody, LlmError> {
-        build_tts_body_impl(req, &OpenAiAudioDefaults::default())
+        build_tts_body_impl(req, &OpenAiAudioDefaults::default(), "openai")
     }
 
     fn build_stt_body(&self, req: &SttRequest) -> Result<AudioHttpBody, LlmError> {
-        build_stt_body_impl(req, &OpenAiAudioDefaults::default())
+        build_stt_body_impl(req, &OpenAiAudioDefaults::default(), "openai")
     }
 
     fn tts_endpoint(&self) -> &str {
@@ -240,11 +256,11 @@ impl AudioTransformer for OpenAiAudioTransformerWithProviderId {
     }
 
     fn build_tts_body(&self, req: &TtsRequest) -> Result<AudioHttpBody, LlmError> {
-        build_tts_body_impl(req, &self.defaults)
+        build_tts_body_impl(req, &self.defaults, self.provider_id.as_ref())
     }
 
     fn build_stt_body(&self, req: &SttRequest) -> Result<AudioHttpBody, LlmError> {
-        build_stt_body_impl(req, &self.defaults)
+        build_stt_body_impl(req, &self.defaults, self.provider_id.as_ref())
     }
 
     fn tts_endpoint(&self) -> &str {

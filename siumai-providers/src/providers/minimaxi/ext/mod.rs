@@ -5,4 +5,5 @@
 
 pub mod music;
 pub mod tts;
+pub mod tts_options;
 pub mod video;

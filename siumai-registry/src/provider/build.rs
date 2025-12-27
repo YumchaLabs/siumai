@@ -201,7 +201,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     if common_params.model.is_empty() {
         // Set default model based on provider type
         #[cfg(any(feature = "openai", feature = "anthropic", feature = "google"))]
-        use crate::models;
+        use siumai_providers::models;
 
         common_params.model = match provider_type {
             #[cfg(feature = "openai")]
@@ -577,7 +577,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::MiniMaxi => {
             // Use Anthropic-compatible endpoint by default
             let default_base =
-                crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL.to_string();
+                siumai_providers::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL
+                    .to_string();
             let resolved_base =
                 crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 

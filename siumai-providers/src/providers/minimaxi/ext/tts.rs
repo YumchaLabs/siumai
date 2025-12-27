@@ -1,15 +1,17 @@
 //! MiniMaxi text-to-speech helpers (extension API).
 //!
 //! MiniMaxi TTS supports extra vendor parameters (emotion, pitch, bitrate, etc).
-//! Since `TtsRequest` is still `extra_params` based, this module provides a
-//! type-safe helper builder for MiniMaxi-specific knobs.
+//! These knobs are carried via `ProviderOptions::Custom { provider_id: "minimaxi", ... }`
+//! to keep the unified surface minimal while still supporting provider-specific features.
 
-use crate::types::TtsRequest;
+use crate::types::{ProviderOptions, TtsRequest};
+use std::collections::HashMap;
 
 /// Type-safe builder for MiniMaxi TTS vendor parameters.
 #[derive(Debug, Clone)]
 pub struct MinimaxiTtsRequestBuilder {
     request: TtsRequest,
+    vendor_options: HashMap<String, serde_json::Value>,
 }
 
 impl MinimaxiTtsRequestBuilder {
@@ -17,6 +19,7 @@ impl MinimaxiTtsRequestBuilder {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             request: TtsRequest::new(text.into()),
+            vendor_options: HashMap::new(),
         }
     }
 
@@ -46,23 +49,21 @@ impl MinimaxiTtsRequestBuilder {
 
     /// Set volume (defaults to 1.0).
     pub fn vol(mut self, vol: f64) -> Self {
-        self.request
-            .extra_params
+        self.vendor_options
             .insert("vol".to_string(), serde_json::json!(vol));
         self
     }
 
     /// Set pitch (defaults to 0).
     pub fn pitch(mut self, pitch: i64) -> Self {
-        self.request
-            .extra_params
+        self.vendor_options
             .insert("pitch".to_string(), serde_json::json!(pitch));
         self
     }
 
     /// Set emotion (defaults to `neutral`).
     pub fn emotion(mut self, emotion: impl Into<String>) -> Self {
-        self.request.extra_params.insert(
+        self.vendor_options.insert(
             "emotion".to_string(),
             serde_json::Value::String(emotion.into()),
         );
@@ -71,7 +72,7 @@ impl MinimaxiTtsRequestBuilder {
 
     /// Set audio sample rate (defaults to 32000).
     pub fn sample_rate(mut self, sample_rate: u32) -> Self {
-        self.request.extra_params.insert(
+        self.vendor_options.insert(
             "sample_rate".to_string(),
             serde_json::Value::Number(serde_json::Number::from(sample_rate)),
         );
@@ -80,7 +81,7 @@ impl MinimaxiTtsRequestBuilder {
 
     /// Set audio bitrate (defaults to 128000).
     pub fn bitrate(mut self, bitrate: u32) -> Self {
-        self.request.extra_params.insert(
+        self.vendor_options.insert(
             "bitrate".to_string(),
             serde_json::Value::Number(serde_json::Number::from(bitrate)),
         );
@@ -89,7 +90,7 @@ impl MinimaxiTtsRequestBuilder {
 
     /// Set audio channel count (defaults to 1).
     pub fn channel(mut self, channel: u32) -> Self {
-        self.request.extra_params.insert(
+        self.vendor_options.insert(
             "channel".to_string(),
             serde_json::Value::Number(serde_json::Number::from(channel)),
         );
@@ -98,23 +99,21 @@ impl MinimaxiTtsRequestBuilder {
 
     /// Provide optional pronunciation dictionary (vendor JSON object).
     pub fn pronunciation_dict(mut self, dict: serde_json::Value) -> Self {
-        self.request
-            .extra_params
+        self.vendor_options
             .insert("pronunciation_dict".to_string(), dict);
         self
     }
 
     /// Provide optional voice modify config (vendor JSON object).
     pub fn voice_modify(mut self, voice_modify: serde_json::Value) -> Self {
-        self.request
-            .extra_params
+        self.vendor_options
             .insert("voice_modify".to_string(), voice_modify);
         self
     }
 
     /// Enable subtitle output if the vendor supports it.
     pub fn subtitle_enable(mut self, enabled: bool) -> Self {
-        self.request.extra_params.insert(
+        self.vendor_options.insert(
             "subtitle_enable".to_string(),
             serde_json::Value::Bool(enabled),
         );
@@ -123,6 +122,39 @@ impl MinimaxiTtsRequestBuilder {
 
     /// Finish building the `TtsRequest`.
     pub fn build(self) -> TtsRequest {
-        self.request
+        let mut request = self.request;
+        if !self.vendor_options.is_empty() {
+            request.provider_options = ProviderOptions::Custom {
+                provider_id: "minimaxi".to_string(),
+                options: self.vendor_options,
+            };
+        }
+        request
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_stores_vendor_knobs_in_provider_options_bucket() {
+        let req = MinimaxiTtsRequestBuilder::new("hi")
+            .voice_id("male-qn-qingse")
+            .format("mp3")
+            .vol(0.5)
+            .pitch(1)
+            .emotion("happy")
+            .build();
+
+        match req.provider_options {
+            ProviderOptions::Custom { provider_id, options } => {
+                assert_eq!(provider_id, "minimaxi");
+                assert_eq!(options.get("vol"), Some(&serde_json::json!(0.5)));
+                assert_eq!(options.get("pitch"), Some(&serde_json::json!(1)));
+                assert_eq!(options.get("emotion"), Some(&serde_json::json!("happy")));
+            }
+            _ => panic!("expected ProviderOptions::Custom"),
+        }
     }
 }

@@ -310,7 +310,9 @@ mod groq_tests {
             voice: None,
             format: None,
             speed: None,
+            provider_options: Default::default(),
             extra_params: std::collections::HashMap::new(),
+            http_config: None,
         };
         match tx.build_tts_body(&tts).unwrap() {
             AudioHttpBody::Json(j) => {
@@ -327,10 +329,13 @@ mod groq_tests {
             audio_data: Some(vec![1, 2, 3]),
             file_path: None,
             format: None,
+            media_type: None,
             model: None,
             language: None,
             timestamp_granularities: None,
+            provider_options: Default::default(),
             extra_params: std::collections::HashMap::new(),
+            http_config: None,
         };
         match tx.build_stt_body(&stt).unwrap() {
             AudioHttpBody::Multipart(_) => {}

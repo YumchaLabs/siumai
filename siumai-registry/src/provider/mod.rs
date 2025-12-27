@@ -93,9 +93,18 @@ impl Siumai {
     }
 
     /// Convenience constructor: build from a registry model id like `"openai:gpt-4"`.
+    #[cfg(feature = "builtins")]
     pub fn from_registry_model(id: &str) -> Result<Self, LlmError> {
         let handle = crate::registry::global().language_model(id)?;
         Ok(Self::from_language_model_handle(handle))
+    }
+
+    /// Convenience constructor: build from a registry model id like `"openai:gpt-4"`.
+    #[cfg(not(feature = "builtins"))]
+    pub fn from_registry_model(_id: &str) -> Result<Self, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "registry::global() is not available without built-in providers; enable a provider feature (e.g. `openai`) or construct a registry handle manually".to_string(),
+        ))
     }
 
     /// Attach retry options (builder-style)
@@ -219,36 +228,6 @@ impl Siumai {
         }
     }
 
-    /// Image edit (unified)
-    pub async fn edit_image(
-        &self,
-        request: ImageEditRequest,
-    ) -> Result<ImageGenerationResponse, LlmError> {
-        if let Some(img) = self.client.as_image_generation_capability() {
-            img.edit_image(request).await
-        } else {
-            Err(LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support image generation.",
-                self.client.provider_id()
-            )))
-        }
-    }
-
-    /// Image variation (unified)
-    pub async fn create_variation(
-        &self,
-        request: ImageVariationRequest,
-    ) -> Result<ImageGenerationResponse, LlmError> {
-        if let Some(img) = self.client.as_image_generation_capability() {
-            img.create_variation(request).await
-        } else {
-            Err(LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support image generation.",
-                self.client.provider_id()
-            )))
-        }
-    }
-
     /// Rerank documents (if supported by underlying provider)
     pub async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
         if let Some(rerank_cap) = self.client.as_rerank_capability() {
@@ -259,6 +238,65 @@ impl Siumai {
                 self.client.provider_id()
             )))
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl ImageExtras for Siumai {
+    async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        if let Some(img) = self.client.as_image_extras() {
+            img.edit_image(request).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support image extras.",
+                self.client.provider_id()
+            )))
+        }
+    }
+
+    async fn create_variation(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        if let Some(img) = self.client.as_image_extras() {
+            img.create_variation(request).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support image extras.",
+                self.client.provider_id()
+            )))
+        }
+    }
+
+    fn get_supported_sizes(&self) -> Vec<String> {
+        self.client
+            .as_image_extras()
+            .map(|i| i.get_supported_sizes())
+            .unwrap_or_default()
+    }
+
+    fn get_supported_formats(&self) -> Vec<String> {
+        self.client
+            .as_image_extras()
+            .map(|i| i.get_supported_formats())
+            .unwrap_or_default()
+    }
+
+    fn supports_image_editing(&self) -> bool {
+        self.client
+            .as_image_extras()
+            .map(|i| i.supports_image_editing())
+            .unwrap_or(false)
+    }
+
+    fn supports_image_variations(&self) -> bool {
+        self.client
+            .as_image_extras()
+            .map(|i| i.supports_image_variations())
+            .unwrap_or(false)
     }
 }
 

@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::types::{HttpConfig, ProviderOptions};
+
 /// Text-to-speech request
 #[derive(Debug, Clone)]
 pub struct TtsRequest {
@@ -15,8 +17,12 @@ pub struct TtsRequest {
     pub speed: Option<f32>,
     /// Audio quality/model
     pub model: Option<String>,
+    /// Provider-specific options (type-safe, bucketed by provider id)
+    pub provider_options: ProviderOptions,
     /// Additional provider-specific parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Optional per-request HTTP configuration (headers, proxy, timeouts, etc.)
+    pub http_config: Option<HttpConfig>,
 }
 
 impl TtsRequest {
@@ -28,7 +34,9 @@ impl TtsRequest {
             format: None,
             speed: None,
             model: None,
+            provider_options: ProviderOptions::None,
             extra_params: HashMap::new(),
+            http_config: None,
         }
     }
 
@@ -53,6 +61,18 @@ impl TtsRequest {
     /// Set the model
     pub fn with_model(mut self, model: String) -> Self {
         self.model = Some(model);
+        self
+    }
+
+    /// Set provider-specific options (bucketed by provider id)
+    pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
+        self.provider_options = options;
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeouts, etc.)
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = Some(http_config);
         self
     }
 }
@@ -81,14 +101,20 @@ pub struct SttRequest {
     pub file_path: Option<String>,
     /// Audio format
     pub format: Option<String>,
+    /// Audio media type (e.g., "audio/wav")
+    pub media_type: Option<String>,
     /// Language code (e.g., "en-US")
     pub language: Option<String>,
     /// Model to use
     pub model: Option<String>,
     /// Enable word-level timestamps
     pub timestamp_granularities: Option<Vec<String>>,
+    /// Provider-specific options (type-safe, bucketed by provider id)
+    pub provider_options: ProviderOptions,
     /// Additional provider-specific parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Optional per-request HTTP configuration (headers, proxy, timeouts, etc.)
+    pub http_config: Option<HttpConfig>,
 }
 
 impl SttRequest {
@@ -98,10 +124,13 @@ impl SttRequest {
             audio_data: Some(audio_data),
             file_path: None,
             format: None,
+            media_type: None,
             language: None,
             model: None,
             timestamp_granularities: None,
+            provider_options: ProviderOptions::None,
             extra_params: HashMap::new(),
+            http_config: None,
         }
     }
 
@@ -111,11 +140,32 @@ impl SttRequest {
             audio_data: None,
             file_path: Some(file_path),
             format: None,
+            media_type: None,
             language: None,
             model: None,
             timestamp_granularities: None,
+            provider_options: ProviderOptions::None,
             extra_params: HashMap::new(),
+            http_config: None,
         }
+    }
+
+    /// Set provider-specific options (bucketed by provider id)
+    pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
+        self.provider_options = options;
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeouts, etc.)
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = Some(http_config);
+        self
+    }
+
+    /// Set audio media type (e.g., "audio/mpeg", "audio/wav")
+    pub fn with_media_type(mut self, media_type: String) -> Self {
+        self.media_type = Some(media_type);
+        self
     }
 }
 
@@ -158,10 +208,16 @@ pub struct AudioTranslationRequest {
     pub file_path: Option<String>,
     /// Audio format
     pub format: Option<String>,
+    /// Audio media type (e.g., "audio/wav")
+    pub media_type: Option<String>,
     /// Model to use
     pub model: Option<String>,
+    /// Provider-specific options (type-safe, bucketed by provider id)
+    pub provider_options: ProviderOptions,
     /// Additional provider-specific parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Optional per-request HTTP configuration (headers, proxy, timeouts, etc.)
+    pub http_config: Option<HttpConfig>,
 }
 
 impl AudioTranslationRequest {
@@ -171,8 +227,11 @@ impl AudioTranslationRequest {
             audio_data: Some(audio_data),
             file_path: None,
             format: None,
+            media_type: None,
             model: None,
+            provider_options: ProviderOptions::None,
             extra_params: HashMap::new(),
+            http_config: None,
         }
     }
 
@@ -182,9 +241,30 @@ impl AudioTranslationRequest {
             audio_data: None,
             file_path: Some(file_path),
             format: None,
+            media_type: None,
             model: None,
+            provider_options: ProviderOptions::None,
             extra_params: HashMap::new(),
+            http_config: None,
         }
+    }
+
+    /// Set provider-specific options (bucketed by provider id)
+    pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
+        self.provider_options = options;
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeouts, etc.)
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = Some(http_config);
+        self
+    }
+
+    /// Set audio media type (e.g., "audio/mpeg", "audio/wav")
+    pub fn with_media_type(mut self, media_type: String) -> Self {
+        self.media_type = Some(media_type);
+        self
     }
 }
 

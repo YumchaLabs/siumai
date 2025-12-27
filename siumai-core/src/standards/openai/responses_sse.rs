@@ -7,19 +7,26 @@
 //! Note: Providers may re-export this converter under historical module paths
 //! (e.g. `providers::openai::responses::OpenAiResponsesEventConverter`).
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 /// OpenAI Responses SSE event converter using unified streaming utilities
 #[derive(Clone)]
-pub struct OpenAiResponsesEventConverter;
+pub struct OpenAiResponsesEventConverter {
+    function_call_ids_by_output_index: Arc<Mutex<HashMap<u64, String>>>,
+}
 
 impl Default for OpenAiResponsesEventConverter {
     fn default() -> Self {
-        Self
+        Self {
+            function_call_ids_by_output_index: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 }
 
 impl OpenAiResponsesEventConverter {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 
     fn convert_responses_event(
@@ -223,14 +230,21 @@ impl OpenAiResponsesEventConverter {
     ) -> Option<crate::streaming::ChatStreamEvent> {
         // Handle response.function_call_arguments.delta events
         let delta = json.get("delta").and_then(|d| d.as_str())?;
-        let item_id = json.get("item_id").and_then(|id| id.as_str()).unwrap_or("");
         let output_index = json
             .get("output_index")
             .and_then(|idx| idx.as_u64())
             .unwrap_or(0);
 
+        let id = self
+            .function_call_ids_by_output_index
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&output_index).cloned())
+            .or_else(|| json.get("item_id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+            .unwrap_or_default();
+
         Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
-            id: item_id.to_string(),
+            id,
             function_name: None, // Function name is set in the initial item.added event
             arguments_delta: Some(delta.to_string()),
             index: Some(output_index as usize),
@@ -253,6 +267,12 @@ impl OpenAiResponsesEventConverter {
             .get("output_index")
             .and_then(|idx| idx.as_u64())
             .unwrap_or(0);
+
+        if !id.is_empty()
+            && let Ok(mut map) = self.function_call_ids_by_output_index.lock()
+        {
+            map.insert(output_index, id.to_string());
+        }
 
         Some(crate::streaming::ChatStreamEvent::ToolCallDelta {
             id: id.to_string(),

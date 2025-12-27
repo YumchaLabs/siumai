@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 #[allow(unused_imports)]
-use crate::builder::LlmBuilder;
+use siumai_providers::builder::LlmBuilder;
 #[cfg(any(
     test,
     feature = "openai",
@@ -82,7 +82,7 @@ pub struct OpenAIProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAIProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "openai")
             .map(|m| m.capabilities)
@@ -201,7 +201,7 @@ pub struct AnthropicProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for AnthropicProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "anthropic")
             .map(|m| m.capabilities)
@@ -318,7 +318,7 @@ pub struct AnthropicVertexProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for AnthropicVertexProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "anthropic-vertex")
             .map(|m| m.capabilities)
@@ -417,7 +417,7 @@ pub struct GeminiProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for GeminiProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "gemini")
             .map(|m| m.capabilities)
@@ -546,7 +546,7 @@ pub struct GroqProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for GroqProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "groq")
             .map(|m| m.capabilities)
@@ -654,7 +654,7 @@ pub struct XAIProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for XAIProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "xai")
             .map(|m| m.capabilities)
@@ -672,7 +672,7 @@ impl ProviderFactory for XAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        use crate::providers::xai::{XaiClient, XaiConfig};
+        use siumai_providers::providers::xai::{XaiClient, XaiConfig};
 
         // Resolve HTTP configuration and client.
         let http_config = ctx
@@ -787,7 +787,7 @@ pub struct OllamaProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for OllamaProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "ollama")
             .map(|m| m.capabilities)
@@ -888,7 +888,7 @@ pub struct MiniMaxiProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for MiniMaxiProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::providers::metadata::native_providers_metadata();
+        let meta = siumai_providers::providers::metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "minimaxi")
             .map(|m| m.capabilities)
@@ -931,7 +931,7 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         // Resolve base URL (context override → config default).
         let base_url = crate::utils::builder_helpers::resolve_base_url(
             ctx.base_url.clone(),
-            crate::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL,
+            siumai_providers::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL,
         );
 
         // Resolve common parameters.
@@ -1217,7 +1217,9 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
         let mut caps = ProviderCapabilities::new().with_chat().with_streaming();
         let Some(cfg) =
-            crate::providers::openai_compatible::config::get_provider_config(&self.provider_id)
+            siumai_providers::providers::openai_compatible::config::get_provider_config(
+                &self.provider_id,
+            )
         else {
             return caps;
         };

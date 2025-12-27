@@ -335,7 +335,7 @@ pub mod siliconflow {
     pub const FLUX_1_DEV_LORA: &str = "LoRA/black-forest-labs/FLUX.1-dev";
 
     /// Stable Diffusion models
-    pub const STABLE_DIFFUSION_3_5_LARGE: &str = "stabilityai/stable-diffusion-3-5-large";
+    pub const STABLE_DIFFUSION_3_5_LARGE: &str = "stabilityai/stable-diffusion-3.5-large";
     pub const STABLE_DIFFUSION_XL_BASE_1_0: &str = "stabilityai/stable-diffusion-xl-base-1.0";
 
     /// Kolors

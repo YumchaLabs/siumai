@@ -305,7 +305,7 @@ async fn test_xai_content_prioritized_over_usage() {
 #[tokio::test]
 async fn test_openai_image_generation_capability() {
     use siumai::providers::openai::OpenAiClient;
-    use siumai::traits::ImageGenerationCapability;
+    use siumai::traits::ImageExtras;
 
     let config = siumai::providers::openai::OpenAiConfig::new("test-key");
     let client = OpenAiClient::new(config, reqwest::Client::new());
@@ -328,7 +328,7 @@ async fn test_openai_image_generation_capability() {
 #[tokio::test]
 async fn test_siliconflow_image_generation_capability() {
     use siumai::providers::openai::OpenAiClient;
-    use siumai::traits::ImageGenerationCapability;
+    use siumai::traits::ImageExtras;
 
     // Create a SiliconFlow-like client
     let config = siumai::providers::openai::OpenAiConfig::new("test-key")

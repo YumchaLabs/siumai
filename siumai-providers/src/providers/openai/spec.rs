@@ -24,6 +24,12 @@ pub struct OpenAiSpec {
     embedding_standard: OpenAiEmbeddingStandard,
     /// Standard OpenAI Image implementation
     image_standard: OpenAiImageStandard,
+    /// Optional forced Responses API configuration.
+    ///
+    /// This is primarily used by the provider-specific `OpenAiClient` builder
+    /// to route all chat requests through `/responses` without requiring every
+    /// request to carry `ProviderOptions::OpenAi`.
+    forced_responses_api: Option<crate::types::provider_options::openai::ResponsesApiConfig>,
 }
 
 impl OpenAiSpec {
@@ -32,13 +38,30 @@ impl OpenAiSpec {
             chat_standard: OpenAiChatStandard::new(),
             embedding_standard: OpenAiEmbeddingStandard::new(),
             image_standard: OpenAiImageStandard::new(),
+            forced_responses_api: None,
         }
     }
 
+    pub fn with_forced_responses_api(
+        mut self,
+        cfg: crate::types::provider_options::openai::ResponsesApiConfig,
+    ) -> Self {
+        self.forced_responses_api = Some(cfg);
+        self
+    }
+
     fn use_responses_api(&self, req: &ChatRequest, _ctx: &ProviderContext) -> bool {
+        if let Some(cfg) = self.forced_responses_api.as_ref() {
+            return cfg.enabled;
+        }
+
         // Check if Responses API is configured in provider_options
         if let ProviderOptions::OpenAi(ref options) = req.provider_options {
-            options.responses_api.is_some()
+            options
+                .responses_api
+                .as_ref()
+                .map(|cfg| cfg.enabled)
+                .unwrap_or(false)
         } else {
             false
         }
@@ -117,7 +140,7 @@ impl ProviderSpec for OpenAiSpec {
     fn chat_before_send(
         &self,
         req: &ChatRequest,
-        _ctx: &ProviderContext,
+        ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
         // 1. First check for CustomProviderOptions (using default implementation)
         if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
@@ -125,8 +148,8 @@ impl ProviderSpec for OpenAiSpec {
         }
 
         // 2. Handle OpenAI-specific options (built_in_tools, responses_api, modalities, audio, prediction, web_search_options, etc.)
-        // Extract options from provider_options
-        let use_responses_api = self.use_responses_api(req, _ctx);
+        // Extract options from provider_options (or forced config)
+        let use_responses_api = self.use_responses_api(req, ctx);
         let (
             builtins,
             responses_api_config,
@@ -156,7 +179,10 @@ impl ProviderSpec for OpenAiSpec {
                 };
                 (
                     builtins,
-                    options.responses_api.clone(),
+                    options
+                        .responses_api
+                        .clone()
+                        .filter(|cfg| cfg.enabled),
                     options.reasoning_effort,
                     options.service_tier,
                     options.modalities.clone(),
@@ -166,7 +192,22 @@ impl ProviderSpec for OpenAiSpec {
                 )
             }
         } else {
-            return None;
+            // If the client forces the Responses API, we still allow injecting the
+            // Responses API config even without request-level OpenAI options.
+            if use_responses_api {
+                (
+                    None,
+                    self.forced_responses_api.clone(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            } else {
+                return None;
+            }
         };
 
         let builtins = builtins.unwrap_or(serde_json::Value::Array(vec![]));
@@ -178,10 +219,7 @@ impl ProviderSpec for OpenAiSpec {
         let prompt_cache_key = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.prompt_cache_key.clone());
-        let response_format = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.response_format.clone())
-            .and_then(|fmt| serde_json::to_value(fmt).ok());
+        let response_format = responses_api_config.as_ref().and_then(|cfg| cfg.response_format.clone());
         let background = responses_api_config.as_ref().and_then(|cfg| cfg.background);
         let include = responses_api_config
             .as_ref()
@@ -295,7 +333,49 @@ impl ProviderSpec for OpenAiSpec {
                 out["prompt_cache_key"] = serde_json::Value::String(key.clone());
             }
             if let Some(fmt) = &response_format {
-                out["response_format"] = fmt.clone();
+                // OpenAI Responses API: structured output is configured via `text.format`.
+                //
+                // Backward-compat: accept the Chat Completions `response_format` JSON schema shape
+                // (`{ type, json_schema: {...} }`) and translate into the Responses shape
+                // (`{ type, name, schema, strict, ... }`) when possible.
+                let normalized_format = if fmt.get("json_schema").is_some() {
+                    // Chat Completions shape: { type: "json_schema", json_schema: { name, schema, strict, ... } }
+                    // Responses shape: { type: "json_schema", name, schema, strict, ... }
+                    let typ = fmt.get("type").cloned().unwrap_or(serde_json::json!("json_schema"));
+                    let inner = fmt.get("json_schema").cloned().unwrap_or(serde_json::Value::Null);
+                    if let (Some(name), Some(schema)) = (
+                        inner.get("name").cloned(),
+                        inner.get("schema").cloned(),
+                    ) {
+                        let strict = inner.get("strict").cloned();
+                        let description = inner.get("description").cloned();
+                        let mut obj = serde_json::Map::new();
+                        obj.insert("type".to_string(), typ);
+                        obj.insert("name".to_string(), name);
+                        obj.insert("schema".to_string(), schema);
+                        if let Some(v) = strict {
+                            obj.insert("strict".to_string(), v);
+                        }
+                        if let Some(v) = description {
+                            obj.insert("description".to_string(), v);
+                        }
+                        serde_json::Value::Object(obj)
+                    } else {
+                        fmt.clone()
+                    }
+                } else {
+                    fmt.clone()
+                };
+
+                if let Some(text_obj) = out.get_mut("text") {
+                    if let Some(text_map) = text_obj.as_object_mut() {
+                        text_map.insert("format".to_string(), normalized_format);
+                    }
+                } else {
+                    out["text"] = serde_json::json!({
+                        "format": normalized_format
+                    });
+                }
             }
             if let Some(bg) = background {
                 out["background"] = serde_json::Value::Bool(bg);
@@ -347,7 +427,19 @@ impl ProviderSpec for OpenAiSpec {
             if let Some(ref effort) = reasoning_effort
                 && let Ok(val) = serde_json::to_value(effort)
             {
-                out["reasoning_effort"] = val;
+                if use_responses_api {
+                    // Responses API: configured via `reasoning.effort`.
+                    if let Some(reasoning_obj) = out.get_mut("reasoning") {
+                        if let Some(map) = reasoning_obj.as_object_mut() {
+                            map.insert("effort".to_string(), val);
+                        }
+                    } else {
+                        out["reasoning"] = serde_json::json!({ "effort": val });
+                    }
+                } else {
+                    // Chat Completions API: `reasoning_effort`.
+                    out["reasoning_effort"] = val;
+                }
             }
 
             // 🎯 Inject service_tier
@@ -358,21 +450,24 @@ impl ProviderSpec for OpenAiSpec {
             }
 
             // 🎯 Inject modalities (for multimodal audio output)
-            if let Some(ref mods) = modalities
+            if !use_responses_api
+                && let Some(ref mods) = modalities
                 && let Ok(val) = serde_json::to_value(mods)
             {
                 out["modalities"] = val;
             }
 
             // 🎯 Inject audio configuration (voice and format for audio output)
-            if let Some(ref aud) = audio
+            if !use_responses_api
+                && let Some(ref aud) = audio
                 && let Ok(val) = serde_json::to_value(aud)
             {
                 out["audio"] = val;
             }
 
             // 🎯 Inject prediction (Predicted Outputs for faster response times)
-            if let Some(ref pred) = prediction
+            if !use_responses_api
+                && let Some(ref pred) = prediction
                 && let Ok(val) = serde_json::to_value(pred)
             {
                 out["prediction"] = val;

@@ -9,7 +9,7 @@
 //! - **`chat`** - Chat completion capabilities (`ChatCapability`, `ChatExtensions`)
 //! - **`embedding`** - Embedding generation capabilities (`EmbeddingCapability`, `EmbeddingExtensions`)
 //! - **`vision`** - Vision/image analysis capabilities (`VisionCapability`)
-//! - **`image`** - Image generation capabilities (`ImageGenerationCapability`)
+//! - **`image`** - Image generation capabilities (`ImageGenerationCapability`, `ImageExtras`)
 //! - **`audio`** - Audio transcription/generation capabilities (`AudioCapability`)
 //! - **`files`** - File management capabilities (`FileManagementCapability`)
 //! - **`moderation`** - Content moderation capabilities (`ModerationCapability`)
@@ -82,7 +82,7 @@ mod embedding;
 pub use embedding::{EmbeddingCapability, EmbeddingExtensions};
 
 mod image;
-pub use image::ImageGenerationCapability;
+pub use image::{ImageExtras, ImageGenerationCapability};
 
 mod vision;
 #[allow(deprecated)]
@@ -110,10 +110,10 @@ mod audio;
 pub use audio::AudioCapability;
 
 mod speech;
-pub use speech::SpeechCapability;
+pub use speech::{SpeechCapability, SpeechExtras};
 
 mod transcription;
-pub use transcription::TranscriptionCapability;
+pub use transcription::{TranscriptionCapability, TranscriptionExtras};
 
 mod video;
 pub use video::VideoGenerationCapability;

@@ -185,7 +185,7 @@ mod tests {
         );
         assert_eq!(
             registry.get_default_image_model("siliconflow"),
-            Some("stabilityai/stable-diffusion-3-5-large")
+            Some("stabilityai/stable-diffusion-3.5-large")
         );
 
         // Test DeepSeek defaults

@@ -298,6 +298,37 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         });
                         ("computer_use", serde_json::json!({}), result)
                     }
+                    "function_call" => {
+                        // User-defined function call (tool calling).
+                        //
+                        // OpenAI Responses encodes arguments as a JSON string. Parse into JSON when possible.
+                        let call_id = item
+                            .get("call_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if call_id.is_empty() {
+                            continue;
+                        }
+
+                        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        if name.is_empty() {
+                            continue;
+                        }
+
+                        let args_str = item.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                        let args_json = serde_json::from_str::<serde_json::Value>(args_str)
+                            .unwrap_or_else(|_| serde_json::Value::String(args_str.to_string()));
+
+                        content_parts.push(ContentPart::tool_call(
+                            call_id.to_string(),
+                            name,
+                            args_json,
+                            None,
+                        ));
+
+                        // Function calls are not provider-executed; no synthetic ToolResult is emitted here.
+                        continue;
+                    }
                     _ => continue,
                 };
 

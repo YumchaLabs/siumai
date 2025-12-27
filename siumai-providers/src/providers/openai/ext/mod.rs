@@ -5,5 +5,7 @@
 
 pub mod hosted_tools;
 pub mod responses;
+pub mod audio_options;
 pub mod speech_streaming;
 pub mod transcription_streaming;
+pub mod moderation;

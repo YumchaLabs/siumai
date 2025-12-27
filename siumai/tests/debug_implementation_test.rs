@@ -155,11 +155,11 @@ mod debug_tests {
         let config = OpenAiConfig::new("test-key".to_string()).with_model("gpt-4o-mini");
 
         let client = OpenAiClient::new(config, reqwest::Client::new());
-        let wrapper = ClientWrapper::OpenAi(Box::new(client));
+        let wrapper = ClientWrapper::openai(Box::new(client));
         let debug_output = format!("{:?}", wrapper);
 
         // Should show wrapper type without exposing internal client details
-        assert!(debug_output.contains("ClientWrapper::OpenAi"));
+        assert!(debug_output.contains("ClientWrapper::Client"));
         assert!(debug_output.contains("[LlmClient]"));
     }
 

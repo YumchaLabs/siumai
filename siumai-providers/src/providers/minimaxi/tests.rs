@@ -171,7 +171,7 @@ mod minimaxi_tests {
 
     #[test]
     fn test_image_capability() {
-        use crate::traits::ImageGenerationCapability;
+        use crate::traits::ImageExtras;
 
         let config = MinimaxiConfig::new("test-api-key");
         let client = MinimaxiClient::new(config, reqwest::Client::new());

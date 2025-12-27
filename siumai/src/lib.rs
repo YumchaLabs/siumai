@@ -121,6 +121,11 @@ pub mod provider_ext {
     pub mod minimaxi {
         pub use crate::providers::minimaxi::ext::*;
     }
+
+    #[cfg(feature = "groq")]
+    pub mod groq {
+        pub use crate::providers::groq::ext::*;
+    }
 }
 
 // Unified interface (`Siumai`) and builder
@@ -145,7 +150,8 @@ pub use traits::{
 pub mod extensions {
     pub use crate::traits::{
         AudioCapability, FileManagementCapability, ModelListingCapability, ModerationCapability,
-        MusicGenerationCapability, TimeoutCapability, VideoGenerationCapability,
+        ImageExtras, MusicGenerationCapability, SpeechExtras, TimeoutCapability, TranscriptionExtras,
+        VideoGenerationCapability,
     };
 }
 
@@ -209,8 +215,21 @@ pub use custom_provider::{CustomProvider, CustomProviderConfig};
 // Registry - unified provider access (recommended)
 pub use registry::{
     EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderRegistryHandle,
-    global as registry_global,
 };
+
+/// Global registry handle with built-in provider factories.
+///
+/// Only available when at least one provider feature is enabled.
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "ollama",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi"
+))]
+pub use registry::global as registry_global;
 
 // Model constants (simplified access)
 pub use model_catalog::model_constants as models;
@@ -262,9 +281,20 @@ pub mod prelude {
     pub mod registry {
         pub use crate::registry::{
             EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
-            ProviderRegistryHandle, create_provider_registry, create_registry_with_defaults,
-            global,
+            ProviderRegistryHandle, create_bare_registry, create_empty_registry,
+            create_provider_registry,
         };
+
+        #[cfg(any(
+            feature = "openai",
+            feature = "anthropic",
+            feature = "google",
+            feature = "ollama",
+            feature = "xai",
+            feature = "groq",
+            feature = "minimaxi"
+        ))]
+        pub use crate::registry::{create_registry_with_defaults, global};
     }
 
     // Conditional provider quick functions
@@ -296,9 +326,20 @@ pub mod prelude {
             pub use crate::registry::{
                 EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
                 ProviderRegistryHandle, RerankingModelHandle, SpeechModelHandle,
-                TranscriptionModelHandle, create_provider_registry, create_registry_with_defaults,
-                global,
+                TranscriptionModelHandle, create_bare_registry, create_empty_registry,
+                create_provider_registry,
             };
+
+            #[cfg(any(
+                feature = "openai",
+                feature = "anthropic",
+                feature = "google",
+                feature = "ollama",
+                feature = "xai",
+                feature = "groq",
+                feature = "minimaxi"
+            ))]
+            pub use crate::registry::{create_registry_with_defaults, global};
         }
     }
 

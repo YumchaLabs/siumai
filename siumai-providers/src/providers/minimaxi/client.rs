@@ -12,7 +12,7 @@ use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, ImageGenerationCapability, MusicGenerationCapability,
-    FileManagementCapability, ProviderCapabilities, VideoGenerationCapability,
+    FileManagementCapability, ImageExtras, ProviderCapabilities, VideoGenerationCapability,
 };
 use crate::types::*;
 use std::sync::Arc;
@@ -209,6 +209,10 @@ impl LlmClient for MinimaxiClient {
         Some(self)
     }
 
+    fn as_image_extras(&self) -> Option<&dyn crate::traits::ImageExtras> {
+        Some(self)
+    }
+
     fn as_file_management_capability(&self) -> Option<&dyn crate::traits::FileManagementCapability> {
         Some(self)
     }
@@ -362,7 +366,9 @@ impl ImageGenerationCapability for MinimaxiClient {
         );
         exec.execute(request).await
     }
+}
 
+impl ImageExtras for MinimaxiClient {
     fn get_supported_sizes(&self) -> Vec<String> {
         vec![
             "1024x1024".to_string(), // 1:1

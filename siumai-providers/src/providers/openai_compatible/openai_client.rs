@@ -13,8 +13,8 @@ use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    ChatCapability, EmbeddingCapability, ImageGenerationCapability, ModelListingCapability,
-    RerankCapability,
+    ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
+    ModelListingCapability, RerankCapability,
 };
 // use crate::execution::transformers::request::RequestTransformer; // unused
 use crate::types::*;
@@ -688,6 +688,63 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
             ImageExecutor::execute(&*exec, request).await
         }
     }
+}
+
+#[async_trait]
+impl ImageExtras for OpenAiCompatibleClient {
+    async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        if !self.config.adapter.supports_image_editing() {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not support image editing",
+                self.config.provider_id
+            )));
+        }
+
+        let exec = self.build_image_executor(&ImageGenerationRequest::default());
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rqc = request.clone();
+                    let exec = exec.clone();
+                    async move { ImageExecutor::execute_edit(&*exec, rqc).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            ImageExecutor::execute_edit(&*exec, request).await
+        }
+    }
+
+    async fn create_variation(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        if !self.config.adapter.supports_image_variations() {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not support image variations",
+                self.config.provider_id
+            )));
+        }
+
+        let exec = self.build_image_executor(&ImageGenerationRequest::default());
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let rqc = request.clone();
+                    let exec = exec.clone();
+                    async move { ImageExecutor::execute_variation(&*exec, rqc).await }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            ImageExecutor::execute_variation(&*exec, request).await
+        }
+    }
 
     fn get_supported_sizes(&self) -> Vec<String> {
         self.config.adapter.get_supported_image_sizes()
@@ -764,6 +821,14 @@ impl LlmClient for OpenAiCompatibleClient {
     }
 
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
+        if self.config.adapter.supports_image_generation() {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    fn as_image_extras(&self) -> Option<&dyn crate::traits::ImageExtras> {
         if self.config.adapter.supports_image_generation() {
             Some(self)
         } else {

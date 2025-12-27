@@ -17,13 +17,13 @@ use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    AudioCapability, ChatCapability, EmbeddingCapability, ImageGenerationCapability,
+    AudioCapability, ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
     ProviderCapabilities, RerankCapability,
 };
 use crate::types::{
     AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingResponse,
-    ImageGenerationRequest, ImageGenerationResponse, RerankRequest, RerankResponse, SttRequest,
-    SttResponse, Tool, TtsRequest, TtsResponse,
+    ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
+    RerankRequest, RerankResponse, SttRequest, SttResponse, Tool, TtsRequest, TtsResponse,
 };
 
 use lru::LruCache;
@@ -748,9 +748,58 @@ impl ImageGenerationCapability for ImageModelHandle {
         // Call generate_images
         image_client.generate_images(request).await
     }
+}
+
+#[async_trait::async_trait]
+impl ImageExtras for ImageModelHandle {
+    async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        let ctx = BuildContext {
+            http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            http_config: self.http_config.clone(),
+            ..Default::default()
+        };
+        let client_raw = self
+            .factory
+            .image_model_with_ctx(&self.model_id, &ctx)
+            .await?;
+        let client = client_raw;
+
+        let image_client = client.as_image_extras().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support image extras".to_string())
+        })?;
+
+        image_client.edit_image(request).await
+    }
+
+    async fn create_variation(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        let ctx = BuildContext {
+            http_interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+            http_config: self.http_config.clone(),
+            ..Default::default()
+        };
+        let client_raw = self
+            .factory
+            .image_model_with_ctx(&self.model_id, &ctx)
+            .await?;
+        let client = client_raw;
+
+        let image_client = client.as_image_extras().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support image extras".to_string())
+        })?;
+
+        image_client.create_variation(request).await
+    }
 
     fn get_supported_sizes(&self) -> Vec<String> {
-        // Default sizes - providers should override this
+        // Best-effort defaults (provider-specific metadata is optional).
         vec![
             "1024x1024".to_string(),
             "512x512".to_string(),
@@ -759,8 +808,15 @@ impl ImageGenerationCapability for ImageModelHandle {
     }
 
     fn get_supported_formats(&self) -> Vec<String> {
-        // Default formats
         vec!["url".to_string(), "b64_json".to_string()]
+    }
+
+    fn supports_image_editing(&self) -> bool {
+        false
+    }
+
+    fn supports_image_variations(&self) -> bool {
+        false
     }
 }
 

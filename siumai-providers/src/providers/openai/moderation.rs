@@ -1,7 +1,7 @@
 //! `OpenAI` Moderation API Implementation
 //!
 //! This module provides the `OpenAI` implementation of the `ModerationCapability` trait,
-//! including content moderation for text and image content.
+//! including content moderation for text content.
 
 use async_trait::async_trait;
 

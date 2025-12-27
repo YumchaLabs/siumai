@@ -22,7 +22,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-providers = { workspace = true, default-features = false }
+siumai-providers = { workspace = true, default-features = false, optional = true }
 
 async-trait.workspace = true
 serde.workspace = true
@@ -40,21 +40,33 @@ lru.workspace = true
 [features]
 default = []
 
-structured-messages = ["siumai-core/structured-messages", "siumai-providers/structured-messages"]
+## Built-in providers + adapters
+##
+## When disabled, `siumai-registry` provides only the registry *abstractions*
+## (`ProviderFactory`, `BuildContext`, `create_provider_registry`, handles, etc.).
+## This allows external crates to implement and register providers without pulling
+## in the built-in provider implementations.
+builtins = ["dep:siumai-providers"]
 
-openai = ["siumai-core/openai", "siumai-providers/openai"]
-anthropic = ["siumai-core/anthropic", "siumai-providers/anthropic"]
-google = ["siumai-core/google", "siumai-providers/google"]
-ollama = ["siumai-core/ollama", "siumai-providers/ollama"]
-xai = ["siumai-core/xai", "siumai-providers/xai"]
-groq = ["siumai-core/groq", "siumai-providers/groq"]
-minimaxi = ["siumai-core/minimaxi", "siumai-providers/minimaxi"]
+structured-messages = [
+    "siumai-core/structured-messages",
+    "builtins",
+    "siumai-providers/structured-messages",
+]
 
-gcp = ["siumai-core/gcp", "siumai-providers/gcp"]
-json-repair = ["siumai-core/json-repair", "siumai-providers/json-repair"]
+openai = ["builtins", "siumai-core/openai", "siumai-providers/openai"]
+anthropic = ["builtins", "siumai-core/anthropic", "siumai-providers/anthropic"]
+google = ["builtins", "siumai-core/google", "siumai-providers/google"]
+ollama = ["builtins", "siumai-core/ollama", "siumai-providers/ollama"]
+xai = ["builtins", "siumai-core/xai", "siumai-providers/xai"]
+groq = ["builtins", "siumai-core/groq", "siumai-providers/groq"]
+minimaxi = ["builtins", "siumai-core/minimaxi", "siumai-providers/minimaxi"]
 
-gzip = ["siumai-core/gzip", "siumai-providers/gzip"]
-brotli = ["siumai-core/brotli", "siumai-providers/brotli"]
+gcp = ["builtins", "siumai-core/gcp", "siumai-providers/gcp"]
+json-repair = ["builtins", "siumai-core/json-repair", "siumai-providers/json-repair"]
+
+gzip = ["builtins", "siumai-core/gzip", "siumai-providers/gzip"]
+brotli = ["builtins", "siumai-core/brotli", "siumai-providers/brotli"]
 
 all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
 

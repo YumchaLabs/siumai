@@ -8,11 +8,14 @@ pub use siumai_core::{
     observability, params, retry, retry_api, standards, streaming, traits, types, utils,
 };
 
-pub use siumai_providers::builder;
-pub use siumai_providers::providers;
-pub use siumai_providers::{constants, models};
+// Backward-compatible re-exports for builds that include built-in providers.
+#[cfg(feature = "builtins")]
+pub use siumai_providers::{builder, constants, models, providers};
 
 pub mod provider;
 pub mod provider_builders;
-pub mod provider_catalog;
 pub mod registry;
+
+// Built-in provider catalog helpers (requires `siumai-providers`).
+#[cfg(feature = "builtins")]
+pub mod provider_catalog;

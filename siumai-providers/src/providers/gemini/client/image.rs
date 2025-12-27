@@ -1,6 +1,6 @@
 use super::GeminiClient;
 use crate::error::LlmError;
-use crate::traits::ImageGenerationCapability;
+use crate::traits::{ImageExtras, ImageGenerationCapability};
 use crate::types::{ImageGenerationRequest, ImageGenerationResponse};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -45,7 +45,9 @@ impl ImageGenerationCapability for GeminiClient {
             ImageExecutor::execute(&*exec, request).await
         }
     }
+}
 
+impl ImageExtras for GeminiClient {
     fn get_supported_sizes(&self) -> Vec<String> {
         vec![
             "1024x1024".to_string(),

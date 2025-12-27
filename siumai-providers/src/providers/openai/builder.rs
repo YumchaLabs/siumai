@@ -265,7 +265,7 @@ impl OpenAiBuilder {
     /// Use the OpenAI Responses API instead of Chat Completions.
     ///
     /// When enabled, the client routes chat requests to `/responses` and sets
-    /// the required beta header automatically.
+    /// the required request shape automatically.
     pub fn use_responses_api(mut self, enabled: bool) -> Self {
         self.use_responses_api = enabled;
         self
@@ -318,6 +318,16 @@ impl OpenAiBuilder {
 
         // Step 5: Create client instance
         let mut client = OpenAiClient::new(cfg, http_client);
+
+        // Step 5.1: Apply Responses API routing defaults (client-level override)
+        if self.use_responses_api {
+            use crate::types::provider_options::openai::ResponsesApiConfig;
+            let mut cfg = ResponsesApiConfig::new();
+            if let Some(id) = self.responses_previous_response_id {
+                cfg = cfg.with_previous_response(id);
+            }
+            client.set_forced_responses_api(Some(cfg));
+        }
 
         // Step 6: Apply tracing and retry configuration from core
         if let Some(ref tracing_config) = self.core.tracing_config {

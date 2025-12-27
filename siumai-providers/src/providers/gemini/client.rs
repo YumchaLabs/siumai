@@ -677,6 +677,10 @@ impl LlmClient for GeminiClient {
         Some(self)
     }
 
+    fn as_image_extras(&self) -> Option<&dyn crate::traits::ImageExtras> {
+        Some(self)
+    }
+
     fn as_file_management_capability(
         &self,
     ) -> Option<&dyn crate::traits::FileManagementCapability> {
