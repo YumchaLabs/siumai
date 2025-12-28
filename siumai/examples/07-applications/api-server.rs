@@ -5,7 +5,7 @@
 //!
 //! ## Run
 //! ```bash
-//! cargo run --example api-server --features "openai,server-adapters"
+//! cargo run --example api-server --features openai
 //! ```
 //!
 //! Then test with:
@@ -82,9 +82,7 @@ async fn chat_handler(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let text = response
-        .content_text()
-        .unwrap_or_else(|| "No response".to_string());
+    let text = response.content_text().unwrap_or("No response").to_string();
 
     Ok(Json(ChatResponse { response: text }))
 }

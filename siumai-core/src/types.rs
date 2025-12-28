@@ -43,8 +43,7 @@
 //! - **HTTP configuration** → `http.rs`
 //! - **Usage accounting** → `usage.rs`
 //! - **Chat-related** → `chat/` subdirectory
-//! - **Provider-specific options** → `provider_options/<provider>.rs`
-//! - **Provider-specific metadata** → `provider_metadata/<provider>.rs`
+//! - **Provider-specific typed options/metadata** → provider crates (exposed via `siumai::provider_ext::<provider>::*`)
 //!
 //! ## Type Categories
 //!
@@ -69,10 +68,8 @@
 //! - `ResponseMetadata` - Shared response metadata
 //!
 //! ### Provider-Specific Types
-//! - `OpenAiOptions` - OpenAI-specific options
-//! - `AnthropicOptions` - Anthropic-specific options
-//! - `GeminiOptions` - Gemini-specific options
-//! - etc.
+//! Provider-specific typed options/metadata are intentionally **not** owned by `siumai-core`.
+//! They live in provider crates to reduce coupling and compile cost.
 
 pub mod audio;
 pub mod chat;
@@ -88,6 +85,7 @@ pub mod music;
 pub mod params;
 pub mod provider_metadata;
 pub mod provider_options;
+pub mod provider_options_map;
 pub mod rerank;
 pub mod schema;
 pub mod streaming;
@@ -109,6 +107,7 @@ pub use moderation::*;
 pub use music::*;
 pub use params::*;
 pub use provider_options::*;
+pub use provider_options_map::*;
 pub use rerank::*;
 pub use schema::*;
 pub use streaming::*;
@@ -116,5 +115,4 @@ pub use tools::*;
 pub use usage::*;
 pub use video::*;
 
-// Re-export provider metadata types (not wildcard to avoid conflicts)
-pub use provider_metadata::{AnthropicMetadata, GeminiMetadata, OpenAiMetadata};
+// Provider-specific typed metadata types are intentionally owned by provider crates.

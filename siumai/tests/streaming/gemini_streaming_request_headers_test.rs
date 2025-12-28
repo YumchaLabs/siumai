@@ -47,7 +47,10 @@ async fn gemini_streaming_headers_default_identity() {
     let state = Arc::new(Mutex::new(Seen::default()));
     let app = {
         let s = state.clone();
-        Router::new().route("/models/*rest", post(move |req| handler(req, s.clone())))
+        Router::new().route(
+            "/v1beta/models/{*rest}",
+            post(move |req| handler(req, s.clone())),
+        )
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -81,7 +84,10 @@ async fn gemini_streaming_headers_disable_identity() {
     let state = Arc::new(Mutex::new(Seen::default()));
     let app = {
         let s = state.clone();
-        Router::new().route("/models/*rest", post(move |req| handler(req, s.clone())))
+        Router::new().route(
+            "/v1beta/models/{*rest}",
+            post(move |req| handler(req, s.clone())),
+        )
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

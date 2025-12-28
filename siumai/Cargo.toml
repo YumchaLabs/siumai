@@ -11,6 +11,7 @@ documentation = "https://docs.rs/siumai"
 readme = "../README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "async"]
 categories = ["api-bindings"]
+autoexamples = false
 
 exclude = [
     "../docs/**",
@@ -143,92 +144,132 @@ axum.workspace = true
 [[example]]
 name = "basic-chat"
 path = "examples/01-quickstart/basic-chat.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "streaming"
 path = "examples/01-quickstart/streaming.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "provider-switching"
 path = "examples/01-quickstart/provider-switching.rs"
-required-features = ["openai", "anthropic", "google", "ollama", "xai", "groq"]
+required-features = ["openai", "anthropic", "google"]
 
 # 02-core-api/chat
 [[example]]
 name = "simple-chat"
 path = "examples/02-core-api/chat/simple-chat.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "chat-with-tools"
 path = "examples/02-core-api/chat/chat-with-tools.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "chat-request"
 path = "examples/02-core-api/chat/chat-request.rs"
+required-features = ["openai"]
 
 # 02-core-api/streaming
 [[example]]
 name = "basic-stream"
 path = "examples/02-core-api/streaming/basic-stream.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "stream-request"
 path = "examples/02-core-api/streaming/stream-request.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "stream-with-cancel"
 path = "examples/02-core-api/streaming/stream-with-cancel.rs"
+required-features = ["openai"]
 
 # 02-core-api/tools
 [[example]]
 name = "function-calling"
 path = "examples/02-core-api/tools/function-calling.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "tool-loop"
 path = "examples/02-core-api/tools/tool-loop.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "tool-choice-demo"
+path = "examples/02-core-api/tools/tool-choice-demo.rs"
+required-features = ["openai"]
 
 # 02-core-api/multimodal
 [[example]]
 name = "vision"
 path = "examples/02-core-api/multimodal/vision.rs"
+required-features = ["openai"]
+
+# 02-core-api/misc
+[[example]]
+name = "usage-builder-demo"
+path = "examples/02-core-api/usage-builder-demo.rs"
 
 # 03-advanced-features/provider-params
 [[example]]
 name = "structured-output"
 path = "examples/03-advanced-features/provider-params/structured-output.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "reasoning-effort"
 path = "examples/03-advanced-features/provider-params/reasoning-effort.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/request-building
 [[example]]
 name = "complex-request"
 path = "examples/03-advanced-features/request-building/complex-request.rs"
+required-features = ["openai"]
+
+# 03-advanced-features/openai
+[[example]]
+name = "openai-audio-multimodal"
+path = "examples/03-advanced-features/openai-audio-multimodal.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-prediction-websearch"
+path = "examples/03-advanced-features/openai-prediction-websearch.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/middleware
 [[example]]
 name = "http-interceptor"
 path = "examples/03-advanced-features/middleware/http-interceptor.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "advanced-middleware"
 path = "examples/03-advanced-features/middleware/advanced-middleware.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "middleware-builder"
 path = "examples/03-advanced-features/middleware_builder.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/retry
 [[example]]
 name = "retry-config"
 path = "examples/03-advanced-features/retry/retry-config.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/error-handling
 [[example]]
 name = "error-types"
 path = "examples/03-advanced-features/error-handling/error-types.rs"
+required-features = ["openai"]
 
 # 04-provider-specific/openai
 [[example]]
@@ -244,6 +285,11 @@ required-features = ["openai"]
 [[example]]
 name = "openai-responses-streaming-tools"
 path = "examples/04-provider-specific/openai/responses-streaming-tools.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "responses-multi-turn"
+path = "examples/04-provider-specific/openai/responses-multi-turn.rs"
 required-features = ["openai"]
 
 [[example]]
@@ -345,6 +391,11 @@ path = "examples/04-provider-specific/google/enterprise_web_search.rs"
 required-features = ["google"]
 
 [[example]]
+name = "vertex_chat"
+path = "examples/04-provider-specific/google/vertex_chat.rs"
+required-features = ["google", "gcp"]
+
+[[example]]
 name = "file_search"
 path = "examples/04-provider-specific/google/file_search.rs"
 required-features = ["google"]
@@ -391,14 +442,22 @@ required-features = ["openai"]
 [[example]]
 name = "basic-registry"
 path = "examples/05-integrations/registry/basic-registry.rs"
+required-features = ["openai", "anthropic", "google"]
+
+[[example]]
+name = "registry_quickstart"
+path = "examples/05-integrations/registry/quickstart.rs"
+required-features = ["all-providers"]
 
 [[example]]
 name = "registry-with-cache"
 path = "examples/05-integrations/registry/registry-with-cache.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "custom-middleware"
 path = "examples/05-integrations/registry/custom-middleware.rs"
+required-features = ["openai"]
 
 # 05-integrations/mcp
 [[example]]
@@ -419,7 +478,11 @@ required-features = ["openai"]
 # example removed; use siumai-extras::server feature examples instead
 
 # 05-integrations/telemetry (moved to siumai-extras)
-# example removed; use siumai-extras::telemetry feature examples instead
+# Keep a minimal example here; advanced exporters live in siumai-extras.
+[[example]]
+name = "basic-telemetry"
+path = "examples/05-integrations/telemetry/basic-telemetry.rs"
+required-features = ["openai"]
 
 # 06-extensibility
 [[example]]
@@ -436,14 +499,34 @@ required-features = ["xai"]
 name = "custom_provider_implementation"
 path = "examples/06-extensibility/custom_provider_implementation.rs"
 
+[[example]]
+name = "custom_provider_spec"
+path = "examples/06-extensibility/custom-provider-spec.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "complete_custom_provider"
+path = "examples/06-extensibility/complete-custom-provider.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "testing_executors"
+path = "examples/06-extensibility/executor-testing.rs"
+
 # 07-applications
 [[example]]
 name = "chatbot"
 path = "examples/07-applications/chatbot.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "code-assistant"
 path = "examples/07-applications/code-assistant.rs"
+required-features = ["openai"]
 
-# 07-applications/api-server (moved to siumai-extras server adapters)
-# example removed; see siumai-extras for server adapters integration
+[[example]]
+name = "api-server"
+path = "examples/07-applications/api-server.rs"
+required-features = ["openai"]
+
+# 07-applications/api-server (advanced server adapters live in siumai-extras)

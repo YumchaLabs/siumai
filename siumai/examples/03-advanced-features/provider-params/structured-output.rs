@@ -10,7 +10,7 @@
 
 use serde_json::json;
 use siumai::prelude::*;
-use siumai::types::{OpenAiOptions, ResponsesApiConfig};
+use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

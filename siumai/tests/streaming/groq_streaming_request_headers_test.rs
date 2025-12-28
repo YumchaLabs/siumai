@@ -51,7 +51,7 @@ async fn groq_streaming_headers_default_identity() {
     let app = {
         let s = state.clone();
         Router::new().route(
-            "/chat/completions",
+            "/openai/v1/chat/completions",
             post(move |req| handler(req, s.clone())),
         )
     };
@@ -59,7 +59,7 @@ async fn groq_streaming_headers_default_identity() {
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let base = format!("http://{}:{}", addr.ip(), addr.port());
+    let base = format!("http://{}:{}/openai/v1", addr.ip(), addr.port());
     let client = Provider::groq()
         .api_key("test")
         .base_url(base)
@@ -89,7 +89,7 @@ async fn groq_streaming_headers_disable_identity() {
     let app = {
         let s = state.clone();
         Router::new().route(
-            "/chat/completions",
+            "/openai/v1/chat/completions",
             post(move |req| handler(req, s.clone())),
         )
     };
@@ -97,7 +97,7 @@ async fn groq_streaming_headers_disable_identity() {
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let base = format!("http://{}:{}", addr.ip(), addr.port());
+    let base = format!("http://{}:{}/openai/v1", addr.ip(), addr.port());
     let client = Provider::groq()
         .api_key("test")
         .base_url(base)

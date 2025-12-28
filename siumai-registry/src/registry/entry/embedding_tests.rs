@@ -6,7 +6,7 @@ async fn embedding_model_handle_builds_client() {
     let mut providers = HashMap::new();
     providers.insert(
         "testprov_embed".to_string(),
-        Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        Arc::new(TestProviderFactory::new("testprov_embed")) as Arc<dyn ProviderFactory>,
     );
     let reg = create_provider_registry(providers, None);
     let handle = reg.embedding_model("testprov_embed:model").unwrap();

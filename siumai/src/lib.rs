@@ -77,15 +77,40 @@ pub const ENABLED_PROVIDERS: &str = env!("SIUMAI_ENABLED_PROVIDERS");
 pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 
 // Workspace split facade (beta.5):
-// - siumai-core: provider-agnostic runtime + types + standards
+// - siumai-core: provider-agnostic runtime + types
 // - siumai-providers: provider implementations + LlmBuilder
 // - siumai-registry: registry handle + factories
-pub use siumai_core::{
-    auth, client, custom_provider, defaults, error, execution, hosted_tools, observability, params,
-    retry, retry_api, standards, streaming, traits, types, utils,
-};
+// Stable facade modules (recommended).
+pub use siumai_core::{custom_provider, error, hosted_tools, retry_api, streaming, traits, types};
 
-pub use siumai_providers::{builder, core, model_catalog};
+// Compatibility / internal modules (kept but hidden to reduce accidental coupling).
+#[doc(hidden)]
+pub use siumai_core::{auth, client, defaults, execution, observability, params, retry, utils};
+
+pub use siumai_providers::builder;
+
+#[doc(hidden)]
+pub use siumai_providers::{core, model_catalog};
+
+/// Experimental low-level APIs (advanced use only).
+///
+/// This module exposes lower-level building blocks from `siumai-core` (executors, middleware,
+/// auth providers, etc.) without making them part of the stable facade surface.
+///
+/// Prefer `siumai::prelude::unified::*`, `siumai::hosted_tools::*`, and `siumai::provider_ext::*`
+/// unless you are building integrations or custom providers.
+pub mod experimental {
+    pub mod core {
+        pub use siumai_core::core::*;
+    }
+
+    pub use siumai_core::{auth, client, defaults, execution, observability, params, retry, utils};
+}
+
+/// Protocol mapping and adapter helpers (advanced API).
+///
+/// Most users should prefer the unified surface via `siumai::prelude::unified::*`.
+pub use siumai_providers::standards;
 pub use siumai_registry::registry;
 
 // Keep the historical `siumai::providers::*` module path.
@@ -104,17 +129,39 @@ pub mod providers {
 pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai {
+        pub use crate::providers::openai::OpenAiClient;
+        pub use crate::providers::openai::{
+            ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
+            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiChatResponseExt,
+            OpenAiMetadata, OpenAiOptions, OpenAiSource, OpenAiWebSearchOptions, PredictionContent,
+            PredictionContentData, ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity,
+            Truncation, UserLocationWrapper, WebSearchLocation,
+        };
         pub use crate::providers::openai::ext::*;
     }
 
     #[cfg(feature = "anthropic")]
     pub mod anthropic {
+        pub use crate::providers::anthropic::AnthropicClient;
         pub use crate::providers::anthropic::ext::*;
+        pub use crate::providers::anthropic::{
+            AnthropicCacheControl, AnthropicCacheType, AnthropicChatResponseExt, AnthropicCitation,
+            AnthropicCitationsBlock, AnthropicMetadata, AnthropicOptions, AnthropicResponseFormat,
+            AnthropicServerToolUse, AnthropicSource, PromptCachingConfig, ThinkingModeConfig,
+        };
     }
 
     #[cfg(feature = "google")]
     pub mod gemini {
+        pub use crate::providers::gemini::GeminiClient;
         pub use crate::providers::gemini::ext::*;
+
+        // Provider-owned typed options and metadata (kept out of `siumai-core`).
+        pub use crate::providers::gemini::{
+            GeminiChatResponseExt, GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiMetadata,
+            GeminiOptions, GeminiResponseModality, GeminiSafetySetting, GeminiSource,
+            GeminiThinkingConfig, GeminiThinkingLevel,
+        };
     }
 
     #[cfg(feature = "minimaxi")]
@@ -406,13 +453,13 @@ impl Provider {
     /// Create an xAI client builder
     #[cfg(feature = "xai")]
     pub fn xai() -> crate::providers::xai::XaiBuilder {
-        crate::providers::xai::XaiBuilder::new(crate::builder::LlmBuilder::new())
+        crate::builder::LlmBuilder::new().xai()
     }
 
     /// Create a Groq client builder
     #[cfg(feature = "groq")]
     pub fn groq() -> crate::providers::groq::GroqBuilder {
-        crate::providers::groq::GroqBuilder::new(crate::builder::LlmBuilder::new())
+        crate::builder::LlmBuilder::new().groq()
     }
 
     // Provider convenience functions are now organized in providers::convenience module

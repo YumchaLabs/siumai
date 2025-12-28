@@ -20,8 +20,8 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::providers::gemini::{
-    ChunkingConfig, FileSearchUploadConfig, GeminiClient, WhiteSpaceChunkingConfig,
+use siumai::provider_ext::gemini::file_search_stores::{
+    ChunkingConfig, FileSearchUploadConfig, WhiteSpaceChunkingConfig,
 };
 
 fn read_api_key() -> Result<String, Box<dyn std::error::Error>> {
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Provider-specific client (Gemini-only features)
     // Note: File Search is only supported by gemini-2.5-pro and gemini-2.5-flash
-    let client: GeminiClient = Provider::gemini()
+    let client = Provider::gemini()
         .api_key(&api_key)
         .model("gemini-2.5-flash")
         .build()

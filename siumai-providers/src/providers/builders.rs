@@ -10,8 +10,11 @@ use crate::builder::LlmBuilder;
 macro_rules! gen_llmbuilder_method {
     ($name:ident, $id:expr) => {
         #[cfg(feature = "openai")]
+        #[deprecated(
+            note = "Prefer `LlmBuilder::new().openai().compatible(\"<vendor>\")` (OpenAI-like family). For built-in presets, use `openai().vendor(...)` or `openai().<vendor>()`."
+        )]
         pub fn $name(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
-            crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(self, $id)
+            crate::providers::openai_compatible::OpenAiCompatibleBuilder::new(self.into_base(), $id)
         }
     };
 }
@@ -25,43 +28,43 @@ impl LlmBuilder {
     /// Create an `OpenAI` client builder.
     #[cfg(feature = "openai")]
     pub fn openai(self) -> crate::providers::openai::OpenAiBuilder {
-        crate::providers::openai::OpenAiBuilder::new(self)
+        crate::providers::openai::OpenAiBuilder::new(self.into_base())
     }
 
     /// Create an `Anthropic` client builder.
     #[cfg(feature = "anthropic")]
     pub fn anthropic(self) -> crate::providers::anthropic::AnthropicBuilder {
-        crate::providers::anthropic::AnthropicBuilder::new(self)
+        crate::providers::anthropic::AnthropicBuilder::new(self.into_base())
     }
 
     /// Create a `Google Gemini` client builder.
     #[cfg(feature = "google")]
     pub fn gemini(self) -> crate::providers::gemini::GeminiBuilder {
-        crate::providers::gemini::GeminiBuilder::new(self)
+        crate::providers::gemini::GeminiBuilder::new(self.into_base())
     }
 
     /// Create an `Ollama` client builder.
     #[cfg(feature = "ollama")]
     pub fn ollama(self) -> crate::providers::ollama::OllamaBuilder {
-        crate::providers::ollama::OllamaBuilder::new(self)
+        crate::providers::ollama::OllamaBuilder::new(self.into_base())
     }
 
     /// Create a `Groq` client builder (native implementation).
     #[cfg(feature = "groq")]
     pub fn groq(self) -> crate::providers::groq::GroqBuilder {
-        crate::providers::groq::GroqBuilder::new(self)
+        crate::providers::groq::GroqBuilder::new(self.into_base())
     }
 
     /// Create an `xAI` client builder (native implementation).
     #[cfg(feature = "xai")]
     pub fn xai(self) -> crate::providers::xai::XaiBuilder {
-        crate::providers::xai::XaiBuilder::new(self)
+        crate::providers::xai::XaiBuilder::new(self.into_base())
     }
 
     /// Create a `MiniMaxi` client builder (native implementation).
     #[cfg(feature = "minimaxi")]
     pub fn minimaxi(self) -> crate::providers::minimaxi::MinimaxiBuilder {
-        crate::providers::minimaxi::MinimaxiBuilder::new(self)
+        crate::providers::minimaxi::MinimaxiBuilder::new(self.into_base())
     }
 
     // ========================================================================

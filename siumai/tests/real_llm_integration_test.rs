@@ -78,7 +78,8 @@
 
 use futures::StreamExt;
 use siumai::prelude::*;
-use siumai::providers::openai_compatible::providers::models::{deepseek, groq};
+use siumai::models::groq;
+use siumai::models::openai_compatible::deepseek;
 use siumai::streaming::ChatStreamEvent;
 use siumai::traits::ModelListingCapability;
 use std::env;
@@ -140,7 +141,7 @@ fn get_provider_configs() -> Vec<ProviderTestConfig> {
         ProviderTestConfig {
             name: "Groq",
             api_key_env: "GROQ_API_KEY",
-            default_model: groq::LLAMA_3_1_8B,
+            default_model: groq::LLAMA_3_1_8B_INSTANT,
             supports_embedding: false,
             supports_reasoning: false,
             reasoning_model: None,
@@ -265,6 +266,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         "DeepSeek" => {
             let api_key = env::var(config.api_key_env).unwrap();
             let client = LlmBuilder::new()
+                .openai()
                 .deepseek()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -282,6 +284,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         "OpenRouter" => {
             let api_key = env::var(config.api_key_env).unwrap();
             let client = LlmBuilder::new()
+                .openai()
                 .openrouter()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -716,6 +719,7 @@ async fn test_reasoning_deepseek(config: &ProviderTestConfig) {
     let reasoning_model = config.reasoning_model.unwrap();
 
     let client = LlmBuilder::new()
+        .openai()
         .deepseek()
         .api_key(api_key)
         .model(reasoning_model)
@@ -770,6 +774,7 @@ async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
     let reasoning_model = config.reasoning_model.unwrap();
 
     let client = LlmBuilder::new()
+        .openai()
         .openrouter()
         .api_key(api_key)
         .model(reasoning_model)
@@ -1044,6 +1049,7 @@ async fn test_provider_model_listing(
         "DeepSeek" => {
             let api_key = env::var(config.api_key_env)?;
             let client = LlmBuilder::new()
+                .openai()
                 .deepseek()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -1054,6 +1060,7 @@ async fn test_provider_model_listing(
         "OpenRouter" => {
             let api_key = env::var(config.api_key_env)?;
             let client = LlmBuilder::new()
+                .openai()
                 .openrouter()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -1262,6 +1269,7 @@ mod tests {
         let api_key = env::var(config.api_key_env).unwrap();
 
         let client = LlmBuilder::new()
+            .openai()
             .deepseek()
             .api_key(api_key)
             .model(config.default_model)
@@ -1297,6 +1305,7 @@ mod tests {
         let api_key = env::var(config.api_key_env).unwrap();
 
         let client = LlmBuilder::new()
+            .openai()
             .openrouter()
             .api_key(api_key)
             .model(config.default_model)

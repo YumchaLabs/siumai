@@ -205,11 +205,11 @@ let response = client.chat(vec![user!("Hello!")]).await?;
 Use `chat_request()` and `chat_stream_request()` for full control:
 
 ```rust
-use siumai::types::{ProviderOptions, OpenAiOptions};
+use siumai::provider_ext::openai::OpenAiOptions;
 let request = ChatRequest::builder()
     .message(user!("Hello!"))
     .temperature(0.7)
-    .provider_options(ProviderOptions::OpenAi(OpenAiOptions::new()))
+    .openai_options(OpenAiOptions::new())
     .build();
 
 let response = client.chat_request(request).await?;

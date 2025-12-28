@@ -4,8 +4,8 @@
 //! All fixtures are based on official xAI API documentation:
 //! https://docs.x.ai/docs
 
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::registry::{
+use siumai::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
+use siumai::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
 };
 use siumai::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
@@ -22,6 +22,8 @@ fn make_xai_converter() -> OpenAiCompatibleEventConverter {
         capabilities: vec!["chat".to_string(), "streaming".to_string()],
         default_model: Some("grok-beta".to_string()),
         supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: Vec::new(),
     };
     let adapter = std::sync::Arc::new(ConfigurableAdapter::new(provider_config));
     let cfg = OpenAiCompatibleConfig::new("xai", "", "", adapter.clone()).with_model("grok-beta");

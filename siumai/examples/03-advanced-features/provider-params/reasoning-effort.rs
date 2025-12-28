@@ -9,7 +9,7 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::types::{OpenAiOptions, ReasoningEffort};
+use siumai::provider_ext::openai::{OpenAiOptions, ReasoningEffort};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -6,12 +6,18 @@
 #[macro_use]
 mod macros;
 
-pub use siumai_core::{
-    LlmError, auth, client, custom_provider, defaults, error, execution, hosted_tools,
-    observability, params, retry, retry_api, standards, streaming, traits, types, utils,
-};
+// Keep a small stable surface; avoid leaking provider-agnostic internals by default.
+pub use siumai_core::{LlmError, custom_provider, error, hosted_tools, retry_api, streaming, traits, types};
+
+// Compatibility / internal re-exports (hidden to reduce accidental coupling).
+#[doc(hidden)]
+pub use siumai_core::{auth, client, defaults, execution, observability, params, retry, utils};
+
+#[doc(hidden)]
+pub mod standards;
 
 pub mod builder;
+#[doc(hidden)]
 pub mod core;
 pub mod model_catalog;
 pub mod providers;

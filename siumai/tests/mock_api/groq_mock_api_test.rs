@@ -122,7 +122,7 @@ async fn test_groq_chat_non_streaming() {
     let client = LlmBuilder::new()
         .groq()
         .api_key("test-api-key")
-        .base_url(mock_server.uri())
+        .base_url(format!("{}/openai/v1", mock_server.uri()))
         .model("llama-3.3-70b-versatile")
         .build()
         .await
@@ -169,7 +169,7 @@ async fn test_groq_error_response() {
     let client = LlmBuilder::new()
         .groq()
         .api_key("test-api-key")
-        .base_url(mock_server.uri())
+        .base_url(format!("{}/openai/v1", mock_server.uri()))
         .model("invalid-model")
         .build()
         .await
@@ -204,7 +204,7 @@ async fn test_groq_request_format() {
     let client = LlmBuilder::new()
         .groq()
         .api_key("test-key")
-        .base_url(mock_server.uri())
+        .base_url(format!("{}/openai/v1", mock_server.uri()))
         .model("llama-3.3-70b-versatile")
         .build()
         .await
@@ -235,7 +235,7 @@ async fn test_groq_tool_calling() {
     let client = LlmBuilder::new()
         .groq()
         .api_key("test-api-key")
-        .base_url(mock_server.uri())
+        .base_url(format!("{}/openai/v1", mock_server.uri()))
         .model("llama-3.3-70b-versatile")
         .build()
         .await
@@ -296,7 +296,7 @@ async fn test_groq_system_fingerprint() {
     let client = LlmBuilder::new()
         .groq()
         .api_key("test-api-key")
-        .base_url(mock_server.uri())
+        .base_url(format!("{}/openai/v1", mock_server.uri()))
         .model("llama-3.3-70b-versatile")
         .build()
         .await

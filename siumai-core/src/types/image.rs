@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::HttpConfig;
+use super::{HttpConfig, ProviderOptionsMap};
 
 /// Image generation request
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -34,6 +34,13 @@ pub struct ImageGenerationRequest {
     pub response_format: Option<String>,
     /// Additional provider-specific parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Open provider options map (Vercel-aligned).
+    #[serde(
+        default,
+        rename = "providerOptions",
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options_map: ProviderOptionsMap,
     /// Per-request HTTP configuration (headers, timeout, etc.)
     #[serde(skip)]
     pub http_config: Option<HttpConfig>,
@@ -56,6 +63,13 @@ pub struct ImageEditRequest {
     pub response_format: Option<String>,
     /// Additional parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Open provider options map (Vercel-aligned).
+    #[serde(
+        default,
+        rename = "providerOptions",
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options_map: ProviderOptionsMap,
     /// Per-request HTTP configuration (headers, timeout, etc.)
     #[serde(skip)]
     pub http_config: Option<HttpConfig>,
@@ -74,6 +88,13 @@ pub struct ImageVariationRequest {
     pub response_format: Option<String>,
     /// Additional parameters
     pub extra_params: HashMap<String, serde_json::Value>,
+    /// Open provider options map (Vercel-aligned).
+    #[serde(
+        default,
+        rename = "providerOptions",
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options_map: ProviderOptionsMap,
     /// Per-request HTTP configuration (headers, timeout, etc.)
     #[serde(skip)]
     pub http_config: Option<HttpConfig>,

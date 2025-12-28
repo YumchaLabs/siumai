@@ -1,7 +1,7 @@
 //! Core re-exports for provider implementations.
 //!
 //! This module bridges `siumai-core` (provider-agnostic runtime) with
-//! provider-builder utilities that must live in the same crate as `LlmBuilder`.
+//! provider-builder utilities shared across provider crates.
 
 pub use siumai_core::core::*;
 

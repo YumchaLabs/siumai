@@ -149,6 +149,7 @@ async fn test_deepseek_tool_call_streaming() {
 
     // Create client
     let client = LlmBuilder::new()
+        .openai()
         .deepseek()
         .api_key(&api_key)
         .model("deepseek-chat")

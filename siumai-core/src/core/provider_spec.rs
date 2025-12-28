@@ -675,4 +675,5 @@ mod tests {
         let out = hook(&serde_json::json!({})).expect("merge ok");
         assert_eq!(out["x"], 1);
     }
+
 }

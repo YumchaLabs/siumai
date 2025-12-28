@@ -14,7 +14,8 @@ use futures_util::StreamExt;
 use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 use siumai::streaming::ChatStreamEvent;
 use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatRequest, OpenAiOptions, ResponsesApiConfig, Tool};
+use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
+use siumai::types::{ChatMessage, ChatRequest, Tool};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

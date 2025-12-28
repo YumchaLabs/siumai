@@ -111,28 +111,11 @@ pub async fn build_openai_compatible_client(
                 rec.id
             ))
         })?;
-        // Prefer custom base_url when provided; if it lacks a path segment,
-        // append the adapter's default path suffix (e.g., "/openai/v1" for Groq)
-        let base = if let Some(custom) = base_url.clone() {
-            let def = rec
-                .base_url
-                .clone()
-                .unwrap_or_else(|| adapter.base_url().to_string());
-            let def_path = def.splitn(4, '/').nth(3).unwrap_or("");
-            let custom_path = custom.splitn(4, '/').nth(3).unwrap_or("");
-            if custom_path.is_empty() && !def_path.is_empty() {
-                format!(
-                    "{}/{}",
-                    custom.trim_end_matches('/'),
-                    def_path.trim_start_matches('/')
-                )
-            } else {
-                custom
-            }
-        } else {
-            rec.base_url
-                .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
-        };
+        // Prefer custom base_url when provided; treat it as the full API prefix (Vercel AI SDK style).
+        let default_base = rec
+            .base_url
+            .unwrap_or_else(|| adapter.base_url().to_string());
+        let base = crate::utils::builder_helpers::resolve_base_url(base_url.clone(), &default_base);
         (rec.id, adapter, base)
     };
 
@@ -275,7 +258,8 @@ pub async fn build_gemini_client(
     let mut config = GeminiConfig::new(api_key)
         .with_base_url(base_url)
         .with_model(common_params.model.clone())
-        .with_generation_config(gcfg);
+        .with_generation_config(gcfg)
+        .with_common_params(common_params.clone());
     // Pass through HTTP config if present in builder path
     config = config.with_http_config(http_config.clone());
 

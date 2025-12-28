@@ -24,6 +24,7 @@ async fn test_openai_image_generation_request_conversion() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
         http_config: None,
     };
 
@@ -52,6 +53,7 @@ async fn test_siliconflow_image_generation_request_conversion() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
         http_config: None,
     };
 
@@ -147,6 +149,7 @@ async fn test_image_generation_builder_integration() {
 
     // Test SiliconFlow builder
     let siliconflow_result = LlmBuilder::new()
+        .openai()
         .siliconflow()
         .api_key("test-key")
         .model("deepseek-chat")
@@ -161,7 +164,7 @@ async fn test_image_generation_builder_integration() {
 
 #[test]
 fn test_image_generation_model_constants() {
-    use siumai::providers::openai_compatible::siliconflow;
+    use siumai::constants::openai_compatible::siliconflow;
 
     // Test SiliconFlow model constants
     assert_eq!(siliconflow::KOLORS, "Kwai-Kolors/Kolors");
@@ -204,6 +207,7 @@ fn test_image_generation_request_validation() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
         http_config: None,
     };
 
@@ -225,6 +229,7 @@ fn test_image_generation_request_validation() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
         http_config: None,
     };
 

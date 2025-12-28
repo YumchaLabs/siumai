@@ -8,11 +8,11 @@
 //!
 //! Run with: cargo run --example custom_provider_spec --features openai
 
-use siumai::core::{ChatTransformers, ProviderContext, ProviderSpec};
+use siumai::experimental::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
-use siumai::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
-use siumai::execution::transformers::request::RequestTransformer;
-use siumai::execution::transformers::response::ResponseTransformer;
+use siumai::experimental::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
+use siumai::experimental::execution::transformers::request::RequestTransformer;
+use siumai::experimental::execution::transformers::response::ResponseTransformer;
 use siumai::traits::ProviderCapabilities;
 use siumai::types::{ChatMessage, ChatRequest, ChatResponse};
 use std::sync::Arc;
@@ -101,7 +101,7 @@ impl RequestTransformer for CustomRequestTransformer {
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         // Reuse OpenAI transformer as base
-        let openai_tx = siumai::providers::openai::transformers::request::OpenAiRequestTransformer;
+        let openai_tx = siumai::standards::openai::transformers::request::OpenAiRequestTransformer;
         let mut body = openai_tx.transform_chat(req)?;
 
         // Modify the first user message to add our prefix
@@ -132,7 +132,7 @@ impl ResponseTransformer for CustomResponseTransformer {
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
         // Reuse OpenAI transformer
         let openai_tx =
-            siumai::providers::openai::transformers::response::OpenAiResponseTransformer;
+            siumai::standards::openai::transformers::response::OpenAiResponseTransformer;
         openai_tx.transform_chat_response(raw)
     }
 }
@@ -169,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         response_transformer: transformers.response,
         stream_transformer: transformers.stream,
         json_stream_converter: transformers.json,
-        policy: siumai::execution::ExecutionPolicy::new(),
+        policy: siumai::experimental::execution::ExecutionPolicy::new(),
         middlewares: vec![],
         provider_spec: spec,
         provider_context: ctx,

@@ -318,7 +318,7 @@ fn test_simple_verification() {
     println!("   ✅ CommonParams creation and access works");
 
     // Prefer typed ProviderOptions over legacy ProviderParams
-    use siumai::types::provider_options::openai::{OpenAiOptions, ReasoningEffort};
+    use siumai::provider_ext::openai::{OpenAiOptions, ReasoningEffort};
     let opts = OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::High);
     assert_eq!(opts.reasoning_effort, Some(ReasoningEffort::High));
     println!("   ✅ OpenAiOptions creation and access works");

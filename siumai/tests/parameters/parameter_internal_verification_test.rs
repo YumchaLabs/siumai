@@ -330,8 +330,8 @@ async fn test_common_parameter_acceptance() {
         ),
         ("xai", SiumaiBuilder::new().xai()),
         ("groq", SiumaiBuilder::new().groq()),
-        ("deepseek", SiumaiBuilder::new().deepseek()),
-        ("openrouter", SiumaiBuilder::new().openrouter()),
+        ("deepseek", SiumaiBuilder::new().openai().deepseek()),
+        ("openrouter", SiumaiBuilder::new().openai().openrouter()),
     ];
 
     for (provider_name, builder) in providers {

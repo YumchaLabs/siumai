@@ -24,7 +24,7 @@
 //! ```rust,ignore
 //! let client = Siumai::builder()
 //!     .moonshot()
-//!     .model(moonshot::KIMI_K2_0905_PREVIEW)
+//!     .model(siumai::models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
 //!     .build()
 //!     .await?;
 //! ```
@@ -36,7 +36,7 @@
 //! ```rust,ignore
 //! let client = LlmBuilder::new()
 //!     .moonshot()
-//!     .model(moonshot::KIMI_K2_0905_PREVIEW)
+//!     .model(siumai::models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
 //!     .build()
 //!     .await?;
 //! ```
@@ -45,7 +45,7 @@
 //! - Environment variable: Automatically reads MOONSHOT_API_KEY
 
 use siumai::prelude::*;
-use siumai::providers::openai_compatible::moonshot;
+use siumai::models;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
     let client = Siumai::builder()
         .moonshot()
-        .model(moonshot::KIMI_K2_0905_PREVIEW)
+        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
         .build()
         .await?;
 

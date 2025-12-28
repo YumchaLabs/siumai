@@ -3,7 +3,6 @@
 //! Validates that message-level cache_control is injected into the request body
 //! and that cached token usage is mapped from the response.
 
-use siumai::providers::anthropic::AnthropicBuilder;
 use siumai::traits::ChatCapability;
 use siumai::types::{ChatMessage, CacheControl};
 use wiremock::matchers::{header, method, path};
@@ -55,7 +54,8 @@ async fn anthropic_message_level_cache_control_injected_and_usage_mapped() {
         .await;
 
     // Build client via builder to set base_url and model
-    let client = AnthropicBuilder::new(siumai::LlmBuilder::default())
+    let client = siumai::LlmBuilder::default()
+        .anthropic()
         .api_key("test-key")
         .base_url(server.uri())
         .model("claude-3-5-sonnet-20241022")
@@ -102,7 +102,8 @@ async fn anthropic_content_level_cache_control_injected_for_parts() {
         .mount(&server)
         .await;
 
-    let client = AnthropicBuilder::new(siumai::LlmBuilder::default())
+    let client = siumai::LlmBuilder::default()
+        .anthropic()
         .api_key("test-key")
         .base_url(server.uri())
         .model("claude-3-5-sonnet-20241022")
@@ -143,7 +144,8 @@ async fn anthropic_content_level_cache_control_multi_parts_via_builder() {
         .mount(&server)
         .await;
 
-    let client = AnthropicBuilder::new(siumai::LlmBuilder::default())
+    let client = siumai::LlmBuilder::default()
+        .anthropic()
         .api_key("test-key")
         .base_url(server.uri())
         .model("claude-3-5-sonnet-20241022")

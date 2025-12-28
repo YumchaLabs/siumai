@@ -203,6 +203,7 @@ You still can combine them with the decoding helpers above if you want:
 
 ```rust
 use siumai::prelude::*;
+use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
 use serde_json::json;
 
 let schema = json!({"type":"object","properties":{"title":{"type":"string"}},"required":["title"]});

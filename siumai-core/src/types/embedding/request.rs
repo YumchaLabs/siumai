@@ -3,7 +3,7 @@
 // no extra imports
 
 use super::common::{EmbeddingFormat, EmbeddingTaskType};
-use crate::types::HttpConfig;
+use crate::types::{HttpConfig, ProviderOptionsMap};
 
 /// Embedding request configuration
 #[derive(Debug, Clone, Default)]
@@ -29,6 +29,8 @@ pub struct EmbeddingRequest {
     /// into outbound JSON via `ProviderSpec::embedding_before_send()`.
     #[allow(clippy::derivable_impls)]
     pub provider_options: crate::types::ProviderOptions,
+    /// Open provider options map (Vercel-aligned).
+    pub provider_options_map: ProviderOptionsMap,
     /// Per-request HTTP configuration (headers, timeout, etc.)
     pub http_config: Option<HttpConfig>,
 }
@@ -110,7 +112,26 @@ impl EmbeddingRequest {
     ///
     /// Prefer this over `provider_params` for type safety.
     pub fn with_provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
+        if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
+            self.provider_options_map.insert(provider_id, value);
+        }
         self.provider_options = options;
+        self
+    }
+
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        self.provider_options_map.insert(provider_id, options);
         self
     }
 

@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let openai = client
-        .downcast_client::<siumai::providers::openai::OpenAiClient>()
+        .downcast_client::<siumai::provider_ext::openai::OpenAiClient>()
         .expect("this Siumai instance is backed by OpenAiClient");
 
     let mut req = SttRequest::from_file(audio_file);

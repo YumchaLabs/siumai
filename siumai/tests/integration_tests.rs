@@ -98,8 +98,8 @@ mod tests {
     #[test]
     fn test_provider_options_basic() {
         // Test ProviderOptions enum basics and helpers
-        let opts = siumai::types::OpenAiOptions::new();
-        let po = ProviderOptions::OpenAi(Box::new(opts));
+        let opts = siumai::provider_ext::openai::OpenAiOptions::new();
+        let po = ProviderOptions::OpenAi(serde_json::to_value(opts).unwrap());
         assert_eq!(po.provider_id(), Some("openai"));
         assert!(po.is_for_provider("openai"));
         assert!(!po.is_none());
@@ -368,6 +368,7 @@ mod builder_tests {
 
         // Test SiliconFlow with HTTP config
         let result = LlmBuilder::new()
+            .openai()
             .siliconflow()
             .api_key("test-key")
             .model("deepseek-chat")
@@ -394,6 +395,7 @@ mod builder_tests {
 
         // Test DeepSeek with HTTP config
         let result = LlmBuilder::new()
+            .openai()
             .deepseek()
             .api_key("test-key")
             .with_http_config(http_config)
@@ -422,6 +424,7 @@ mod builder_tests {
 
         // Test SiliconFlow default model
         let result = LlmBuilder::new()
+            .openai()
             .siliconflow()
             .api_key("test-key")
             .build()
@@ -441,6 +444,7 @@ mod builder_tests {
 
         // Test OpenRouter default model
         let result = LlmBuilder::new()
+            .openai()
             .openrouter()
             .api_key("test-key")
             .build()

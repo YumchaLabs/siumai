@@ -290,11 +290,11 @@ impl ProviderRegistryHandle {
     ///
     /// # Example
     /// ```rust,no_run
-    /// # use siumai::registry::create_provider_registry;
+    /// # use siumai_registry::registry::entry::create_provider_registry;
     /// # use std::collections::HashMap;
     /// let registry = create_provider_registry(HashMap::new(), None);
     /// let handle = registry.language_model("openai:gpt-4")?;
-    /// # Ok::<(), siumai::error::LlmError>(())
+    /// # Ok::<(), siumai_registry::error::LlmError>(())
     /// ```
     pub fn language_model(&self, id: &str) -> Result<LanguageModelHandle, LlmError> {
         let (mut provider_id, model_id) = self.split_id(id)?;
@@ -412,7 +412,7 @@ impl ProviderRegistryHandle {
 /// ```rust,no_run
 /// use std::collections::HashMap;
 /// use std::sync::Arc;
-/// use siumai::registry::{create_provider_registry, ProviderFactory};
+/// use siumai_registry::registry::entry::{create_provider_registry, ProviderFactory};
 ///
 /// let mut providers = HashMap::new();
 /// // providers.insert("openai".to_string(), Arc::new(OpenAIProviderFactory) as Arc<dyn ProviderFactory>);
@@ -986,6 +986,8 @@ impl RerankCapability for RerankingModelHandle {
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 #[cfg(test)]
+use std::sync::atomic::Ordering;
+#[cfg(test)]
 pub static TEST_BUILD_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(test)]
 pub struct TestProvClient;
@@ -1066,6 +1068,42 @@ impl LlmClient for TestProvEmbedClient {
     }
     fn as_embedding_capability(&self) -> Option<&dyn crate::traits::EmbeddingCapability> {
         Some(self)
+    }
+}
+
+#[cfg(test)]
+pub struct TestProviderFactory {
+    id: &'static str,
+}
+
+#[cfg(test)]
+impl TestProviderFactory {
+    pub const fn new(id: &'static str) -> Self {
+        Self { id }
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl ProviderFactory for TestProviderFactory {
+    async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        TEST_BUILD_COUNT.fetch_add(1, Ordering::SeqCst);
+        Ok(Arc::new(TestProvClient))
+    }
+
+    async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(TestProvEmbedClient))
+    }
+
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(self.id)
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        match self.id {
+            "testprov_embed" => ProviderCapabilities::new().with_embedding(),
+            _ => ProviderCapabilities::new().with_chat(),
+        }
     }
 }
 

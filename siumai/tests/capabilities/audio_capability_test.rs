@@ -39,6 +39,7 @@ async fn test_text_to_speech<T: AudioCapability>(client: &T, provider_name: &str
         speed: Some(1.0),
         model: Some(model.to_string()),
         provider_options: Default::default(),
+        provider_options_map: Default::default(),
         extra_params: std::collections::HashMap::new(),
         http_config: None,
     };
@@ -271,6 +272,7 @@ mod manual_test_utils {
                         speed: Some(1.0),
                         model: Some("tts-1".to_string()),
                         provider_options: Default::default(),
+                        provider_options_map: Default::default(),
                         extra_params: std::collections::HashMap::new(),
                         http_config: None,
                     };
@@ -296,6 +298,7 @@ mod manual_test_utils {
                         speed: Some(1.0),
                         model: Some("playai-tts".to_string()),
                         provider_options: Default::default(),
+                        provider_options_map: Default::default(),
                         extra_params: std::collections::HashMap::new(),
                         http_config: None,
                     };

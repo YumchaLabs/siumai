@@ -9,6 +9,7 @@
 //! ```
 
 use siumai::prelude::*;
+use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -366,7 +366,7 @@ fn build_chat_request_with_hints(
     if let Some(schema) = opts.schema.clone() {
         #[cfg(feature = "openai")]
         {
-            use siumai::types::{OpenAiOptions, ResponsesApiConfig};
+            use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
             let response_format = if let Some(name) = opts.schema_name.clone() {
                 serde_json::json!({
                     "type": "json_schema",
@@ -393,7 +393,7 @@ fn build_chat_request_with_hints(
 
         #[cfg(feature = "anthropic")]
         {
-            use siumai::types::AnthropicOptions;
+            use siumai::provider_ext::anthropic::AnthropicOptions;
             if let Some(name) = opts.schema_name.clone() {
                 let opts_an = AnthropicOptions::new().with_json_schema(name, schema.clone(), true);
                 req = req.with_anthropic_options(opts_an);
@@ -405,7 +405,7 @@ fn build_chat_request_with_hints(
 
         #[cfg(feature = "google")]
         {
-            use siumai::types::GeminiOptions;
+            use siumai::provider_ext::gemini::GeminiOptions;
             // Ask Gemini to return JSON by setting the response MIME type
             let opts_g = GeminiOptions::new().with_response_mime_type("application/json");
             req = req.with_gemini_options(opts_g);
@@ -447,7 +447,8 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     opts: GenerateObjectOptions,
 ) -> Result<(T, siumai::types::ChatResponse), LlmError> {
     // Build a ChatRequest with provider_options for structured output
-    use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
+    use siumai::types::ChatRequest;
 
     let mut request = ChatRequest::new(messages);
     if let Some(t) = tools {
@@ -539,7 +540,8 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
     opts: StreamObjectOptions,
 ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamObjectEvent<T>, LlmError>> + Send>>, LlmError> {
     // Build a ChatRequest with provider_options for structured output
-    use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
+    use siumai::types::ChatRequest;
 
     let mut request = ChatRequest::new(messages);
     if let Some(t) = tools {

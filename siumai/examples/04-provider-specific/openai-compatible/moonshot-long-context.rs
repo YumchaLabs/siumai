@@ -17,7 +17,7 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::providers::openai_compatible::moonshot;
+use siumai::models;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,9 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Use Kimi K2 for maximum context window (256K tokens)
     // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .moonshot()
-        .model(moonshot::KIMI_K2_0905_PREVIEW)
+        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
         .build()
         .await?;
 

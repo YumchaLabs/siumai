@@ -12,11 +12,11 @@
 //!
 //! Run with: cargo run --example complete_custom_provider --features openai
 
-use siumai::core::{ChatTransformers, ProviderContext, ProviderSpec};
+use siumai::experimental::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
-use siumai::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
-use siumai::execution::transformers::request::RequestTransformer;
-use siumai::execution::transformers::response::ResponseTransformer;
+use siumai::experimental::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
+use siumai::experimental::execution::transformers::request::RequestTransformer;
+use siumai::experimental::execution::transformers::response::ResponseTransformer;
 use siumai::traits::ProviderCapabilities;
 use siumai::types::{ChatMessage, ChatRequest, ChatResponse};
 use std::sync::Arc;
@@ -148,7 +148,7 @@ impl RequestTransformer for MyCustomRequestTransformer {
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         // For this example, we'll use OpenAI format as base
         // In a real implementation, you would transform to your provider's format
-        let openai_tx = siumai::providers::openai::transformers::request::OpenAiRequestTransformer;
+        let openai_tx = siumai::standards::openai::transformers::request::OpenAiRequestTransformer;
         let body = openai_tx.transform_chat(req)?;
 
         // You could add custom transformations here
@@ -173,7 +173,7 @@ impl ResponseTransformer for MyCustomResponseTransformer {
         // For this example, we'll use OpenAI format as base
         // In a real implementation, you would parse your provider's response format
         let openai_tx =
-            siumai::providers::openai::transformers::response::OpenAiResponseTransformer;
+            siumai::standards::openai::transformers::response::OpenAiResponseTransformer;
         openai_tx.transform_chat_response(raw)
     }
 }
@@ -221,7 +221,7 @@ impl MyCustomProviderClient {
             response_transformer: transformers.response,
             stream_transformer: transformers.stream,
             json_stream_converter: transformers.json,
-            policy: siumai::execution::ExecutionPolicy::new()
+            policy: siumai::experimental::execution::ExecutionPolicy::new()
                 .with_stream_disable_compression(false),
             middlewares: vec![],
             provider_spec: spec,

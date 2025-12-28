@@ -57,6 +57,7 @@ async fn compat_streaming_headers_default_identity() {
 
     let base = format!("http://{}:{}", addr.ip(), addr.port());
     let client = Siumai::builder()
+        .openai()
         .deepseek()
         .api_key("test")
         .base_url(format!("{}/v1", base))
@@ -95,6 +96,7 @@ async fn compat_streaming_headers_disable_identity() {
 
     let base = format!("http://{}:{}", addr.ip(), addr.port());
     let client = Siumai::builder()
+        .openai()
         .deepseek()
         .api_key("test")
         .base_url(format!("{}/v1", base))

@@ -104,6 +104,7 @@ impl SiumaiBuilder {
             "openai-chat" => ProviderType::OpenAi,
             "openai-responses" => ProviderType::OpenAi,
             "anthropic" => ProviderType::Anthropic,
+            "anthropic-vertex" => ProviderType::Anthropic,
             "gemini" => ProviderType::Gemini,
             "ollama" => ProviderType::Ollama,
             "xai" => ProviderType::XAI,

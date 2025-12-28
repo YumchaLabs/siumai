@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::registry::{
+use siumai::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
+use siumai::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
 };
 use siumai::traits::RerankCapability;
@@ -42,6 +42,8 @@ async fn siliconflow_rerank_maps_meta_tokens_to_usage() {
         capabilities: vec!["chat".to_string(), "rerank".to_string()],
         default_model: Some("bge-reranker-v2-m3".to_string()),
         supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: Vec::new(),
     };
     let adapter = Arc::new(ConfigurableAdapter::new(provider_config));
 
@@ -64,6 +66,7 @@ async fn siliconflow_rerank_maps_meta_tokens_to_usage() {
         return_documents: Some(true),
         max_chunks_per_doc: None,
         overlap_tokens: None,
+        provider_options_map: Default::default(),
     };
 
     let response = client.rerank(request).await.expect("rerank response");

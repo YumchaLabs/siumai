@@ -7,9 +7,9 @@
 //!   set MINIMAXI_API_KEY=your-key
 
 use futures::StreamExt;
+use siumai::models;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::minimaxi::tts::MinimaxiTtsRequestBuilder;
-use siumai::providers::minimaxi::model_constants;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Siumai::builder()
         .minimaxi()
         .api_key(&api_key)
-        .model(model_constants::text::MINIMAX_M2)
+        .model(models::minimaxi::MINIMAX_M2)
         .build()
         .await?;
 
@@ -111,8 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test Audio (TTS) functionality
     println!("\n\n=== Testing Audio (TTS) ===");
     let tts_request = MinimaxiTtsRequestBuilder::new("你好，这是一个测试。")
-        .model(model_constants::audio::SPEECH_2_6_HD)
-        .voice_id(model_constants::voice::MALE_QN_QINGSE)
+        .model(models::minimaxi::SPEECH_2_6_HD)
+        .voice_id(models::minimaxi::MALE_QN_QINGSE)
         .format("mp3")
         .build();
 
@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n\n=== Testing Image Generation ===");
     let image_request = ImageGenerationRequest {
         prompt: "一只可爱的猫咪在花园里玩耍".to_string(),
-        model: Some(model_constants::images::IMAGE_01.to_string()),
+        model: Some(models::minimaxi::IMAGE_01.to_string()),
         size: Some("1024x1024".to_string()),
         count: 1,
         ..Default::default()

@@ -148,7 +148,7 @@ async fn language_model_handle_builds_client() {
     let mut providers = HashMap::new();
     providers.insert(
         "testprov".to_string(),
-        Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        Arc::new(TestProviderFactory::new("testprov")) as Arc<dyn ProviderFactory>,
     );
     let reg = create_provider_registry(providers, None);
     let handle = reg.language_model("testprov:model").unwrap();
@@ -217,7 +217,7 @@ async fn lru_cache_eviction() {
     let mut providers = HashMap::new();
     providers.insert(
         "testprov".to_string(),
-        Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        Arc::new(TestProviderFactory::new("testprov")) as Arc<dyn ProviderFactory>,
     );
     let reg = create_provider_registry(
         providers,
@@ -279,7 +279,7 @@ async fn ttl_expiration() {
     let mut providers = HashMap::new();
     providers.insert(
         "testprov".to_string(),
-        Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        Arc::new(TestProviderFactory::new("testprov")) as Arc<dyn ProviderFactory>,
     );
     let reg = create_provider_registry(
         providers,
@@ -331,7 +331,7 @@ async fn language_model_inherits_registry_interceptors() {
     let mut providers = HashMap::new();
     providers.insert(
         "testprov".to_string(),
-        Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        Arc::new(TestProviderFactory::new("testprov")) as Arc<dyn ProviderFactory>,
     );
     let reg = create_provider_registry(
         providers,
@@ -359,11 +359,11 @@ async fn embedding_and_image_handles_inherit_interceptors() {
     let mut providers = HashMap::new();
     providers.insert(
         "testprov".to_string(),
-        Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        Arc::new(TestProviderFactory::new("testprov")) as Arc<dyn ProviderFactory>,
     );
     providers.insert(
         "testprov_embed".to_string(),
-        Arc::new(crate::registry::factories::TestProviderFactory) as Arc<dyn ProviderFactory>,
+        Arc::new(TestProviderFactory::new("testprov_embed")) as Arc<dyn ProviderFactory>,
     );
     let reg = create_provider_registry(
         providers,
@@ -388,6 +388,7 @@ async fn embedding_and_image_handles_inherit_interceptors() {
     assert_eq!(ih.http_interceptors.len(), 1);
 }
 
+#[cfg(feature = "builtins")]
 #[test]
 fn create_registry_with_defaults_registers_native_factories() {
     let _g = reg_test_guard();

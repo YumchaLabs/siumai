@@ -26,15 +26,62 @@ pub fn get_api_key_with_env(
     api_key: Option<String>,
     provider_id: &str,
 ) -> Result<String, LlmError> {
-    let env_key = format!("{}_API_KEY", provider_id.to_uppercase());
-    api_key
-        .or_else(|| std::env::var(&env_key).ok())
-        .ok_or_else(|| {
-            LlmError::ConfigurationError(format!(
-                "API key is required for {} (missing {} environment variable or explicit .api_key())",
-                provider_id, env_key
-            ))
-        })
+    get_api_key_with_envs(api_key, provider_id, None, &[])
+}
+
+/// Get API key with configurable environment variable fallbacks.
+///
+/// Priority:
+/// - explicit parameter
+/// - `api_key_env` (if provided)
+/// - `api_key_env_aliases` (in order)
+/// - default environment variable `{PROVIDER_ID}_API_KEY`
+///
+/// This is primarily used by "OpenAI-compatible" vendor presets where a provider id
+/// may not map cleanly to a POSIX env var name (e.g. leading digits) or when a
+/// provider has a widely-adopted env var name that differs from our default.
+pub fn get_api_key_with_envs(
+    api_key: Option<String>,
+    provider_id: &str,
+    api_key_env: Option<&str>,
+    api_key_env_aliases: &[String],
+) -> Result<String, LlmError> {
+    if let Some(key) = api_key {
+        return Ok(key);
+    }
+
+    let default_env = format!("{}_API_KEY", provider_id.to_uppercase());
+    let mut candidates: Vec<String> = Vec::with_capacity(2 + api_key_env_aliases.len());
+
+    if let Some(name) = api_key_env {
+        if !name.trim().is_empty() {
+            candidates.push(name.to_string());
+        }
+    }
+    for name in api_key_env_aliases {
+        if !name.trim().is_empty() {
+            candidates.push(name.to_string());
+        }
+    }
+    candidates.push(default_env);
+
+    // Dedupe while keeping stable order.
+    let mut seen = std::collections::HashSet::<String>::new();
+    candidates.retain(|k| seen.insert(k.clone()));
+
+    for env_key in &candidates {
+        if let Ok(v) = std::env::var(env_key) {
+            if !v.is_empty() {
+                return Ok(v);
+            }
+        }
+    }
+
+    Err(LlmError::ConfigurationError(format!(
+        "API key is required for {} (missing {} or explicit .api_key())",
+        provider_id,
+        candidates.join(", ")
+    )))
 }
 
 /// Get effective model with default fallback
@@ -149,14 +196,8 @@ pub fn resolve_base_url(custom_url: Option<String>, default_url: &str) -> String
 ///
 /// # Returns
 /// Resolved base URL
-#[cfg(feature = "openai")]
-pub fn resolve_base_url_with_adapter(
-    custom_url: Option<String>,
-    adapter: &std::sync::Arc<dyn crate::standards::openai::compat::adapter::ProviderAdapter>,
-) -> String {
-    let url = custom_url.unwrap_or_else(|| adapter.base_url().to_string());
-    url.trim_end_matches('/').to_string()
-}
+// Note: ProviderAdapter-based helpers are provider-owned and should live outside
+// `siumai-core` to avoid protocol coupling.
 
 #[cfg(test)]
 mod tests {
@@ -171,6 +212,32 @@ mod tests {
         // Test with missing API key (should fail)
         let result = get_api_key_with_env(None, "nonexistent_provider_xyz");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_api_key_with_envs_uses_primary_env_when_available() {
+        let expected = std::env::var("PATH").expect("PATH should be set in test environment");
+        let result = get_api_key_with_envs(
+            None,
+            "custom_provider",
+            Some("PATH"),
+            &["SIUMAI_TEST_MISSING_ALIAS".to_string()],
+        )
+        .expect("api key");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_get_api_key_with_envs_falls_back_to_aliases() {
+        let expected = std::env::var("PATH").expect("PATH should be set in test environment");
+        let result = get_api_key_with_envs(
+            None,
+            "custom_provider",
+            Some("SIUMAI_TEST_MISSING_PRIMARY"),
+            &["PATH".to_string()],
+        )
+        .expect("api key");
+        assert_eq!(result, expected);
     }
 
     #[test]

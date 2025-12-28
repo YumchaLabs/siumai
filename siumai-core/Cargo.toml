@@ -58,7 +58,7 @@ google = []
 ollama = []
 xai = []
 groq = []
-minimaxi = ["openai", "anthropic"]
+minimaxi = []
 
 gcp = ["dep:jsonwebtoken", "google"]
 json-repair = ["dep:jsonrepair"]

@@ -90,6 +90,30 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // or a TokenProvider is configured, do not enforce API Key (supports Vertex AI enterprise auth).
     let requires_api_key = match provider_type {
         ProviderType::Ollama => false,
+        ProviderType::Anthropic => {
+            // Anthropic on Vertex AI uses Bearer auth (Authorization header) rather than an API key.
+            // If we detect Vertex mode and Authorization is present, do not enforce API key.
+            let is_vertex = builder
+                .provider_id
+                .as_deref()
+                .map(|n| n == "anthropic-vertex")
+                .unwrap_or(false)
+                || builder
+                    .base_url
+                    .as_ref()
+                    .map(|u| u.contains("aiplatform.googleapis.com"))
+                    .unwrap_or(false);
+            if is_vertex {
+                let has_auth_header = builder
+                    .http_config
+                    .headers
+                    .keys()
+                    .any(|k| k.eq_ignore_ascii_case("authorization"));
+                !has_auth_header
+            } else {
+                true
+            }
+        }
         ProviderType::Gemini => {
             let has_auth_header = builder
                 .http_config
@@ -118,7 +142,24 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         } else {
             // For Custom providers (OpenAI-compatible), use shared helper function
             if let ProviderType::Custom(ref provider_id) = provider_type {
-                crate::utils::builder_helpers::get_api_key_with_env(None, provider_id)?
+                #[cfg(all(feature = "builtins", feature = "openai"))]
+                {
+                    if let Some(cfg) = siumai_providers::providers::openai_compatible::config::get_provider_config(provider_id) {
+                        crate::utils::builder_helpers::get_api_key_with_envs(
+                            None,
+                            provider_id,
+                            cfg.api_key_env.as_deref(),
+                            &cfg.api_key_env_aliases,
+                        )?
+                    } else {
+                        crate::utils::builder_helpers::get_api_key_with_env(None, provider_id)?
+                    }
+                }
+
+                #[cfg(not(all(feature = "builtins", feature = "openai")))]
+                {
+                    crate::utils::builder_helpers::get_api_key_with_env(None, provider_id)?
+                }
             } else {
                 // For native providers, check their specific environment variables
                 match provider_type {

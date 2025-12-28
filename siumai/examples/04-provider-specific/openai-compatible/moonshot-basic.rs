@@ -21,7 +21,7 @@
 //! Visit https://platform.moonshot.cn/ to get your API key
 
 use siumai::prelude::*;
-use siumai::providers::openai_compatible::moonshot;
+use siumai::models;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,9 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build Moonshot client using the latest Kimi K2 model
     // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .moonshot()
-        .model(moonshot::KIMI_K2_0905_PREVIEW) // Using model constant
+        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW) // Using model constant
         .build()
         .await?;
 
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // For short conversations, use 8K model (more cost-effective)
     let client_8k = Siumai::builder()
         .moonshot()
-        .model(moonshot::MOONSHOT_V1_8K)
+        .model(models::openai_compatible::moonshot::MOONSHOT_V1_8K)
         .build()
         .await?;
 
@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // For long documents, use 128K model
     let client_128k = Siumai::builder()
         .moonshot()
-        .model(moonshot::MOONSHOT_V1_128K)
+        .model(models::openai_compatible::moonshot::MOONSHOT_V1_128K)
         .build()
         .await?;
 

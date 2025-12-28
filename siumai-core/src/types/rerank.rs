@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::ProviderOptionsMap;
+
 /// Request for reranking documents based on a query
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RerankRequest {
@@ -36,6 +38,14 @@ pub struct RerankRequest {
     /// Number of token overlaps between chunks (provider-specific)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overlap_tokens: Option<u32>,
+
+    /// Open provider options map (Vercel-aligned).
+    #[serde(
+        default,
+        rename = "providerOptions",
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options_map: ProviderOptionsMap,
 }
 
 /// Response from reranking operation
@@ -94,7 +104,24 @@ impl RerankRequest {
             return_documents: None,
             max_chunks_per_doc: None,
             overlap_tokens: None,
+            provider_options_map: ProviderOptionsMap::default(),
         }
+    }
+
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        self.provider_options_map.insert(provider_id, options);
+        self
     }
 
     /// Set the instruction for the reranker

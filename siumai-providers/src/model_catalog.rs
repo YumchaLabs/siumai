@@ -56,6 +56,10 @@ pub mod constants {
     #[cfg(feature = "groq")]
     pub use crate::providers::groq::models as groq;
 
+    /// Re-export MiniMaxi model constants (detailed structure)
+    #[cfg(feature = "minimaxi")]
+    pub use crate::providers::minimaxi::model_constants as minimaxi;
+
     /// Popular models across all providers
     ///
     /// This module provides curated selections of popular models from each provider,
@@ -651,5 +655,27 @@ pub mod model_constants {
         // System models
         pub const COMPOUND_BETA: &str = c::systems::COMPOUND_BETA;
         pub const COMPOUND_BETA_MINI: &str = c::systems::COMPOUND_BETA_MINI;
+    }
+
+    /// MiniMaxi models with simplified access
+    #[cfg(feature = "minimaxi")]
+    pub mod minimaxi {
+        use crate::providers::minimaxi::model_constants as c;
+
+        // Text
+        pub const MINIMAX_M2: &str = c::text::MINIMAX_M2;
+        pub const MINIMAX_M2_STABLE: &str = c::text::MINIMAX_M2_STABLE;
+
+        // Audio (TTS)
+        pub const SPEECH_2_6_HD: &str = c::audio::SPEECH_2_6_HD;
+        pub const SPEECH_2_6_TURBO: &str = c::audio::SPEECH_2_6_TURBO;
+
+        // Voices (subset)
+        pub const MALE_QN_QINGSE: &str = c::voice::MALE_QN_QINGSE;
+        pub const FEMALE_SHAONV: &str = c::voice::FEMALE_SHAONV;
+
+        // Images
+        pub const IMAGE_01: &str = c::images::IMAGE_01;
+        pub const IMAGE_01_LIVE: &str = c::images::IMAGE_01_LIVE;
     }
 }

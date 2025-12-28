@@ -14,7 +14,7 @@
 //! ```
 
 use futures::StreamExt;
-use siumai::execution::middleware::language_model::{
+use siumai::experimental::execution::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn,
 };
 use siumai::prelude::*;

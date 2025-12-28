@@ -41,21 +41,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // Provider-specific modules
-pub mod anthropic;
 pub mod custom;
-pub mod gemini;
+#[cfg(feature = "groq")]
 pub mod groq;
+#[cfg(feature = "ollama")]
 pub mod ollama;
-pub mod openai;
+#[cfg(feature = "xai")]
 pub mod xai;
 
 // Re-exports
-pub use anthropic::*;
 pub use custom::CustomProviderOptions;
-pub use gemini::*;
+#[cfg(feature = "groq")]
 pub use groq::*;
+#[cfg(feature = "ollama")]
 pub use ollama::*;
-pub use openai::*;
+#[cfg(feature = "xai")]
 pub use xai::*;
 
 /// Type-safe provider-specific options
@@ -84,23 +84,38 @@ pub enum ProviderOptions {
     /// No provider-specific options
     #[default]
     None,
-    /// OpenAI-specific options
+    /// OpenAI-specific options (provider-owned JSON payload)
+    ///
+    /// This is intentionally kept as a JSON payload to avoid making `siumai-core`
+    /// own provider-specific typed option structs.
     #[serde(rename = "openai")]
-    OpenAi(Box<OpenAiOptions>),
-    /// Anthropic-specific options
+    #[cfg(feature = "openai")]
+    OpenAi(serde_json::Value),
+    /// Anthropic-specific options (provider-owned JSON payload)
+    ///
+    /// This is intentionally kept as a JSON payload to avoid making `siumai-core`
+    /// own provider-specific typed option structs.
     #[serde(rename = "anthropic")]
-    Anthropic(AnthropicOptions),
+    #[cfg(feature = "anthropic")]
+    Anthropic(serde_json::Value),
     /// xAI (Grok) specific options
     #[serde(rename = "xai")]
+    #[cfg(feature = "xai")]
     Xai(XaiOptions),
-    /// Google Gemini specific options
+    /// Google Gemini specific options (provider-owned JSON payload)
+    ///
+    /// This is intentionally kept as a JSON payload to avoid making `siumai-core`
+    /// own provider-specific typed option structs.
     #[serde(rename = "gemini")]
-    Gemini(GeminiOptions),
+    #[cfg(feature = "google")]
+    Gemini(serde_json::Value),
     /// Groq-specific options
     #[serde(rename = "groq")]
+    #[cfg(feature = "groq")]
     Groq(GroqOptions),
     /// Ollama-specific options
     #[serde(rename = "ollama")]
+    #[cfg(feature = "ollama")]
     Ollama(OllamaOptions),
     /// Custom provider options (for user extensions)
     #[serde(rename = "custom")]
@@ -115,11 +130,17 @@ impl ProviderOptions {
     pub fn provider_id(&self) -> Option<&str> {
         match self {
             Self::None => None,
+            #[cfg(feature = "openai")]
             Self::OpenAi(_) => Some("openai"),
+            #[cfg(feature = "anthropic")]
             Self::Anthropic(_) => Some("anthropic"),
+            #[cfg(feature = "xai")]
             Self::Xai(_) => Some("xai"),
+            #[cfg(feature = "google")]
             Self::Gemini(_) => Some("gemini"),
+            #[cfg(feature = "groq")]
             Self::Groq(_) => Some("groq"),
+            #[cfg(feature = "ollama")]
             Self::Ollama(_) => Some("ollama"),
             Self::Custom { provider_id, .. } => Some(provider_id),
         }
@@ -160,5 +181,41 @@ impl ProviderOptions {
             provider_id,
             options,
         })
+    }
+
+    /// Convert this typed options into an open `ProviderOptionsMap` entry.
+    ///
+    /// This is a compatibility bridge during the refactor: typed options are still supported,
+    /// but providers should gradually migrate to reading the open `providerOptions` map.
+    pub fn to_provider_options_map_entry(&self) -> Option<(String, serde_json::Value)> {
+        match self {
+            Self::None => None,
+            #[cfg(feature = "openai")]
+            Self::OpenAi(value) => Some(("openai".to_string(), value.clone())),
+            #[cfg(feature = "anthropic")]
+            Self::Anthropic(value) => Some(("anthropic".to_string(), value.clone())),
+            #[cfg(feature = "xai")]
+            Self::Xai(opts) => serde_json::to_value(opts).ok().map(|v| ("xai".to_string(), v)),
+            #[cfg(feature = "google")]
+            Self::Gemini(value) => Some(("gemini".to_string(), value.clone())),
+            #[cfg(feature = "groq")]
+            Self::Groq(opts) => serde_json::to_value(opts)
+                .ok()
+                .map(|v| ("groq".to_string(), v)),
+            #[cfg(feature = "ollama")]
+            Self::Ollama(opts) => serde_json::to_value(opts)
+                .ok()
+                .map(|v| ("ollama".to_string(), v)),
+            Self::Custom {
+                provider_id,
+                options,
+            } => {
+                let mut map = serde_json::Map::new();
+                for (k, v) in options {
+                    map.insert(k.clone(), v.clone());
+                }
+                Some((provider_id.clone(), serde_json::Value::Object(map)))
+            }
+        }
     }
 }

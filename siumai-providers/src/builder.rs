@@ -88,6 +88,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use siumai_core::builder::BuilderBase;
+
 #[cfg(any(
     feature = "openai",
     feature = "anthropic",
@@ -419,6 +421,22 @@ impl LlmBuilder {
     pub fn with_proxy<S: Into<String>>(mut self, proxy_url: S) -> Self {
         self.proxy = Some(proxy_url.into());
         self
+    }
+
+    /// Convert this builder into a provider-agnostic snapshot (`siumai-core`).
+    ///
+    /// This is used by provider crates that cannot depend on `siumai-providers` directly.
+    pub(crate) fn into_base(self) -> BuilderBase {
+        BuilderBase {
+            http_client: self.http_client,
+            timeout: self.timeout,
+            connect_timeout: self.connect_timeout,
+            user_agent: self.user_agent,
+            default_headers: self.default_headers,
+            http_interceptors: self.http_interceptors,
+            http_debug: self.http_debug,
+            proxy: self.proxy,
+        }
     }
 
     // Note: redirect policy configuration removed due to Clone constraints

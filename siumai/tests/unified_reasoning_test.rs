@@ -143,12 +143,14 @@ mod tests {
         // Test Custom providers (DeepSeek, OpenRouter)
         println!("   Testing Custom provider parameter mapping...");
         let _deepseek_builder = Siumai::builder()
+            .openai()
             .deepseek()
             .api_key("test-key")
             .model("deepseek-chat")
             .reasoning(true);
 
         let _openrouter_builder = Siumai::builder()
+            .openai()
             .openrouter()
             .api_key("test-key")
             .model("openai/gpt-4")

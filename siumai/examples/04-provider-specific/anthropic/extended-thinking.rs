@@ -9,7 +9,7 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::types::{AnthropicOptions, ThinkingModeConfig};
+use siumai::provider_ext::anthropic::{AnthropicOptions, ThinkingModeConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

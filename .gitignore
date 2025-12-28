@@ -3,3 +3,5 @@ output.mp3
 .idea
 .vscode
 .env
+repo-ref/
+_third_party/

@@ -7,10 +7,10 @@ use eventsource_stream::Event;
 use siumai::providers::anthropic::streaming::AnthropicEventConverter;
 use siumai::providers::gemini::streaming::GeminiEventConverter;
 use siumai::providers::ollama::streaming::OllamaEventConverter;
-use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
-use siumai::providers::openai_compatible::types::FieldMappings;
+use siumai::standards::openai::compat::adapter::{ProviderAdapter, ProviderCompatibility};
+use siumai::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
+use siumai::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
+use siumai::standards::openai::compat::types::FieldMappings;
 use siumai::traits::ProviderCapabilities;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
             &self,
             _params: &mut serde_json::Value,
             _model: &str,
-            _ty: siumai::providers::openai_compatible::types::RequestType,
+            _ty: siumai::standards::openai::compat::types::RequestType,
         ) -> Result<(), siumai::error::LlmError> {
             Ok(())
         }
@@ -37,7 +37,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         fn get_model_config(
             &self,
             _model: &str,
-        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+        ) -> siumai::standards::openai::compat::types::ModelConfig {
             Default::default()
         }
         fn capabilities(&self) -> ProviderCapabilities {
@@ -260,7 +260,7 @@ async fn test_openai_content_prioritized_over_usage() {
 
 #[tokio::test]
 async fn test_xai_content_prioritized_over_usage() {
-    use siumai::providers::openai_compatible::registry::{
+    use siumai::standards::openai::compat::provider_registry::{
         ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
     };
 
@@ -273,6 +273,8 @@ async fn test_xai_content_prioritized_over_usage() {
         capabilities: vec!["chat".to_string(), "streaming".to_string()],
         default_model: Some("grok-beta".to_string()),
         supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: Vec::new(),
     };
     let adapter = std::sync::Arc::new(ConfigurableAdapter::new(provider_config));
     let cfg = OpenAiCompatibleConfig::new("xai", "", "", adapter.clone()).with_model("grok-beta");

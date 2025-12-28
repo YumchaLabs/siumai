@@ -8,11 +8,11 @@
 //!
 //! Run with: cargo run --example testing_executors
 
-use siumai::core::{ChatTransformers, ProviderContext, ProviderSpec};
+use siumai::experimental::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use siumai::error::LlmError;
-use siumai::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
-use siumai::execution::transformers::request::RequestTransformer;
-use siumai::execution::transformers::response::ResponseTransformer;
+use siumai::experimental::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
+use siumai::experimental::execution::transformers::request::RequestTransformer;
+use siumai::experimental::execution::transformers::response::ResponseTransformer;
 use siumai::traits::ProviderCapabilities;
 use siumai::types::{ChatMessage, ChatRequest, ChatResponse, Usage};
 use std::sync::Arc;
@@ -180,7 +180,8 @@ async fn test_executor_with_spec(
         response_transformer: transformers.response,
         stream_transformer: transformers.stream,
         json_stream_converter: transformers.json,
-        policy: siumai::execution::ExecutionPolicy::new().with_stream_disable_compression(false),
+        policy: siumai::experimental::execution::ExecutionPolicy::new()
+            .with_stream_disable_compression(false),
         middlewares: vec![],
         provider_spec: spec.clone(),
         provider_context: ctx,

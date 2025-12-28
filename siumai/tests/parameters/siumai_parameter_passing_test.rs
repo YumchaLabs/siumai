@@ -385,6 +385,7 @@ async fn test_deepseek_parameter_passing(
     println!("  🔍 Testing DeepSeek parameter passing...");
 
     let result = SiumaiBuilder::new()
+        .openai()
         .deepseek()
         .api_key("test-key-deepseek")
         .model(model)
@@ -427,6 +428,7 @@ async fn test_openrouter_parameter_passing(
     println!("  🔍 Testing OpenRouter parameter passing...");
 
     let result = SiumaiBuilder::new()
+        .openai()
         .openrouter()
         .api_key("test-key-openrouter")
         .model(model)

@@ -405,8 +405,10 @@ async fn test_complete_ollama_stream_sequence() {
     }
 
     // Verify the sequence - with multi-event architecture we get more events
-    // First event generates StreamStart + ContentDelta, so we get 5 events total
-    assert_eq!(results.len(), 5);
+    // - first chunk: StreamStart + ContentDelta
+    // - middle chunks: ContentDelta
+    // - final chunk: UsageUpdate + StreamEnd
+    assert_eq!(results.len(), 6);
 
     // 1. First event should be StreamStart
     match &results[0] {
@@ -441,7 +443,7 @@ async fn test_complete_ollama_stream_sequence() {
         _ => panic!("Expected ContentDelta"),
     }
 
-    // 5. Usage update
+    // 5. Usage update (final chunk)
     match &results[4] {
         ChatStreamEvent::UsageUpdate { usage } => {
             assert_eq!(usage.prompt_tokens, 10);
@@ -449,4 +451,7 @@ async fn test_complete_ollama_stream_sequence() {
         }
         _ => panic!("Expected UsageUpdate"),
     }
+
+    // 6. Stream end
+    assert!(matches!(results[5], ChatStreamEvent::StreamEnd { .. }));
 }

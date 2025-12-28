@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
-use siumai::providers::openai_compatible::adapter::ProviderAdapter;
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::types::RequestType;
-use siumai::providers::openai_compatible::types::{
-    FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig,
-};
+use siumai::standards::openai::compat::adapter::ProviderAdapter;
+use siumai::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
+use siumai::standards::openai::compat::types::RequestType;
+use siumai::standards::openai::compat::types::{FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig};
 use siumai::traits::EmbeddingCapability;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

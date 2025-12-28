@@ -229,6 +229,7 @@ async fn openai_compatible_deepseek_streaming_request_headers() {
     let (it, captured) = TestInterceptor::new();
     let client = LlmBuilder::new()
         .with_http_interceptor(Arc::new(it))
+        .openai()
         .deepseek()
         .api_key("deepseek-test")
         // Use default model for deepseek if available; otherwise set explicitly

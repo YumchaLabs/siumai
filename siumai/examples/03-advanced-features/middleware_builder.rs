@@ -5,7 +5,7 @@
 //! - Manually add, remove, and replace middlewares
 //! - Use preset middlewares like ExtractReasoningMiddleware
 
-use siumai::execution::middleware::{
+use siumai::experimental::execution::middleware::{
     MiddlewareBuilder,
     auto::{MiddlewareConfig, build_auto_middlewares},
     presets::ExtractReasoningMiddleware,

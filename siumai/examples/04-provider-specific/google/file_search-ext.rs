@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Escape hatch: provider-specific Gemini client (cloned)
     let gemini = client
-        .downcast_client_cloned::<siumai::providers::gemini::GeminiClient>()
+        .downcast_client_cloned::<siumai::provider_ext::gemini::GeminiClient>()
         .expect("this Siumai instance is backed by GeminiClient");
 
     let stores = siumai::provider_ext::gemini::file_search_stores::stores(&gemini);

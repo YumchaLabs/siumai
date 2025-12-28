@@ -203,6 +203,24 @@ mod builtins {
             self.register_openai_compatible_from_config(config)
         }
 
+        /// Register an OpenAI-compatible vendor preset (OpenAI-like provider).
+        ///
+        /// This is an alias of `register_openai_compatible`, provided to keep the mental model:
+        /// "OpenAI is the protocol family, vendors are presets/config."
+        #[cfg(feature = "openai")]
+        pub fn register_openai_vendor(&mut self, vendor_id: &str) -> Result<(), LlmError> {
+            self.register_openai_compatible(vendor_id)
+        }
+
+        /// Register an OpenAI-compatible vendor preset from config (OpenAI-like provider).
+        #[cfg(feature = "openai")]
+        pub fn register_openai_vendor_from_config(
+            &mut self,
+            config: ProviderConfig,
+        ) -> Result<(), LlmError> {
+            self.register_openai_compatible_from_config(config)
+        }
+
         pub fn register_native(
             &mut self,
             id: &str,
@@ -311,6 +329,12 @@ mod builtins {
             .get_adapter(provider_id)
     }
 
+    /// Convenience function to get an adapter for an OpenAI vendor preset (OpenAI-like provider).
+    #[cfg(feature = "openai")]
+    pub fn get_openai_vendor_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
+        get_provider_adapter(provider_id)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -358,6 +382,9 @@ pub use builtins::{ProviderRecord, ProviderRegistry, global, global_registry};
 #[cfg(all(feature = "builtins", feature = "openai"))]
 pub use builtins::get_provider_adapter;
 
+#[cfg(all(feature = "builtins", feature = "openai"))]
+pub use builtins::get_openai_vendor_adapter;
+
 // -----------------------------------------------------------------------------
 // Public re-exports (provider-agnostic)
 // -----------------------------------------------------------------------------
@@ -372,4 +399,3 @@ pub use helpers::{create_bare_registry, create_empty_registry};
 
 #[cfg(feature = "builtins")]
 pub use helpers::create_registry_with_defaults;
-

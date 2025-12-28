@@ -2,7 +2,8 @@
 
 use siumai::providers::openai::transformers::request::OpenAiRequestTransformer;
 use siumai::execution::transformers::request::RequestTransformer;
-use siumai::types::{ChatRequest, CommonParams, OpenAiOptions};
+use siumai::provider_ext::openai::OpenAiOptions;
+use siumai::types::{ChatRequest, CommonParams};
 
 #[test]
 fn openai_stream_request_includes_stream_options() {

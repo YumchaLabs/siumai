@@ -273,6 +273,7 @@ async fn image_executor_retries_on_401() {
             size: None,
             response_format: None,
             extra_params: Default::default(),
+            provider_options_map: Default::default(),
             http_config: None,
         })
         .await
@@ -287,6 +288,7 @@ async fn image_executor_retries_on_401() {
             size: None,
             response_format: None,
             extra_params: Default::default(),
+            provider_options_map: Default::default(),
             http_config: None,
         })
         .await

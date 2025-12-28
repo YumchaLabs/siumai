@@ -80,12 +80,21 @@ pub struct ChatResponse {
     /// `{ "provider_id": { "key": value, ... }, ... }`
     ///
     /// For type-safe access to common provider metadata, use the helper methods:
-    /// - `anthropic_metadata()` for Anthropic-specific metadata
-    /// - `openai_metadata()` for OpenAI-specific metadata
-    /// - `gemini_metadata()` for Gemini-specific metadata
+    /// - `provider_metadata_as::<T>(provider_id)` for provider-agnostic typed extraction
+    ///
+    /// For OpenAI-specific typed metadata, prefer the provider extension trait:
+    /// `siumai::provider_ext::openai::OpenAiChatResponseExt::openai_metadata()`.
+    ///
+    /// For Anthropic-specific typed metadata, prefer the provider extension trait:
+    /// `siumai::provider_ext::anthropic::AnthropicChatResponseExt::anthropic_metadata()`.
+    ///
+    /// For Gemini-specific typed metadata, prefer the provider extension trait:
+    /// `siumai::provider_ext::gemini::GeminiChatResponseExt::gemini_metadata()`.
     ///
     /// # Example
     /// ```rust,ignore
+    /// use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
+    ///
     /// if let Some(meta) = response.anthropic_metadata() {
     ///     if let Some(cache_tokens) = meta.cache_read_input_tokens {
     ///         println!("Cache hit! Saved {} tokens", cache_tokens);
@@ -366,74 +375,20 @@ impl ChatResponse {
             .unwrap_or(false)
     }
 
-    /// Get Anthropic-specific metadata with type safety
+    /// Deserialize provider metadata into a typed struct.
     ///
-    /// # Example
-    /// ```rust,no_run
-    /// # use siumai::prelude::*;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = Siumai::builder().anthropic().api_key("key").model("claude-3-5-sonnet-20241022").build().await?;
-    /// let response = client.chat(vec![user!("Hello")]).await?;
-    /// if let Some(meta) = response.anthropic_metadata() {
-    ///     if let Some(cache_tokens) = meta.cache_read_input_tokens {
-    ///         println!("Cache hit! Saved {} tokens", cache_tokens);
-    ///     }
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn anthropic_metadata(&self) -> Option<crate::types::AnthropicMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("anthropic")?;
-        crate::types::AnthropicMetadata::from_metadata(meta)
+    /// This is a provider-agnostic helper that allows provider crates (or user code)
+    /// to define typed views over `provider_metadata` without requiring `siumai-core`
+    /// to own provider-specific metadata types.
+    pub fn provider_metadata_as<T: serde::de::DeserializeOwned>(
+        &self,
+        provider: &str,
+    ) -> Option<T> {
+        let meta = self.provider_metadata.as_ref()?.get(provider)?;
+        serde_json::from_value(serde_json::to_value(meta).ok()?).ok()
     }
 
-    /// Get OpenAI-specific metadata with type safety
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// # use siumai::prelude::*;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o").build().await?;
-    /// let response = client.chat(vec![user!("Hello")]).await?;
-    /// if let Some(meta) = response.openai_metadata() {
-    ///     if let Some(reasoning_tokens) = meta.reasoning_tokens {
-    ///         println!("Reasoning tokens used: {}", reasoning_tokens);
-    ///     }
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn openai_metadata(&self) -> Option<crate::types::OpenAiMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("openai")?;
-        crate::types::OpenAiMetadata::from_metadata(meta)
-    }
-
-    /// Get Gemini-specific metadata with type safety
-    ///
-    /// # Example
-    /// ```rust,no_run
-    /// # use siumai::prelude::*;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = Siumai::builder().gemini().api_key("key").model("gemini-2.0-flash-exp").build().await?;
-    /// let response = client.chat(vec![user!("Hello")]).await?;
-    /// if let Some(meta) = response.gemini_metadata() {
-    ///     if let Some(grounding) = &meta.grounding_metadata {
-    ///         println!("Grounding chunks: {:?}", grounding.grounding_chunks);
-    ///     }
-    ///     if let Some(sources) = &meta.sources {
-    ///         println!("Sources: {}", sources.len());
-    ///     }
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn gemini_metadata(&self) -> Option<crate::types::GeminiMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("gemini")?;
-        crate::types::GeminiMetadata::from_metadata(meta)
-    }
+    // Provider-specific typed metadata helpers live in provider crates via extension traits.
 }
 
 #[cfg(test)]

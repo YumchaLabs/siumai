@@ -1269,11 +1269,21 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
             build_http_client_from_config(&http_config)?
         };
 
-        // Resolve API key using shared helper (context override + env).
-        let api_key = crate::utils::builder_helpers::get_api_key_with_env(
-            ctx.api_key.clone(),
-            &self.provider_id,
-        )?;
+        // Resolve API key using shared helper (context override + configured envs + fallback).
+        let provider_config =
+            siumai_providers::providers::openai_compatible::config::get_provider_config(
+                &self.provider_id,
+            );
+        let api_key = if let Some(cfg) = &provider_config {
+            crate::utils::builder_helpers::get_api_key_with_envs(
+                ctx.api_key.clone(),
+                &self.provider_id,
+                cfg.api_key_env.as_deref(),
+                &cfg.api_key_env_aliases,
+            )?
+        } else {
+            crate::utils::builder_helpers::get_api_key_with_env(ctx.api_key.clone(), &self.provider_id)?
+        };
 
         // Resolve common parameters.
         let common_params = crate::utils::builder_helpers::resolve_common_params(

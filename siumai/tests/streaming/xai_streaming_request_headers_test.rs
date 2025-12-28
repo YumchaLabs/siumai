@@ -51,7 +51,7 @@ async fn xai_streaming_headers_default_identity() {
     let app = {
         let s = state.clone();
         Router::new().route(
-            "/chat/completions",
+            "/v1/chat/completions",
             post(move |req| handler(req, s.clone())),
         )
     };
@@ -89,7 +89,7 @@ async fn xai_streaming_headers_disable_identity() {
     let app = {
         let s = state.clone();
         Router::new().route(
-            "/chat/completions",
+            "/v1/chat/completions",
             post(move |req| handler(req, s.clone())),
         )
     };
