@@ -138,43 +138,55 @@ impl RerankExecutor for HttpRerankExecutor {
             ));
         }
 
-        // 1. Transform request
-        let mut body = self.request_transformer.transform(&req)?;
+        let retry_options = self.policy.retry_options.clone();
+        let run_once = move || {
+            let req = req.clone();
+            async move {
+                // 1. Transform request
+                let mut body = self.request_transformer.transform(&req)?;
 
-        // 2. Apply ProviderSpec-level hook, then policy hook (mirrors EmbeddingExecutor)
-        if let Some(cb) = self
-            .provider_spec
-            .rerank_before_send(&req, &self.provider_context)
-        {
-            body = cb(&body)?;
-        }
-        if let Some(cb) = &self.policy.before_send {
-            body = cb(&body)?;
-        }
+                // 2. Apply ProviderSpec-level hook, then policy hook (mirrors EmbeddingExecutor)
+                if let Some(cb) = self
+                    .provider_spec
+                    .rerank_before_send(&req, &self.provider_context)
+                {
+                    body = cb(&body)?;
+                }
+                if let Some(cb) = &self.policy.before_send {
+                    body = cb(&body)?;
+                }
 
-        // 3. Resolve URL via ProviderSpec
-        let url = self.provider_spec.rerank_url(&req, &self.provider_context);
+                // 3. Resolve URL via ProviderSpec
+                let url = self.provider_spec.rerank_url(&req, &self.provider_context);
 
-        // 4. Execute request via the common HTTP layer
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
+                // 4. Execute request via the common HTTP layer
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id: self.provider_id.clone(),
+                    http_client: self.http_client.clone(),
+                    provider_spec: self.provider_spec.clone(),
+                    provider_context: self.provider_context.clone(),
+                    interceptors: self.policy.interceptors.clone(),
+                    retry_options: self.policy.retry_options.clone(),
+                };
+                let result = crate::execution::executors::common::execute_json_request(
+                    &config,
+                    &url,
+                    crate::execution::executors::common::HttpBody::Json(body),
+                    None,
+                    false,
+                )
+                .await?;
+
+                // 5. Transform response
+                self.response_transformer.transform(result.json)
+            }
         };
-        let result = crate::execution::executors::common::execute_json_request(
-            &config,
-            &url,
-            crate::execution::executors::common::HttpBody::Json(body),
-            None,
-            false,
-        )
-        .await?;
 
-        // 5. Transform response
-        self.response_transformer.transform(result.json)
+        if let Some(opts) = retry_options {
+            crate::retry_api::retry_with(run_once, opts).await
+        } else {
+            run_once().await
+        }
     }
 }
 

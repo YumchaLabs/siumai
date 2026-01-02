@@ -47,21 +47,21 @@
 
 use crate::error::LlmError;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
-use crate::types::{SttRequest, TtsRequest};
+use crate::types::{ProviderOptionsMap, SttRequest, TtsRequest};
 use serde_json::json;
 
 fn lookup_extra<'a>(
     provider_id: &str,
-    provider_options: &'a crate::types::ProviderOptions,
+    provider_options_map: &'a ProviderOptionsMap,
     extra_params: &'a std::collections::HashMap<String, serde_json::Value>,
     key: &str,
 ) -> Option<&'a serde_json::Value> {
-    match provider_options {
-        crate::types::ProviderOptions::Custom { provider_id: id, options } if id == provider_id => {
-            options.get(key).or_else(|| extra_params.get(key))
-        }
-        _ => extra_params.get(key),
+    if let Some(obj) = provider_options_map.get_object(provider_id)
+        && let Some(v) = obj.get(key)
+    {
+        return Some(v);
     }
+    extra_params.get(key)
 }
 
 /// MiniMaxi Audio Transformer for TTS and STT
@@ -128,32 +128,62 @@ impl AudioTransformer for MinimaxiAudioTransformer {
         // Speed: default to 1.0
         let speed = req.speed.unwrap_or(1.0);
 
-        // Extract additional parameters from provider_options (fallback to extra_params)
+        // Extract additional parameters from provider options map (fallback to extra_params)
         let provider_id = self.provider_id();
 
-        let vol = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "vol")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(1.0);
+        let vol = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "vol",
+        )
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0);
 
-        let pitch = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "pitch")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let pitch = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "pitch",
+        )
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
 
-        let emotion = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "emotion")
-            .and_then(|v| v.as_str())
-            .unwrap_or("neutral");
+        let emotion = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "emotion",
+        )
+        .and_then(|v| v.as_str())
+        .unwrap_or("neutral");
 
-        let sample_rate = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "sample_rate")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(32000);
+        let sample_rate = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "sample_rate",
+        )
+        .and_then(|v| v.as_u64())
+        .unwrap_or(32000);
 
-        let bitrate = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "bitrate")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(128000);
+        let bitrate = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "bitrate",
+        )
+        .and_then(|v| v.as_u64())
+        .unwrap_or(128000);
 
-        let channel = lookup_extra(provider_id, &req.provider_options, &req.extra_params, "channel")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1);
+        let channel = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "channel",
+        )
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1);
 
         // Build request body
         let mut body = json!({
@@ -176,23 +206,32 @@ impl AudioTransformer for MinimaxiAudioTransformer {
         });
 
         // Add optional pronunciation_dict if provided
-        if let Some(pronunciation_dict) =
-            lookup_extra(provider_id, &req.provider_options, &req.extra_params, "pronunciation_dict")
-        {
+        if let Some(pronunciation_dict) = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "pronunciation_dict",
+        ) {
             body["pronunciation_dict"] = pronunciation_dict.clone();
         }
 
         // Add optional voice_modify if provided
-        if let Some(voice_modify) =
-            lookup_extra(provider_id, &req.provider_options, &req.extra_params, "voice_modify")
-        {
+        if let Some(voice_modify) = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "voice_modify",
+        ) {
             body["voice_modify"] = voice_modify.clone();
         }
 
         // Add optional subtitle_enable if provided
-        if let Some(subtitle_enable) =
-            lookup_extra(provider_id, &req.provider_options, &req.extra_params, "subtitle_enable")
-        {
+        if let Some(subtitle_enable) = lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "subtitle_enable",
+        ) {
             body["subtitle_enable"] = subtitle_enable.clone();
         }
 

@@ -3,7 +3,9 @@
 //! Main client that aggregates all Ollama capabilities.
 
 use async_trait::async_trait;
+use backoff::ExponentialBackoffBuilder;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
@@ -155,7 +157,18 @@ impl OllamaClient {
 
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
-        self.retry_options = options;
+        self.retry_options = options.map(|mut opts| {
+            if matches!(opts.backend, crate::retry_api::RetryBackend::Backoff)
+                && opts.backoff_executor.is_none()
+            {
+                opts.backoff_executor = Some(ollama_backoff_executor());
+            }
+            opts
+        });
+        self.embedding_capability = self
+            .embedding_capability
+            .clone()
+            .with_retry_options(self.retry_options.clone());
     }
 
     /// Install HTTP interceptors for all chat requests.
@@ -264,20 +277,12 @@ impl OllamaClient {
 
     /// Check if Ollama server is running
     pub async fn health_check(&self) -> Result<bool, LlmError> {
-        use crate::execution::executors::common::{HttpExecutionConfig, execute_get_request};
+        use crate::execution::executors::common::execute_get_request;
 
-        let ctx = self.build_context();
         let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec::new(
             self.ollama_params.clone(),
         ));
-        let config = HttpExecutionConfig {
-            provider_id: "ollama".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        };
+        let config = self.http_wiring().config(spec);
 
         let url = format!("{}/api/version", self.base_url.trim_end_matches('/'));
         match execute_get_request(&config, &url, None).await {
@@ -288,20 +293,12 @@ impl OllamaClient {
 
     /// Get Ollama version
     pub async fn version(&self) -> Result<String, LlmError> {
-        use crate::execution::executors::common::{HttpExecutionConfig, execute_get_request};
+        use crate::execution::executors::common::execute_get_request;
 
-        let ctx = self.build_context();
         let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec::new(
             self.ollama_params.clone(),
         ));
-        let config = HttpExecutionConfig {
-            provider_id: "ollama".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        };
+        let config = self.http_wiring().config(spec);
 
         let url = format!("{}/api/version", self.base_url.trim_end_matches('/'));
         let res = execute_get_request(&config, &url, None).await?;
@@ -320,6 +317,16 @@ impl OllamaClient {
             None,
             self.chat_capability.http_config.headers.clone(),
         )
+    }
+
+    fn http_wiring(&self) -> crate::execution::wiring::HttpExecutionWiring {
+        crate::execution::wiring::HttpExecutionWiring::new(
+            "ollama",
+            self.http_client.clone(),
+            self.build_context(),
+        )
+        .with_interceptors(self.http_interceptors.clone())
+        .with_retry_options(self.retry_options.clone())
     }
 
     /// Create chat executor using the builder pattern
@@ -351,6 +358,10 @@ impl OllamaClient {
             builder = builder.with_before_send(hook);
         }
 
+        if let Some(retry) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry);
+        }
+
         builder.build()
     }
 
@@ -358,20 +369,8 @@ impl OllamaClient {
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let exec = self.build_chat_executor(&rq);
-                    async move { ChatExecutor::execute(&*exec, rq).await }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            let exec = self.build_chat_executor(&request);
-            ChatExecutor::execute(&*exec, request).await
-        }
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute(&*exec, request).await
     }
 
     /// Execute streaming chat request via spec (unified implementation)
@@ -394,26 +393,13 @@ impl ChatCapability for OllamaClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let call = || {
-            let mut builder = ChatRequest::builder()
-                .messages(messages.clone())
-                .common_params(self.common_params.clone());
-            if let Some(ts) = tools.clone() {
-                builder = builder.tools(ts);
-            }
-            let req = builder.build();
-            async move { self.chat_request_via_spec(req).await }
-        };
-
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Ollama);
-            }
-            crate::retry_api::retry_with(call, opts).await
-        } else {
-            call().await
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
         }
+        self.chat_request_via_spec(builder.build()).await
     }
 
     /// Streaming chat with tools
@@ -446,20 +432,7 @@ impl ChatCapability for OllamaClient {
 #[async_trait]
 impl EmbeddingCapability for OllamaClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
-        if let Some(opts) = &self.retry_options {
-            let cap = self.embedding_capability.clone();
-            crate::retry_api::retry_with(
-                || {
-                    let texts = texts.clone();
-                    let cap = cap.clone();
-                    async move { cap.embed(texts).await }
-                },
-                opts.clone(),
-            )
-            .await
-        } else {
-            self.embedding_capability.embed(texts).await
-        }
+        self.embedding_capability.embed(texts).await
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -542,9 +515,20 @@ impl LlmProvider for OllamaClient {
     }
 }
 
+fn ollama_backoff_executor() -> crate::retry_api::BackoffRetryExecutor {
+    let backoff = ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(500))
+        .with_max_interval(Duration::from_secs(30))
+        .with_multiplier(1.5)
+        .with_max_elapsed_time(Some(Duration::from_secs(180)))
+        .build();
+    crate::retry_api::BackoffRetryExecutor::with_backoff(backoff)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::ollama::ext::OllamaChatRequestExt;
 
     #[test]
     fn test_client_creation() {
@@ -583,7 +567,7 @@ mod tests {
 
     #[test]
     fn test_chat_executor_uses_client_params_and_provider_options_override() {
-        use crate::types::OllamaOptions;
+        use crate::provider_options::OllamaOptions;
 
         let config = OllamaConfig::default();
         let client = OllamaClient::new_with_config(config)

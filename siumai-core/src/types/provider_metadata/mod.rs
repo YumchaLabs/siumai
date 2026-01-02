@@ -1,8 +1,7 @@
-//! Provider-specific metadata types
+//! Provider metadata helpers.
 //!
-//! This module provides strongly-typed structures for provider-specific metadata
-//! returned in responses. While the response stores metadata as a nested HashMap
-//! for flexibility, these types provide type-safe access to common provider metadata.
+//! Provider-specific typed metadata types are intentionally owned by provider crates to
+//! reduce coupling and compile cost in `siumai-core`.
 
 // Provider-specific typed metadata types are intentionally owned by provider crates.
 

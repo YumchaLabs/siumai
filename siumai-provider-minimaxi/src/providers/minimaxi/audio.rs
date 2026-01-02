@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::execution::executors::audio::{AudioExecutorBuilder, HttpAudioExecutor};
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 
@@ -20,17 +21,23 @@ pub(super) fn build_audio_executor(
     retry_options: Option<&RetryOptions>,
     http_interceptors: &[Arc<dyn HttpInterceptor>],
 ) -> Arc<HttpAudioExecutor> {
-    let ctx = super::utils::build_context(api_key, base_url, http_config);
+    let wiring = HttpExecutionWiring::new(
+        "minimaxi",
+        http_client.clone(),
+        super::utils::build_context(api_key, base_url, http_config),
+    )
+    .with_interceptors(http_interceptors.to_vec())
+    .with_retry_options(retry_options.cloned());
 
     let spec = Arc::new(MinimaxiAudioSpec::new());
 
-    let mut builder = AudioExecutorBuilder::new("minimaxi", http_client.clone())
+    let mut builder = AudioExecutorBuilder::new("minimaxi", wiring.http_client)
         .with_spec(spec)
-        .with_context(ctx)
-        .with_interceptors(http_interceptors.to_vec());
+        .with_context(wiring.provider_context)
+        .with_interceptors(wiring.interceptors);
 
-    if let Some(retry_opts) = retry_options {
-        builder = builder.with_retry_options(retry_opts.clone());
+    if let Some(retry_opts) = wiring.retry_options {
+        builder = builder.with_retry_options(retry_opts);
     }
 
     builder.build()

@@ -1,8 +1,9 @@
 //! Anthropic structured output helpers (extension API).
 
 use crate::error::LlmError;
-use crate::traits::ChatCapability;
 use crate::provider_options::anthropic::AnthropicOptions;
+use crate::providers::anthropic::ext::AnthropicChatRequestExt;
+use crate::traits::ChatCapability;
 use crate::types::{ChatRequest, ChatResponse};
 
 /// Execute a chat request requesting a JSON object response (explicit extension API).

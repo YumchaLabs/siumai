@@ -4,7 +4,7 @@
 
 use crate::core::{ImageTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
+use crate::standards::gemini::headers::build_gemini_headers;
 use crate::standards::gemini::types::GeminiConfig;
 use std::sync::Arc;
 
@@ -92,7 +92,7 @@ impl ProviderSpec for GeminiImageSpec {
     }
     fn build_headers(&self, ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, LlmError> {
         let api_key = ctx.api_key.as_deref().unwrap_or("");
-        let mut headers = ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)?;
+        let mut headers = build_gemini_headers(api_key, &ctx.http_extra_headers)?;
         if let Some(adapter) = &self.adapter {
             adapter.build_headers(api_key, &mut headers)?;
         }

@@ -11,11 +11,11 @@
 //! ```
 
 use serde_json::json;
+use siumai::prelude::Siumai;
+use siumai::prelude::unified::{ChatMessage, OutputSchema, Tool};
 use siumai_extras::orchestrator::{
     ToolChoice, ToolLoopAgent, has_no_tool_calls, has_tool_result, step_count_is,
 };
-use siumai::prelude::Siumai;
-use siumai::types::{ChatMessage, OutputSchema, Tool};
 
 // Simple tool resolver
 struct SimpleResolver;
@@ -26,7 +26,7 @@ impl siumai_extras::orchestrator::ToolResolver for SimpleResolver {
         &self,
         tool_name: &str,
         arguments: serde_json::Value,
-    ) -> Result<serde_json::Value, siumai::error::LlmError> {
+    ) -> Result<serde_json::Value, siumai::prelude::unified::LlmError> {
         match tool_name {
             "get_weather" => {
                 let location = arguments
@@ -116,13 +116,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📌 Example 1: Agent-level tool_choice (Required)");
     println!("{}", "-".repeat(80));
 
-    let agent1 = ToolLoopAgent::new(
-        client.clone(),
-        tools.clone(),
-        vec![step_count_is(3)],
-    )
-    .with_system("You are a helpful assistant.")
-    .with_tool_choice(ToolChoice::Required); // Force tool usage
+    let agent1 = ToolLoopAgent::new(client.clone(), tools.clone(), vec![step_count_is(3)])
+        .with_system("You are a helpful assistant.")
+        .with_tool_choice(ToolChoice::Required); // Force tool usage
 
     let messages1 = vec![ChatMessage::user("What's 100 + 50?").build()];
     let result1 = agent1.generate(messages1, &resolver).await?;
@@ -134,15 +130,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n📌 Example 2: Agent-level active_tools (Only weather)");
     println!("{}", "-".repeat(80));
 
-    let agent2 = ToolLoopAgent::new(
-        client.clone(),
-        tools.clone(),
-        vec![step_count_is(3)],
-    )
-    .with_system("You are a helpful assistant.")
-    .with_active_tools(vec!["get_weather".to_string()]); // Only allow weather tool
+    let agent2 = ToolLoopAgent::new(client.clone(), tools.clone(), vec![step_count_is(3)])
+        .with_system("You are a helpful assistant.")
+        .with_active_tools(vec!["get_weather".to_string()]); // Only allow weather tool
 
-    let messages2 = vec![ChatMessage::user("What's the weather in Tokyo and what's 5 * 10?").build()];
+    let messages2 =
+        vec![ChatMessage::user("What's the weather in Tokyo and what's 5 * 10?").build()];
     let result2 = agent2.generate(messages2, &resolver).await?;
 
     println!("Response: {}", result2.text().unwrap_or(""));
@@ -202,22 +195,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "required": ["location", "temperature", "condition"]
     });
 
-    let agent5 = ToolLoopAgent::new(
-        client.clone(),
-        tools.clone(),
-        vec![step_count_is(5)],
-    )
-    .with_system(
-        "You are a weather assistant. Always use the get_weather tool and \
+    let agent5 = ToolLoopAgent::new(client.clone(), tools.clone(), vec![step_count_is(5)])
+        .with_system(
+            "You are a weather assistant. Always use the get_weather tool and \
          respond with JSON matching the schema.",
-    )
-    .with_tool_choice(ToolChoice::Required)
-    .with_active_tools(vec!["get_weather".to_string()])
-    .with_output_schema(
-        OutputSchema::new(schema.clone())
-            .with_name("weather_report")
-            .with_description("Weather report with recommendation"),
-    );
+        )
+        .with_tool_choice(ToolChoice::Required)
+        .with_active_tools(vec!["get_weather".to_string()])
+        .with_output_schema(
+            OutputSchema::new(schema.clone())
+                .with_name("weather_report")
+                .with_description("Weather report with recommendation"),
+        );
 
     let messages5 = vec![ChatMessage::user("What's the weather in London?").build()];
     let result5 = agent5.generate(messages5, &resolver).await?;
@@ -230,7 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 6: Validation with siumai-extras (if available)
     #[cfg(feature = "schema")]
     {
-        use siumai::types::SchemaValidator;
+        use siumai::prelude::unified::SchemaValidator;
         use siumai_extras::schema::JsonSchemaValidator;
 
         println!("\n📌 Example 6: Schema validation with siumai-extras");

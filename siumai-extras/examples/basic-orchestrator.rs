@@ -9,7 +9,6 @@
 //! Run with: cargo run -p siumai-extras --example basic-orchestrator
 
 use siumai::prelude::*;
-use siumai::types::Tool;
 use siumai_extras::orchestrator::{OrchestratorOptions, ToolResolver, generate, step_count_is};
 
 // Simple tool resolver that implements weather and calculator tools
@@ -21,7 +20,7 @@ impl ToolResolver for MyToolResolver {
         &self,
         name: &str,
         arguments: serde_json::Value,
-    ) -> Result<serde_json::Value, siumai::error::LlmError> {
+    ) -> Result<serde_json::Value, LlmError> {
         match name {
             "get_weather" => {
                 let location = arguments
@@ -52,10 +51,7 @@ impl ToolResolver for MyToolResolver {
 
                 Ok(serde_json::json!({ "result": result }))
             }
-            _ => Err(siumai::error::LlmError::InternalError(format!(
-                "Unknown tool: {}",
-                name
-            ))),
+            _ => Err(LlmError::InternalError(format!("Unknown tool: {}", name))),
         }
     }
 }

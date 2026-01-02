@@ -9,10 +9,9 @@
 
 use std::sync::Arc;
 
-use siumai::error::LlmError;
-use siumai::streaming::ChatStreamEvent;
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, Tool};
+use siumai::prelude::unified::{
+    ChatCapability, ChatMessage, ChatResponse, ChatStreamEvent, CommonParams, LlmError, Tool,
+};
 
 use super::prepare_step::{PrepareStepFn, PrepareStepResult, ToolChoice};
 use super::stop_condition::StopCondition;
@@ -149,7 +148,10 @@ impl OrchestratorBuilder {
     }
 
     /// Set telemetry configuration (applies to both variants).
-    pub fn telemetry(mut self, cfg: siumai::observability::telemetry::TelemetryConfig) -> Self {
+    pub fn telemetry(
+        mut self,
+        cfg: siumai::experimental::observability::telemetry::TelemetryConfig,
+    ) -> Self {
         let some = Some(cfg);
         self.stream_options.telemetry = some.clone();
         self.options.telemetry = some;
@@ -157,7 +159,7 @@ impl OrchestratorBuilder {
     }
 
     /// Set agent‑level CommonParams (applies to both variants).
-    pub fn common_params(mut self, params: siumai::types::CommonParams) -> Self {
+    pub fn common_params(mut self, params: CommonParams) -> Self {
         let some = Some(params);
         self.stream_options.common_params = some.clone();
         self.options.common_params = some;
@@ -189,7 +191,7 @@ impl OrchestratorBuilder {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
         resolver: Option<&dyn super::types::ToolResolver>,
-    ) -> Result<(siumai::types::ChatResponse, Vec<StepResult>), LlmError> {
+    ) -> Result<(ChatResponse, Vec<StepResult>), LlmError> {
         // Convert owned Box<dyn StopCondition> into a temporary Vec<&dyn StopCondition>
         let mut refs: Vec<&dyn StopCondition> = Vec::with_capacity(self.stop_conditions.len());
         for c in &self.stop_conditions {

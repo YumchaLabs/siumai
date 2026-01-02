@@ -17,7 +17,7 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-openai = { version = "0.11.0-beta.5", path = "../siumai-provider-openai", default-features = false }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
@@ -46,6 +46,6 @@ once_cell.workspace = true
 [features]
 default = []
 
-structured-messages = ["siumai-core/structured-messages", "siumai-provider-openai/structured-messages"]
+structured-messages = ["siumai-core/structured-messages", "siumai-provider-openai-compatible/structured-messages"]
 
-groq = ["siumai-core/groq", "siumai-provider-openai/openai-standard"]
+groq = ["siumai-core/groq", "siumai-provider-openai-compatible/openai-standard"]

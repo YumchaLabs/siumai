@@ -3,11 +3,18 @@
 //! These tests verify the embedding functionality across different providers.
 //! They are designed to run with actual API keys when available, but skip gracefully when not.
 
-use siumai::providers::gemini::GeminiClient;
-use siumai::providers::ollama::embeddings::OllamaEmbeddings;
-use siumai::providers::openai::OpenAiClient;
-use siumai::traits::{EmbeddingCapability, EmbeddingExtensions};
-use siumai::types::EmbeddingRequest;
+use siumai::prelude::unified::{EmbeddingExtensions, EmbeddingRequest, HttpConfig};
+
+#[cfg(feature = "openai")]
+use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
+
+#[cfg(feature = "google")]
+use siumai::provider_ext::gemini::{GeminiClient, GeminiConfig};
+
+#[cfg(feature = "ollama")]
+use siumai_provider_ollama::providers::ollama::config::OllamaParams;
+#[cfg(feature = "ollama")]
+use siumai_provider_ollama::providers::ollama::embeddings::OllamaEmbeddings;
 
 #[cfg(test)]
 mod tests {
@@ -15,6 +22,7 @@ mod tests {
 
     /// Test OpenAI embeddings with real API if available
     #[tokio::test]
+    #[cfg(feature = "openai")]
     async fn test_openai_embeddings_integration() {
         let api_key = match std::env::var("OPENAI_API_KEY") {
             Ok(key) => key,
@@ -24,7 +32,7 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
+        let config = OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
         let client = OpenAiClient::new(config, http_client);
 
@@ -48,6 +56,7 @@ mod tests {
 
     /// Test OpenAI embeddings with custom dimensions
     #[tokio::test]
+    #[cfg(feature = "openai")]
     async fn test_openai_custom_dimensions() {
         let api_key = match std::env::var("OPENAI_API_KEY") {
             Ok(key) => key,
@@ -57,7 +66,7 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
+        let config = OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
         let client = OpenAiClient::new(config, http_client);
 
@@ -66,7 +75,8 @@ mod tests {
             .with_model("text-embedding-3-large")
             .with_dimensions(1024);
 
-        let result = <OpenAiClient as EmbeddingExtensions>::embed_with_config(&client, request).await;
+        let result =
+            <OpenAiClient as EmbeddingExtensions>::embed_with_config(&client, request).await;
 
         match result {
             Ok(response) => {
@@ -81,6 +91,7 @@ mod tests {
 
     /// Test Gemini embeddings with real API if available
     #[tokio::test]
+    #[cfg(feature = "google")]
     async fn test_gemini_embeddings_integration() {
         let api_key = match std::env::var("GEMINI_API_KEY") {
             Ok(key) => key,
@@ -90,7 +101,7 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::gemini::types::GeminiConfig::new(api_key)
+        let config = GeminiConfig::new(api_key)
             .with_base_url("https://generativelanguage.googleapis.com/v1beta".to_string())
             // Use the official embedding model id (see `standards::gemini::embedding` tests).
             .with_model("publishers/google/models/text-embedding-004".to_string());
@@ -120,6 +131,7 @@ mod tests {
 
     /// Test Gemini embeddings with task optimization
     #[tokio::test]
+    #[cfg(feature = "google")]
     async fn test_gemini_task_optimization() {
         let api_key = match std::env::var("GEMINI_API_KEY") {
             Ok(key) => key,
@@ -129,7 +141,7 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::gemini::types::GeminiConfig::new(api_key)
+        let config = GeminiConfig::new(api_key)
             .with_base_url("https://generativelanguage.googleapis.com/v1beta".to_string())
             .with_model("publishers/google/models/text-embedding-004".to_string());
         let client = match GeminiClient::with_http_client(config, reqwest::Client::new()) {
@@ -143,7 +155,8 @@ mod tests {
         // Test with task type (typed, provider-agnostic). Gemini uses this to optimize embeddings.
         let request = EmbeddingRequest::query("Search query".to_string());
 
-        let result = <GeminiClient as EmbeddingExtensions>::embed_with_config(&client, request).await;
+        let result =
+            <GeminiClient as EmbeddingExtensions>::embed_with_config(&client, request).await;
 
         match result {
             Ok(response) => {
@@ -158,6 +171,7 @@ mod tests {
 
     /// Test Ollama embeddings if available
     #[tokio::test]
+    #[cfg(feature = "ollama")]
     async fn test_ollama_embeddings_integration() {
         // Check if Ollama is available
         let ollama_available = std::process::Command::new("curl")
@@ -171,8 +185,8 @@ mod tests {
             return;
         }
 
-        let config = siumai::providers::ollama::config::OllamaParams::default();
-        let http_config = siumai::types::HttpConfig::default();
+        let config = OllamaParams::default();
+        let http_config = HttpConfig::default();
         let http_client = reqwest::Client::new();
         let embeddings = OllamaEmbeddings::new(
             "http://localhost:11434".to_string(),
@@ -206,6 +220,7 @@ mod tests {
 
     /// Test embedding similarity calculation
     #[tokio::test]
+    #[cfg(feature = "openai")]
     async fn test_embedding_similarity() {
         let api_key = match std::env::var("OPENAI_API_KEY") {
             Ok(key) => key,
@@ -215,7 +230,7 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
+        let config = OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
         let client = OpenAiClient::new(config, http_client);
 
@@ -254,6 +269,7 @@ mod tests {
 
     /// Test batch embedding processing
     #[tokio::test]
+    #[cfg(feature = "openai")]
     async fn test_batch_embedding() {
         let api_key = match std::env::var("OPENAI_API_KEY") {
             Ok(key) => key,
@@ -263,7 +279,7 @@ mod tests {
             }
         };
 
-        let config = siumai::providers::openai::OpenAiConfig::new(&api_key);
+        let config = OpenAiConfig::new(&api_key);
         let http_client = reqwest::Client::new();
         let client = OpenAiClient::new(config, http_client);
 

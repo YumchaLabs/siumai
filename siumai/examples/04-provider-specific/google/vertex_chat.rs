@@ -30,7 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let response = client.chat(vec![user!("Say hello from Vertex AI!")], None).await?;
+    let response = client
+        .chat(vec![user!("Say hello from Vertex AI!")])
+        .await?;
     println!("{}", response.content_text().unwrap_or_default());
     Ok(())
 }
@@ -42,4 +44,3 @@ fn main() {
 Run: cargo run --example vertex_chat --features \"google gcp\""
     );
 }
-

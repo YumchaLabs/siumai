@@ -3,6 +3,7 @@
 //! Line-delimited JSON streaming request execution split out from `common.rs`.
 
 use crate::error::LlmError;
+use crate::execution::executors::errors as exec_errors;
 use crate::execution::executors::helpers::apply_before_send_interceptors;
 use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
 use crate::retry_api::RetryOptions;
@@ -15,6 +16,7 @@ use std::sync::Arc;
 pub async fn execute_json_stream_request_with_headers<C>(
     http_client: &reqwest::Client,
     provider_id: &str,
+    provider_spec: Option<&dyn crate::core::ProviderSpec>,
     url: &str,
     headers_base: HeaderMap,
     body: serde_json::Value,
@@ -29,7 +31,11 @@ where
 {
     // Merge request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(headers_base.clone(), req_headers)
+        if let Some(spec) = provider_spec {
+            spec.merge_request_headers(headers_base.clone(), req_headers)
+        } else {
+            crate::execution::http::headers::merge_headers(headers_base.clone(), req_headers)
+        }
     } else {
         headers_base.clone()
     };
@@ -96,8 +102,9 @@ where
             .text()
             .await
             .unwrap_or_else(|_| "Failed to read error response".to_string());
-        let error = crate::retry_api::classify_http_error(
+        let error = exec_errors::classify_http_error(
             provider_id,
+            provider_spec,
             status.as_u16(),
             &error_text,
             &response_headers,

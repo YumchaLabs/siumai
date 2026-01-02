@@ -15,6 +15,7 @@ use std::sync::Arc;
 pub async fn execute_sse_stream_request_with_headers<C>(
     http_client: &reqwest::Client,
     provider_id: &str,
+    provider_spec: Option<&dyn crate::core::ProviderSpec>,
     url: &str,
     request_id: String,
     headers_base: HeaderMap,
@@ -45,7 +46,11 @@ where
         let ctx = ctx.clone();
         move || -> Result<reqwest::RequestBuilder, LlmError> {
             let effective_headers = if let Some(req_headers) = per_request_headers.clone() {
-                crate::execution::http::headers::merge_headers(base.clone(), &req_headers)
+                if let Some(spec) = provider_spec {
+                    spec.merge_request_headers(base.clone(), &req_headers)
+                } else {
+                    crate::execution::http::headers::merge_headers(base.clone(), &req_headers)
+                }
             } else {
                 base.clone()
             };
@@ -76,6 +81,7 @@ where
 
     crate::streaming::StreamFactory::create_eventsource_stream_with_retry_options(
         provider_id,
+        provider_spec,
         url,
         should_retry_401,
         build_request,

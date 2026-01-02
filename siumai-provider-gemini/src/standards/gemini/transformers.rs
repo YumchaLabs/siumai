@@ -75,11 +75,6 @@ fn gemini_options_from_request(req: &ChatRequest) -> Option<GeminiOptions> {
         }
     }
 
-    if let crate::types::ProviderOptions::Gemini(ref value) = req.provider_options {
-        let normalized = normalize_gemini_provider_options_json(value);
-        return serde_json::from_value::<GeminiOptions>(normalized).ok();
-    }
-
     None
 }
 
@@ -961,33 +956,35 @@ impl ResponseTransformer for GeminiResponseTransformer {
         });
 
         // Provider metadata (Vercel alignment): expose grounding/url_context and safety ratings.
-	        let provider_metadata = {
-	            let mut gemini_meta: std::collections::HashMap<String, serde_json::Value> =
-	                std::collections::HashMap::new();
+        let provider_metadata = {
+            let mut gemini_meta: std::collections::HashMap<String, serde_json::Value> =
+                std::collections::HashMap::new();
 
-	            if let Some(m) = &candidate.grounding_metadata
-	                && let Ok(v) = serde_json::to_value(m)
-	            {
-	                gemini_meta.insert("grounding_metadata".to_string(), v);
-	            }
+            if let Some(m) = &candidate.grounding_metadata
+                && let Ok(v) = serde_json::to_value(m)
+            {
+                gemini_meta.insert("grounding_metadata".to_string(), v);
+            }
 
-	            if let Some(m) = &candidate.url_context_metadata
-	                && let Ok(v) = serde_json::to_value(m)
-	            {
-	                gemini_meta.insert("url_context_metadata".to_string(), v);
-	            }
+            if let Some(m) = &candidate.url_context_metadata
+                && let Ok(v) = serde_json::to_value(m)
+            {
+                gemini_meta.insert("url_context_metadata".to_string(), v);
+            }
 
-	            if !candidate.safety_ratings.is_empty()
-	                && let Ok(v) = serde_json::to_value(&candidate.safety_ratings)
-	            {
-	                gemini_meta.insert("safety_ratings".to_string(), v);
-	            }
+            if !candidate.safety_ratings.is_empty()
+                && let Ok(v) = serde_json::to_value(&candidate.safety_ratings)
+            {
+                gemini_meta.insert("safety_ratings".to_string(), v);
+            }
 
             // Vercel-aligned: extract normalized sources from grounding chunks.
             let sources = super::sources::extract_sources(candidate.grounding_metadata.as_ref());
-	            if !sources.is_empty() && let Ok(v) = serde_json::to_value(sources) {
-	                gemini_meta.insert("sources".to_string(), v);
-	            }
+            if !sources.is_empty()
+                && let Ok(v) = serde_json::to_value(sources)
+            {
+                gemini_meta.insert("sources".to_string(), v);
+            }
 
             if gemini_meta.is_empty() {
                 None

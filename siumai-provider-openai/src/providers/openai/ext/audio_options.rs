@@ -1,11 +1,11 @@
 //! OpenAI audio option helpers (non-unified surface)
 //!
-//! These helpers build `ProviderOptions::Custom { provider_id, options }` buckets for audio APIs.
+//! These helpers build `(provider_id, json)` entries for `providerOptions`.
 //! They intentionally keep the unified `TtsRequest`/`SttRequest` surface small while still
 //! enabling provider-specific escape hatches.
 
 use crate::error::LlmError;
-use crate::types::{CustomProviderOptions, ProviderOptions};
+use crate::types::CustomProviderOptions;
 
 /// OpenAI-specific options for TTS requests.
 #[derive(Debug, Clone, Default)]
@@ -24,8 +24,8 @@ impl OpenAiTtsOptions {
         self
     }
 
-    pub fn into_provider_options(self) -> Result<ProviderOptions, LlmError> {
-        ProviderOptions::from_custom(self)
+    pub fn into_provider_options_map_entry(self) -> Result<(String, serde_json::Value), LlmError> {
+        self.to_provider_options_map_entry()
     }
 }
 
@@ -37,7 +37,10 @@ impl CustomProviderOptions for OpenAiTtsOptions {
     fn to_json(&self) -> Result<serde_json::Value, LlmError> {
         let mut obj = serde_json::Map::new();
         if let Some(v) = self.instructions.as_deref() {
-            obj.insert("instructions".to_string(), serde_json::Value::String(v.to_string()));
+            obj.insert(
+                "instructions".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
         }
         Ok(serde_json::Value::Object(obj))
     }
@@ -102,8 +105,8 @@ impl OpenAiSttOptions {
         self
     }
 
-    pub fn into_provider_options(self) -> Result<ProviderOptions, LlmError> {
-        ProviderOptions::from_custom(self)
+    pub fn into_provider_options_map_entry(self) -> Result<(String, serde_json::Value), LlmError> {
+        self.to_provider_options_map_entry()
     }
 }
 
@@ -122,7 +125,10 @@ impl CustomProviderOptions for OpenAiSttOptions {
             );
         }
         if let Some(v) = self.prompt.as_deref() {
-            obj.insert("prompt".to_string(), serde_json::Value::String(v.to_string()));
+            obj.insert(
+                "prompt".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
         }
         if let Some(v) = self.temperature {
             obj.insert("temperature".to_string(), serde_json::json!(v));
@@ -140,10 +146,7 @@ impl CustomProviderOptions for OpenAiSttOptions {
             obj.insert("known_speaker_names".to_string(), serde_json::json!(v));
         }
         if let Some(v) = self.known_speaker_references.as_ref() {
-            obj.insert(
-                "known_speaker_references".to_string(),
-                serde_json::json!(v),
-            );
+            obj.insert("known_speaker_references".to_string(), serde_json::json!(v));
         }
         if let Some(v) = self.stream {
             obj.insert("stream".to_string(), serde_json::Value::Bool(v));
@@ -152,4 +155,3 @@ impl CustomProviderOptions for OpenAiSttOptions {
         Ok(serde_json::Value::Object(obj))
     }
 }
-

@@ -147,29 +147,29 @@ impl CacheAwareMessageBuilder {
             }
         }
 
-	        // Apply content-level cache controls
-	        if !self.content_cache_controls.is_empty()
-	            && let Some(content) = message_json.get_mut("content")
-	        {
-	            if let serde_json::Value::String(s) = content {
-	                *content = serde_json::Value::Array(vec![serde_json::json!({
-	                    "type": "text",
-	                    "text": s,
-	                })]);
-	            }
-	            if let serde_json::Value::Array(content_array) = content {
-	                for (index, cache_control) in self.content_cache_controls {
-	                    if let Some(content_item) = content_array.get_mut(index)
-	                        && let Some(content_obj) = content_item.as_object_mut()
-	                    {
-	                        content_obj.insert("cache_control".to_string(), cache_control.to_json());
-	                    }
-	                }
-	            }
-	        }
+        // Apply content-level cache controls
+        if !self.content_cache_controls.is_empty()
+            && let Some(content) = message_json.get_mut("content")
+        {
+            if let serde_json::Value::String(s) = content {
+                *content = serde_json::Value::Array(vec![serde_json::json!({
+                    "type": "text",
+                    "text": s,
+                })]);
+            }
+            if let serde_json::Value::Array(content_array) = content {
+                for (index, cache_control) in self.content_cache_controls {
+                    if let Some(content_item) = content_array.get_mut(index)
+                        && let Some(content_obj) = content_item.as_object_mut()
+                    {
+                        content_obj.insert("cache_control".to_string(), cache_control.to_json());
+                    }
+                }
+            }
+        }
 
-	        Ok(message_json)
-	    }
+        Ok(message_json)
+    }
 
     /// Convert `ChatMessage` to JSON format
     fn convert_message_to_json(&self) -> Result<serde_json::Value, LlmError> {

@@ -5,8 +5,8 @@
 
 use futures::StreamExt;
 use serde_json::json;
+use siumai::prelude::unified::ChatStreamEvent;
 use siumai::prelude::*;
-use siumai::streaming::ChatStreamEvent;
 
 #[tokio::test]
 #[ignore] // Requires API key
@@ -21,7 +21,7 @@ async fn test_tool_call_streaming_vs_non_streaming() {
     };
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .api_key(&api_key)
         .model("gpt-3.5-turbo")
@@ -148,7 +148,7 @@ async fn test_deepseek_tool_call_streaming() {
     };
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .deepseek()
         .api_key(&api_key)

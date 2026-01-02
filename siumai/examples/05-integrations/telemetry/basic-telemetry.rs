@@ -18,12 +18,10 @@
 //! - basic_telemetry.rs - Console and platform exporters
 //! - stream_telemetry.rs - Streaming with telemetry
 
-use siumai::prelude::*;
 use siumai::experimental::observability::telemetry::{
-    TelemetryConfig,
-    events::TelemetryEvent,
-    exporters::TelemetryExporter,
+    TelemetryConfig, events::TelemetryEvent, exporters::TelemetryExporter,
 };
+use siumai::prelude::*;
 
 // Simple console exporter for demonstration
 struct ConsoleExporter;
@@ -67,7 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Use ChatRequest to include telemetry
-    let mut request = ChatRequest::builder().message(user!("What is Rust?")).build();
+    let mut request = ChatRequest::builder()
+        .message(user!("What is Rust?"))
+        .build();
     request.telemetry = Some(telemetry);
 
     println!("Sending request with telemetry...\n");

@@ -442,6 +442,92 @@ async fn pre_stream_short_circuits_before_http() {
     }));
 }
 
+#[tokio::test]
+async fn applies_provider_spec_chat_before_send_before_policy_hook() {
+    #[derive(Clone, Copy)]
+    struct SpecWithChatBeforeSend;
+
+    impl crate::core::ProviderSpec for SpecWithChatBeforeSend {
+        fn id(&self) -> &'static str {
+            "test"
+        }
+        fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+            crate::traits::ProviderCapabilities::new()
+        }
+        fn build_headers(
+            &self,
+            _ctx: &crate::core::ProviderContext,
+        ) -> Result<HeaderMap, LlmError> {
+            Ok(HeaderMap::new())
+        }
+        fn chat_url(
+            &self,
+            _stream: bool,
+            _req: &crate::types::ChatRequest,
+            _ctx: &crate::core::ProviderContext,
+        ) -> String {
+            "http://127.0.0.1/never".to_string()
+        }
+        fn choose_chat_transformers(
+            &self,
+            _req: &crate::types::ChatRequest,
+            _ctx: &crate::core::ProviderContext,
+        ) -> crate::core::ChatTransformers {
+            crate::core::ChatTransformers {
+                request: Arc::new(EchoRequestTransformer),
+                response: Arc::new(NoopResponseTransformer),
+                stream: None,
+                json: None,
+            }
+        }
+        fn chat_before_send(
+            &self,
+            _req: &crate::types::ChatRequest,
+            _ctx: &crate::core::ProviderContext,
+        ) -> Option<crate::execution::executors::BeforeSendHook> {
+            Some(Arc::new(|body: &serde_json::Value| {
+                let mut out = body.clone();
+                out["spec_marker"] = serde_json::Value::Bool(true);
+                Ok(out)
+            }))
+        }
+    }
+
+    let policy_hook: crate::execution::executors::BeforeSendHook =
+        Arc::new(|body: &serde_json::Value| {
+            assert_eq!(body["spec_marker"], true, "spec before_send not applied");
+            Err(crate::error::LlmError::InvalidParameter("abort".into()))
+        });
+
+    let provider_context = crate::core::ProviderContext::new(
+        "test",
+        "http://127.0.0.1",
+        None,
+        std::collections::HashMap::new(),
+    );
+
+    let exec = HttpChatExecutor {
+        provider_id: "test".into(),
+        http_client: reqwest::Client::new(),
+        request_transformer: Arc::new(EchoRequestTransformer),
+        response_transformer: Arc::new(NoopResponseTransformer),
+        stream_transformer: None,
+        json_stream_converter: None,
+        policy: crate::execution::ExecutionPolicy::new()
+            .with_stream_disable_compression(true)
+            .with_before_send(policy_hook),
+        middlewares: vec![],
+        provider_spec: Arc::new(SpecWithChatBeforeSend),
+        provider_context,
+    };
+
+    let err = exec.execute(crate::types::ChatRequest::new(vec![])).await;
+    assert!(matches!(
+        err,
+        Err(crate::error::LlmError::InvalidParameter(ref msg)) if msg == "abort"
+    ));
+}
+
 // Interceptor that captures headers and aborts before network
 struct CaptureHeadersInterceptor {
     seen: std::sync::Arc<std::sync::Mutex<Option<reqwest::header::HeaderMap>>>,

@@ -3,8 +3,9 @@
 //! Internal helper functions for music generation capability implementation.
 
 use crate::error::LlmError;
-use crate::execution::executors::common::{HttpBody, HttpExecutionConfig, execute_json_request};
+use crate::execution::executors::common::{HttpBody, execute_json_request};
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 use crate::types::music::{MusicGenerationRequest, MusicGenerationResponse, MusicMetadata};
@@ -12,24 +13,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::spec::MinimaxiMusicSpec;
-
-fn build_http_execution_config(
-    api_key: &str,
-    base_url: &str,
-    http_config: &HttpConfig,
-    http_client: &reqwest::Client,
-    retry_options: Option<&RetryOptions>,
-    interceptors: &[Arc<dyn HttpInterceptor>],
-) -> HttpExecutionConfig {
-    HttpExecutionConfig {
-        provider_id: "minimaxi".to_string(),
-        http_client: http_client.clone(),
-        provider_spec: Arc::new(MinimaxiMusicSpec::new()),
-        provider_context: super::utils::build_context(api_key, base_url, http_config),
-        interceptors: interceptors.to_vec(),
-        retry_options: retry_options.cloned(),
-    }
-}
 
 /// MiniMaxi-specific music generation request
 ///
@@ -76,14 +59,15 @@ pub(super) async fn generate_music(
     interceptors: &[Arc<dyn HttpInterceptor>],
     request: MusicGenerationRequest,
 ) -> Result<MusicGenerationResponse, LlmError> {
-    let config = build_http_execution_config(
-        api_key,
-        base_url,
-        http_config,
-        http_client,
-        retry_options,
-        interceptors,
-    );
+    let wiring = HttpExecutionWiring::new(
+        "minimaxi",
+        http_client.clone(),
+        super::utils::build_context(api_key, base_url, http_config),
+    )
+    .with_interceptors(interceptors.to_vec())
+    .with_retry_options(retry_options.cloned());
+
+    let config = wiring.config(Arc::new(MinimaxiMusicSpec::new()));
     let url = MinimaxiMusicSpec::new().music_generation_url(&config.provider_context);
 
     // MiniMaxi requires lyrics field, so provide default if not specified

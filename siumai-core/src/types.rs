@@ -16,8 +16,9 @@
 //! - **`audio`** - Audio transcription/generation types
 //! - **`tools`** - Tool/function calling types
 //! - **`streaming`** - Streaming response types
-//! - **`provider_options/`** - Provider-specific configuration options
+//! - **`provider_options/`** - Provider options transport helpers (provider-agnostic)
 //! - **`provider_metadata/`** - Provider-specific response metadata
+//! - **`provider_options_map/`** - Open provider options map (provider-id keyed JSON object)
 //!
 //! ## Usage Guidelines
 //!

@@ -1,7 +1,7 @@
 //! Google Gemini provider options.
 //!
 //! These types are carried via the open `providerOptions` JSON map (`provider_id = "gemini"`),
-//! or via the legacy `ProviderOptions::Gemini` compatibility variant.
+//! and should be carried via `providerOptions["gemini"]`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -318,4 +318,3 @@ pub struct FileSearchConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub file_search_store_names: Vec<String>,
 }
-

@@ -4,4 +4,3 @@
 //! The core crate (`siumai-core`) should not define provider-specific option types.
 
 pub mod openai;
-

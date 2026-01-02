@@ -14,6 +14,7 @@ use crate::streaming::adapters::{
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn create_sse_stream_with_middlewares(
     provider_id: String,
+    provider_spec: Arc<dyn crate::core::ProviderSpec>,
     url: String,
     http: reqwest::Client,
     headers_base: reqwest::header::HeaderMap,
@@ -43,25 +44,14 @@ pub(super) async fn create_sse_stream_with_middlewares(
         convert: mw_wrapped,
     };
 
-    // Prepare body (OpenAI stream flags) before calling common helper
-    let mut body_for_send = transformed.clone();
-    if provider_id.starts_with("openai") {
-        body_for_send["stream"] = serde_json::Value::Bool(true);
-        if body_for_send.get("stream_options").is_none() {
-            body_for_send["stream_options"] = serde_json::json!({ "include_usage": true });
-        } else if let Some(obj) = body_for_send["stream_options"].as_object_mut() {
-            obj.entry("include_usage")
-                .or_insert(serde_json::Value::Bool(true));
-        }
-    }
-
     crate::execution::executors::stream_sse::execute_sse_stream_request_with_headers(
         &http,
         &provider_id,
+        Some(provider_spec.as_ref()),
         &url,
         request_id,
         headers_base,
-        body_for_send,
+        transformed,
         &interceptors,
         retry_options,
         req_in.http_config.as_ref().map(|hc| hc.headers.clone()),
@@ -74,6 +64,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn create_json_stream_with_middlewares(
     provider_id: String,
+    provider_spec: Arc<dyn crate::core::ProviderSpec>,
     url: String,
     http: reqwest::Client,
     headers_base: reqwest::header::HeaderMap,
@@ -93,6 +84,7 @@ pub(super) async fn create_json_stream_with_middlewares(
     crate::execution::executors::stream_json::execute_json_stream_request_with_headers(
         &http,
         &provider_id,
+        Some(provider_spec.as_ref()),
         &url,
         headers_base,
         transformed,
@@ -112,6 +104,8 @@ pub(super) async fn create_json_stream_with_middlewares(
 pub(super) fn build_chat_body(
     request_tx: &Arc<dyn RequestTransformer>,
     middlewares: &[Arc<dyn LanguageModelMiddleware>],
+    provider_spec: &Arc<dyn crate::core::ProviderSpec>,
+    provider_context: &crate::core::ProviderContext,
     before_send: &Option<crate::execution::executors::BeforeSendHook>,
     req_in: &crate::types::ChatRequest,
 ) -> Result<serde_json::Value, LlmError> {
@@ -121,10 +115,11 @@ pub(super) fn build_chat_body(
         req_in,
         &mut body,
     )?;
-    let out = if let Some(cb) = before_send {
-        cb(&body)?
-    } else {
-        body
-    };
-    Ok(out)
+    if let Some(cb) = provider_spec.chat_before_send(req_in, provider_context) {
+        body = cb(&body)?;
+    }
+    if let Some(cb) = before_send {
+        body = cb(&body)?;
+    }
+    Ok(body)
 }

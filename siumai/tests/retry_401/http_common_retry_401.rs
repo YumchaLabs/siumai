@@ -1,10 +1,11 @@
 use std::sync::{Arc, Mutex, atomic::AtomicUsize};
 
-use siumai::execution::executors::common::{
+use siumai::experimental::execution::executors::common::{
     HttpBody, HttpExecutionConfig, execute_delete_request, execute_get_binary, execute_get_request,
     execute_json_request, execute_multipart_request,
 };
-use siumai::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+use siumai::experimental::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+use siumai::prelude::unified::LlmError;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -13,7 +14,7 @@ struct CountingInterceptor {
     retries: Arc<Mutex<usize>>,
 }
 impl HttpInterceptor for CountingInterceptor {
-    fn on_retry(&self, _ctx: &HttpRequestContext, _error: &siumai::LlmError, _attempt: usize) {
+    fn on_retry(&self, _ctx: &HttpRequestContext, _error: &LlmError, _attempt: usize) {
         let mut g = self.retries.lock().unwrap();
         *g += 1;
     }
@@ -45,7 +46,12 @@ async fn json_request_retries_on_401() {
     let spec = Arc::new(support::FlippingAuthSpec {
         counter: Arc::new(AtomicUsize::new(0)),
     });
-    let ctx = siumai::core::ProviderContext::new("test", server.uri(), None, Default::default());
+    let ctx = siumai::experimental::core::ProviderContext::new(
+        "test",
+        server.uri(),
+        None,
+        Default::default(),
+    );
     let counter = Arc::new(Mutex::new(0usize));
     let interceptor = Arc::new(CountingInterceptor {
         retries: counter.clone(),
@@ -89,7 +95,12 @@ async fn multipart_request_retries_on_401_and_rebuilds_form() {
     let spec = Arc::new(support::FlippingAuthSpec {
         counter: Arc::new(AtomicUsize::new(0)),
     });
-    let ctx = siumai::core::ProviderContext::new("test", server.uri(), None, Default::default());
+    let ctx = siumai::experimental::core::ProviderContext::new(
+        "test",
+        server.uri(),
+        None,
+        Default::default(),
+    );
     let counter = Arc::new(Mutex::new(0usize));
     let interceptor = Arc::new(CountingInterceptor {
         retries: counter.clone(),
@@ -140,7 +151,12 @@ async fn get_request_retries_on_401() {
     let spec = Arc::new(support::FlippingAuthSpec {
         counter: Arc::new(AtomicUsize::new(0)),
     });
-    let ctx = siumai::core::ProviderContext::new("test", server.uri(), None, Default::default());
+    let ctx = siumai::experimental::core::ProviderContext::new(
+        "test",
+        server.uri(),
+        None,
+        Default::default(),
+    );
     let counter = Arc::new(Mutex::new(0usize));
     let interceptor = Arc::new(CountingInterceptor {
         retries: counter.clone(),
@@ -181,7 +197,12 @@ async fn delete_request_retries_on_401() {
     let spec = Arc::new(support::FlippingAuthSpec {
         counter: Arc::new(AtomicUsize::new(0)),
     });
-    let ctx = siumai::core::ProviderContext::new("test", server.uri(), None, Default::default());
+    let ctx = siumai::experimental::core::ProviderContext::new(
+        "test",
+        server.uri(),
+        None,
+        Default::default(),
+    );
     let counter = Arc::new(Mutex::new(0usize));
     let interceptor = Arc::new(CountingInterceptor {
         retries: counter.clone(),
@@ -222,7 +243,12 @@ async fn get_binary_retries_on_401() {
     let spec = Arc::new(support::FlippingAuthSpec {
         counter: Arc::new(AtomicUsize::new(0)),
     });
-    let ctx = siumai::core::ProviderContext::new("test", server.uri(), None, Default::default());
+    let ctx = siumai::experimental::core::ProviderContext::new(
+        "test",
+        server.uri(),
+        None,
+        Default::default(),
+    );
     let counter = Arc::new(Mutex::new(0usize));
     let interceptor = Arc::new(CountingInterceptor {
         retries: counter.clone(),

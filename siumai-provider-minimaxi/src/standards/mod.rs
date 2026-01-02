@@ -9,4 +9,3 @@ pub use siumai_provider_anthropic::standards::anthropic;
 
 #[cfg(feature = "minimaxi")]
 pub use siumai_provider_openai::standards::openai;
-

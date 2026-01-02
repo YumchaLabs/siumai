@@ -79,14 +79,8 @@ impl GeminiModels {
         &self,
         ctx: crate::core::ProviderContext,
     ) -> crate::execution::executors::common::HttpExecutionConfig {
-        crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: "gemini".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: Arc::new(crate::providers::gemini::spec::GeminiSpec),
-            provider_context: ctx,
-            interceptors: Vec::new(),
-            retry_options: None,
-        }
+        crate::execution::wiring::HttpExecutionWiring::new("gemini", self.http_client.clone(), ctx)
+            .config(Arc::new(crate::providers::gemini::spec::GeminiSpec))
     }
 
     /// Convert `GeminiModel` to `ModelInfo`

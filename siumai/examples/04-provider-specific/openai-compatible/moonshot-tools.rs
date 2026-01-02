@@ -15,8 +15,8 @@
 //! ```
 
 use serde_json::json;
-use siumai::prelude::*;
 use siumai::models;
+use siumai::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

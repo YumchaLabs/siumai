@@ -5,8 +5,7 @@
 //! https://console.groq.com/docs/api-reference
 
 use serde_json::json;
-use siumai::types::ContentPart;
-use siumai::{ChatCapability, ChatMessage, FinishReason, LlmBuilder, Tool};
+use siumai::prelude::unified::*;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path},
@@ -119,7 +118,7 @@ async fn test_groq_chat_non_streaming() {
         .await;
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .groq()
         .api_key("test-api-key")
         .base_url(format!("{}/openai/v1", mock_server.uri()))
@@ -166,7 +165,7 @@ async fn test_groq_error_response() {
         .await;
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .groq()
         .api_key("test-api-key")
         .base_url(format!("{}/openai/v1", mock_server.uri()))
@@ -201,7 +200,7 @@ async fn test_groq_request_format() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .groq()
         .api_key("test-key")
         .base_url(format!("{}/openai/v1", mock_server.uri()))
@@ -232,7 +231,7 @@ async fn test_groq_tool_calling() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .groq()
         .api_key("test-api-key")
         .base_url(format!("{}/openai/v1", mock_server.uri()))
@@ -293,7 +292,7 @@ async fn test_groq_system_fingerprint() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .groq()
         .api_key("test-api-key")
         .base_url(format!("{}/openai/v1", mock_server.uri()))

@@ -4,13 +4,13 @@ use std::sync::{
 };
 
 use serde_json::json;
-use siumai::core::{ProviderContext, ProviderSpec};
-use siumai::error::LlmError;
-use siumai::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
-use siumai::execution::transformers::files::{FilesHttpBody, FilesTransformer};
-use siumai::types::{
+use siumai::experimental::core::{ProviderContext, ProviderSpec};
+use siumai::experimental::execution::executors::files::{FilesExecutor, HttpFilesExecutor};
+use siumai::experimental::execution::transformers::files::{FilesHttpBody, FilesTransformer};
+use siumai::extensions::types::{
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
 };
+use siumai::prelude::unified::{ChatRequest, LlmError, ProviderCapabilities};
 use wiremock::matchers::{header, method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -83,8 +83,8 @@ impl ProviderSpec for TestFilesSpec {
         "test"
     }
 
-    fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
-        siumai::traits::ProviderCapabilities::new().with_file_management()
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_file_management()
     }
 
     fn build_headers(
@@ -106,20 +106,15 @@ impl ProviderSpec for TestFilesSpec {
         Ok(h)
     }
 
-    fn chat_url(
-        &self,
-        _stream: bool,
-        _req: &siumai::types::ChatRequest,
-        _ctx: &ProviderContext,
-    ) -> String {
+    fn chat_url(&self, _stream: bool, _req: &ChatRequest, _ctx: &ProviderContext) -> String {
         unreachable!("chat not used in this test")
     }
 
     fn choose_chat_transformers(
         &self,
-        _req: &siumai::types::ChatRequest,
+        _req: &ChatRequest,
         _ctx: &ProviderContext,
-    ) -> siumai::core::ChatTransformers {
+    ) -> siumai::experimental::core::ChatTransformers {
         unreachable!("chat not used in this test")
     }
 
@@ -127,8 +122,11 @@ impl ProviderSpec for TestFilesSpec {
         ctx.base_url.trim_end_matches('/').to_string()
     }
 
-    fn choose_files_transformer(&self, _ctx: &ProviderContext) -> siumai::core::FilesTransformer {
-        siumai::core::FilesTransformer {
+    fn choose_files_transformer(
+        &self,
+        _ctx: &ProviderContext,
+    ) -> siumai::experimental::core::FilesTransformer {
+        siumai::experimental::core::FilesTransformer {
             transformer: Arc::new(TestFilesTransformer),
         }
     }
@@ -228,7 +226,7 @@ async fn files_executor_retries_on_401_list_retrieve_delete_upload_content() {
         transformer: Arc::new(TestFilesTransformer),
         provider_spec: spec,
         provider_context: ctx,
-        policy: siumai::execution::ExecutionPolicy::new(),
+        policy: siumai::experimental::execution::ExecutionPolicy::new(),
     };
 
     // list

@@ -320,14 +320,10 @@ impl GeminiFileSearchStores {
     }
 
     fn build_http_config(&self, ctx: crate::core::ProviderContext) -> HttpExecutionConfig {
-        HttpExecutionConfig {
-            provider_id: "gemini".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: Arc::new(crate::providers::gemini::spec::GeminiSpec),
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        }
+        crate::execution::wiring::HttpExecutionWiring::new("gemini", self.http_client.clone(), ctx)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_retry_options(self.retry_options.clone())
+            .config(Arc::new(crate::providers::gemini::spec::GeminiSpec))
     }
 
     async fn retry<T, F, Fut>(&self, call: F) -> Result<T, LlmError>
@@ -336,11 +332,7 @@ impl GeminiFileSearchStores {
         F: Fn() -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<T, LlmError>> + Send,
     {
-        if let Some(opts) = &self.retry_options {
-            crate::retry_api::retry_with(call, opts.clone()).await
-        } else {
-            call().await
-        }
+        crate::retry_api::maybe_retry(self.retry_options.clone(), call).await
     }
 }
 

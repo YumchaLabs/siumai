@@ -10,16 +10,18 @@ Siumai is in a fearless refactor phase (currently `0.11.0-beta.5`) and already s
 
 - `siumai` (facade)
 - `siumai-core` (types/runtime)
-- `siumai-providers` (built-in provider implementations + builder)
 - `siumai-registry` (registry handles + factories)
 - `siumai-extras` (orchestrator/telemetry/server/mcp utilities)
 
 However, coupling remains high because `siumai-core` still contains provider-specific logic:
 
-- (historical) protocol/compat mapping layers under `siumai-core/src/standards/*` (being migrated into provider-owned crates/modules)
+- (historical) protocol/compat mapping layers under `siumai-core/src/standards/*` (migrated into provider-owned crates/modules; core may still host protocol-level shared building blocks)
 - provider-hosted tool factories under `siumai-core/src/hosted_tools/*`
-- provider-specific option structs and metadata types under `siumai-core/src/types/provider_options/*` and `siumai-core/src/types/provider_metadata/*`
-- a closed `ProviderOptions` enum that forces core changes when providers/features evolve
+- (historical) provider-specific option structs and metadata types under `siumai-core/src/types/provider_options/*` and `siumai-core/src/types/provider_metadata/*`
+- (historical) a closed `ProviderOptions` enum transport that forced core changes when providers/features evolved
+
+In beta.5, typed `providerOptions`/`providerMetadata` were moved to provider crates and the legacy closed
+`ProviderOptions` enum transport was removed in favor of an open `provider_options_map`.
 
 This makes compilation heavier, blurs ownership, and increases the cost of adding or evolving providers.
 
@@ -61,7 +63,7 @@ Adopt a **Vercel-aligned layered architecture**, adapted for Rust:
 This ADR does **not** require immediately creating many new crates. The MVP can be achieved by:
 
 - introducing the open `provider_options` map in `siumai-core` requests
-- moving typed provider options and protocol mapping modules from `siumai-core` into `siumai-providers` (provider-owned)
+- moving typed provider options and protocol mapping modules from `siumai-core` into provider crates (provider-owned)
 - tightening re-exports and public entry points
 
 ### OpenAI vs OpenAI-compatible (pragmatic constraint)

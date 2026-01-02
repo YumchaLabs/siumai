@@ -2,13 +2,13 @@ use crate::core::{
     ChatTransformers, EmbeddingTransformers, ProviderContext, ProviderSpec, RerankTransformers,
 };
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
 use crate::standards::openai::chat::OpenAiChatStandard;
 use crate::standards::openai::embedding::OpenAiEmbeddingStandard;
+use crate::standards::openai::headers::build_openai_compatible_json_headers;
 use crate::standards::openai::image::OpenAiImageStandard;
 use crate::standards::openai::rerank::OpenAiRerankStandard;
 use crate::traits::ProviderCapabilities;
-use crate::types::{ChatRequest, EmbeddingRequest, ProviderOptions, RerankRequest};
+use crate::types::{ChatRequest, EmbeddingRequest, RerankRequest};
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -48,7 +48,7 @@ pub struct OpenAiSpec {
     ///
     /// This is primarily used by the provider-specific `OpenAiClient` builder
     /// to route all chat requests through `/responses` without requiring every
-    /// request to carry `ProviderOptions::OpenAi`.
+    /// request to carry an `openai` entry in `providerOptions`.
     forced_responses_api: Option<crate::provider_options::openai::ResponsesApiConfig>,
 }
 
@@ -79,21 +79,13 @@ impl OpenAiSpec {
             return cfg.enabled;
         }
 
-        // Check if Responses API is configured in provider_options
-        if let ProviderOptions::OpenAi(ref value) = req.provider_options {
-            if let Some(opts) = self.openai_options_from_provider_options_value(value) {
-                return opts
-                    .responses_api
-                    .as_ref()
-                    .map(|cfg| cfg.enabled)
-                    .unwrap_or(false);
-            }
-        }
-
         false
     }
 
-    fn normalize_openai_provider_options_json(&self, value: &serde_json::Value) -> serde_json::Value {
+    fn normalize_openai_provider_options_json(
+        &self,
+        value: &serde_json::Value,
+    ) -> serde_json::Value {
         fn normalize_key(k: &str) -> Option<&'static str> {
             Some(match k {
                 // OpenAiOptions
@@ -113,33 +105,27 @@ impl OpenAiSpec {
             })
         }
 
-        fn inner(
-            this: &OpenAiSpec,
-            value: &serde_json::Value,
-            parent_key: Option<&str>,
-        ) -> serde_json::Value {
+        fn inner(value: &serde_json::Value, parent_key: Option<&str>) -> serde_json::Value {
             match value {
                 serde_json::Value::Object(map) => {
                     let mut out = serde_json::Map::new();
                     for (k, v) in map {
                         let nk = normalize_key(k).unwrap_or(k);
-                        out.insert(nk.to_string(), inner(this, v, Some(nk)));
+                        out.insert(nk.to_string(), inner(v, Some(nk)));
                     }
                     if parent_key == Some("responses_api") && !out.contains_key("enabled") {
                         out.insert("enabled".to_string(), serde_json::Value::Bool(true));
                     }
                     serde_json::Value::Object(out)
                 }
-                serde_json::Value::Array(arr) => serde_json::Value::Array(
-                    arr.iter()
-                        .map(|v| inner(this, v, parent_key))
-                        .collect(),
-                ),
+                serde_json::Value::Array(arr) => {
+                    serde_json::Value::Array(arr.iter().map(|v| inner(v, parent_key)).collect())
+                }
                 other => other.clone(),
             }
         }
 
-        inner(self, value, None)
+        inner(value, None)
     }
 
     fn openai_options_from_provider_options_map(
@@ -147,14 +133,6 @@ impl OpenAiSpec {
         req: &ChatRequest,
     ) -> Option<OpenAiOptionsFromMap> {
         let value = req.provider_options_map.get("openai")?;
-        let normalized = self.normalize_openai_provider_options_json(value);
-        serde_json::from_value(normalized).ok()
-    }
-
-    fn openai_options_from_provider_options_value(
-        &self,
-        value: &serde_json::Value,
-    ) -> Option<OpenAiOptionsFromMap> {
         let normalized = self.normalize_openai_provider_options_json(value);
         serde_json::from_value(normalized).ok()
     }
@@ -188,15 +166,23 @@ impl ProviderSpec for OpenAiSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
+        let _api_key = ctx
             .api_key
             .as_ref()
             .ok_or_else(|| LlmError::MissingApiKey("OpenAI API key not provided".into()))?;
-        ProviderHeaders::openai(
-            api_key,
-            ctx.organization.as_deref(),
-            ctx.project.as_deref(),
-            &ctx.http_extra_headers,
+        build_openai_compatible_json_headers(ctx)
+    }
+
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        crate::standards::openai::errors::classify_openai_compatible_http_error(
+            self.id(),
+            status,
+            body_text,
         )
     }
 
@@ -245,13 +231,7 @@ impl ProviderSpec for OpenAiSpec {
         req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
-            return Some(hook);
-        }
-
-        // 2. Handle OpenAI-specific options (built_in_tools, responses_api, modalities, audio, prediction, web_search_options, etc.)
-        // Extract options from provider_options (or forced config)
+        // Handle OpenAI-specific options (built_in_tools, responses_api, modalities, audio, prediction, web_search_options, etc.)
         let use_responses_api = self.use_responses_api(req, ctx);
         let (
             builtins,
@@ -262,47 +242,7 @@ impl ProviderSpec for OpenAiSpec {
             audio,
             prediction,
             web_search_options,
-        ) = if let ProviderOptions::OpenAi(ref value) = req.provider_options {
-            let options = self.openai_options_from_provider_options_value(value)?;
-            #[allow(deprecated)]
-            {
-                // Vercel-aligned: provider-defined tools are supported on the Responses API path.
-                // Keep `OpenAiOptions.provider_tools` injection as a compatibility layer.
-                let tools_json: Vec<serde_json::Value> = if use_responses_api {
-                    crate::providers::openai::utils::convert_tools_to_responses_format(
-                        &options.provider_tools,
-                    )
-                    .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                let builtins = if tools_json.is_empty() {
-                    None
-                } else {
-                    Some(serde_json::Value::Array(tools_json))
-                };
-                (
-                    builtins,
-                    options
-                        .responses_api
-                        .clone()
-                        .filter(|cfg| cfg.enabled)
-                        .or_else(|| {
-                            if use_responses_api {
-                                self.forced_responses_api.clone()
-                            } else {
-                                None
-                            }
-                        }),
-                    options.reasoning_effort,
-                    options.service_tier,
-                    options.modalities.clone(),
-                    options.audio.clone(),
-                    options.prediction.clone(),
-                    options.web_search_options.clone(),
-                )
-            }
-        } else if let Some(options) = self.openai_options_from_provider_options_map(req) {
+        ) = if let Some(options) = self.openai_options_from_provider_options_map(req) {
             let tools_json: Vec<serde_json::Value> = if use_responses_api {
                 crate::providers::openai::utils::convert_tools_to_responses_format(
                     &options.provider_tools,
@@ -365,7 +305,9 @@ impl ProviderSpec for OpenAiSpec {
         let prompt_cache_key = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.prompt_cache_key.clone());
-        let response_format = responses_api_config.as_ref().and_then(|cfg| cfg.response_format.clone());
+        let response_format = responses_api_config
+            .as_ref()
+            .and_then(|cfg| cfg.response_format.clone());
         let background = responses_api_config.as_ref().and_then(|cfg| cfg.background);
         let include = responses_api_config
             .as_ref()
@@ -487,12 +429,17 @@ impl ProviderSpec for OpenAiSpec {
                 let normalized_format = if fmt.get("json_schema").is_some() {
                     // Chat Completions shape: { type: "json_schema", json_schema: { name, schema, strict, ... } }
                     // Responses shape: { type: "json_schema", name, schema, strict, ... }
-                    let typ = fmt.get("type").cloned().unwrap_or(serde_json::json!("json_schema"));
-                    let inner = fmt.get("json_schema").cloned().unwrap_or(serde_json::Value::Null);
-                    if let (Some(name), Some(schema)) = (
-                        inner.get("name").cloned(),
-                        inner.get("schema").cloned(),
-                    ) {
+                    let typ = fmt
+                        .get("type")
+                        .cloned()
+                        .unwrap_or(serde_json::json!("json_schema"));
+                    let inner = fmt
+                        .get("json_schema")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    if let (Some(name), Some(schema)) =
+                        (inner.get("name").cloned(), inner.get("schema").cloned())
+                    {
                         let strict = inner.get("strict").cloned();
                         let description = inner.get("description").cloned();
                         let mut obj = serde_json::Map::new();
@@ -872,7 +819,10 @@ mod tests {
         );
 
         let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-            .with_provider_option("openai", serde_json::json!({ "responsesApi": { "enabled": true } }));
+            .with_provider_option(
+                "openai",
+                serde_json::json!({ "responsesApi": { "enabled": true } }),
+            );
 
         let url = spec.chat_url(false, &req, &ctx);
         assert!(url.ends_with("/responses"));

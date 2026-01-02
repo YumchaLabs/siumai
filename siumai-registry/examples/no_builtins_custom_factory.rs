@@ -2,11 +2,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 
-use siumai_registry::client::LlmClient;
+use siumai_registry::LlmClient;
 use siumai_registry::error::LlmError;
-use siumai_registry::registry::entry::{create_provider_registry, ProviderFactory};
+use siumai_registry::registry::entry::{ProviderFactory, create_provider_registry};
 use siumai_registry::streaming::ChatStream;
 use siumai_registry::traits::{ChatCapability, ProviderCapabilities};
 use siumai_registry::types::{
@@ -27,10 +27,7 @@ impl ChatCapability for MockClient {
         messages: Vec<ChatMessage>,
         _tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        let last = messages
-            .last()
-            .and_then(|m| m.content_text())
-            .unwrap_or("");
+        let last = messages.last().and_then(|m| m.content_text()).unwrap_or("");
 
         let mut response = ChatResponse::new(MessageContent::Text(format!(
             "echo({}): {}",
@@ -118,7 +115,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registry = create_provider_registry(providers, None);
     let model = registry.language_model("mock:demo")?;
 
-    let response = model.chat(vec![ChatMessage::user("Hello from registry!").build()]).await?;
+    let response = model
+        .chat(vec![ChatMessage::user("Hello from registry!").build()])
+        .await?;
     println!("chat: {}", response.content_text().unwrap_or(""));
 
     let mut stream = model

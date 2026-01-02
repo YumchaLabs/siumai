@@ -9,8 +9,8 @@
 //! ```
 
 use siumai::prelude::unified::*;
-use siumai::provider_ext::anthropic::{structured_output, thinking};
 use siumai::provider_ext::anthropic::ThinkingModeConfig;
+use siumai::provider_ext::anthropic::{structured_output, thinking};
 use siumai::user;
 
 #[tokio::main]

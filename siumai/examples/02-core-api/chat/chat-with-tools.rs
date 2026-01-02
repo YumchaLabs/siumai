@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if response.has_tool_calls() {
         println!("🔧 Tool calls:");
         for call in response.tool_calls() {
-            if let siumai::types::ContentPart::ToolCall {
+            if let ContentPart::ToolCall {
                 tool_name,
                 arguments,
                 ..

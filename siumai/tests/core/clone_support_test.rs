@@ -3,7 +3,7 @@
 //! Tests to verify that all major types in the siumai library support Clone
 //! for concurrent usage scenarios.
 
-use siumai::client::{ClientWrapper, LlmClient};
+use siumai::experimental::client::{ClientWrapper, LlmClient};
 use siumai::prelude::*;
 use siumai::provider::Siumai;
 

@@ -29,9 +29,9 @@ Guideline:
 Example (OpenAI Responses API toggles via `providerOptions`):
 
 ```rust,ignore
-use siumai::types::ChatRequest;
+use siumai::prelude::unified::*;
 
-let req = ChatRequest::new(vec![siumai::types::ChatMessage::user("hi").build()])
+let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
     .with_provider_option("openai", serde_json::json!({
         "responsesApi": {
             "enabled": true,
@@ -42,30 +42,9 @@ let req = ChatRequest::new(vec![siumai::types::ChatMessage::user("hi").build()])
 
 Client-level defaults (builder) are also supported, and requests override defaults:
 
-```rust,no_run
-use siumai::builder::LlmBuilder;
-use siumai::types::{ChatMessage, ChatRequest};
-
-# #[tokio::main]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let client = LlmBuilder::new()
-    .openai()
-    .api_key("sk-...")
-    .model("gpt-4.1-mini")
-    .provider_options(serde_json::json!({
-        "responsesApi": { "enabled": true }
-    }))
-    .build()
-    .await?;
-
-let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
-    .with_provider_option("openai", serde_json::json!({
-        "responsesApi": { "previousResponseId": "resp_123" }
-    }));
-
-let _ = client.chat_request(req).await?;
-# Ok(()) }
-```
+In the unified surface, prefer request-level `providerOptions` (`ChatRequest::with_provider_option(...)`)
+or typed request extensions (see below). Provider-specific builder defaults are intentionally kept out
+of the unified facade.
 
 Notes:
 
@@ -80,20 +59,20 @@ When a provider offers typed options, they live in the provider crate and are re
 OpenAI example:
 
 ```rust,no_run
-use siumai::prelude::*;
-use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
+use siumai::prelude::unified::*;
+use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let client = Siumai::builder()
-    .openai()
+	let client = Siumai::builder()
+	    .openai()
     .api_key("sk-...")
     .model("gpt-4.1-mini")
     .build()
     .await?;
 
-let req = ChatRequest::new(vec![user!("hi")])
-    .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
+	let req = ChatRequest::new(vec![user!("hi")])
+	    .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
 let _ = client.chat_request(req).await?;
 # Ok(()) }
@@ -106,7 +85,7 @@ Providers may also expose typed metadata helpers as extension traits:
 ```rust,ignore
 use siumai::provider_ext::openai::{OpenAiChatResponseExt, OpenAiMetadata};
 
-fn extract(resp: &siumai::types::ChatResponse) -> Option<OpenAiMetadata> {
+fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetadata> {
     resp.openai_metadata()
 }
 ```
@@ -116,7 +95,7 @@ Gemini example:
 ```rust,ignore
 use siumai::provider_ext::gemini::{GeminiChatResponseExt, GeminiMetadata};
 
-fn extract(resp: &siumai::types::ChatResponse) -> Option<GeminiMetadata> {
+fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<GeminiMetadata> {
     resp.gemini_metadata()
 }
 ```
@@ -126,7 +105,7 @@ Or use the provider-agnostic helper (works for any `Deserialize` metadata type):
 ```rust,ignore
 use siumai::provider_ext::openai::OpenAiMetadata;
 
-fn extract(resp: &siumai::types::ChatResponse) -> Option<OpenAiMetadata> {
+fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetadata> {
     resp.provider_metadata_as::<OpenAiMetadata>("openai")
 }
 ```
@@ -135,11 +114,11 @@ OpenAI-compatible vendors (SiliconFlow/DeepSeek/OpenRouter/...) are treated as c
 You can use a vendor preset directly (recommended), or use the explicit `openai().compatible("<vendor>")` form:
 
 ```rust,no_run
-use siumai::builder::LlmBuilder;
+use siumai::prelude::unified::*;
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let client = LlmBuilder::new()
+let client = Siumai::builder()
     .siliconflow()
     .api_key("your-api-key")
     .model("deepseek-ai/DeepSeek-V3.1")
@@ -149,13 +128,12 @@ let client = LlmBuilder::new()
 ```
 
 ```rust,no_run
-use siumai::builder::LlmBuilder;
+use siumai::prelude::unified::*;
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let client = LlmBuilder::new()
-    .openai()
-    .compatible("siliconflow")
+let client = Siumai::builder()
+    .provider_id("siliconflow")
     .api_key("your-api-key")
     .model("deepseek-ai/DeepSeek-V3.1")
     .build()
@@ -163,8 +141,7 @@ let client = LlmBuilder::new()
 # Ok(()) }
 ```
 
-Note: vendor presets like `LlmBuilder::new().siliconflow()` / `Siumai::builder().siliconflow()` are implemented as
-`openai().compatible("<vendor>")` and kept for ergonomics.
+Note: vendor presets like `Siumai::builder().siliconflow()` are OpenAI-compatible configuration presets.
 
 Base URL override semantics:
 

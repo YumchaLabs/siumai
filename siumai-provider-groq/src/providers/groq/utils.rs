@@ -2,75 +2,7 @@
 //!
 //! Utility functions for the Groq provider.
 
-use reqwest::header::HeaderMap;
-use std::collections::HashMap;
-
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
-use crate::types::{ChatMessage, FinishReason};
-
-/// Build HTTP headers for Groq API requests
-pub fn build_headers(
-    api_key: &str,
-    custom_headers: &HashMap<String, String>,
-) -> Result<HeaderMap, LlmError> {
-    ProviderHeaders::groq(api_key, custom_headers)
-}
-
-/// Convert internal messages to Groq API format
-pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<serde_json::Value>, LlmError> {
-    // Start from the canonical OpenAI(-compatible) wire format conversion and then apply
-    // Groq-specific constraints.
-    let openai_messages = crate::standards::openai::utils::convert_messages(messages)?;
-
-    let mut out = Vec::with_capacity(openai_messages.len());
-    for msg in openai_messages {
-        let mut v = serde_json::to_value(msg).map_err(|e| {
-            LlmError::ParseError(format!("Serialize OpenAI message to JSON failed: {e}"))
-        })?;
-
-        // Groq does not accept "developer"; treat it as "system".
-        if v.get("role").and_then(|r| r.as_str()) == Some("developer") {
-            v["role"] = serde_json::json!("system");
-        }
-
-        // Groq does not support audio/file message parts; normalize to text placeholders.
-        if let Some(content) = v.get_mut("content") && let Some(parts) = content.as_array_mut() {
-            for p in parts {
-                let ty = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                match ty {
-                    "input_audio" => {
-                        *p = serde_json::json!({"type":"text","text":"[Audio not supported]"})
-                    }
-                    "file" => *p = serde_json::json!({"type":"text","text":"[File not supported]"}),
-                    _ => {}
-                }
-            }
-        }
-
-        out.push(v);
-    }
-
-    Ok(out)
-}
-
-/// Parse finish reason from Groq API response
-pub fn parse_finish_reason(reason: Option<&str>) -> FinishReason {
-    crate::standards::openai::utils::parse_finish_reason(reason)
-        .unwrap_or(FinishReason::Other("unknown".to_string()))
-}
-
-/// Extract error message from Groq API error response
-pub fn extract_error_message(error_text: &str) -> String {
-    // Try to parse as JSON error response
-    if let Ok(error_response) = serde_json::from_str::<super::types::GroqErrorResponse>(error_text)
-    {
-        return error_response.error.message;
-    }
-
-    // Fallback to raw error text
-    error_text.to_string()
-}
 
 /// Validate Groq-specific parameters
 pub fn validate_groq_params(params: &serde_json::Value) -> Result<(), LlmError> {
@@ -160,49 +92,6 @@ pub fn validate_groq_params(params: &serde_json::Value) -> Result<(), LlmError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ChatMessage;
-    use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
-
-    #[test]
-    fn test_build_headers() {
-        let custom_headers = HashMap::new();
-        let headers = build_headers("test-api-key", &custom_headers).unwrap();
-
-        assert_eq!(headers.get(AUTHORIZATION).unwrap(), "Bearer test-api-key");
-        assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "application/json");
-        assert!(headers.get(USER_AGENT).is_some());
-    }
-
-    #[test]
-    fn test_convert_messages() {
-        let messages = vec![
-            ChatMessage::system("You are a helpful assistant").build(),
-            ChatMessage::user("Hello, world!").build(),
-        ];
-
-        let groq_messages = convert_messages(&messages).unwrap();
-        assert_eq!(groq_messages.len(), 2);
-        assert_eq!(groq_messages[0]["role"], "system");
-        assert_eq!(groq_messages[1]["role"], "user");
-    }
-
-    #[test]
-    fn test_parse_finish_reason() {
-        assert_eq!(parse_finish_reason(Some("stop")), FinishReason::Stop);
-        assert_eq!(parse_finish_reason(Some("length")), FinishReason::Length);
-        assert_eq!(
-            parse_finish_reason(Some("tool_calls")),
-            FinishReason::ToolCalls
-        );
-        assert_eq!(
-            parse_finish_reason(Some("unknown")),
-            FinishReason::Other("unknown".to_string())
-        );
-        assert_eq!(
-            parse_finish_reason(None),
-            FinishReason::Other("unknown".to_string())
-        );
-    }
 
     #[test]
     fn test_validate_groq_params() {

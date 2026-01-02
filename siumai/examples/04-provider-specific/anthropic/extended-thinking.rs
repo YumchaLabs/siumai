@@ -9,7 +9,9 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::provider_ext::anthropic::{AnthropicOptions, ThinkingModeConfig};
+use siumai::provider_ext::anthropic::{
+    AnthropicChatRequestExt, AnthropicOptions, ThinkingModeConfig,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,14 +27,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ✅ New API: Use type-safe AnthropicOptions with ThinkingModeConfig
     let request = ChatRequest::builder()
         .message(user!("Solve this complex problem: A farmer has 17 sheep. All but 9 die. How many are left? Explain your reasoning step by step."))
-        .anthropic_options(
-            AnthropicOptions::new()
-                .with_thinking_mode(ThinkingModeConfig {
-                    enabled: true,
-                    thinking_budget: Some(5000),
-                })
-        )
-        .build();
+        .build()
+        .with_anthropic_options(AnthropicOptions::new().with_thinking_mode(ThinkingModeConfig {
+            enabled: true,
+            thinking_budget: Some(5000),
+        }));
 
     let response = client.chat_request(request).await?;
 

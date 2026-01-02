@@ -3,6 +3,7 @@
 //! Main client structure that aggregates all Gemini capabilities.
 
 use async_trait::async_trait;
+use backoff::ExponentialBackoffBuilder;
 use reqwest::Client as HttpClient;
 use std::sync::Arc;
 use std::time::Duration;
@@ -450,7 +451,14 @@ impl GeminiClient {
 
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
-        self.retry_options = options;
+        self.retry_options = options.map(|mut opts| {
+            if matches!(opts.backend, crate::retry_api::RetryBackend::Backoff)
+                && opts.backoff_executor.is_none()
+            {
+                opts.backoff_executor = Some(gemini_backoff_executor());
+            }
+            opts
+        });
         // Rebuild files capability with updated retry options
         self.files_capability = GeminiFiles::new(
             self.config.clone(),
@@ -499,7 +507,14 @@ impl GeminiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        self.chat_capability.chat_with_tools(messages, tools).await
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .http_config(self.config.http_config.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        self.chat_request_via_spec(builder.build()).await
     }
 
     /// Create provider context for this client
@@ -534,6 +549,10 @@ impl GeminiClient {
             builder = builder.with_before_send(hook);
         }
 
+        if let Some(retry) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry);
+        }
+
         builder.build()
     }
 
@@ -564,23 +583,7 @@ impl ChatCapability for GeminiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Gemini);
-            }
-            crate::retry_api::retry_with(
-                || {
-                    let m = messages.clone();
-                    let t = tools.clone();
-                    async move { self.chat_with_tools_inner(m, t).await }
-                },
-                opts,
-            )
-            .await
-        } else {
-            self.chat_with_tools_inner(messages, tools).await
-        }
+        self.chat_with_tools_inner(messages, tools).await
     }
 
     async fn chat_stream(
@@ -588,7 +591,15 @@ impl ChatCapability for GeminiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        self.chat_capability.chat_stream(messages, tools).await
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .http_config(self.config.http_config.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        self.chat_stream_request_via_spec(builder.build()).await
     }
 
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
@@ -690,4 +701,14 @@ impl LlmClient for GeminiClient {
     fn as_model_listing_capability(&self) -> Option<&dyn crate::traits::ModelListingCapability> {
         Some(self)
     }
+}
+
+pub(super) fn gemini_backoff_executor() -> crate::retry_api::BackoffRetryExecutor {
+    let backoff = ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(1000))
+        .with_max_interval(Duration::from_secs(60))
+        .with_multiplier(1.5)
+        .with_max_elapsed_time(Some(Duration::from_secs(300)))
+        .build();
+    crate::retry_api::BackoffRetryExecutor::with_backoff(backoff)
 }

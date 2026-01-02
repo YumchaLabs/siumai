@@ -1,9 +1,9 @@
 use std::sync::{Arc, atomic::AtomicUsize};
 
-use siumai::core::ProviderContext;
-use siumai::execution::executors::audio::{AudioExecutor, HttpAudioExecutor};
-use siumai::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
-use siumai::types::TtsRequest;
+use siumai::experimental::core::ProviderContext;
+use siumai::experimental::execution::executors::audio::{AudioExecutor, HttpAudioExecutor};
+use siumai::experimental::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
+use siumai::prelude::unified::{LlmError, SttRequest, TtsRequest};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -12,16 +12,13 @@ impl AudioTransformer for TestAudioTransformer {
     fn provider_id(&self) -> &str {
         "test"
     }
-    fn build_tts_body(&self, req: &TtsRequest) -> Result<AudioHttpBody, siumai::LlmError> {
+    fn build_tts_body(&self, req: &TtsRequest) -> Result<AudioHttpBody, LlmError> {
         let form = reqwest::multipart::Form::new()
             .text("text", req.text.clone())
             .text("voice", req.voice.clone().unwrap_or_else(|| "alloy".into()));
         Ok(AudioHttpBody::Multipart(form))
     }
-    fn build_stt_body(
-        &self,
-        _req: &siumai::types::SttRequest,
-    ) -> Result<AudioHttpBody, siumai::LlmError> {
+    fn build_stt_body(&self, _req: &SttRequest) -> Result<AudioHttpBody, LlmError> {
         Ok(AudioHttpBody::Json(serde_json::json!({})))
     }
     fn tts_endpoint(&self) -> &str {
@@ -30,7 +27,7 @@ impl AudioTransformer for TestAudioTransformer {
     fn stt_endpoint(&self) -> &str {
         "/stt"
     }
-    fn parse_stt_response(&self, json: &serde_json::Value) -> Result<String, siumai::LlmError> {
+    fn parse_stt_response(&self, json: &serde_json::Value) -> Result<String, LlmError> {
         Ok(json["text"].as_str().unwrap_or("").to_string())
     }
 }
@@ -67,7 +64,7 @@ async fn audio_tts_bytes_retries_on_401() {
         transformer: Arc::new(TestAudioTransformer),
         provider_spec: spec,
         provider_context: ctx,
-        policy: siumai::execution::ExecutionPolicy::new(),
+        policy: siumai::experimental::execution::ExecutionPolicy::new(),
     };
 
     let result = AudioExecutor::tts(

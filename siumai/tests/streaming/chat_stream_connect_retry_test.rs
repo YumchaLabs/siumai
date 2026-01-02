@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::StreamExt;
+use siumai::experimental::client::LlmClient;
 use siumai::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -25,9 +26,7 @@ impl ChatCapability for ConnectRetryProvider {
         _messages: Vec<ChatMessage>,
         _tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        Ok(ChatResponse::new(siumai::types::MessageContent::Text(
-            "ok".to_string(),
-        )))
+        Ok(ChatResponse::new(MessageContent::Text("ok".to_string())))
     }
 
     async fn chat_stream(
@@ -44,9 +43,7 @@ impl ChatCapability for ConnectRetryProvider {
         }
         let s = async_stream::stream! {
             yield Ok(ChatStreamEvent::ContentDelta { delta: "hello".to_string(), index: None });
-            let response = ChatResponse::new(siumai::types::MessageContent::Text(
-                "done".to_string(),
-            ));
+            let response = ChatResponse::new(MessageContent::Text("done".to_string()));
             yield Ok(ChatStreamEvent::StreamEnd { response });
         };
         Ok(Box::pin(s))

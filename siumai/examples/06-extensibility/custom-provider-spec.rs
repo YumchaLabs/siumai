@@ -9,12 +9,10 @@
 //! Run with: cargo run --example custom_provider_spec --features openai
 
 use siumai::experimental::core::{ChatTransformers, ProviderContext, ProviderSpec};
-use siumai::error::LlmError;
 use siumai::experimental::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
 use siumai::experimental::execution::transformers::request::RequestTransformer;
 use siumai::experimental::execution::transformers::response::ResponseTransformer;
-use siumai::traits::ProviderCapabilities;
-use siumai::types::{ChatMessage, ChatRequest, ChatResponse};
+use siumai::prelude::unified::*;
 use std::sync::Arc;
 
 /// Custom provider spec that wraps OpenAI but adds custom behavior
@@ -101,18 +99,22 @@ impl RequestTransformer for CustomRequestTransformer {
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         // Reuse OpenAI transformer as base
-        let openai_tx = siumai::standards::openai::transformers::request::OpenAiRequestTransformer;
+        let openai_tx =
+            siumai::experimental::standards::openai::transformers::request::OpenAiRequestTransformer;
         let mut body = openai_tx.transform_chat(req)?;
 
         // Modify the first user message to add our prefix
         if let Some(messages) = body.get_mut("messages").and_then(|v| v.as_array_mut()) {
             for msg in messages.iter_mut() {
-                if msg.get("role").and_then(|r| r.as_str()) == Some("user") {
-                    if let Some(content) = msg.get_mut("content").and_then(|c| c.as_str()) {
-                        let new_content = format!("{}\n\n{}", self.prompt_prefix, content);
-                        msg["content"] = serde_json::json!(new_content);
-                        break; // Only modify the first user message
-                    }
+                if msg.get("role").and_then(|r| r.as_str()) == Some("user")
+                    && let Some(content) = msg
+                        .get("content")
+                        .and_then(|c| c.as_str())
+                        .map(ToOwned::to_owned)
+                {
+                    let new_content = format!("{}\n\n{}", self.prompt_prefix, content);
+                    msg["content"] = serde_json::json!(new_content);
+                    break; // Only modify the first user message
                 }
             }
         }
@@ -132,7 +134,7 @@ impl ResponseTransformer for CustomResponseTransformer {
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
         // Reuse OpenAI transformer
         let openai_tx =
-            siumai::standards::openai::transformers::response::OpenAiResponseTransformer;
+            siumai::experimental::standards::openai::transformers::response::OpenAiResponseTransformer;
         openai_tx.transform_chat_response(raw)
     }
 }
@@ -178,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a chat request
     let request = ChatRequest::new(vec![ChatMessage::user("Hello! How are you?").build()])
         .with_model_params(
-            siumai::types::CommonParamsBuilder::new()
+            CommonParams::builder()
                 .model("gpt-4o-mini")
                 .build()
                 .unwrap(),
@@ -190,7 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = executor.execute(request).await?;
 
     println!("📥 Response:");
-    if let siumai::types::MessageContent::Text(text) = &response.content {
+    if let MessageContent::Text(text) = &response.content {
         println!("{}\n", text);
     } else {
         println!("{:?}\n", response.content);

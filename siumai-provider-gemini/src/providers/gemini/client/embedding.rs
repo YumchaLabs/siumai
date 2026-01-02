@@ -18,26 +18,15 @@ impl EmbeddingCapability for GeminiClient {
         let exec = EmbeddingExecutorBuilder::new("gemini", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
-            .with_interceptors(self.http_interceptors.clone())
-            .build_for_request(&req);
+            .with_interceptors(self.http_interceptors.clone());
 
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Gemini);
-            }
-            crate::retry_api::retry_with(
-                || {
-                    let rq = req.clone();
-                    let exec = exec.clone();
-                    async move { EmbeddingExecutor::execute(&*exec, rq).await }
-                },
-                opts,
-            )
-            .await
+        let exec = if let Some(retry) = self.retry_options.clone() {
+            exec.with_retry_options(retry).build_for_request(&req)
         } else {
-            EmbeddingExecutor::execute(&*exec, req).await
-        }
+            exec.build_for_request(&req)
+        };
+
+        EmbeddingExecutor::execute(&*exec, req).await
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -77,26 +66,15 @@ impl EmbeddingExtensions for GeminiClient {
         let exec = EmbeddingExecutorBuilder::new("gemini", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
-            .with_interceptors(self.http_interceptors.clone())
-            .build_for_request(&request);
+            .with_interceptors(self.http_interceptors.clone());
 
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Gemini);
-            }
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let exec = exec.clone();
-                    async move { EmbeddingExecutor::execute(&*exec, rq).await }
-                },
-                opts,
-            )
-            .await
+        let exec = if let Some(retry) = self.retry_options.clone() {
+            exec.with_retry_options(retry).build_for_request(&request)
         } else {
-            EmbeddingExecutor::execute(&*exec, request).await
-        }
+            exec.build_for_request(&request)
+        };
+
+        EmbeddingExecutor::execute(&*exec, request).await
     }
 }
 

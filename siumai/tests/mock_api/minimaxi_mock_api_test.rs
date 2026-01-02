@@ -49,7 +49,7 @@ mod minimaxi_tests {
             .await;
 
         // Create client with mock server URL
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             .base_url(mock_server.uri())
@@ -110,7 +110,7 @@ mod minimaxi_tests {
             .mount(&mock_server)
             .await;
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             .base_url(mock_server.uri())
@@ -190,7 +190,7 @@ mod minimaxi_tests {
             .mount(&mock_server)
             .await;
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             .base_url(mock_server.uri())
@@ -210,18 +210,15 @@ mod minimaxi_tests {
 
         while let Some(event) = stream.next().await {
             match event {
-                Ok(event) => {
-                    use siumai::types::ChatStreamEvent;
-                    match event {
-                        ChatStreamEvent::ContentDelta { delta, .. } => {
-                            content.push_str(&delta);
-                        }
-                        ChatStreamEvent::StreamEnd { .. } => {
-                            has_end = true;
-                        }
-                        _ => {}
+                Ok(event) => match event {
+                    ChatStreamEvent::ContentDelta { delta, .. } => {
+                        content.push_str(&delta);
                     }
-                }
+                    ChatStreamEvent::StreamEnd { .. } => {
+                        has_end = true;
+                    }
+                    _ => {}
+                },
                 Err(e) => {
                     // Print error for debugging but don't panic yet
                     eprintln!("Stream error: {}", e);
@@ -260,7 +257,7 @@ mod minimaxi_tests {
             .mount(&mock_server)
             .await;
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("invalid-key")
             .base_url(mock_server.uri())
@@ -278,7 +275,7 @@ mod minimaxi_tests {
     #[tokio::test]
     async fn test_minimaxi_config_validation() {
         // Test empty API key
-        let result = LlmBuilder::new().minimaxi().api_key("").build().await;
+        let result = Siumai::builder().minimaxi().api_key("").build().await;
 
         assert!(result.is_err(), "Should fail with empty API key");
     }
@@ -316,7 +313,7 @@ mod minimaxi_tests {
             .await;
 
         // Test with explicit model
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-key")
             .base_url(mock_server.uri())
@@ -336,8 +333,7 @@ mod minimaxi_tests {
     /// Test text-to-speech (TTS)
     #[tokio::test]
     async fn test_minimaxi_text_to_speech() {
-        use siumai::traits::AudioCapability;
-        use siumai::types::TtsRequest;
+        use siumai::extensions::AudioCapability;
 
         let mock_server = MockServer::start().await;
 
@@ -375,7 +371,7 @@ mod minimaxi_tests {
             .await;
 
         // Create client
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             .base_url(mock_server.uri())
@@ -405,8 +401,7 @@ mod minimaxi_tests {
     /// Test TTS with custom parameters
     #[tokio::test]
     async fn test_minimaxi_tts_with_custom_params() {
-        use siumai::traits::AudioCapability;
-        use siumai::types::TtsRequest;
+        use siumai::extensions::AudioCapability;
 
         let mock_server = MockServer::start().await;
 
@@ -434,7 +429,7 @@ mod minimaxi_tests {
             .mount(&mock_server)
             .await;
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             .base_url(mock_server.uri())
@@ -479,8 +474,8 @@ mod minimaxi_tests {
     /// to the API root (`{host}`) for `/v1/files/*` endpoints.
     #[tokio::test]
     async fn test_minimaxi_file_management_lifecycle_with_base_url_normalization() {
-        use siumai::traits::FileManagementCapability;
-        use siumai::types::{FileListQuery, FileUploadRequest};
+        use siumai::extensions::FileManagementCapability;
+        use siumai::extensions::types::{FileListQuery, FileUploadRequest};
         use std::collections::HashMap;
 
         let mock_server = MockServer::start().await;
@@ -577,13 +572,15 @@ mod minimaxi_tests {
             .and(header("authorization", "Bearer test-api-key"))
             .and(header_exists("content-type"))
             .and(header_regex("content-type", "application/json"))
-            .and(body_json(json!({ "file_id": 123, "purpose": "t2a_async_input" })))
+            .and(body_json(
+                json!({ "file_id": 123, "purpose": "t2a_async_input" }),
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(delete_response))
             .expect(1)
             .mount(&mock_server)
             .await;
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             // Simulate a user passing the chat base URL (or a combined suffix).
@@ -632,11 +629,11 @@ mod minimaxi_tests {
     /// Test MiniMaxi file listing requires a purpose (vendor constraint).
     #[tokio::test]
     async fn test_minimaxi_list_files_requires_purpose() {
-        use siumai::traits::FileManagementCapability;
+        use siumai::extensions::FileManagementCapability;
 
         let mock_server = MockServer::start().await;
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             .base_url(mock_server.uri())
@@ -657,7 +654,7 @@ mod minimaxi_tests {
     /// Test MiniMaxi delete accepts a `file_id:purpose` override to avoid the extra retrieve call.
     #[tokio::test]
     async fn test_minimaxi_delete_file_purpose_override_skips_retrieve() {
-        use siumai::traits::FileManagementCapability;
+        use siumai::extensions::FileManagementCapability;
 
         let mock_server = MockServer::start().await;
 
@@ -669,13 +666,15 @@ mod minimaxi_tests {
         Mock::given(method("POST"))
             .and(path("/v1/files/delete"))
             .and(header("authorization", "Bearer test-api-key"))
-            .and(body_json(json!({ "file_id": 123, "purpose": "t2a_async_input" })))
+            .and(body_json(
+                json!({ "file_id": 123, "purpose": "t2a_async_input" }),
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(delete_response))
             .expect(1)
             .mount(&mock_server)
             .await;
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .minimaxi()
             .api_key("test-api-key")
             .base_url(mock_server.uri())

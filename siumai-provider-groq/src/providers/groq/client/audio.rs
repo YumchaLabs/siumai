@@ -19,14 +19,14 @@ impl AudioCapability for GroqClient {
         use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder};
 
         let spec = std::sync::Arc::new(spec::GroqSpec);
-        let ctx = self.build_context();
+        let ctx = self.provider_context();
 
-        let mut builder = AudioExecutorBuilder::new("groq", self.http_client.clone())
+        let mut builder = AudioExecutorBuilder::new("groq", self.http_client())
             .with_spec(spec)
             .with_context(ctx)
-            .with_interceptors(self.http_interceptors.clone());
+            .with_interceptors(self.http_interceptors());
 
-        if let Some(retry) = self.retry_options.clone() {
+        if let Some(retry) = self.retry_options() {
             builder = builder.with_retry_options(retry);
         }
 
@@ -48,14 +48,14 @@ impl AudioCapability for GroqClient {
         use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder};
 
         let spec = std::sync::Arc::new(spec::GroqSpec);
-        let ctx = self.build_context();
+        let ctx = self.provider_context();
 
-        let mut builder = AudioExecutorBuilder::new("groq", self.http_client.clone())
+        let mut builder = AudioExecutorBuilder::new("groq", self.http_client())
             .with_spec(spec)
             .with_context(ctx)
-            .with_interceptors(self.http_interceptors.clone());
+            .with_interceptors(self.http_interceptors());
 
-        if let Some(retry) = self.retry_options.clone() {
+        if let Some(retry) = self.retry_options() {
             builder = builder.with_retry_options(retry);
         }
 

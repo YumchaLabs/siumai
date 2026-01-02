@@ -54,14 +54,12 @@ impl AnthropicModels {
         &self,
         ctx: crate::core::ProviderContext,
     ) -> crate::execution::executors::common::HttpExecutionConfig {
-        crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: "anthropic".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: Arc::new(super::spec::AnthropicSpec::new()),
-            provider_context: ctx,
-            interceptors: Vec::new(),
-            retry_options: None,
-        }
+        crate::execution::wiring::HttpExecutionWiring::new(
+            "anthropic",
+            self.http_client.clone(),
+            ctx,
+        )
+        .config(Arc::new(super::spec::AnthropicSpec::new()))
     }
 
     fn remap_anthropic_api_error(&self, err: LlmError) -> LlmError {

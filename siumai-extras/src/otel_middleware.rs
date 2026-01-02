@@ -73,11 +73,8 @@ use opentelemetry::{
     KeyValue, global,
     trace::{Span, Status, Tracer},
 };
-use siumai::{
-    error::LlmError,
-    execution::middleware::LanguageModelMiddleware,
-    types::{ChatRequest, ChatResponse},
-};
+use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
+use siumai::prelude::unified::{ChatRequest, ChatResponse, LlmError};
 
 /// OpenTelemetry middleware for automatic tracing and metrics
 #[derive(Clone)]

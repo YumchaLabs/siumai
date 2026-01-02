@@ -24,7 +24,6 @@ Workspace members:
 
 - `siumai` — facade crate
 - `siumai-core` — provider-agnostic runtime + types (protocol mapping moved out; remaining coupling is being reduced)
-- `siumai-providers` — thin umbrella crate (feature-gated re-exports + builder facade)
 - `siumai-registry` — registry + factories + handles (optional built-ins via feature)
 - `siumai-extras` — orchestrator + telemetry + server + MCP
 - `siumai-provider-openai` — OpenAI provider + OpenAI-like protocol standard (shared by multiple providers/vendors)
@@ -45,8 +44,6 @@ User code
 siumai (facade)
   ↓
 siumai-registry (optional)
-  ↓
-siumai-providers (umbrella: feature-gated re-exports)
   ↓
   ├─ siumai-provider-openai (OpenAI provider + OpenAI-like family standard)   ← shared implementation layer (family crate)
   ├─ siumai-provider-ollama (Ollama provider + Ollama standard)
@@ -83,12 +80,16 @@ Must NOT own:
 - provider protocol mapping modules (e.g., OpenAI/Gemini/Anthropic request/response schema mapping)
 - provider-specific typed option structs and provider-specific metadata types
 
-### `siumai-providers` (umbrella)
+### Legacy: `siumai-providers` (umbrella)
 
 Owns:
 
-- the stable facade modules (`providers::*`, `standards::*`, `LlmBuilder`) that re-export provider crates behind features
-- compatibility shims that preserve historical module paths
+- (historical) compatibility shims that preserved old module paths
+
+Status:
+
+- The fearless refactor moved provider implementations into dedicated provider crates.
+- The umbrella crate is no longer part of the workspace (kept only as a historical reference).
 
 ### `siumai-registry`
 
@@ -144,6 +145,7 @@ Rust representation (current refactor stage):
 
 - Requests carry `provider_options_map: ProviderOptionsMap` (re-exported from `siumai-core::types`).
 - `ChatRequest` / `EmbeddingRequest` / etc. expose helpers like `with_provider_option(provider_id, json_value)`.
+- There is no closed `ProviderOptions` enum transport in `siumai-core` (breaking change).
 
 This matches Vercel’s `SharedV3ProviderOptions` concept:
 `repo-ref/ai/packages/provider/src/shared/v3/shared-v3-provider-options.ts`.
@@ -190,13 +192,16 @@ This mirrors Vercel’s *concept* (shared adapter + vendor providers), while kee
 
 ## Where `standards/*` lives now
 
-Protocol mapping is provider-owned, not core-owned:
+Provider-specific protocol mapping is provider-owned:
 
 - OpenAI-like (shared): `siumai-provider-openai/src/standards/openai/*`
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
 - Anthropic standard: `siumai-provider-anthropic/src/standards/anthropic/*`
 - Gemini standard: `siumai-provider-gemini/src/standards/gemini/*`
-- `siumai-core` no longer exports `standards`.
+
+`siumai-core` may still contain **protocol-level shared building blocks** under `siumai-core/src/standards/*`
+(e.g. OpenAI-compatible adapters / streaming converters / wire helpers). These are not part of the stable facade;
+they are surfaced through `siumai::experimental::standards::*` via provider re-exports when needed.
 
 ## Standard-only features (reduce coupling)
 
@@ -230,6 +235,10 @@ Benefits:
 3. Move `standards/*` provider mapping modules out of `siumai-core` into provider-owned code.
 4. Introduce shared `openai_like` module and refactor `openai` + `openai_compatible` to use it.
 5. Tighten exports and document stable module paths.
+
+Breaking-change details and “before/after” snippets:
+
+- `docs/migration-0.11.0-beta.5.md`
 
 ## Testing strategy
 

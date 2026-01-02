@@ -16,11 +16,15 @@
 
 pub mod cache;
 pub mod chat;
+pub mod errors;
 pub mod streaming;
 pub mod thinking;
 pub mod transformers;
 pub mod types;
 pub mod utils;
+
+#[cfg(test)]
+mod chat_adapter_sse_tests;
 
 // Re-export main types
 pub use chat::{AnthropicChatAdapter, AnthropicChatStandard};

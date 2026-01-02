@@ -20,3 +20,5 @@ pub mod standards;
 
 pub use types::{ChatResponse, CommonParams};
 
+/// Provider-owned typed option structs (Groq-specific).
+pub mod provider_options;

@@ -131,4 +131,3 @@ impl AnthropicChatResponseExt for crate::types::ChatResponse {
         AnthropicMetadata::from_metadata(meta)
     }
 }
-

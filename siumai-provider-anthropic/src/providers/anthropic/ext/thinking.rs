@@ -1,8 +1,9 @@
 //! Anthropic extended thinking helpers (extension API).
 
 use crate::error::LlmError;
-use crate::traits::ChatCapability;
 use crate::provider_options::anthropic::{AnthropicOptions, ThinkingModeConfig};
+use crate::providers::anthropic::ext::AnthropicChatRequestExt;
+use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ContentPart, MessageContent};
 
 /// Execute a chat request with Anthropic Thinking Mode enabled (explicit extension API).
@@ -38,22 +39,21 @@ pub fn assistant_message_with_thinking_metadata(response: &ChatResponse) -> Chat
         return msg;
     };
 
-    if let Some(sig) = anthropic
-        .get("thinking_signature")
-        .and_then(|v| v.as_str())
-    {
-        msg.metadata
-            .custom
-            .insert("anthropic_thinking_signature".to_string(), serde_json::json!(sig));
+    if let Some(sig) = anthropic.get("thinking_signature").and_then(|v| v.as_str()) {
+        msg.metadata.custom.insert(
+            "anthropic_thinking_signature".to_string(),
+            serde_json::json!(sig),
+        );
     }
 
     if let Some(data) = anthropic
         .get("redacted_thinking_data")
         .and_then(|v| v.as_str())
     {
-        msg.metadata
-            .custom
-            .insert("anthropic_redacted_thinking_data".to_string(), serde_json::json!(data));
+        msg.metadata.custom.insert(
+            "anthropic_redacted_thinking_data".to_string(),
+            serde_json::json!(data),
+        );
 
         // Ensure the message contains a reasoning part so the converter can emit redacted_thinking.
         if !msg.has_reasoning() {

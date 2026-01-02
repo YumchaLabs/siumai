@@ -1,7 +1,8 @@
 #![cfg(feature = "anthropic")]
 use serde_json::json;
-use siumai::providers::anthropic_vertex::client::{VertexAnthropicClient, VertexAnthropicConfig};
-use siumai::traits::ModelListingCapability;
+use siumai::extensions::ModelListingCapability;
+use siumai::prelude::unified::HttpConfig;
+use siumai::provider_ext::anthropic_vertex::{VertexAnthropicClient, VertexAnthropicConfig};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -31,7 +32,7 @@ async fn anthropic_vertex_list_models_parses_ids() {
     let cfg = VertexAnthropicConfig {
         base_url: server.uri(),
         model: "claude-3-7-sonnet-latest".to_string(),
-        http_config: siumai::types::HttpConfig {
+        http_config: HttpConfig {
             headers: std::iter::once(("Authorization".to_string(), "Bearer ok".to_string()))
                 .collect(),
             ..Default::default()

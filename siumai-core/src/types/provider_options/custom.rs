@@ -12,7 +12,7 @@ use crate::error::LlmError;
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::types::{CustomProviderOptions, ProviderOptions};
+/// use siumai::types::{ChatRequest, CustomProviderOptions};
 ///
 /// #[derive(Debug, Clone)]
 /// struct MyCustomFeature {
@@ -33,7 +33,8 @@ use crate::error::LlmError;
 ///
 /// // Usage
 /// let feature = MyCustomFeature { custom_param: "value".to_string() };
-/// let options = ProviderOptions::from_custom(feature)?;
+/// let (provider_id, value) = feature.to_provider_options_map_entry()?;
+/// let req = ChatRequest::new(messages).with_provider_option(provider_id, value);
 /// ```
 pub trait CustomProviderOptions {
     /// Get the provider ID for this custom feature
@@ -41,4 +42,9 @@ pub trait CustomProviderOptions {
 
     /// Convert the custom options to JSON
     fn to_json(&self) -> Result<serde_json::Value, LlmError>;
+
+    /// Convert this custom options into a `(provider_id, json_value)` pair for `ProviderOptionsMap`.
+    fn to_provider_options_map_entry(&self) -> Result<(String, serde_json::Value), LlmError> {
+        Ok((self.provider_id().to_ascii_lowercase(), self.to_json()?))
+    }
 }

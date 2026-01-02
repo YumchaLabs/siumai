@@ -199,3 +199,55 @@ impl CommonParamsBuilder {
         Ok(params)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn common_params_default_is_minimal() {
+        let params = CommonParams::default();
+        assert!(params.is_minimal());
+        assert!(params.model.is_empty());
+        assert!(params.temperature.is_none());
+        assert!(params.max_tokens.is_none());
+        assert!(params.max_completion_tokens.is_none());
+        assert!(params.top_p.is_none());
+        assert!(params.stop_sequences.is_none());
+        assert!(params.seed.is_none());
+    }
+
+    #[test]
+    fn common_params_serde_roundtrip() {
+        let params = CommonParams {
+            model: "gpt-4".to_string(),
+            temperature: Some(0.7),
+            max_tokens: Some(1000),
+            max_completion_tokens: None,
+            top_p: Some(0.9),
+            stop_sequences: Some(vec!["STOP".to_string(), "END".to_string()]),
+            seed: Some(42),
+        };
+
+        let json = serde_json::to_string(&params).expect("serialize");
+        let de: CommonParams = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(de.model, "gpt-4");
+        assert_eq!(de.temperature, Some(0.7));
+        assert_eq!(de.max_tokens, Some(1000));
+        assert_eq!(de.top_p, Some(0.9));
+        assert_eq!(
+            de.stop_sequences.as_deref(),
+            Some(&["STOP".to_string(), "END".to_string()][..])
+        );
+        assert_eq!(de.seed, Some(42));
+    }
+
+    #[test]
+    fn common_params_validate_rejects_empty_model() {
+        let params = CommonParams {
+            model: String::new(),
+            ..Default::default()
+        };
+        assert!(params.validate_params().is_err());
+    }
+}

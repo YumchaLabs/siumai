@@ -4,7 +4,8 @@
 //! configuration. It intentionally avoids a closed enum so that new providers and new provider
 //! knobs do not require changes in `siumai-core`.
 //!
-//! The typed `ProviderOptions` enum remains as a compatibility layer during the fearless refactor.
+//! Provider-specific typed options are owned by provider crates and should be serialized into
+//! this map under their provider id.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -90,4 +91,3 @@ fn merge_json_objects(
         }
     }
 }
-

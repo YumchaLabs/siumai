@@ -5,6 +5,7 @@
 use crate::error::LlmError;
 use crate::execution::executors::common::{HttpBody, execute_get_request, execute_json_request};
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 use crate::types::video::{
@@ -14,22 +15,21 @@ use std::sync::Arc;
 
 use super::spec::MinimaxiVideoSpec;
 
-fn build_http_execution_config(
+fn build_wiring(
     api_key: &str,
     base_url: &str,
     http_config: &HttpConfig,
     http_client: &reqwest::Client,
     retry_options: Option<&RetryOptions>,
     interceptors: &[Arc<dyn HttpInterceptor>],
-) -> crate::execution::executors::common::HttpExecutionConfig {
-    crate::execution::executors::common::HttpExecutionConfig {
-        provider_id: "minimaxi".to_string(),
-        http_client: http_client.clone(),
-        provider_spec: Arc::new(MinimaxiVideoSpec::new()),
-        provider_context: super::utils::build_context(api_key, base_url, http_config),
-        interceptors: interceptors.to_vec(),
-        retry_options: retry_options.cloned(),
-    }
+) -> HttpExecutionWiring {
+    HttpExecutionWiring::new(
+        "minimaxi",
+        http_client.clone(),
+        super::utils::build_context(api_key, base_url, http_config),
+    )
+    .with_interceptors(interceptors.to_vec())
+    .with_retry_options(retry_options.cloned())
 }
 
 /// Create video task
@@ -42,7 +42,7 @@ pub(super) async fn create_video_task(
     interceptors: &[Arc<dyn HttpInterceptor>],
     request: VideoGenerationRequest,
 ) -> Result<VideoGenerationResponse, LlmError> {
-    let config = build_http_execution_config(
+    let wiring = build_wiring(
         api_key,
         base_url,
         http_config,
@@ -50,6 +50,7 @@ pub(super) async fn create_video_task(
         retry_options,
         interceptors,
     );
+    let config = wiring.config(Arc::new(MinimaxiVideoSpec::new()));
     let url = MinimaxiVideoSpec::new().video_generation_url(&config.provider_context);
 
     let body = serde_json::to_value(request)
@@ -70,7 +71,7 @@ pub(super) async fn query_video_task(
     interceptors: &[Arc<dyn HttpInterceptor>],
     task_id: &str,
 ) -> Result<VideoTaskStatusResponse, LlmError> {
-    let config = build_http_execution_config(
+    let wiring = build_wiring(
         api_key,
         base_url,
         http_config,
@@ -78,6 +79,7 @@ pub(super) async fn query_video_task(
         retry_options,
         interceptors,
     );
+    let config = wiring.config(Arc::new(MinimaxiVideoSpec::new()));
     let url = MinimaxiVideoSpec::new().video_query_url(&config.provider_context, task_id);
 
     let res = execute_get_request(&config, &url, None).await?;

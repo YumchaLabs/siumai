@@ -15,7 +15,6 @@
 //! - `client.rs` - Main MiniMaxi client that aggregates all capabilities
 //! - `config.rs` - Configuration structures and validation
 //! - `builder.rs` - Builder pattern implementation for client creation
-//! - `chat.rs` - Chat completion capability implementation
 //! - `audio.rs` - Audio (TTS) capability implementation
 //! - `image.rs` - Image generation capability implementation
 //! - `spec.rs` - ProviderSpec implementation (chat uses Anthropic standard)
@@ -48,9 +47,9 @@
 pub mod builder;
 pub mod client;
 pub mod config;
-pub mod files;
 /// MiniMaxi extension APIs (non-unified surface)
 pub mod ext;
+pub mod files;
 pub mod spec;
 pub mod transformers;
 pub mod types;
@@ -58,7 +57,6 @@ mod utils;
 
 // Capability modules
 pub mod audio;
-pub mod chat;
 pub mod image;
 pub mod model_constants;
 pub mod music;
@@ -73,7 +71,7 @@ pub use spec::MinimaxiSpec;
 pub use types::*;
 
 // Re-export chat capability implementation
-pub use chat::MinimaxiChatCapability;
+// (Removed) `MinimaxiChatCapability`: chat is implemented directly on `MinimaxiClient`.
 
 // Tests module
 #[cfg(test)]

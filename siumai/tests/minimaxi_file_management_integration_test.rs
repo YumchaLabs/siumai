@@ -10,9 +10,9 @@
 //! Optional env vars:
 //! - `MINIMAXI_BASE_URL` (defaults to `https://api.minimaxi.com/anthropic`)
 
+use siumai::extensions::FileManagementCapability;
+use siumai::extensions::types::{FileListQuery, FileUploadRequest};
 use siumai::prelude::*;
-use siumai::traits::FileManagementCapability;
-use siumai::types::{FileListQuery, FileUploadRequest};
 use std::collections::HashMap;
 use std::env;
 
@@ -24,17 +24,20 @@ async fn test_minimaxi_files_real_lifecycle() {
         _ => return,
     };
 
-    let mut builder = LlmBuilder::new().minimaxi().api_key(api_key);
-    if let Ok(base_url) = env::var("MINIMAXI_BASE_URL") {
-        if !base_url.trim().is_empty() {
-            builder = builder.base_url(base_url);
-        }
+    let mut builder = Siumai::builder().minimaxi().api_key(api_key);
+    if let Ok(base_url) = env::var("MINIMAXI_BASE_URL")
+        && !base_url.trim().is_empty()
+    {
+        builder = builder.base_url(base_url);
     }
 
-    let client = builder.build().await.expect("Failed to build MiniMaxi client");
+    let client = builder
+        .build()
+        .await
+        .expect("Failed to build MiniMaxi client");
 
     let mut created_file_id: Option<String> = None;
-    let test_result: Result<(), siumai::error::LlmError> = async {
+    let test_result: Result<(), siumai::prelude::unified::LlmError> = async {
         let uploaded = client
             .upload_file(FileUploadRequest {
                 content: b"hello".to_vec(),
@@ -75,4 +78,3 @@ async fn test_minimaxi_files_real_lifecycle() {
 
     test_result.expect("MiniMaxi files real lifecycle failed");
 }
-

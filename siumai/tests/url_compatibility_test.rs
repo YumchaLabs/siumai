@@ -8,8 +8,8 @@
 //!
 //! Tests to ensure all providers handle base URLs with and without trailing slashes correctly.
 
+use siumai::experimental::utils::url::{join_url, normalize_url};
 use siumai::prelude::*;
-use siumai::utils::url::{join_url, normalize_url};
 
 #[test]
 fn test_url_join_compatibility() {
@@ -70,7 +70,7 @@ async fn test_provider_url_building() {
 
     for base_url in base_urls {
         // These should all succeed in building (though may fail on actual requests)
-        let _openai = LlmBuilder::new()
+        let _openai = Siumai::builder()
             .openai()
             .base_url(base_url)
             .api_key("test")
@@ -78,7 +78,7 @@ async fn test_provider_url_building() {
             .build()
             .await;
 
-        let _anthropic = LlmBuilder::new()
+        let _anthropic = Siumai::builder()
             .anthropic()
             .base_url(base_url)
             .api_key("test")
@@ -86,14 +86,14 @@ async fn test_provider_url_building() {
             .build()
             .await;
 
-        let _ollama = LlmBuilder::new()
+        let _ollama = Siumai::builder()
             .ollama()
             .base_url(base_url)
             .model("llama3.2")
             .build()
             .await;
 
-        let _gemini = LlmBuilder::new()
+        let _gemini = Siumai::builder()
             .gemini()
             .base_url(base_url)
             .api_key("test")
@@ -163,9 +163,9 @@ fn test_real_world_url_cases() {
 
 #[test]
 fn test_anthropic_base_url_accepts_v1_suffix() {
-    use siumai::core::ProviderContext;
-    use siumai::core::ProviderSpec;
-    use siumai::standards::anthropic::chat::AnthropicChatStandard;
+    use siumai::experimental::core::ProviderContext;
+    use siumai::experimental::core::ProviderSpec;
+    use siumai::experimental::standards::anthropic::chat::AnthropicChatStandard;
 
     let ctx = ProviderContext::new(
         "anthropic",

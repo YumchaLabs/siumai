@@ -4,8 +4,9 @@
 //! Responses API through the existing unified chat pipeline.
 
 use crate::error::LlmError;
-use crate::streaming::ChatStreamEvent;
 use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+use crate::providers::openai::ext::OpenAiChatRequestExt;
+use crate::streaming::ChatStreamEvent;
 use crate::types::{ChatRequest, ChatResponse};
 
 /// Parameters for `GET /responses/{response_id}/input_items`.
@@ -95,7 +96,7 @@ pub struct OpenAiResponsesCompaction {
 /// Notes:
 /// - This uses the existing `ChatCapability::chat_request` pipeline; it does not introduce
 ///   a new client type.
-/// - You can still use `ChatRequest::with_openai_options(...)` directly; this helper exists
+/// - You can still use `OpenAiChatRequestExt::with_openai_options(...)` directly; this helper exists
 ///   to make the “provider extension” intent obvious in user code.
 pub async fn chat_via_responses_api<C>(
     client: &C,

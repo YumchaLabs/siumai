@@ -4,15 +4,16 @@ use std::sync::{
 };
 
 use serde_json::json;
-use siumai::core::{ImageTransformers, ProviderContext, ProviderSpec};
-use siumai::error::LlmError;
-use siumai::execution::executors::image::{HttpImageExecutor, ImageExecutor};
-use siumai::execution::transformers::{
+use siumai::experimental::core::{ImageTransformers, ProviderContext, ProviderSpec};
+use siumai::experimental::execution::executors::image::{HttpImageExecutor, ImageExecutor};
+use siumai::experimental::execution::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
 };
-use siumai::types::{
-    ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
+use siumai::extensions::types::{ImageEditRequest, ImageVariationRequest};
+use siumai::prelude::unified::{
+    ChatRequest, GeneratedImage, ImageGenerationRequest, ImageGenerationResponse, LlmError,
+    ProviderCapabilities,
 };
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -22,10 +23,7 @@ impl RequestTransformer for TestReqTx {
     fn provider_id(&self) -> &str {
         "test"
     }
-    fn transform_chat(
-        &self,
-        _req: &siumai::types::ChatRequest,
-    ) -> Result<serde_json::Value, LlmError> {
+    fn transform_chat(&self, _req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         unreachable!()
     }
     fn transform_image(
@@ -57,7 +55,7 @@ impl ResponseTransformer for TestRespTx {
         let images = raw["images"].as_array().cloned().unwrap_or_default();
         let images = images
             .into_iter()
-            .map(|_| siumai::types::GeneratedImage {
+            .map(|_| GeneratedImage {
                 url: Some("http://x".to_string()),
                 b64_json: None,
                 format: None,
@@ -85,8 +83,8 @@ impl ProviderSpec for TestImageSpec {
         "test"
     }
 
-    fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
-        siumai::traits::ProviderCapabilities::new().with_image_generation()
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_image_generation()
     }
 
     fn build_headers(
@@ -108,20 +106,15 @@ impl ProviderSpec for TestImageSpec {
         Ok(h)
     }
 
-    fn chat_url(
-        &self,
-        _stream: bool,
-        _req: &siumai::types::ChatRequest,
-        _ctx: &ProviderContext,
-    ) -> String {
+    fn chat_url(&self, _stream: bool, _req: &ChatRequest, _ctx: &ProviderContext) -> String {
         unreachable!("chat not used in this test")
     }
 
     fn choose_chat_transformers(
         &self,
-        _req: &siumai::types::ChatRequest,
+        _req: &ChatRequest,
         _ctx: &ProviderContext,
-    ) -> siumai::core::ChatTransformers {
+    ) -> siumai::experimental::core::ChatTransformers {
         unreachable!("chat not used in this test")
     }
 
@@ -177,8 +170,7 @@ async fn image_executor_retries_on_401() {
     let ctx = ProviderContext::new("test", server.uri(), None, Default::default());
 
     // Create dummy transformers
-    use siumai::error::LlmError;
-    use siumai::execution::transformers::{
+    use siumai::experimental::execution::transformers::{
         request::RequestTransformer, response::ResponseTransformer,
     };
 
@@ -187,27 +179,21 @@ async fn image_executor_retries_on_401() {
         fn provider_id(&self) -> &str {
             "test"
         }
-        fn transform_chat(
-            &self,
-            _req: &siumai::types::ChatRequest,
-        ) -> Result<serde_json::Value, LlmError> {
+        fn transform_chat(&self, _req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
             Ok(serde_json::json!({}))
         }
         fn transform_image(
             &self,
-            _req: &siumai::types::ImageGenerationRequest,
+            _req: &ImageGenerationRequest,
         ) -> Result<serde_json::Value, LlmError> {
             Ok(serde_json::json!({}))
         }
-        fn transform_image_edit(
-            &self,
-            _req: &siumai::types::ImageEditRequest,
-        ) -> Result<ImageHttpBody, LlmError> {
+        fn transform_image_edit(&self, _req: &ImageEditRequest) -> Result<ImageHttpBody, LlmError> {
             Ok(ImageHttpBody::Json(serde_json::json!({})))
         }
         fn transform_image_variation(
             &self,
-            _req: &siumai::types::ImageVariationRequest,
+            _req: &ImageVariationRequest,
         ) -> Result<ImageHttpBody, LlmError> {
             Ok(ImageHttpBody::Json(serde_json::json!({})))
         }
@@ -221,11 +207,11 @@ async fn image_executor_retries_on_401() {
         fn transform_image_response(
             &self,
             _raw: &serde_json::Value,
-        ) -> Result<siumai::types::ImageGenerationResponse, LlmError> {
+        ) -> Result<ImageGenerationResponse, LlmError> {
             let arr = _raw["images"].as_array().cloned().unwrap_or_default();
             let images = arr
                 .into_iter()
-                .map(|v| siumai::types::GeneratedImage {
+                .map(|v| GeneratedImage {
                     url: v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()),
                     b64_json: None,
                     format: None,
@@ -235,7 +221,7 @@ async fn image_executor_retries_on_401() {
                     metadata: Default::default(),
                 })
                 .collect();
-            Ok(siumai::types::ImageGenerationResponse {
+            Ok(ImageGenerationResponse {
                 images,
                 metadata: Default::default(),
             })
@@ -249,7 +235,7 @@ async fn image_executor_retries_on_401() {
         response_transformer: Arc::new(DummyResponseTransformer),
         provider_spec: spec,
         provider_context: ctx,
-        policy: siumai::execution::ExecutionPolicy::new(),
+        policy: siumai::experimental::execution::ExecutionPolicy::new(),
     };
 
     // execute

@@ -131,32 +131,9 @@ impl ParameterMapper {
 }
 
 /// Parameter conversion utilities
-pub struct ParameterConverter;
-
-impl ParameterConverter {
-    /// Converts a parameter name from common format to provider-specific format
-    pub fn convert_param_name(common_name: &str, provider_type: &ProviderType) -> String {
-        match (common_name, provider_type) {
-            ("max_tokens", ProviderType::Gemini) => "maxOutputTokens".to_string(),
-            ("top_p", ProviderType::Gemini) => "topP".to_string(),
-            ("stop_sequences", ProviderType::Gemini) => "stopSequences".to_string(),
-            ("stop_sequences", ProviderType::Anthropic) => "stop_sequences".to_string(),
-            ("stop_sequences", ProviderType::OpenAi) => "stop".to_string(),
-            _ => common_name.to_string(),
-        }
-    }
-
-    /// Converts parameter value based on provider requirements
-    pub fn convert_param_value(
-        value: &serde_json::Value,
-        _param_name: &str,
-        _provider_type: &ProviderType,
-    ) -> serde_json::Value {
-        // Add any provider-specific value conversions here
-        value.clone()
-    }
-}
-
+///
+/// Note: `siumai-core` intentionally does not perform provider-specific field name mapping.
+/// Provider transformers/standards own the wire-format mapping.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,29 +153,6 @@ mod tests {
         assert!(ParameterValidator::validate_max_tokens(1000, 1, 200_000, "test").is_ok());
         assert!(ParameterValidator::validate_max_tokens(500_000, 1, 200_000, "test").is_ok()); // Now allowed
         assert!(ParameterValidator::validate_max_tokens(0, 1, 200_000, "test").is_err()); // Zero still fails
-    }
-
-    #[test]
-    fn test_parameter_converter() {
-        // Test parameter name conversion
-        assert_eq!(
-            ParameterConverter::convert_param_name("max_tokens", &ProviderType::Gemini),
-            "maxOutputTokens"
-        );
-        assert_eq!(
-            ParameterConverter::convert_param_name("max_tokens", &ProviderType::OpenAi),
-            "max_tokens"
-        );
-
-        // Test stop sequences conversion
-        assert_eq!(
-            ParameterConverter::convert_param_name("stop_sequences", &ProviderType::OpenAi),
-            "stop"
-        );
-        assert_eq!(
-            ParameterConverter::convert_param_name("stop_sequences", &ProviderType::Anthropic),
-            "stop_sequences"
-        );
     }
 
     #[test]

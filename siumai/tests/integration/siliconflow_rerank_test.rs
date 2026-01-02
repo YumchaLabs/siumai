@@ -4,8 +4,6 @@
 
 use siumai::prelude::*;
 use siumai::models::openai_compatible::siliconflow;
-use siumai::traits::RerankCapability;
-use siumai::types::{RerankRequest, RerankResponse};
 
 /// Test basic rerank functionality
 #[tokio::test]
@@ -14,7 +12,7 @@ async fn test_basic_rerank() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("SILICONFLOW_API_KEY")
         .expect("SILICONFLOW_API_KEY environment variable not set");
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .siliconflow()
         .api_key(&api_key)
@@ -79,7 +77,7 @@ async fn test_rerank_with_instruction() -> Result<(), Box<dyn std::error::Error>
     let api_key = std::env::var("SILICONFLOW_API_KEY")
         .expect("SILICONFLOW_API_KEY environment variable not set");
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .siliconflow()
         .api_key(&api_key)
@@ -124,7 +122,7 @@ async fn test_rerank_advanced_parameters() -> Result<(), Box<dyn std::error::Err
     let api_key = std::env::var("SILICONFLOW_API_KEY")
         .expect("SILICONFLOW_API_KEY environment variable not set");
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .siliconflow()
         .api_key(&api_key)
@@ -183,7 +181,7 @@ async fn test_rerank_capabilities() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("SILICONFLOW_API_KEY")
         .expect("SILICONFLOW_API_KEY environment variable not set");
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .siliconflow()
         .api_key(&api_key)
@@ -208,7 +206,7 @@ async fn test_rerank_capabilities() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 #[ignore = "Requires SILICONFLOW_API_KEY environment variable"]
 async fn test_rerank_error_handling() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .siliconflow()
         .api_key("invalid-key")
@@ -246,7 +244,7 @@ async fn test_empty_documents() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("SILICONFLOW_API_KEY")
         .expect("SILICONFLOW_API_KEY environment variable not set");
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .siliconflow()
         .api_key(&api_key)

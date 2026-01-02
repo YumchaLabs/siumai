@@ -5,7 +5,7 @@
 //! https://docs.x.ai/docs/api-reference
 
 use serde_json::json;
-use siumai::{ChatCapability, ChatMessage, FinishReason, LlmBuilder, Tool};
+use siumai::prelude::unified::*;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path},
@@ -104,7 +104,7 @@ async fn test_xai_chat_non_streaming() {
         .await;
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .xai()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -147,7 +147,7 @@ async fn test_xai_error_response() {
         .await;
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .xai()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -182,7 +182,7 @@ async fn test_xai_request_format() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .xai()
         .api_key("test-key")
         .base_url(mock_server.uri())
@@ -213,7 +213,7 @@ async fn test_xai_tool_calling() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .xai()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -252,8 +252,6 @@ async fn test_xai_tool_calling() {
         .unwrap();
 
     // Verify tool calls
-    use siumai::types::ContentPart;
-
     assert!(response.has_tool_calls());
     let tool_calls = response.tool_calls();
     assert_eq!(tool_calls.len(), 1);
@@ -278,7 +276,7 @@ async fn test_xai_system_fingerprint() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .xai()
         .api_key("test-api-key")
         .base_url(mock_server.uri())

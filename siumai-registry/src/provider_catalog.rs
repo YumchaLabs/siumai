@@ -40,13 +40,12 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
         match ptype {
             #[cfg(feature = "openai")]
             ProviderType::OpenAi => {
-                let native_metas =
-                    siumai_providers::providers::metadata::native_providers_metadata();
+                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "openai")
                     .expect("OpenAI metadata should be registered");
-                use siumai_providers::model_catalog::constants::openai;
+                use siumai_provider_openai::providers::openai::model_constants as openai;
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
                 models.extend(openai::gpt_4o::ALL.iter().copied().map(Cow::Borrowed));
                 models.extend(openai::gpt_4_1::ALL.iter().copied().map(Cow::Borrowed));
@@ -75,13 +74,12 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "anthropic")]
             ProviderType::Anthropic => {
-                let native_metas =
-                    siumai_providers::providers::metadata::native_providers_metadata();
+                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "anthropic")
                     .expect("Anthropic metadata should be registered");
-                use siumai_providers::model_catalog::constants::anthropic;
+                use siumai_provider_anthropic::providers::anthropic::model_constants as anthropic;
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
                 models.extend(
                     anthropic::claude_opus_4_1::ALL
@@ -150,13 +148,12 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "google")]
             ProviderType::Gemini => {
-                let native_metas =
-                    siumai_providers::providers::metadata::native_providers_metadata();
+                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "gemini")
                     .expect("Gemini metadata should be registered");
-                use siumai_providers::model_catalog::constants::gemini;
+                use siumai_provider_gemini::providers::gemini::model_constants as gemini;
                 let mut models: Vec<Cow<'static, str>> = Vec::new();
                 models.extend(
                     gemini::gemini_2_5_pro::ALL
@@ -219,8 +216,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "ollama")]
             ProviderType::Ollama => {
-                let native_metas =
-                    siumai_providers::providers::metadata::native_providers_metadata();
+                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "ollama")
@@ -267,8 +263,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "xai")]
             ProviderType::XAI => {
-                let native_metas =
-                    siumai_providers::providers::metadata::native_providers_metadata();
+                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "xai")
@@ -281,7 +276,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     default_base_url: Cow::Borrowed(
                         meta.default_base_url.unwrap_or("https://api.x.ai/v1"),
                     ),
-                    supported_models: siumai_providers::providers::xai::models::all_models()
+                    supported_models: siumai_provider_xai::providers::xai::models::all_models()
                         .into_iter()
                         .map(Cow::Borrowed)
                         .collect(),
@@ -289,8 +284,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "groq")]
             ProviderType::Groq => {
-                let native_metas =
-                    siumai_providers::providers::metadata::native_providers_metadata();
+                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "groq")
@@ -304,7 +298,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         meta.default_base_url
                             .unwrap_or("https://api.groq.com/openai/v1"),
                     ),
-                    supported_models: siumai_providers::providers::groq::models::all_models()
+                    supported_models: siumai_provider_groq::providers::groq::models::all_models()
                         .into_iter()
                         .map(Cow::Borrowed)
                         .collect(),
@@ -312,8 +306,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "minimaxi")]
             ProviderType::MiniMaxi => {
-                let native_metas =
-                    siumai_providers::providers::metadata::native_providers_metadata();
+                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "minimaxi")
@@ -344,9 +337,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 #[cfg(feature = "openai")]
                 {
                     if let Some(cfg) =
-                        siumai_providers::providers::openai_compatible::config::get_provider_config(
-                            &rec.id,
-                        )
+                        siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(&rec.id)
                     {
                         let mut models: Vec<Cow<'static, str>> = Vec::new();
                         if let Some(m) = cfg.default_model {
@@ -354,7 +345,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         }
 
                         // Add a few curated model ids when we have stable constants.
-                        use siumai_providers::providers::openai_compatible::providers::models as oai_models;
+                        use siumai_provider_openai_compatible::providers::openai_compatible::providers::models as oai_models;
                         match rec.id.as_str() {
                             "deepseek" => {
                                 models.push(Cow::Borrowed(oai_models::deepseek::CHAT));

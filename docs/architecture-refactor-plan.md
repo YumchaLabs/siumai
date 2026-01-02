@@ -26,34 +26,41 @@ keeping the *user-facing* surface aligned with the Vercel AI SDK philosophy.
 
 - `siumai` (facade): recommended entry for most users; exports prelude and feature flags.
 - `siumai-core` (core/runtime): types, traits, execution runtime, retry, and streaming normalization (provider-agnostic).
-- `siumai-providers` (providers): built-in provider implementations and builders.
 - `siumai-registry` (registry): provider factories, registry handles; optional built-ins behind `builtins`.
 - `siumai-registry` can be used as a pure abstraction layer; see `docs/registry-without-builtins.md`.
 - `siumai-extras` (extras): orchestrator, schema helpers, telemetry, OpenTelemetry, server adapters, MCP.
+
+Provider crates (feature-gated):
+
+- `siumai-provider-openai` (OpenAI + OpenAI-compatible family standard)
+- `siumai-provider-anthropic`
+- `siumai-provider-gemini`
+- `siumai-provider-ollama`
+- `siumai-provider-groq`
+- `siumai-provider-xai`
+- `siumai-provider-minimaxi`
 
 This split is already a big step forward. The next step is **tightening boundaries** so that the
 split *actually* reduces coupling and compilation cost.
 
 ## Key Coupling Problems (Observed)
 
-1. **Provider-specific types live in `siumai-core`**
-   - `types::provider_options::*` contains provider-specific option structs and convenience APIs.
-   - `types::provider_metadata::*` contains provider-specific metadata types.
-   - `hosted_tools::*` contains provider-specific logic.
+1. **Provider-specific typed options/metadata must not live in `siumai-core`**
+   - Historically, typed provider options/metadata lived in `siumai-core`, which forced core changes
+     whenever providers evolved and increased compile cost.
+   - In beta.5, typed `providerOptions` and typed `providerMetadata` were moved to provider crates and
+     exposed via `siumai::provider_ext::<provider>::*`.
 
-   This makes `siumai-core` “know” every provider even when a user wants a minimal build.
-   As part of the beta.5 refactor, OpenAI typed options/metadata were moved out of `siumai-core`
-   as the first “proof point” of provider-owned extensions.
+   `siumai-core` now only owns provider-agnostic transports:
+   - `ProviderOptionsMap` (open JSON map keyed by provider id)
+   - `CustomProviderOptions` (trait for converting to a `(provider_id, JSON)` entry)
 
-2. **Provider options are modeled as a closed enum**
-   - `ProviderOptions` enumerates OpenAI/Anthropic/Gemini/… variants.
-
-   This is the opposite of the Vercel AI SDK strategy, where provider options are a **pass-through map**
-   keyed by provider id (e.g. `Record<string, JSONObject>`), enabling new provider features without
-   touching the core package.
+2. **Provider options must be open (no closed enum transport)**
+   - The legacy closed `ProviderOptions` enum transport has been removed (breaking change).
+   - Providers parse options from `request.provider_options_map["<provider_id>"]`.
 
 3. **Crate boundaries are blurred by blanket re-exports**
-   - `siumai-providers` and `siumai-registry` currently re-export large portions of `siumai-core`.
+   - Provider crates and `siumai-registry` can accidentally re-export large portions of `siumai-core`.
 
    This makes it easy for internal modules and downstream users to accidentally “reach across layers”
    and increases migration cost when splitting further.
@@ -78,21 +85,19 @@ Think in “interfaces + runtime + providers”:
    - Registry: model resolution and caching, optional built-ins
 
 In Rust, we can achieve the same outcome either via more crates (fine) or via stricter module
-boundaries inside `siumai-core` + `siumai-providers` (also fine). The important part is **ownership**.
+boundaries inside `siumai-core` + provider crates (also fine). The important part is **ownership**.
 
 ## Migration Plan (Incremental)
 
-### Phase 1 — Introduce pass-through provider options (compat)
+### Phase 1 — Introduce pass-through provider options (done)
 
-- Add a provider-agnostic map type:
-  - `ProviderOptionsMap = HashMap<String, serde_json::Map<String, Value>>` (or equivalent)
-- Add it to request types as an additional field (alongside the existing enum for now).
-- Add helpers to set/get provider options by provider id.
-- Providers read from the map first, then fall back to legacy enum (temporary bridge).
+- Requests carry `provider_options_map: ProviderOptionsMap`.
+- Request types expose helpers like `with_provider_option(provider_id, json_value)`.
+- Providers parse options from the map (no legacy enum fallback).
 
-Outcome: provider-specific features can be shipped without editing the core enum.
+Outcome: provider-specific features evolve without editing core enums/types.
 
-### Phase 2 — Move provider-specific option structs out of `siumai-core`
+### Phase 2 — Move typed provider options/metadata out of `siumai-core` (done)
 
 - Relocate typed provider option structs to provider-owned code (provider crates are preferred, e.g. `siumai-provider-openai`).
 - Expose them via stable facade paths (e.g. `siumai::provider_ext::<provider>::*`) behind provider features.
@@ -104,14 +109,14 @@ Outcome: `siumai-core` becomes truly provider-agnostic (types & runtime).
 
 Decide one of:
 
-- **Option A**: Move `standards::<provider>` into `siumai-providers` (provider-owned).
+- **Option A**: Keep `standards::<provider>` in provider crates (provider-owned).
 - **Option B**: Create a dedicated “protocols” crate that providers depend on (shared, still not core).
 
 Outcome: core compiles fast, providers own protocols.
 
 ### Phase 4 — Tighten public exports and enforce boundaries
 
-- Avoid blanket re-exports from `siumai-providers` / `siumai-registry`.
+- Avoid blanket re-exports from provider crates / `siumai-registry`.
 - Keep public, stable entry points in:
   - `siumai::prelude::unified::*`
   - `siumai::prelude::extensions::*`

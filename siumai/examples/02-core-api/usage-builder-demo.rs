@@ -2,7 +2,7 @@
 ///
 /// This example shows how to use the UsageBuilder to create Usage instances
 /// with detailed token information in a clean and readable way.
-use siumai::types::{CompletionTokensDetails, PromptTokensDetails, Usage};
+use siumai::prelude::unified::{CompletionTokensDetails, PromptTokensDetails, Usage};
 
 fn main() {
     println!("=== Usage Builder Demo ===\n");

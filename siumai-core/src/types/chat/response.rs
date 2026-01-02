@@ -326,7 +326,7 @@ impl ChatResponse {
     /// # Example
     /// ```rust,no_run
     /// # use siumai::prelude::*;
-    /// # use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    /// # use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let client = Siumai::builder().openai().api_key("key").model("gpt-4o-mini").build().await?;
     /// // Turn 1

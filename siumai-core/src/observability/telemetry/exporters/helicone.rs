@@ -9,7 +9,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use siumai::observability::telemetry::exporters::helicone::HeliconeExporter;
+//! use siumai::experimental::observability::telemetry::exporters::helicone::HeliconeExporter;
 //! use std::collections::HashMap;
 //!
 //! let exporter = HeliconeExporter::new("your-api-key");

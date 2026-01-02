@@ -44,23 +44,7 @@ impl ChatCapability for AnthropicClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Anthropic);
-            }
-            crate::retry_api::retry_with(
-                || {
-                    let m = messages.clone();
-                    let t = tools.clone();
-                    async move { self.chat_with_tools_inner(m, t).await }
-                },
-                opts,
-            )
-            .await
-        } else {
-            self.chat_with_tools_inner(messages, tools).await
-        }
+        self.chat_with_tools_inner(messages, tools).await
     }
 
     async fn chat_stream(

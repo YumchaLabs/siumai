@@ -36,7 +36,7 @@ pub async fn build_openai_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let mut config = siumai_providers::providers::openai::OpenAiConfig::new(api_key)
+    let mut config = siumai_provider_openai::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
         .with_model(common_params.model.clone());
 
@@ -54,7 +54,7 @@ pub async fn build_openai_client(
     }
 
     let mut client =
-        siumai_providers::providers::openai::OpenAiClient::new(config, http_client);
+        siumai_provider_openai::providers::openai::OpenAiClient::new(config, http_client);
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
     }
@@ -120,17 +120,17 @@ pub async fn build_openai_compatible_client(
     };
 
     // Build config
-    let mut config = siumai_providers::providers::openai_compatible::OpenAiCompatibleConfig::new(
+    let mut config = siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
         &resolved_id,
         &api_key,
         &resolved_base,
         adapter,
     )
-    .with_model(&{
-        // Normalize model id for provider-specific aliasing (e.g., OpenRouter, DeepSeek)
-        crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
-    })
-    .with_http_config(http_config.clone());
+        .with_model(&{
+            // Normalize model id for provider-specific aliasing (e.g., OpenRouter, DeepSeek)
+            crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
+        })
+        .with_http_config(http_config.clone());
 
     // Apply common params we support directly
     if let Some(temp) = common_params.temperature {
@@ -141,11 +141,10 @@ pub async fn build_openai_compatible_client(
     }
 
     // Create client via provided HTTP client
-    let mut client =
-        siumai_providers::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
-            config,
-            http_client,
-        )
+    let mut client = siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+        config,
+        http_client,
+    )
         .await?;
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
@@ -187,10 +186,11 @@ pub async fn build_anthropic_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Provider-specific parameters are now handled via provider_options in ChatRequest
-    let anthropic_params = crate::params::AnthropicParams::default();
+    let anthropic_params =
+        siumai_provider_anthropic::providers::anthropic::config::AnthropicParams::default();
 
     let model_id_for_mw = common_params.model.clone();
-    let mut client = siumai_providers::providers::anthropic::AnthropicClient::new(
+    let mut client = siumai_provider_anthropic::providers::anthropic::AnthropicClient::new(
         api_key,
         base_url,
         http_client,
@@ -237,8 +237,8 @@ pub async fn build_gemini_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    use siumai_providers::providers::gemini::client::GeminiClient;
-    use siumai_providers::providers::gemini::types::{GeminiConfig, GenerationConfig};
+    use siumai_provider_gemini::providers::gemini::client::GeminiClient;
+    use siumai_provider_gemini::providers::gemini::types::{GeminiConfig, GenerationConfig};
 
     // Build base config
     let mut gcfg = GenerationConfig::new();
@@ -309,13 +309,14 @@ pub async fn build_anthropic_vertex_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let cfg = siumai_providers::providers::anthropic_vertex::client::VertexAnthropicConfig {
-        base_url,
-        model: common_params.model.clone(),
-        http_config,
-    };
+    let cfg =
+        siumai_provider_anthropic::providers::anthropic_vertex::client::VertexAnthropicConfig {
+            base_url,
+            model: common_params.model.clone(),
+            http_config,
+        };
     let mut client =
-        siumai_providers::providers::anthropic_vertex::client::VertexAnthropicClient::new(
+        siumai_provider_anthropic::providers::anthropic_vertex::client::VertexAnthropicClient::new(
             cfg,
             http_client,
         );
@@ -325,7 +326,7 @@ pub async fn build_anthropic_vertex_client(
     if !interceptors.is_empty() {
         client = client.with_http_interceptors(interceptors);
     }
-    // No tracing guard necessary; headers are injected via ProviderHeaders.
+    // No tracing guard necessary; headers are injected via the provider spec.
     // Auto + user middlewares (treat as anthropic)
     let mut auto_mws =
         crate::execution::middleware::build_auto_middlewares_vec("anthropic", &common_params.model);
@@ -349,8 +350,8 @@ pub async fn build_ollama_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    use siumai_providers::providers::ollama::OllamaClient;
-    use siumai_providers::providers::ollama::config::{OllamaConfig, OllamaParams};
+    use siumai_provider_ollama::providers::ollama::OllamaClient;
+    use siumai_provider_ollama::providers::ollama::config::{OllamaConfig, OllamaParams};
 
     // Provider-specific parameters are now handled via provider_options in ChatRequest
     let ollama_params = OllamaParams::default();
@@ -399,8 +400,8 @@ pub async fn build_minimaxi_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    use siumai_providers::providers::minimaxi::client::MinimaxiClient;
-    use siumai_providers::providers::minimaxi::config::MinimaxiConfig;
+    use siumai_provider_minimaxi::providers::minimaxi::client::MinimaxiClient;
+    use siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig;
 
     let config = MinimaxiConfig::new(api_key)
         .with_base_url(base_url)

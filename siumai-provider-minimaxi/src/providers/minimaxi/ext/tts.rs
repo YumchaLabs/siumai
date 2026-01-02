@@ -1,17 +1,17 @@
 //! MiniMaxi text-to-speech helpers (extension API).
 //!
 //! MiniMaxi TTS supports extra vendor parameters (emotion, pitch, bitrate, etc).
-//! These knobs are carried via `ProviderOptions::Custom { provider_id: "minimaxi", ... }`
-//! to keep the unified surface minimal while still supporting provider-specific features.
+//! These knobs are carried via the open `providerOptions["minimaxi"]` bucket to keep the unified
+//! surface minimal while still supporting provider-specific features.
 
-use crate::types::{ProviderOptions, TtsRequest};
-use std::collections::HashMap;
+use crate::provider_options::MinimaxiTtsOptions;
+use crate::types::TtsRequest;
 
 /// Type-safe builder for MiniMaxi TTS vendor parameters.
 #[derive(Debug, Clone)]
 pub struct MinimaxiTtsRequestBuilder {
     request: TtsRequest,
-    vendor_options: HashMap<String, serde_json::Value>,
+    vendor_options: MinimaxiTtsOptions,
 }
 
 impl MinimaxiTtsRequestBuilder {
@@ -19,7 +19,7 @@ impl MinimaxiTtsRequestBuilder {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             request: TtsRequest::new(text.into()),
-            vendor_options: HashMap::new(),
+            vendor_options: MinimaxiTtsOptions::new(),
         }
     }
 
@@ -49,74 +49,55 @@ impl MinimaxiTtsRequestBuilder {
 
     /// Set volume (defaults to 1.0).
     pub fn vol(mut self, vol: f64) -> Self {
-        self.vendor_options
-            .insert("vol".to_string(), serde_json::json!(vol));
+        self.vendor_options.vol = Some(vol);
         self
     }
 
     /// Set pitch (defaults to 0).
     pub fn pitch(mut self, pitch: i64) -> Self {
-        self.vendor_options
-            .insert("pitch".to_string(), serde_json::json!(pitch));
+        self.vendor_options.pitch = Some(pitch);
         self
     }
 
     /// Set emotion (defaults to `neutral`).
     pub fn emotion(mut self, emotion: impl Into<String>) -> Self {
-        self.vendor_options.insert(
-            "emotion".to_string(),
-            serde_json::Value::String(emotion.into()),
-        );
+        self.vendor_options.emotion = Some(emotion.into());
         self
     }
 
     /// Set audio sample rate (defaults to 32000).
     pub fn sample_rate(mut self, sample_rate: u32) -> Self {
-        self.vendor_options.insert(
-            "sample_rate".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(sample_rate)),
-        );
+        self.vendor_options.sample_rate = Some(sample_rate as u64);
         self
     }
 
     /// Set audio bitrate (defaults to 128000).
     pub fn bitrate(mut self, bitrate: u32) -> Self {
-        self.vendor_options.insert(
-            "bitrate".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(bitrate)),
-        );
+        self.vendor_options.bitrate = Some(bitrate as u64);
         self
     }
 
     /// Set audio channel count (defaults to 1).
     pub fn channel(mut self, channel: u32) -> Self {
-        self.vendor_options.insert(
-            "channel".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(channel)),
-        );
+        self.vendor_options.channel = Some(channel as u64);
         self
     }
 
     /// Provide optional pronunciation dictionary (vendor JSON object).
     pub fn pronunciation_dict(mut self, dict: serde_json::Value) -> Self {
-        self.vendor_options
-            .insert("pronunciation_dict".to_string(), dict);
+        self.vendor_options.pronunciation_dict = Some(dict);
         self
     }
 
     /// Provide optional voice modify config (vendor JSON object).
     pub fn voice_modify(mut self, voice_modify: serde_json::Value) -> Self {
-        self.vendor_options
-            .insert("voice_modify".to_string(), voice_modify);
+        self.vendor_options.voice_modify = Some(voice_modify);
         self
     }
 
     /// Enable subtitle output if the vendor supports it.
     pub fn subtitle_enable(mut self, enabled: bool) -> Self {
-        self.vendor_options.insert(
-            "subtitle_enable".to_string(),
-            serde_json::Value::Bool(enabled),
-        );
+        self.vendor_options.subtitle_enable = Some(enabled);
         self
     }
 
@@ -124,14 +105,9 @@ impl MinimaxiTtsRequestBuilder {
     pub fn build(self) -> TtsRequest {
         let mut request = self.request;
         if !self.vendor_options.is_empty() {
-            let options = ProviderOptions::Custom {
-                provider_id: "minimaxi".to_string(),
-                options: self.vendor_options,
-            };
-            if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
-                request.provider_options_map.insert(provider_id, value);
-            }
-            request.provider_options = options;
+            let value =
+                serde_json::to_value(self.vendor_options).unwrap_or(serde_json::Value::Null);
+            request.provider_options_map.insert("minimaxi", value);
         }
         request
     }
@@ -151,14 +127,13 @@ mod tests {
             .emotion("happy")
             .build();
 
-        match req.provider_options {
-            ProviderOptions::Custom { provider_id, options } => {
-                assert_eq!(provider_id, "minimaxi");
-                assert_eq!(options.get("vol"), Some(&serde_json::json!(0.5)));
-                assert_eq!(options.get("pitch"), Some(&serde_json::json!(1)));
-                assert_eq!(options.get("emotion"), Some(&serde_json::json!("happy")));
-            }
-            _ => panic!("expected ProviderOptions::Custom"),
-        }
+        let obj = req
+            .provider_options_map
+            .get("minimaxi")
+            .and_then(|v| v.as_object())
+            .expect("minimaxi provider options bucket");
+        assert_eq!(obj.get("vol"), Some(&serde_json::json!(0.5)));
+        assert_eq!(obj.get("pitch"), Some(&serde_json::json!(1)));
+        assert_eq!(obj.get("emotion"), Some(&serde_json::json!("happy")));
     }
 }

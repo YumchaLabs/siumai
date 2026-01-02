@@ -6,8 +6,11 @@ use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 
 use crate::error::LlmError;
-use crate::params::OpenAiParams;
+pub use crate::params::OpenAiParams;
 use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap};
+
+// Re-export legacy OpenAI parameter structs/types for backwards compatibility.
+pub use crate::params::openai::{FunctionChoice, OpenAiParamsBuilder, ResponseFormat, ToolChoice};
 
 /// `OpenAI` provider configuration.
 ///

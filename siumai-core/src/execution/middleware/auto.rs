@@ -62,7 +62,7 @@ impl MiddlewareConfig {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::execution::middleware::auto::{MiddlewareConfig, build_auto_middlewares};
+/// use siumai::experimental::execution::middleware::auto::{MiddlewareConfig, build_auto_middlewares};
 ///
 /// let config = MiddlewareConfig::new("openai", "o1-preview");
 /// let builder = build_auto_middlewares(&config);
@@ -101,7 +101,7 @@ pub fn build_auto_middlewares(config: &MiddlewareConfig) -> MiddlewareBuilder {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::execution::middleware::auto::build_auto_middlewares_vec;
+/// use siumai::experimental::execution::middleware::auto::build_auto_middlewares_vec;
 ///
 /// let middlewares = build_auto_middlewares_vec("openai", "o1-preview");
 /// let client = client.with_model_middlewares(middlewares);

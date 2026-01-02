@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::types::{HttpConfig, ProviderOptions, ProviderOptionsMap};
+use crate::types::{HttpConfig, ProviderOptionsMap};
 
 /// Text-to-speech request
 #[derive(Debug, Clone)]
@@ -17,8 +17,6 @@ pub struct TtsRequest {
     pub speed: Option<f32>,
     /// Audio quality/model
     pub model: Option<String>,
-    /// Provider-specific options (type-safe, bucketed by provider id)
-    pub provider_options: ProviderOptions,
     /// Open provider options map (Vercel-aligned).
     pub provider_options_map: ProviderOptionsMap,
     /// Additional provider-specific parameters
@@ -36,7 +34,6 @@ impl TtsRequest {
             format: None,
             speed: None,
             model: None,
-            provider_options: ProviderOptions::None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
             http_config: None,
@@ -64,15 +61,6 @@ impl TtsRequest {
     /// Set the model
     pub fn with_model(mut self, model: String) -> Self {
         self.model = Some(model);
-        self
-    }
-
-    /// Set provider-specific options (bucketed by provider id)
-    pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
-        if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
-            self.provider_options_map.insert(provider_id, value);
-        }
-        self.provider_options = options;
         self
     }
 
@@ -131,8 +119,6 @@ pub struct SttRequest {
     pub model: Option<String>,
     /// Enable word-level timestamps
     pub timestamp_granularities: Option<Vec<String>>,
-    /// Provider-specific options (type-safe, bucketed by provider id)
-    pub provider_options: ProviderOptions,
     /// Open provider options map (Vercel-aligned).
     pub provider_options_map: ProviderOptionsMap,
     /// Additional provider-specific parameters
@@ -152,7 +138,6 @@ impl SttRequest {
             language: None,
             model: None,
             timestamp_granularities: None,
-            provider_options: ProviderOptions::None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
             http_config: None,
@@ -169,20 +154,10 @@ impl SttRequest {
             language: None,
             model: None,
             timestamp_granularities: None,
-            provider_options: ProviderOptions::None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
             http_config: None,
         }
-    }
-
-    /// Set provider-specific options (bucketed by provider id)
-    pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
-        if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
-            self.provider_options_map.insert(provider_id, value);
-        }
-        self.provider_options = options;
-        self
     }
 
     /// Replace the full provider options map (open JSON map).
@@ -257,8 +232,6 @@ pub struct AudioTranslationRequest {
     pub media_type: Option<String>,
     /// Model to use
     pub model: Option<String>,
-    /// Provider-specific options (type-safe, bucketed by provider id)
-    pub provider_options: ProviderOptions,
     /// Open provider options map (Vercel-aligned).
     pub provider_options_map: ProviderOptionsMap,
     /// Additional provider-specific parameters
@@ -276,7 +249,6 @@ impl AudioTranslationRequest {
             format: None,
             media_type: None,
             model: None,
-            provider_options: ProviderOptions::None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
             http_config: None,
@@ -291,20 +263,10 @@ impl AudioTranslationRequest {
             format: None,
             media_type: None,
             model: None,
-            provider_options: ProviderOptions::None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
             http_config: None,
         }
-    }
-
-    /// Set provider-specific options (bucketed by provider id)
-    pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
-        if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
-            self.provider_options_map.insert(provider_id, value);
-        }
-        self.provider_options = options;
-        self
     }
 
     /// Replace the full provider options map (open JSON map).

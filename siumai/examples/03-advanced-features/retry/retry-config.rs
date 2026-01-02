@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let retry_options = RetryOptions {
         backend: siumai::retry_api::RetryBackend::Policy,
-        provider: None,
+        backoff_executor: None,
         policy: Some(retry_policy),
         retry_401: false,
         idempotent: true,

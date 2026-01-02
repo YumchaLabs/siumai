@@ -4,8 +4,10 @@
 //! authenticating via `Authorization: Bearer <token>` headers.
 
 use async_trait::async_trait;
+use backoff::ExponentialBackoffBuilder;
 use reqwest::Client as HttpClient;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::error::LlmError;
 use crate::execution::executors::chat::HttpChatExecutor;
@@ -92,6 +94,10 @@ impl VertexAnthropicClient {
             builder = builder.with_before_send(hook);
         }
 
+        if let Some(retry) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry);
+        }
+
         builder.build()
     }
 
@@ -102,14 +108,14 @@ impl VertexAnthropicClient {
             self.config.model.clone(),
             self.config.http_config.headers.clone(),
         ));
-        HttpExecutionConfig {
-            provider_id: "anthropic-vertex".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        }
+        crate::execution::wiring::HttpExecutionWiring::new(
+            "anthropic-vertex",
+            self.http_client.clone(),
+            ctx,
+        )
+        .with_interceptors(self.http_interceptors.clone())
+        .with_retry_options(self.retry_options.clone())
+        .config(spec)
     }
 
     /// Execute chat request via spec (unified implementation)
@@ -152,22 +158,7 @@ impl ChatCapability for VertexAnthropicClient {
         }
         let req = builder.build();
 
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Anthropic);
-            }
-            crate::retry_api::retry_with(
-                || {
-                    let rq = req.clone();
-                    async move { self.chat_request_via_spec(rq).await }
-                },
-                opts,
-            )
-            .await
-        } else {
-            self.chat_request_via_spec(req).await
-        }
+        self.chat_request_via_spec(req).await
     }
 
     async fn chat_stream(
@@ -192,6 +183,16 @@ impl ChatCapability for VertexAnthropicClient {
     }
 }
 
+fn anthropic_backoff_executor() -> crate::retry_api::BackoffRetryExecutor {
+    let backoff = ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(1000))
+        .with_max_interval(Duration::from_secs(60))
+        .with_multiplier(1.5)
+        .with_max_elapsed_time(Some(Duration::from_secs(300)))
+        .build();
+    crate::retry_api::BackoffRetryExecutor::with_backoff(backoff)
+}
+
 impl VertexAnthropicClient {
     /// Install HTTP interceptors for all chat requests.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
@@ -210,7 +211,14 @@ impl VertexAnthropicClient {
 
     /// Set unified retry options for chat calls.
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
-        self.retry_options = options;
+        self.retry_options = options.map(|mut opts| {
+            if matches!(opts.backend, crate::retry_api::RetryBackend::Backoff)
+                && opts.backoff_executor.is_none()
+            {
+                opts.backoff_executor = Some(anthropic_backoff_executor());
+            }
+            opts
+        });
     }
 }
 

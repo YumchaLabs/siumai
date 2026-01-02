@@ -13,7 +13,7 @@ Recommended approach:
 use siumai::prelude::extensions::*;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
-use siumai::types::video::VideoTaskStatus;
+use siumai::extensions::types::VideoTaskStatus;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -130,7 +130,7 @@ let response = client.create_video_task(request).await?;
 ## Task Status Helpers
 
 ```rust
-use siumai::types::video::VideoTaskStatusResponse;
+use siumai::extensions::types::VideoTaskStatusResponse;
 
 let status: VideoTaskStatusResponse = client.query_video_task(&task_id).await?;
 
@@ -158,7 +158,7 @@ if status.is_in_progress() {
 ## Error Handling
 
 ```rust
-use siumai::error::LlmError;
+use siumai::prelude::unified::LlmError;
 
 match client.create_video_task(request).await {
     Ok(response) => {
@@ -196,7 +196,7 @@ use tokio::time::{sleep, timeout};
 
 async fn generate_video_with_timeout(
     client: &impl VideoGenerationCapability,
-    request: siumai::types::video::VideoGenerationRequest,
+    request: siumai::extensions::types::VideoGenerationRequest,
     max_wait: Duration,
 ) -> Result<String, Box<dyn std::error::Error>> {
     // Submit task

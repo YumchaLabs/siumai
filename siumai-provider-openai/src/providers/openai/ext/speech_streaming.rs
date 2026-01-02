@@ -74,7 +74,10 @@ mod tests {
             collected.get(1),
             Some(AudioStreamEvent::AudioDelta { .. })
         ));
-        assert!(matches!(collected.last(), Some(AudioStreamEvent::Done { .. })));
+        assert!(matches!(
+            collected.last(),
+            Some(AudioStreamEvent::Done { .. })
+        ));
 
         match collected.first().unwrap() {
             AudioStreamEvent::AudioDelta { data, format } => {

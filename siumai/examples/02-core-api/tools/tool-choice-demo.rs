@@ -21,12 +21,11 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::types::{Tool, ToolChoice};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .model("gpt-4o-mini")
         .build()
@@ -86,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tool_calls = response.tool_calls();
         println!("Tool calls: {} tool(s) called", tool_calls.len());
         for call in tool_calls {
-            if let siumai::types::ContentPart::ToolCall {
+            if let ContentPart::ToolCall {
                 tool_name,
                 arguments,
                 ..
@@ -109,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tool_calls = response.tool_calls();
         println!("Tool calls: {} tool(s) called (required)", tool_calls.len());
         for call in tool_calls {
-            if let siumai::types::ContentPart::ToolCall {
+            if let ContentPart::ToolCall {
                 tool_name,
                 arguments,
                 ..
@@ -154,7 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tool_calls.len()
         );
         for call in tool_calls {
-            if let siumai::types::ContentPart::ToolCall {
+            if let ContentPart::ToolCall {
                 tool_name,
                 arguments,
                 ..
@@ -182,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tool_calls.len()
         );
         for call in tool_calls {
-            if let siumai::types::ContentPart::ToolCall {
+            if let ContentPart::ToolCall {
                 tool_name,
                 arguments,
                 ..

@@ -5,7 +5,6 @@
 //! https://docs.anthropic.com/en/api/messages
 
 use serde_json::json;
-use siumai::builder::LlmBuilder;
 use siumai::prelude::*;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -89,7 +88,7 @@ async fn test_anthropic_messages_non_streaming() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .anthropic()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -135,7 +134,7 @@ async fn test_anthropic_error_response() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .anthropic()
         .api_key("invalid-key")
         .base_url(mock_server.uri())
@@ -166,7 +165,7 @@ async fn test_anthropic_request_headers() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .anthropic()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -196,7 +195,7 @@ async fn test_anthropic_tool_use_response() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .anthropic()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -231,8 +230,6 @@ async fn test_anthropic_tool_use_response() {
         .unwrap();
 
     // Verify response
-    use siumai::types::ContentPart;
-
     assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
     assert!(response.has_tool_calls());
 

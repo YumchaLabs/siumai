@@ -210,6 +210,66 @@ pub async fn execute_json_request_streaming_response(
     .await
 }
 
+/// Execute a JSON request and return the raw `reqwest::Response` for streaming consumption,
+/// using a caller-provided `HttpRequestContext`.
+pub async fn execute_json_request_streaming_response_with_ctx(
+    config: &HttpExecutionConfig,
+    url: &str,
+    body: serde_json::Value,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    ctx: crate::execution::http::interceptor::HttpRequestContext,
+) -> Result<reqwest::Response, LlmError> {
+    crate::execution::executors::http_request::execute_json_request_streaming_response_with_ctx(
+        config,
+        url,
+        body,
+        per_request_headers,
+        ctx,
+    )
+    .await
+}
+
+/// Execute a multipart request and return the raw `reqwest::Response` for streaming consumption.
+pub async fn execute_multipart_request_streaming_response<F>(
+    config: &HttpExecutionConfig,
+    url: &str,
+    build_form: F,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<reqwest::Response, LlmError>
+where
+    F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
+{
+    crate::execution::executors::http_request::execute_multipart_request_streaming_response(
+        config,
+        url,
+        build_form,
+        per_request_headers,
+    )
+    .await
+}
+
+/// Execute a multipart request and return the raw `reqwest::Response` for streaming consumption,
+/// using a caller-provided `HttpRequestContext`.
+pub async fn execute_multipart_request_streaming_response_with_ctx<F>(
+    config: &HttpExecutionConfig,
+    url: &str,
+    build_form: F,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    ctx: crate::execution::http::interceptor::HttpRequestContext,
+) -> Result<reqwest::Response, LlmError>
+where
+    F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
+{
+    crate::execution::executors::http_request::execute_multipart_request_streaming_response_with_ctx(
+        config,
+        url,
+        build_form,
+        per_request_headers,
+        ctx,
+    )
+    .await
+}
+
 // unit tests migrated to integration tests in tests/http_common_retry_401.rs
 
 /// Execute an HTTP request (JSON or Multipart) with unified retry, interceptors, and error handling
@@ -280,8 +340,8 @@ where
 ///
 /// Example
 /// ```ignore
-/// use siumai::execution::executors::common::{HttpExecutionConfig, execute_get_request};
-/// use siumai::core::{ProviderContext, ProviderSpec};
+/// use siumai::experimental::execution::executors::common::{HttpExecutionConfig, execute_get_request};
+/// use siumai_core::core::{ProviderContext, ProviderSpec};
 /// use std::sync::Arc;
 ///
 /// // Minimal ProviderSpec for example (builds static headers and URL routing)
@@ -295,7 +355,7 @@ where
 ///   }
 ///   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
 ///   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
-///     -> siumai::core::ChatTransformers { unimplemented!() }
+///     -> siumai_core::core::ChatTransformers { unimplemented!() }
 /// }
 ///
 /// # async fn demo() -> Result<(), siumai::LlmError> {
@@ -339,8 +399,8 @@ pub async fn execute_get_request(
 ///
 /// Example
 /// ```ignore
-/// # use siumai::execution::executors::common::{HttpExecutionConfig, execute_delete_request};
-/// # use siumai::core::{ProviderContext, ProviderSpec};
+/// # use siumai::experimental::execution::executors::common::{HttpExecutionConfig, execute_delete_request};
+/// # use siumai_core::core::{ProviderContext, ProviderSpec};
 /// # use std::sync::Arc;
 /// # #[derive(Clone)]
 /// # struct ExampleSpec;
@@ -350,7 +410,7 @@ pub async fn execute_get_request(
 /// #   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> { Ok(reqwest::header::HeaderMap::new()) }
 /// #   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
 /// #   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
-/// #     -> siumai::core::ChatTransformers { unimplemented!() }
+/// #     -> siumai_core::core::ChatTransformers { unimplemented!() }
 /// # }
 /// # async fn demo() -> Result<(), siumai::LlmError> {
 /// # let http = reqwest::Client::new();
@@ -415,8 +475,8 @@ pub struct HttpBinaryResult {
 ///
 /// Example
 /// ```ignore
-/// # use siumai::execution::executors::common::{HttpExecutionConfig, execute_get_binary};
-/// # use siumai::core::{ProviderContext, ProviderSpec};
+/// # use siumai::experimental::execution::executors::common::{HttpExecutionConfig, execute_get_binary};
+/// # use siumai_core::core::{ProviderContext, ProviderSpec};
 /// # use std::sync::Arc;
 /// # #[derive(Clone)]
 /// # struct ExampleSpec;
@@ -426,7 +486,7 @@ pub struct HttpBinaryResult {
 /// #   fn build_headers(&self, _ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, siumai::LlmError> { Ok(reqwest::header::HeaderMap::new()) }
 /// #   fn chat_url(&self, _stream: bool, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext) -> String { String::new() }
 /// #   fn choose_chat_transformers(&self, _req: &siumai::types::ChatRequest, _ctx: &ProviderContext)
-/// #     -> siumai::core::ChatTransformers { unimplemented!() }
+/// #     -> siumai_core::core::ChatTransformers { unimplemented!() }
 /// # }
 /// # async fn demo() -> Result<(), siumai::LlmError> {
 /// # let http = reqwest::Client::new();

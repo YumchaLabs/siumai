@@ -8,10 +8,7 @@ use tokio::sync::oneshot;
 
 use super::types::{OrchestratorStreamOptions, StepResult, ToolApproval, ToolResolver};
 use super::validation::validate_args_with_schema;
-use siumai::error::LlmError;
-use siumai::streaming::{ChatStream, ChatStreamEvent};
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
+use siumai::prelude::unified::*;
 
 /// Stream handle that carries the stream, step summary, and a cancel handle.
 pub struct StreamOrchestration {
@@ -20,7 +17,7 @@ pub struct StreamOrchestration {
     /// Receiver for the list of step results produced by the orchestrator.
     pub steps: oneshot::Receiver<Vec<StepResult>>,
     /// A cancel handle to abort the orchestration.
-    pub cancel: siumai::utils::cancel::CancelHandle,
+    pub cancel: siumai::experimental::utils::cancel::CancelHandle,
 }
 
 /// Orchestrate multi-step streaming. Concatenates provider streams across steps.
@@ -36,7 +33,7 @@ pub async fn generate_stream(
 ) -> Result<StreamOrchestration, LlmError> {
     let (tx, rx) = oneshot::channel();
     let stream = model.chat_stream(messages, tools).await?;
-    let (stream, cancel) = siumai::utils::cancel::make_cancellable_stream(stream);
+    let (stream, cancel) = siumai::experimental::utils::cancel::make_cancellable_stream(stream);
     let _ = tx.send(Vec::new());
     Ok(StreamOrchestration {
         stream,
@@ -111,7 +108,7 @@ where
     let on_tool_approval = opts.on_tool_approval.clone();
     let on_preliminary_tool_result = opts.on_preliminary_tool_result.clone();
     let on_abort = opts.on_abort.clone();
-    let orchestrator_cancel = siumai::utils::cancel::new_cancel_handle();
+    let orchestrator_cancel = siumai::experimental::utils::cancel::new_cancel_handle();
     let orchestrator_cancel_clone = orchestrator_cancel.clone();
 
     tokio::spawn(async move {
@@ -176,7 +173,7 @@ where
                 // Non-streaming follow-up to advance conversation efficiently
                 // Use chat_request if we have common_params
                 let result = if opts.common_params.is_some() {
-                    let mut request = siumai::types::ChatRequest::new(history.clone());
+                    let mut request = ChatRequest::new(history.clone());
 
                     if let Some(tools) = tools.clone() {
                         request = request.with_tools(tools);
@@ -208,9 +205,9 @@ where
                 .unwrap_or_else(String::new);
             // The response content already contains tool calls, so we just use it directly
             let assistant_built = ChatMessage {
-                role: siumai::types::MessageRole::Assistant,
+                role: MessageRole::Assistant,
                 content: resp.content.clone(),
-                metadata: siumai::types::MessageMetadata::default(),
+                metadata: MessageMetadata::default(),
             };
             history.push(assistant_built.clone());
             step_msgs.push(assistant_built);
@@ -221,7 +218,7 @@ where
                 && let (Some(resolver), Some(ts)) = (resolver.as_ref(), tools_opt.as_ref())
             {
                 for call in tool_calls.iter() {
-                    if let siumai::types::ContentPart::ToolCall {
+                    if let ContentPart::ToolCall {
                         tool_call_id,
                         tool_name,
                         arguments,
@@ -335,7 +332,7 @@ where
             // Extract tool results from tool messages
             let tool_results: Vec<ContentPart> = step_msgs
                 .iter()
-                .filter(|msg| matches!(msg.role, siumai::types::MessageRole::Tool))
+                .filter(|msg| matches!(msg.role, MessageRole::Tool))
                 .flat_map(|msg| msg.tool_results())
                 .cloned()
                 .collect();

@@ -14,10 +14,10 @@
 //! - **`common`** - Common parameter validation utilities
 //! - **`validator`** - Parameter validation logic
 //! - **`mapper`** - Cross-provider parameter mapping (internal use)
-//! - **`openai`** - OpenAI-specific parameters (`OpenAiParams`)
-//! - **`anthropic`** - Anthropic-specific parameters (`AnthropicParams`)
-//! - **`gemini`** - Gemini-specific parameters (`GeminiParams`)
-//! - **`ollama`** - Ollama-specific parameters (`OllamaParams`)
+//!
+//! Provider-specific parameter structs are provider-owned and live in provider crates.
+//! The `siumai-core::params` module only keeps provider-agnostic validation utilities
+//! and legacy OpenAI params until they are fully migrated.
 //!
 //! ## Relationship with `types` Module
 //!
@@ -62,20 +62,13 @@
 //! - **Gemini**: `safety_settings`, `thinking_config`, etc.
 //! - **Ollama**: `keep_alive`, `raw`, `format`, etc.
 
-pub mod anthropic;
 pub mod common;
-pub mod gemini;
 pub mod mapper;
-pub mod ollama;
-pub mod openai;
 pub mod validator;
 
 // Re-export main types and traits
-pub use anthropic::*;
 pub use common::*;
-pub use gemini::*;
 // pub use mapper::*; // mapper types no longer re-exported; use Transformers instead
-pub use openai::*;
 pub use validator::*;
 
 // Re-export for backward compatibility (mappers removed from public surface)

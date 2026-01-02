@@ -6,9 +6,9 @@ It is designed to be executed incrementally while preserving developer velocity.
 ## Current status (beta.5)
 
 - M1 (open `providerOptions` map + merge semantics): implemented.
-- M2 (move `standards/*` out of `siumai-core`): implemented (provider-owned).
-- A (recommended entry for OpenAI-compatible vendors): use vendor presets like `Siumai::builder().moonshot()` / `LlmBuilder::new().moonshot()` (implemented as `openai().compatible("<vendor>")`).
-- M6 (provider-first crates): OpenAI + Ollama + Anthropic + Gemini + Groq + xAI + MiniMaxi extracted into provider crates (compat shims kept in `siumai-providers`).
+- M2 (move provider-specific `standards/*` out of `siumai-core`): implemented (provider-owned; core only keeps protocol-level shared building blocks).
+- A (recommended entry for OpenAI-compatible vendors): use vendor presets like `Siumai::builder().moonshot()` / `Provider::openai().moonshot()` (OpenAI-compatible preset).
+- M6 (provider-first crates): OpenAI + Ollama + Anthropic + Gemini + Groq + xAI + MiniMaxi extracted into provider crates.
 
 ## Guiding principles
 
@@ -26,6 +26,7 @@ MVP is complete when all items below are true:
    - Providers can parse/validate their own options without touching core enums.
 2. **Protocol mapping ownership is provider-side**
    - `siumai-core` no longer owns provider-specific protocol mapping modules (`standards/*`).
+   - `siumai-core` may include protocol-level shared building blocks (e.g. OpenAI-compatible adapters), but not provider-specific mapping.
 3. **Facade surface remains stable**
    - `siumai::prelude::unified::*` remains the recommended surface.
    - Provider-specific features remain accessible via `hosted_tools::*` + `provider_ext::*`.
@@ -87,12 +88,12 @@ Multiple providers (OpenAI-compatible vendors, Groq/xAI/Minimaxi, etc.) depend o
 
 ### M4 — Tighten public exports and reduce accidental coupling
 
-- Avoid blanket re-exports from `siumai-providers` and `siumai-registry`.
+- Avoid blanket re-exports from provider crates and `siumai-registry`.
 - Ensure the primary entry points remain:
   - `siumai::prelude::unified::*`
   - `siumai::prelude::extensions::*`
   - `siumai::provider_ext::<provider>::*`
-- Keep OpenAI-compatible vendor presets on `SiumaiBuilder` / `LlmBuilder` (e.g. `moonshot()`, `deepseek()`) as ergonomic entry points.
+- Keep OpenAI-compatible vendor presets on `SiumaiBuilder` / `Provider::*` (e.g. `moonshot()`, `deepseek()`) as ergonomic entry points.
   The canonical underlying form remains `openai().compatible("<vendor>")` for consistency and tooling.
 
 **Acceptance**
@@ -114,10 +115,10 @@ Strengthen the “registry is abstraction-first” stance:
 
 ### M6 — Provider-first crates (post-MVP)
 
-Split provider implementations into provider crates while keeping `siumai-providers` as a thin umbrella.
+Split provider implementations into provider crates (provider-first).
 
 **Acceptance**
-- `siumai-providers` can enable providers via crate features without directly containing provider code.
+- The facade `siumai` can enable providers via crate features without directly containing provider code.
 - At least one provider implementation is successfully extracted into a provider crate (start with OpenAI; Ollama is a good second extraction).
 - `cargo nextest run -p siumai --tests --no-default-features --features all-providers` remains green.
 

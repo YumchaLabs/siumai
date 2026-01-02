@@ -120,7 +120,7 @@ impl ExtractReasoningConfig {
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::execution::middleware::presets::ExtractReasoningMiddleware;
+/// use siumai::experimental::execution::middleware::presets::ExtractReasoningMiddleware;
 /// use std::sync::Arc;
 ///
 /// // Use default configuration (<think> tags)

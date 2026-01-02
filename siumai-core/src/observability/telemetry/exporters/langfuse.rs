@@ -6,8 +6,8 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use siumai::observability::telemetry::exporters::langfuse::LangfuseExporter;
-//! use siumai::observability::telemetry;
+//! use siumai::experimental::observability::telemetry::exporters::langfuse::LangfuseExporter;
+//! use siumai::experimental::observability::telemetry;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create Langfuse exporter

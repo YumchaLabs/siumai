@@ -9,7 +9,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - The public API is explicitly Vercel-aligned and fixed to the 6 stable model families: Language / Embedding / Image / Rerank / Speech (TTS) / Transcription (STT).
 - Provider-specific features (web search, file search stores, thinking replay, etc.) are **extensions by design**: provider-hosted tools (`hosted_tools::*`) + `providerOptions` + typed `provider_ext::*`.
 - Gemini now supports a clean Vertex AI setup (regional base URL helper, ADC token provider, and resource-style model id normalization).
-- Fearless refactor phase: workspace split into `siumai-core` (runtime/types/standards), `siumai-providers` (provider implementations), `siumai-registry` (factories/handles); `siumai` remains the recommended facade crate.
+- Fearless refactor phase: workspace split into `siumai-core` (runtime/types/standards), provider crates (`siumai-provider-*`), and `siumai-registry` (factories/handles); `siumai` remains the recommended facade crate.
 
 ### Breaking changes
 
@@ -17,6 +17,16 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - OpenAI: `siumai::hosted_tools::openai::web_search()` (Responses API via `OpenAiOptions::with_responses_api`)
   - Anthropic: `siumai::hosted_tools::anthropic::web_search_20250305()`
   - Gemini: `siumai::hosted_tools::google::*` (e.g. `google_search()`, `file_search()`)
+- The historical `siumai::providers::*` module path was removed.
+  - Use `siumai::prelude::unified::*` for the unified surface.
+  - Use `siumai::provider_ext::<provider>::*` for provider-specific APIs.
+  - For protocol-layer helpers, use `siumai::experimental::*` (advanced) or depend on the relevant provider crate directly (e.g. `siumai-provider-openai`).
+- The facade surface was tightened to reduce accidental cross-layer coupling.
+  - Removed stable entry points: `siumai::{types,traits,error,streaming}::*`
+  - Prefer: `use siumai::prelude::unified::*;`
+  - For non-unified extension capabilities: `use siumai::extensions::*;` + `use siumai::extensions::types::*;`
+- `LlmBuilder` is no longer re-exported from `siumai::prelude::unified::*` (breaking).
+  - Prefer `Siumai::builder()` (unified) or `Provider::<provider>()` / `siumai::provider_ext::<provider>::*` (provider-specific).
 - Provider-specific capability traits were removed from the core surface (e.g. `traits::{OpenAiCapability, AnthropicCapability, GeminiCapability, ...}`).
   - Use `siumai::prelude::unified::*` for the stable surface, and `siumai::prelude::extensions::*` / `siumai::provider_ext::<provider>` for opt-in provider-specific features.
 - “Audio” is no longer a first-class unified family: prefer `SpeechCapability` (TTS) and `TranscriptionCapability` (STT).
@@ -83,6 +93,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Migration guide (beta.5)
 
+- Full guide: `docs/migration-0.11.0-beta.5.md`
 - If you used unified web search, switch to provider-hosted tools:
   - OpenAI: `siumai::hosted_tools::openai::web_search()` + Responses API (`OpenAiOptions::with_responses_api`)
   - Anthropic: `siumai::hosted_tools::anthropic::web_search_20250305()`
@@ -148,7 +159,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 - Deprecated top-level helper modules from the core crate
   - Removed `siumai::benchmarks`; benchmarking and diagnostics helpers now live in `siumai-extras` or in user code
-  - Removed the `siumai::telemetry` shim; telemetry is now wired via `siumai::observability::telemetry` in the core crate and `siumai-extras::telemetry` for subscriber setup
+  - Removed the `siumai::telemetry` shim; telemetry is now wired via `siumai::experimental::observability::telemetry` in the core crate and `siumai-extras::telemetry` for subscriber setup
 
 ## [0.11.0-beta.3] - 2025-11-09
 
@@ -328,7 +339,7 @@ siumai-extras = { version = "0.11", features = ["mcp"] }
 
 **Quick Start:**
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::mcp::mcp_tools_from_stdio;
 
 #[tokio::main]

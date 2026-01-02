@@ -1,14 +1,13 @@
 //! Retry Mechanism Module
 //!
 //! This module provides comprehensive retry functionality for LLM API calls,
-//! including exponential backoff, jitter, and provider-specific retry policies.
+//! including exponential backoff and jitter.
 
 use rand::Rng;
 use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::error::LlmError;
-use crate::types::ProviderType;
 
 /// Retry policy configuration
 #[derive(Debug, Clone)]
@@ -123,126 +122,6 @@ impl RetryPolicy {
         let new_delay = delay.as_millis() as f64 + jitter;
         Duration::from_millis(new_delay.max(0.0) as u64)
     }
-
-    /// Create a provider-specific retry policy
-    pub fn for_provider(provider: &ProviderType) -> Self {
-        match provider {
-            ProviderType::OpenAi => Self::openai_policy(),
-            ProviderType::Anthropic => Self::anthropic_policy(),
-            ProviderType::Gemini => Self::gemini_policy(),
-            ProviderType::XAI => Self::xai_policy(),
-            ProviderType::Ollama => Self::ollama_policy(),
-            ProviderType::Custom(_) => Self::default(),
-            ProviderType::Groq => Self::default(),
-            ProviderType::MiniMaxi => Self::openai_policy(), // MiniMaxi uses OpenAI-compatible API
-        }
-    }
-
-    /// OpenAI-specific retry policy
-    pub fn openai_policy() -> Self {
-        Self {
-            max_attempts: 3,
-            initial_delay: Duration::from_millis(1000),
-            max_delay: Duration::from_secs(60),
-            backoff_multiplier: 2.0,
-            use_jitter: true,
-            jitter_factor: 0.1,
-            retry_condition: Some(|error| {
-                match error {
-                    LlmError::ApiError { code, .. } => {
-                        // OpenAI specific: retry on 429, 500, 502, 503, 504
-                        matches!(*code, 429 | 500 | 502 | 503 | 504)
-                    }
-                    _ => error.is_retryable(),
-                }
-            }),
-        }
-    }
-
-    /// Anthropic-specific retry policy
-    pub fn anthropic_policy() -> Self {
-        Self {
-            max_attempts: 3,
-            initial_delay: Duration::from_millis(1500),
-            max_delay: Duration::from_secs(120),
-            backoff_multiplier: 2.0,
-            use_jitter: true,
-            jitter_factor: 0.15,
-            retry_condition: Some(|error| {
-                match error {
-                    LlmError::ApiError { code, .. } => {
-                        // Anthropic specific: retry on 429, 500, 502, 503, 529
-                        matches!(*code, 429 | 500 | 502 | 503 | 529)
-                    }
-                    _ => error.is_retryable(),
-                }
-            }),
-        }
-    }
-
-    /// Gemini-specific retry policy
-    pub fn gemini_policy() -> Self {
-        Self {
-            max_attempts: 3,
-            initial_delay: Duration::from_millis(1000),
-            max_delay: Duration::from_secs(60),
-            backoff_multiplier: 1.5,
-            use_jitter: true,
-            jitter_factor: 0.1,
-            retry_condition: Some(|error| {
-                match error {
-                    LlmError::ApiError { code, .. } => {
-                        // Google specific: retry on 429, 500, 502, 503
-                        matches!(*code, 429 | 500 | 502 | 503)
-                    }
-                    _ => error.is_retryable(),
-                }
-            }),
-        }
-    }
-
-    /// xAI-specific retry policy
-    pub fn xai_policy() -> Self {
-        Self {
-            max_attempts: 3,
-            initial_delay: Duration::from_millis(1000),
-            max_delay: Duration::from_secs(60),
-            backoff_multiplier: 2.0,
-            use_jitter: true,
-            jitter_factor: 0.1,
-            retry_condition: Some(|error| {
-                match error {
-                    LlmError::ApiError { code, .. } => {
-                        // xAI uses OpenAI-compatible API, so similar retry logic
-                        matches!(*code, 429 | 500 | 502 | 503 | 504)
-                    }
-                    _ => error.is_retryable(),
-                }
-            }),
-        }
-    }
-
-    /// Ollama-specific retry policy
-    pub fn ollama_policy() -> Self {
-        Self {
-            max_attempts: 3,
-            initial_delay: Duration::from_millis(500),
-            max_delay: Duration::from_secs(30),
-            backoff_multiplier: 1.5,
-            use_jitter: true,
-            jitter_factor: 0.1,
-            retry_condition: Some(|error| {
-                match error {
-                    LlmError::ApiError { code, .. } => {
-                        // Ollama specific: retry on 429, 500, 502, 503, 504
-                        matches!(*code, 429 | 500 | 502 | 503 | 504)
-                    }
-                    LlmError::HttpError(_) => true, // Retry on HTTP errors (connection issues)
-                    _ => error.is_retryable(),
-                }
-            }),
-        }
-    }
 }
 
 /// Retry executor that handles the actual retry logic
@@ -351,20 +230,6 @@ where
     executor.execute(operation).await
 }
 
-/// Convenience function to retry an operation with provider-specific policy
-pub async fn retry_for_provider<F, Fut, T>(
-    provider: &ProviderType,
-    operation: F,
-) -> Result<T, LlmError>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, LlmError>>,
-{
-    let policy = RetryPolicy::for_provider(provider);
-    let executor = RetryExecutor::new(policy);
-    executor.execute(operation).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,14 +303,5 @@ mod tests {
         assert_eq!(policy.calculate_delay(0), Duration::from_millis(100));
         assert_eq!(policy.calculate_delay(1), Duration::from_millis(200));
         assert_eq!(policy.calculate_delay(2), Duration::from_millis(400));
-    }
-
-    #[test]
-    fn test_provider_specific_policies() {
-        let openai_policy = RetryPolicy::for_provider(&ProviderType::OpenAi);
-        let anthropic_policy = RetryPolicy::for_provider(&ProviderType::Anthropic);
-
-        assert_eq!(openai_policy.max_attempts, 3);
-        assert_eq!(anthropic_policy.initial_delay, Duration::from_millis(1500));
     }
 }

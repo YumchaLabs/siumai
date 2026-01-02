@@ -2,7 +2,7 @@
 
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
+use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::standards::anthropic::chat::{AnthropicChatAdapter, AnthropicChatStandard};
 use crate::traits::ProviderCapabilities;
 use reqwest::header::HeaderMap;
@@ -17,6 +17,27 @@ fn resolve_openai_base_url(base_url: &str) -> String {
     } else {
         format!("{}/v1", base)
     }
+}
+
+fn build_openai_like_headers(ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
+    let api_key = ctx
+        .api_key
+        .as_ref()
+        .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
+
+    let mut builder = HttpHeaderBuilder::new()
+        .with_bearer_auth(api_key)?
+        .with_json_content_type();
+
+    if let Some(org) = ctx.organization.as_deref() {
+        builder = builder.with_header("OpenAI-Organization", org)?;
+    }
+    if let Some(proj) = ctx.project.as_deref() {
+        builder = builder.with_header("OpenAI-Project", proj)?;
+    }
+
+    builder = builder.with_custom_headers(&ctx.http_extra_headers)?;
+    Ok(builder.build())
 }
 
 /// MiniMaxi ProviderSpec implementation
@@ -53,9 +74,7 @@ impl AnthropicChatAdapter for MinimaxiAnthropicAdapter {
 impl MinimaxiChatSpec {
     pub fn new() -> Self {
         Self {
-            chat_standard: AnthropicChatStandard::with_adapter(Arc::new(
-                MinimaxiAnthropicAdapter,
-            )),
+            chat_standard: AnthropicChatStandard::with_adapter(Arc::new(MinimaxiAnthropicAdapter)),
         }
     }
 
@@ -135,16 +154,7 @@ impl ProviderSpec for MinimaxiAudioSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
-        ProviderHeaders::openai(
-            api_key,
-            ctx.organization.as_deref(),
-            ctx.project.as_deref(),
-            &ctx.http_extra_headers,
-        )
+        build_openai_like_headers(ctx)
     }
 
     fn audio_base_url(&self, ctx: &ProviderContext) -> String {
@@ -179,16 +189,7 @@ impl ProviderSpec for MinimaxiImageSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
-        ProviderHeaders::openai(
-            api_key,
-            ctx.organization.as_deref(),
-            ctx.project.as_deref(),
-            &ctx.http_extra_headers,
-        )
+        build_openai_like_headers(ctx)
     }
 
     fn choose_image_transformers(
@@ -254,16 +255,7 @@ impl ProviderSpec for MinimaxiVideoSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
-        ProviderHeaders::openai(
-            api_key,
-            ctx.organization.as_deref(),
-            ctx.project.as_deref(),
-            &ctx.http_extra_headers,
-        )
+        build_openai_like_headers(ctx)
     }
 }
 
@@ -294,16 +286,7 @@ impl ProviderSpec for MinimaxiMusicSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
-        ProviderHeaders::openai(
-            api_key,
-            ctx.organization.as_deref(),
-            ctx.project.as_deref(),
-            &ctx.http_extra_headers,
-        )
+        build_openai_like_headers(ctx)
     }
 }
 

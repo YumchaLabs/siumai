@@ -1,9 +1,12 @@
-use siumai::LlmClient;
-use siumai::error::LlmError;
-use siumai::execution::middleware::language_model::LanguageModelMiddleware;
-use siumai::registry::{ProviderFactory, RegistryOptions, create_provider_registry};
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatResponse, MessageContent};
+use siumai::experimental::client::LlmClient;
+use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
+use siumai::prelude::unified::registry::{
+    ProviderFactory, RegistryOptions, create_provider_registry,
+};
+use siumai::prelude::unified::{
+    ChatCapability, ChatMessage, ChatResponse, ChatStream, LlmError, MessageContent,
+    ProviderCapabilities, Tool,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -63,7 +66,7 @@ impl ChatCapability for MockClient {
     async fn chat_with_tools(
         &self,
         _messages: Vec<ChatMessage>,
-        _tools: Option<Vec<siumai::types::Tool>>,
+        _tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
         Ok(ChatResponse::new(MessageContent::Text(format!(
             "provider={}, model={}",
@@ -74,8 +77,8 @@ impl ChatCapability for MockClient {
     async fn chat_stream(
         &self,
         _messages: Vec<ChatMessage>,
-        _tools: Option<Vec<siumai::types::Tool>>,
-    ) -> Result<siumai::streaming::ChatStream, LlmError> {
+        _tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStream, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "stream not supported in mock".to_string(),
         ))
@@ -91,8 +94,8 @@ impl LlmClient for MockClient {
         vec!["mock-model".to_string()]
     }
 
-    fn capabilities(&self) -> siumai::traits::ProviderCapabilities {
-        siumai::traits::ProviderCapabilities::new().with_chat()
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_chat()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

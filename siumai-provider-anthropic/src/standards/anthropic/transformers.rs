@@ -12,13 +12,12 @@ use crate::streaming::SseEventConverter;
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
 
+use super::thinking::ThinkingResponseParser;
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
 use super::utils::{
     convert_messages as convert_messages_to_anthropic, convert_tools_to_anthropic_format,
-    create_usage_from_response, parse_finish_reason,
-    parse_response_content_and_tools,
+    create_usage_from_response, parse_finish_reason, parse_response_content_and_tools,
 };
-use super::thinking::ThinkingResponseParser;
 use crate::execution::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
 };
@@ -157,10 +156,10 @@ impl ResponseTransformer for AnthropicResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        use crate::types::ContentPart;
         use crate::provider_metadata::anthropic::{
             AnthropicCitation, AnthropicCitationsBlock, AnthropicServerToolUse, AnthropicSource,
         };
+        use crate::types::ContentPart;
 
         let response: AnthropicChatResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Anthropic response: {e}")))?;
@@ -244,9 +243,11 @@ impl ResponseTransformer for AnthropicResponseTransformer {
                 });
             }
 
-	            if !blocks.is_empty() && let Ok(v) = serde_json::to_value(blocks) {
-	                anthropic_meta.insert("citations".to_string(), v);
-	            }
+            if !blocks.is_empty()
+                && let Ok(v) = serde_json::to_value(blocks)
+            {
+                anthropic_meta.insert("citations".to_string(), v);
+            }
 
             // Vercel-aligned sources: extract from web search tool results.
             let mut sources: Vec<AnthropicSource> = Vec::new();
@@ -304,14 +305,18 @@ impl ResponseTransformer for AnthropicResponseTransformer {
                 }
             }
 
-	            if !sources.is_empty() && let Ok(v) = serde_json::to_value(sources) {
-	                anthropic_meta.insert("sources".to_string(), v);
-	            }
+            if !sources.is_empty()
+                && let Ok(v) = serde_json::to_value(sources)
+            {
+                anthropic_meta.insert("sources".to_string(), v);
+            }
 
-	            // Thinking metadata needed to replay assistant reasoning blocks (Vercel-aligned).
-	            if let Some(tb) = thinking_block && let Some(sig) = tb.signature {
-	                anthropic_meta.insert("thinking_signature".to_string(), serde_json::json!(sig));
-	            }
+            // Thinking metadata needed to replay assistant reasoning blocks (Vercel-aligned).
+            if let Some(tb) = thinking_block
+                && let Some(sig) = tb.signature
+            {
+                anthropic_meta.insert("thinking_signature".to_string(), serde_json::json!(sig));
+            }
             if let Some(rb) = redacted_block {
                 anthropic_meta.insert(
                     "redacted_thinking_data".to_string(),
@@ -369,7 +374,10 @@ mod tests {
         assert!(matches!(resp.content, MessageContent::MultiModal(_)));
         let meta = resp.provider_metadata.unwrap();
         assert_eq!(
-            meta.get("anthropic").unwrap().get("thinking_signature").unwrap(),
+            meta.get("anthropic")
+                .unwrap()
+                .get("thinking_signature")
+                .unwrap(),
             "sig"
         );
     }
@@ -394,7 +402,10 @@ mod tests {
         let resp = tx.transform_chat_response(&raw).unwrap();
         let meta = resp.provider_metadata.unwrap();
         assert_eq!(
-            meta.get("anthropic").unwrap().get("redacted_thinking_data").unwrap(),
+            meta.get("anthropic")
+                .unwrap()
+                .get("redacted_thinking_data")
+                .unwrap(),
             "abc123"
         );
     }

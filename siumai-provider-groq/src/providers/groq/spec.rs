@@ -1,5 +1,6 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
+use crate::provider_options::GroqOptions;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
@@ -50,13 +51,16 @@ impl crate::standards::openai::chat::OpenAiChatAdapter for GroqOpenAiChatAdapter
 
         // Groq does not document stream_options; keep behavior aligned with the previous
         // implementation by omitting it.
-        if req.stream && let Some(obj) = body.as_object_mut() {
+        if req.stream
+            && let Some(obj) = body.as_object_mut()
+        {
             obj.remove("stream_options");
         }
 
         // Groq uses `max_tokens` (OpenAI-style chat completions) rather than
         // `max_completion_tokens`.
-        if let Some(obj) = body.as_object_mut() && let Some(v) = obj.remove("max_completion_tokens")
+        if let Some(obj) = body.as_object_mut()
+            && let Some(v) = obj.remove("max_completion_tokens")
         {
             obj.entry("max_tokens".to_string()).or_insert(v);
         }
@@ -86,6 +90,19 @@ impl ProviderSpec for GroqSpec {
         self.chat_spec().build_headers(ctx)
     }
 
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        crate::standards::openai::errors::classify_openai_compatible_http_error(
+            self.id(),
+            status,
+            body_text,
+        )
+    }
+
     fn chat_url(
         &self,
         stream: bool,
@@ -108,21 +125,13 @@ impl ProviderSpec for GroqSpec {
         req: &crate::types::ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        use crate::types::ProviderOptions;
-
-        // Preserve Custom provider options behavior.
-        if let Some(custom_hook) = crate::core::default_custom_options_hook(self.id(), req) {
-            let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-                let out = custom_hook(body)?;
-                crate::providers::groq::utils::validate_groq_params(&out)?;
-                Ok(out)
-            };
-            return Some(Arc::new(hook));
-        }
-
         // Groq typed options: merge extra params and validate.
-        if let ProviderOptions::Groq(opts) = &req.provider_options {
-            let extra = opts.extra_params.clone();
+        let options_value = req.provider_options_map.get("groq").cloned();
+
+        if let Some(val) = options_value
+            && let Ok(opts) = serde_json::from_value::<GroqOptions>(val)
+        {
+            let extra = opts.extra_params;
             let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
                 let mut out = body.clone();
                 if let Some(obj) = out.as_object_mut() {

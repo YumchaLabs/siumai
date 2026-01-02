@@ -6,10 +6,10 @@
 //! Please update your imports:
 //! ```rust,ignore
 //! // Old (deprecated)
-//! use siumai::utils::vertex::*;
+//! use siumai::experimental::utils::vertex::*;
 //!
 //! // New (recommended)
-//! use siumai::auth::vertex::*;
+//! use siumai::experimental::auth::vertex::*;
 //! ```
 
 pub use crate::auth::vertex::*;

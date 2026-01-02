@@ -125,79 +125,117 @@ impl AudioExecutor for HttpAudioExecutor {
                 "Text-to-speech is not supported by this provider".to_string(),
             ));
         }
-        let body = self.transformer.build_tts_body(&req)?;
+
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.tts_endpoint());
 
-        // Use common bytes/multipart execution with interceptors/retry
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
-        };
+        let provider_id = self.provider_id.clone();
+        let http_client = self.http_client.clone();
+        let transformer = self.transformer.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let before_send = self.policy.before_send.clone();
+        let retry_wrapper_opts = self.policy.retry_options.clone();
+        let retry_options_for_http = self.policy.retry_options.clone();
 
-        let raw_bytes = match body {
-            AudioHttpBody::Json(mut json) => {
-                // Apply before_send if present
-                if let Some(cb) = &self.policy.before_send {
-                    json = cb(&json)?;
-                }
-                let result = crate::execution::executors::common::execute_bytes_request(
-                    &config,
-                    &url,
-                    crate::execution::executors::common::HttpBody::Json(json),
-                    req.http_config.as_ref().map(|hc| &hc.headers),
-                )
-                .await?;
-                result.bytes
-            }
-            AudioHttpBody::Multipart(_form) => {
-                // Use unified multipart->bytes helper with retry/interceptors
-                let transformer = self.transformer.clone();
-                let req_cloned = req.clone();
-                let build_form = move || match transformer.build_tts_body(&req_cloned)? {
-                    AudioHttpBody::Multipart(form) => Ok(form),
-                    _ => Err(LlmError::InvalidParameter(
-                        "Expected multipart form for TTS".into(),
-                    )),
+        let req_for_attempts = req;
+
+        let run_once = move || {
+            let provider_id = provider_id.clone();
+            let http_client = http_client.clone();
+            let transformer = transformer.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
+            let interceptors = interceptors.clone();
+            let before_send = before_send.clone();
+            let retry_options_for_http = retry_options_for_http.clone();
+            let url = url.clone();
+            let req = req_for_attempts.clone();
+
+            async move {
+                // Use common bytes/multipart execution with interceptors/retry (401 rebuild).
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id,
+                    http_client,
+                    provider_spec,
+                    provider_context,
+                    interceptors,
+                    retry_options: retry_options_for_http.clone(),
                 };
 
-                let result = crate::execution::executors::common::execute_multipart_bytes_request(
-                    &config,
-                    &url,
-                    build_form,
-                    req.http_config.as_ref().map(|hc| &hc.headers),
-                )
-                .await?;
-                result.bytes
+                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
+                let body = transformer.build_tts_body(&req)?;
+
+                let raw_bytes = match body {
+                    AudioHttpBody::Json(mut json) => {
+                        // Apply before_send if present
+                        if let Some(cb) = &before_send {
+                            json = cb(&json)?;
+                        }
+                        let result = crate::execution::executors::common::execute_bytes_request(
+                            &config,
+                            &url,
+                            crate::execution::executors::common::HttpBody::Json(json),
+                            per_request_headers,
+                        )
+                        .await?;
+                        result.bytes
+                    }
+                    AudioHttpBody::Multipart(_) => {
+                        // Multipart bodies are not cloneable; rebuild per request attempt.
+                        let req_cloned = req.clone();
+                        let transformer_for_form = transformer.clone();
+                        let build_form =
+                            move || match transformer_for_form.build_tts_body(&req_cloned)? {
+                                AudioHttpBody::Multipart(form) => Ok(form),
+                                _ => Err(LlmError::InvalidParameter(
+                                    "Expected multipart form for TTS".into(),
+                                )),
+                            };
+
+                        let result =
+                            crate::execution::executors::common::execute_multipart_bytes_request(
+                                &config,
+                                &url,
+                                build_form,
+                                per_request_headers,
+                            )
+                            .await?;
+                        result.bytes
+                    }
+                };
+
+                // Parse response using transformer
+                // This allows providers to handle different response formats
+                // (e.g., binary audio vs JSON with encoded audio)
+                let audio_data = transformer.parse_tts_response(raw_bytes.clone())?;
+
+                // Extract metadata if response is JSON
+                let (duration, sample_rate) = if transformer.tts_response_is_json() {
+                    // Try to parse as JSON to extract metadata
+                    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&raw_bytes) {
+                        transformer.parse_tts_metadata(&json)?
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                };
+
+                Ok(TtsExecutionResult {
+                    audio_data,
+                    duration,
+                    sample_rate,
+                })
             }
         };
 
-        // Parse response using transformer
-        // This allows providers to handle different response formats
-        // (e.g., binary audio vs JSON with encoded audio)
-        let audio_data = self.transformer.parse_tts_response(raw_bytes.clone())?;
-
-        // Extract metadata if response is JSON
-        let (duration, sample_rate) = if self.transformer.tts_response_is_json() {
-            // Try to parse as JSON to extract metadata
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&raw_bytes) {
-                self.transformer.parse_tts_metadata(&json)?
-            } else {
-                (None, None)
-            }
+        if let Some(opts) = retry_wrapper_opts {
+            crate::retry_api::retry_with(run_once, opts).await
         } else {
-            (None, None)
-        };
-
-        Ok(TtsExecutionResult {
-            audio_data,
-            duration,
-            sample_rate,
-        })
+            run_once().await
+        }
     }
 
     async fn stt(&self, req: SttRequest) -> Result<SttExecutionResult, LlmError> {
@@ -214,61 +252,98 @@ impl AudioExecutor for HttpAudioExecutor {
         if req.audio_data.is_none()
             && let Some(path) = req.file_path.as_deref()
         {
-            let bytes = tokio::fs::read(path)
-                .await
-                .map_err(|e| LlmError::IoError(format!("Failed to read audio file '{path}': {e}")))?;
+            let bytes = tokio::fs::read(path).await.map_err(|e| {
+                LlmError::IoError(format!("Failed to read audio file '{path}': {e}"))
+            })?;
             req.audio_data = Some(bytes);
         }
 
-        let body = self.transformer.build_stt_body(&req)?;
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = format!("{}{}", base_url, self.transformer.stt_endpoint());
 
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
+        let provider_id = self.provider_id.clone();
+        let http_client = self.http_client.clone();
+        let transformer = self.transformer.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let before_send = self.policy.before_send.clone();
+        let retry_wrapper_opts = self.policy.retry_options.clone();
+        let retry_options_for_http = self.policy.retry_options.clone();
+
+        let req_for_attempts = req;
+
+        let run_once = move || {
+            let provider_id = provider_id.clone();
+            let http_client = http_client.clone();
+            let transformer = transformer.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
+            let interceptors = interceptors.clone();
+            let before_send = before_send.clone();
+            let retry_options_for_http = retry_options_for_http.clone();
+            let url = url.clone();
+            let req = req_for_attempts.clone();
+
+            async move {
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id,
+                    http_client,
+                    provider_spec,
+                    provider_context,
+                    interceptors,
+                    retry_options: retry_options_for_http.clone(),
+                };
+
+                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
+                let body = transformer.build_stt_body(&req)?;
+
+                let result = match body {
+                    AudioHttpBody::Json(mut json) => {
+                        // Apply before_send if present
+                        if let Some(cb) = &before_send {
+                            json = cb(&json)?;
+                        }
+                        crate::execution::executors::common::execute_json_request(
+                            &config,
+                            &url,
+                            crate::execution::executors::common::HttpBody::Json(json),
+                            per_request_headers,
+                            false,
+                        )
+                        .await?
+                    }
+                    AudioHttpBody::Multipart(_) => {
+                        let req_cloned = req.clone();
+                        let transformer_for_form = transformer.clone();
+                        crate::execution::executors::common::execute_multipart_request(
+                            &config,
+                            &url,
+                            move || match transformer_for_form.build_stt_body(&req_cloned)? {
+                                AudioHttpBody::Multipart(form) => Ok(form),
+                                _ => Err(LlmError::InvalidParameter(
+                                    "Expected multipart form for STT".into(),
+                                )),
+                            },
+                            per_request_headers,
+                        )
+                        .await?
+                    }
+                };
+
+                let text = transformer.parse_stt_response(&result.json)?;
+                Ok(SttExecutionResult {
+                    text,
+                    raw: result.json,
+                })
+            }
         };
 
-        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
-        let result = match body {
-            AudioHttpBody::Json(mut json) => {
-                // Apply before_send if present
-                if let Some(cb) = &self.policy.before_send {
-                    json = cb(&json)?;
-                }
-                crate::execution::executors::common::execute_json_request(
-                    &config,
-                    &url,
-                    crate::execution::executors::common::HttpBody::Json(json),
-                    per_request_headers,
-                    false,
-                )
-                .await?
-            }
-            AudioHttpBody::Multipart(_) => {
-                crate::execution::executors::common::execute_multipart_request(
-                    &config,
-                    &url,
-                    || match self.transformer.build_stt_body(&req)? {
-                        AudioHttpBody::Multipart(form) => Ok(form),
-                        _ => Err(LlmError::InvalidParameter(
-                            "Expected multipart form for STT".into(),
-                        )),
-                    },
-                    per_request_headers,
-                )
-                .await?
-            }
-        };
-        let text = self.transformer.parse_stt_response(&result.json)?;
-        Ok(SttExecutionResult {
-            text,
-            raw: result.json,
-        })
+        if let Some(opts) = retry_wrapper_opts {
+            crate::retry_api::retry_with(run_once, opts).await
+        } else {
+            run_once().await
+        }
     }
 }
 
@@ -293,11 +368,19 @@ mod tests {
             ProviderCapabilities::new().with_transcription()
         }
 
-        fn build_headers(&self, _ctx: &crate::core::ProviderContext) -> Result<HeaderMap, LlmError> {
+        fn build_headers(
+            &self,
+            _ctx: &crate::core::ProviderContext,
+        ) -> Result<HeaderMap, LlmError> {
             Ok(HeaderMap::new())
         }
 
-        fn chat_url(&self, _stream: bool, _req: &crate::types::ChatRequest, _ctx: &crate::core::ProviderContext) -> String {
+        fn chat_url(
+            &self,
+            _stream: bool,
+            _req: &crate::types::ChatRequest,
+            _ctx: &crate::core::ProviderContext,
+        ) -> String {
             unreachable!()
         }
 

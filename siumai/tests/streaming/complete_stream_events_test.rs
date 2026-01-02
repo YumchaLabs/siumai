@@ -4,13 +4,21 @@
 //! using mock data to simulate real streaming scenarios.
 
 use eventsource_stream::Event;
-use siumai::providers::anthropic::streaming::AnthropicEventConverter;
-use siumai::providers::ollama::streaming::OllamaEventConverter;
-use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
-use siumai::providers::openai_compatible::types::FieldMappings;
-use siumai::traits::ProviderCapabilities;
+use siumai::experimental::standards::openai::compat::adapter::{
+    ProviderAdapter, ProviderCompatibility,
+};
+use siumai::experimental::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
+use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
+use siumai::experimental::standards::openai::compat::types::{
+    FieldMappings, ModelConfig, RequestType,
+};
+use siumai::prelude::unified::{
+    ChatStreamEvent, JsonEventConverter, LlmError, ProviderCapabilities, SseEventConverter,
+};
+#[cfg(feature = "anthropic")]
+use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;
+#[cfg(feature = "ollama")]
+use siumai_provider_ollama::providers::ollama::streaming::OllamaEventConverter;
 use std::sync::Arc;
 
 fn make_openai_converter() -> OpenAiCompatibleEventConverter {
@@ -26,17 +34,14 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
             &self,
             _params: &mut serde_json::Value,
             _model: &str,
-            _ty: siumai::providers::openai_compatible::types::RequestType,
-        ) -> Result<(), siumai::error::LlmError> {
+            _ty: RequestType,
+        ) -> Result<(), LlmError> {
             Ok(())
         }
         fn get_field_mappings(&self, _model: &str) -> FieldMappings {
             FieldMappings::standard()
         }
-        fn get_model_config(
-            &self,
-            _model: &str,
-        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+        fn get_model_config(&self, _model: &str) -> ModelConfig {
             Default::default()
         }
         fn capabilities(&self) -> ProviderCapabilities {
@@ -67,8 +72,6 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::streaming::ChatStreamEvent;
-use siumai::streaming::{JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_complete_openai_stream_sequence() {
@@ -290,8 +293,9 @@ async fn test_stream_event_ordering() {
 }
 
 #[tokio::test]
+#[cfg(feature = "anthropic")]
 async fn test_complete_anthropic_stream_sequence() {
-    let config = siumai::params::AnthropicParams::default();
+    let config = siumai::provider_ext::anthropic::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Simulate a complete Anthropic streaming sequence
@@ -382,6 +386,7 @@ async fn test_complete_anthropic_stream_sequence() {
 }
 
 #[tokio::test]
+#[cfg(feature = "ollama")]
 async fn test_complete_ollama_stream_sequence() {
     let converter = OllamaEventConverter::new();
 

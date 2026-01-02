@@ -2,8 +2,8 @@
 //!
 //! Tests for image generation capabilities across different providers.
 
+use siumai::prelude::unified::ImageGenerationRequest;
 use siumai::prelude::*;
-use siumai::types::ImageGenerationRequest;
 
 #[tokio::test]
 async fn test_openai_image_generation_request_conversion() {
@@ -65,10 +65,10 @@ async fn test_siliconflow_image_generation_request_conversion() {
 
 #[tokio::test]
 async fn test_openai_client_image_generation_capability() {
-    use siumai::client::LlmClient;
-    use siumai::providers::openai::OpenAiClient;
+    use siumai::experimental::client::LlmClient;
+    use siumai::provider_ext::openai::OpenAiClient;
 
-    let config = siumai::providers::openai::OpenAiConfig::new("test-key")
+    let config = siumai::provider_ext::openai::OpenAiConfig::new("test-key")
         .with_base_url("https://api.openai.com/v1"); // Explicitly use OpenAI endpoint
     let client = OpenAiClient::new(config, reqwest::Client::new());
 
@@ -99,11 +99,11 @@ async fn test_openai_client_image_generation_capability() {
 
 #[tokio::test]
 async fn test_siliconflow_client_image_generation_capability() {
-    use siumai::client::LlmClient;
-    use siumai::providers::openai::OpenAiClient;
+    use siumai::experimental::client::LlmClient;
+    use siumai::provider_ext::openai::OpenAiClient;
 
     // Create SiliconFlow client using OpenAI client with SiliconFlow endpoint
-    let config = siumai::providers::openai::OpenAiConfig::new("test-key")
+    let config = siumai::provider_ext::openai::OpenAiConfig::new("test-key")
         .with_base_url("https://api.siliconflow.cn/v1");
     let client = OpenAiClient::new(config, reqwest::Client::new());
 
@@ -134,8 +134,10 @@ async fn test_siliconflow_client_image_generation_capability() {
 
 #[tokio::test]
 async fn test_image_generation_builder_integration() {
+    use siumai::experimental::client::LlmClient;
+
     // Test OpenAI builder
-    let openai_result = LlmBuilder::new()
+    let openai_result = Siumai::builder()
         .openai()
         .api_key("test-key")
         .model("gpt-4")
@@ -148,7 +150,7 @@ async fn test_image_generation_builder_integration() {
     }
 
     // Test SiliconFlow builder
-    let siliconflow_result = LlmBuilder::new()
+    let siliconflow_result = Siumai::builder()
         .openai()
         .siliconflow()
         .api_key("test-key")

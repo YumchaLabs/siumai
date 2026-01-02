@@ -22,13 +22,6 @@ pub struct EmbeddingRequest {
     pub task_type: Option<EmbeddingTaskType>,
     /// Optional title/context hint (used by some providers, e.g., Gemini)
     pub title: Option<String>,
-    /// Provider-specific typed options (v0.12+).
-    ///
-    /// This mirrors `ChatRequest::provider_options` and allows strongly-typed
-    /// provider features to be used with embeddings. Providers can inject these
-    /// into outbound JSON via `ProviderSpec::embedding_before_send()`.
-    #[allow(clippy::derivable_impls)]
-    pub provider_options: crate::types::ProviderOptions,
     /// Open provider options map (Vercel-aligned).
     pub provider_options_map: ProviderOptionsMap,
     /// Per-request HTTP configuration (headers, timeout, etc.)
@@ -105,17 +98,6 @@ impl EmbeddingRequest {
     /// Set user identifier
     pub fn with_user(mut self, user: impl Into<String>) -> Self {
         self.user = Some(user.into());
-        self
-    }
-
-    /// Set provider-specific typed options (v0.12+)
-    ///
-    /// Prefer this over `provider_params` for type safety.
-    pub fn with_provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
-        if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
-            self.provider_options_map.insert(provider_id, value);
-        }
-        self.provider_options = options;
         self
     }
 

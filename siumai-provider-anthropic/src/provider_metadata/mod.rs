@@ -4,4 +4,3 @@
 //! provider crate to avoid coupling `siumai-core` to provider-specific response shapes.
 
 pub mod anthropic;
-

@@ -3,13 +3,34 @@
 //! Centralizes common error classification and interceptor notifications
 //! to avoid duplicating this logic in individual executors.
 
+use crate::core::ProviderSpec;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+use reqwest::header::HeaderMap;
 use std::sync::Arc;
+
+/// Classify an HTTP failure using the provider hook if present, otherwise fall back
+/// to the generic `retry_api::classify_http_error`.
+pub fn classify_http_error(
+    provider_id: &str,
+    provider_spec: Option<&dyn ProviderSpec>,
+    status: u16,
+    body_text: &str,
+    headers: &HeaderMap,
+    fallback_message: Option<&str>,
+) -> LlmError {
+    if let Some(spec) = provider_spec
+        && let Some(e) = spec.classify_http_error(status, body_text, headers)
+    {
+        return e;
+    }
+    crate::retry_api::classify_http_error(provider_id, status, body_text, headers, fallback_message)
+}
 
 /// Read response body text, classify the error consistently, and notify interceptors.
 pub async fn classify_error_with_text(
     provider_id: &str,
+    provider_spec: Option<&dyn ProviderSpec>,
     resp: reqwest::Response,
     ctx: &HttpRequestContext,
     interceptors: &[Arc<dyn HttpInterceptor>],
@@ -17,8 +38,14 @@ pub async fn classify_error_with_text(
     let status = resp.status();
     let headers = resp.headers().clone();
     let text = resp.text().await.unwrap_or_default();
-    let error =
-        crate::retry_api::classify_http_error(provider_id, status.as_u16(), &text, &headers, None);
+    let error = classify_http_error(
+        provider_id,
+        provider_spec,
+        status.as_u16(),
+        &text,
+        &headers,
+        None,
+    );
     for it in interceptors {
         it.on_error(ctx, &error);
     }
@@ -129,11 +156,12 @@ mod tests {
         };
         let flag = Arc::new(Mutex::new(false));
         let it: Arc<dyn HttpInterceptor> = Arc::new(FlagInterceptor(flag.clone()));
-        let err = super::classify_error_with_text("test", resp, &ctx, &[it]).await;
+        let err = super::classify_error_with_text("test", None, resp, &ctx, &[it]).await;
 
         // Should be classified as one of the library's error variants (API/RateLimit/Authentication/etc.)
         match err {
             LlmError::ApiError { .. }
+            | LlmError::InvalidInput(_)
             | LlmError::RateLimitError(_)
             | LlmError::AuthenticationError(_)
             | LlmError::ProviderError { .. }

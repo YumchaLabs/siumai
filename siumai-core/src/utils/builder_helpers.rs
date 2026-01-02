@@ -53,10 +53,10 @@ pub fn get_api_key_with_envs(
     let default_env = format!("{}_API_KEY", provider_id.to_uppercase());
     let mut candidates: Vec<String> = Vec::with_capacity(2 + api_key_env_aliases.len());
 
-    if let Some(name) = api_key_env {
-        if !name.trim().is_empty() {
-            candidates.push(name.to_string());
-        }
+    if let Some(name) = api_key_env
+        && !name.trim().is_empty()
+    {
+        candidates.push(name.to_string());
     }
     for name in api_key_env_aliases {
         if !name.trim().is_empty() {
@@ -70,10 +70,10 @@ pub fn get_api_key_with_envs(
     candidates.retain(|k| seen.insert(k.clone()));
 
     for env_key in &candidates {
-        if let Ok(v) = std::env::var(env_key) {
-            if !v.is_empty() {
-                return Ok(v);
-            }
+        if let Ok(v) = std::env::var(env_key)
+            && !v.is_empty()
+        {
+            return Ok(v);
         }
     }
 
@@ -186,19 +186,8 @@ pub fn resolve_base_url(custom_url: Option<String>, default_url: &str) -> String
     url.trim_end_matches('/').to_string()
 }
 
-/// Resolve base URL using provider adapter
-///
-/// Variant of `resolve_base_url` that works with `ProviderAdapter`.
-///
-/// # Arguments
-/// * `custom_url` - Custom base URL (if any)
-/// * `adapter` - Provider adapter
-///
-/// # Returns
-/// Resolved base URL
 // Note: ProviderAdapter-based helpers are provider-owned and should live outside
 // `siumai-core` to avoid protocol coupling.
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -22,7 +22,7 @@
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::utils::vertex_base_url;
+/// use siumai::experimental::auth::vertex::vertex_base_url;
 ///
 /// let url = vertex_base_url("my-project", "us-central1", "google");
 /// assert_eq!(

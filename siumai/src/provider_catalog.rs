@@ -19,8 +19,8 @@ pub use siumai_registry::provider_catalog::*;
     feature = "minimaxi"
 )))]
 mod no_providers {
-    use crate::traits::ProviderCapabilities;
-    use crate::types::ProviderType;
+    use siumai_core::traits::ProviderCapabilities;
+    use siumai_core::types::ProviderType;
     use std::borrow::Cow;
 
     #[derive(Debug, Clone)]
@@ -64,4 +64,3 @@ mod no_providers {
     feature = "minimaxi"
 )))]
 pub use no_providers::*;
-

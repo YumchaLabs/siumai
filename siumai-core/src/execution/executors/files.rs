@@ -115,61 +115,93 @@ impl FilesExecutor for HttpFilesExecutor {
         }
         // 1. Get URL
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
-        let url = format!("{}{}", base_url, self.transformer.upload_endpoint(&req));
+        let endpoint = self.transformer.upload_endpoint(&req);
+        let url = crate::utils::url::join_url(&base_url, &endpoint);
 
-        // 2. Build execution config for common HTTP layer
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
+        let provider_id = self.provider_id.clone();
+        let http_client = self.http_client.clone();
+        let transformer = self.transformer.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let before_send = self.policy.before_send.clone();
+        let retry_wrapper_opts = self.policy.retry_options.clone();
+        let retry_options_for_http = self.policy.retry_options.clone();
+
+        let req_for_attempts = req;
+
+        let run_once = move || {
+            let provider_id = provider_id.clone();
+            let http_client = http_client.clone();
+            let transformer = transformer.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
+            let interceptors = interceptors.clone();
+            let before_send = before_send.clone();
+            let retry_options_for_http = retry_options_for_http.clone();
+            let url = url.clone();
+            let req = req_for_attempts.clone();
+
+            async move {
+                // Build execution config for common HTTP layer (401 rebuild).
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id,
+                    http_client,
+                    provider_spec,
+                    provider_context,
+                    interceptors,
+                    retry_options: retry_options_for_http.clone(),
+                };
+
+                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
+                let body = transformer.build_upload_body(&req)?;
+
+                let result = match body {
+                    FilesHttpBody::Json(mut json) => {
+                        // Apply before_send if present
+                        if let Some(cb) = &before_send {
+                            json = cb(&json)?;
+                        }
+                        crate::execution::executors::common::execute_json_request(
+                            &config,
+                            &url,
+                            crate::execution::executors::common::HttpBody::Json(json),
+                            per_request_headers,
+                            false,
+                        )
+                        .await?
+                    }
+                    FilesHttpBody::Multipart(_) => {
+                        let req_clone = req.clone();
+                        let transformer_for_form = transformer.clone();
+                        crate::execution::executors::common::execute_multipart_request(
+                            &config,
+                            &url,
+                            move || {
+                                transformer_for_form.build_upload_body(&req_clone).and_then(
+                                    |body| match body {
+                                        FilesHttpBody::Multipart(form) => Ok(form),
+                                        _ => Err(LlmError::InvalidParameter(
+                                            "Expected multipart body".into(),
+                                        )),
+                                    },
+                                )
+                            },
+                            per_request_headers,
+                        )
+                        .await?
+                    }
+                };
+
+                transformer.transform_file_object(&result.json)
+            }
         };
 
-        // 3. Transform request and execute based on body type
-        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
-        let body = self.transformer.build_upload_body(&req)?;
-        let result = match body {
-            FilesHttpBody::Json(mut json) => {
-                // Apply before_send if present
-                if let Some(cb) = &self.policy.before_send {
-                    json = cb(&json)?;
-                }
-                // Use JSON request path
-                crate::execution::executors::common::execute_json_request(
-                    &config,
-                    &url,
-                    crate::execution::executors::common::HttpBody::Json(json),
-                    per_request_headers,
-                    false, // stream = false
-                )
-                .await?
-            }
-            FilesHttpBody::Multipart(_) => {
-                // Use multipart request path
-                let req_clone = req.clone();
-                crate::execution::executors::common::execute_multipart_request(
-                    &config,
-                    &url,
-                    || {
-                        self.transformer
-                            .build_upload_body(&req_clone)
-                            .and_then(|body| match body {
-                                FilesHttpBody::Multipart(form) => Ok(form),
-                                _ => Err(LlmError::InvalidParameter(
-                                    "Expected multipart body".into(),
-                                )),
-                            })
-                    },
-                    per_request_headers,
-                )
-                .await?
-            }
-        };
-
-        // 4. Transform response
-        self.transformer.transform_file_object(&result.json)
+        if let Some(opts) = retry_wrapper_opts {
+            crate::retry_api::retry_with(run_once, opts).await
+        } else {
+            run_once().await
+        }
     }
 
     async fn list(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
@@ -182,34 +214,61 @@ impl FilesExecutor for HttpFilesExecutor {
         // 1. Get URL from transformer
         let endpoint = self.transformer.list_endpoint(&query);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
-        let url = format!("{}{}", base_url, endpoint);
+        let url = crate::utils::url::join_url(&base_url, &endpoint);
 
-        // 2. Build execution config for common HTTP layer
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
+        let provider_id = self.provider_id.clone();
+        let http_client = self.http_client.clone();
+        let transformer = self.transformer.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let retry_wrapper_opts = self.policy.retry_options.clone();
+        let retry_options_for_http = self.policy.retry_options.clone();
+
+        let query_for_attempts = query;
+
+        let run_once = move || {
+            let provider_id = provider_id.clone();
+            let http_client = http_client.clone();
+            let transformer = transformer.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
+            let interceptors = interceptors.clone();
+            let retry_options_for_http = retry_options_for_http.clone();
+            let url = url.clone();
+            let query = query_for_attempts.clone();
+
+            async move {
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id,
+                    http_client,
+                    provider_spec,
+                    provider_context,
+                    interceptors,
+                    retry_options: retry_options_for_http.clone(),
+                };
+
+                let per_request_headers = query
+                    .as_ref()
+                    .and_then(|q| q.http_config.as_ref())
+                    .map(|hc| &hc.headers);
+
+                let result = crate::execution::executors::http_request::execute_get_request(
+                    &config,
+                    &url,
+                    per_request_headers,
+                )
+                .await?;
+
+                transformer.transform_list_response(&result.json)
+            }
         };
 
-        // 3. Extract per-request headers from query
-        let per_request_headers = query
-            .as_ref()
-            .and_then(|q| q.http_config.as_ref())
-            .map(|hc| &hc.headers);
-
-        // 4. Execute GET request using common HTTP layer
-        let result = crate::execution::executors::http_request::execute_get_request(
-            &config,
-            &url,
-            per_request_headers,
-        )
-        .await?;
-
-        // 5. Transform response
-        self.transformer.transform_list_response(&result.json)
+        if let Some(opts) = retry_wrapper_opts {
+            crate::retry_api::retry_with(run_once, opts).await
+        } else {
+            run_once().await
+        }
     }
 
     async fn retrieve(&self, file_id: String) -> Result<FileObject, LlmError> {
@@ -222,26 +281,51 @@ impl FilesExecutor for HttpFilesExecutor {
         // 1. Get URL from transformer
         let endpoint = self.transformer.retrieve_endpoint(&file_id);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
-        let url = format!("{}{}", base_url, endpoint);
+        let url = crate::utils::url::join_url(&base_url, &endpoint);
 
-        // 2. Build execution config for common HTTP layer
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
+        let provider_id = self.provider_id.clone();
+        let http_client = self.http_client.clone();
+        let transformer = self.transformer.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let retry_wrapper_opts = self.policy.retry_options.clone();
+        let retry_options_for_http = self.policy.retry_options.clone();
+
+        let run_once = move || {
+            let provider_id = provider_id.clone();
+            let http_client = http_client.clone();
+            let transformer = transformer.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
+            let interceptors = interceptors.clone();
+            let retry_options_for_http = retry_options_for_http.clone();
+            let url = url.clone();
+
+            async move {
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id,
+                    http_client,
+                    provider_spec,
+                    provider_context,
+                    interceptors,
+                    retry_options: retry_options_for_http.clone(),
+                };
+
+                let result = crate::execution::executors::http_request::execute_get_request(
+                    &config, &url, None,
+                )
+                .await?;
+
+                transformer.transform_file_object(&result.json)
+            }
         };
 
-        // 3. Execute GET request using common HTTP layer
-        let result = crate::execution::executors::http_request::execute_get_request(
-            &config, &url, None, // No per-request headers for retrieve
-        )
-        .await?;
-
-        // 4. Transform response
-        self.transformer.transform_file_object(&result.json)
+        if let Some(opts) = retry_wrapper_opts {
+            crate::retry_api::retry_with(run_once, opts).await
+        } else {
+            run_once().await
+        }
     }
 
     async fn delete(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
@@ -251,31 +335,54 @@ impl FilesExecutor for HttpFilesExecutor {
                 "File delete is not supported by this provider".to_string(),
             ));
         }
+        let id = file_id.trim_start_matches("files/").to_string();
         // 1. Get URL from transformer
         let endpoint = self.transformer.delete_endpoint(&file_id);
         let base_url = self.provider_spec.files_base_url(&self.provider_context);
-        let url = format!("{}{}", base_url, endpoint);
+        let url = crate::utils::url::join_url(&base_url, &endpoint);
 
-        // 2. Build execution config for common HTTP layer
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
+        let provider_id = self.provider_id.clone();
+        let http_client = self.http_client.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let retry_wrapper_opts = self.policy.retry_options.clone();
+        let retry_options_for_http = self.policy.retry_options.clone();
+
+        let run_once = move || {
+            let provider_id = provider_id.clone();
+            let http_client = http_client.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
+            let interceptors = interceptors.clone();
+            let retry_options_for_http = retry_options_for_http.clone();
+            let url = url.clone();
+            let id = id.clone();
+
+            async move {
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id,
+                    http_client,
+                    provider_spec,
+                    provider_context,
+                    interceptors,
+                    retry_options: retry_options_for_http.clone(),
+                };
+
+                crate::execution::executors::http_request::execute_delete_request(
+                    &config, &url, None,
+                )
+                .await?;
+
+                Ok(FileDeleteResponse { id, deleted: true })
+            }
         };
 
-        // 3. Execute DELETE request using common HTTP layer
-        let _result = crate::execution::executors::http_request::execute_delete_request(
-            &config, &url, None, // No per-request headers for delete
-        )
-        .await?;
-
-        // 4. Return success response
-        // Some providers may return an empty body or a small JSON; we just acknowledge success
-        let id = file_id.trim_start_matches("files/").to_string();
-        Ok(FileDeleteResponse { id, deleted: true })
+        if let Some(opts) = retry_wrapper_opts {
+            crate::retry_api::retry_with(run_once, opts).await
+        } else {
+            run_once().await
+        }
     }
 
     async fn get_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
@@ -285,38 +392,75 @@ impl FilesExecutor for HttpFilesExecutor {
                 "File content download is not supported by this provider".to_string(),
             ));
         }
-        // 1. Determine URL (prefer API endpoint if provided; otherwise fall back to URL from file object)
-        let mut maybe_endpoint = self.transformer.content_endpoint(&file_id);
-        let url = if let Some(ep) = maybe_endpoint.take() {
-            let base_url = self.provider_spec.files_base_url(&self.provider_context);
-            format!("{}{}", base_url, ep)
+        let provider_id = self.provider_id.clone();
+        let http_client = self.http_client.clone();
+        let transformer = self.transformer.clone();
+        let provider_spec = self.provider_spec.clone();
+        let provider_context = self.provider_context.clone();
+        let interceptors = self.policy.interceptors.clone();
+        let retry_wrapper_opts = self.policy.retry_options.clone();
+        let retry_options_for_http = self.policy.retry_options.clone();
+
+        let file_id_for_attempts = file_id;
+
+        let run_once = move || {
+            let provider_id = provider_id.clone();
+            let http_client = http_client.clone();
+            let transformer = transformer.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
+            let interceptors = interceptors.clone();
+            let retry_options_for_http = retry_options_for_http.clone();
+            let file_id = file_id_for_attempts.clone();
+
+            async move {
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id,
+                    http_client,
+                    provider_spec: provider_spec.clone(),
+                    provider_context: provider_context.clone(),
+                    interceptors,
+                    retry_options: retry_options_for_http.clone(),
+                };
+
+                // Determine URL (prefer API endpoint if provided; otherwise fall back to URL from file object)
+                let url = if let Some(ep) = transformer.content_endpoint(&file_id) {
+                    let base_url = provider_spec.files_base_url(&provider_context);
+                    crate::utils::url::join_url(&base_url, &ep)
+                } else {
+                    let endpoint = transformer.retrieve_endpoint(&file_id);
+                    let base_url = provider_spec.files_base_url(&provider_context);
+                    let retrieve_url = crate::utils::url::join_url(&base_url, &endpoint);
+                    let result = crate::execution::executors::http_request::execute_get_request(
+                        &config,
+                        &retrieve_url,
+                        None,
+                    )
+                    .await?;
+                    let file = transformer.transform_file_object(&result.json)?;
+                    transformer
+                        .content_url_from_file_object(&file)
+                        .ok_or_else(|| {
+                            LlmError::UnsupportedOperation(
+                                "File download URI not available".to_string(),
+                            )
+                        })?
+                };
+
+                let result = crate::execution::executors::http_request::execute_get_binary(
+                    &config, &url, None,
+                )
+                .await?;
+
+                Ok(result.bytes)
+            }
+        };
+
+        if let Some(opts) = retry_wrapper_opts {
+            crate::retry_api::retry_with(run_once, opts).await
         } else {
-            let file = self.retrieve(file_id.clone()).await?;
-            self.transformer
-                .content_url_from_file_object(&file)
-                .ok_or_else(|| {
-                    LlmError::UnsupportedOperation("File download URI not available".to_string())
-                })?
-        };
-
-        // 2. Build execution config for common HTTP layer
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
-        };
-
-        // 3. Execute GET request for binary content using common HTTP layer
-        let result = crate::execution::executors::http_request::execute_get_binary(
-            &config, &url, None, // No per-request headers for get_content
-        )
-        .await?;
-
-        // 4. Return binary content
-        Ok(result.bytes)
+            run_once().await
+        }
     }
 }
 

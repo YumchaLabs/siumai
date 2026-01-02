@@ -19,8 +19,7 @@
 //! This prevents regressions when adding new providers.
 
 use siumai::Provider;
-use siumai::types::{ChatMessage, ChatRequest, CommonParams, ProviderOptions};
-use std::collections::HashMap;
+use siumai::prelude::unified::{ChatMessage, ChatRequest, CommonParams};
 
 /// List of all providers to test
 const ALL_PROVIDERS: &[&str] = &["openai", "anthropic", "xai", "gemini", "groq", "ollama"];
@@ -50,26 +49,18 @@ fn test_all_providers_support_custom_options() {
             provider_id
         );
 
-        // Create custom options
-        let mut custom_options = HashMap::new();
-        custom_options.insert("test_param".to_string(), serde_json::json!("test_value"));
-        custom_options.insert("experimental_feature".to_string(), serde_json::json!(true));
+        // Create request with providerOptions entry.
+        // Providers decide how to interpret these keys; this test simply ensures the
+        // request surface supports passing the per-provider JSON payload.
+        let request = create_test_request().with_provider_option(
+            provider_id,
+            serde_json::json!({
+                "test_param": "test_value",
+                "experimental_feature": true
+            }),
+        );
 
-        let provider_options = ProviderOptions::Custom {
-            provider_id: provider_id.to_string(),
-            options: custom_options,
-        };
-
-        // Create request with custom options
-        let mut request = create_test_request();
-        request.provider_options = provider_options;
-
-        // Verify that the provider can handle the request
-        // (We can't actually send the request without API keys, but we can verify
-        // that the provider accepts the custom options without panicking)
-
-        // This test passes if no panic occurs during request construction
-        assert_eq!(request.provider_options.provider_id(), Some(*provider_id));
+        assert!(request.provider_option(provider_id).is_some());
     }
 }
 

@@ -9,16 +9,16 @@
 //!   built-in factories pre-registered.
 //!
 //! This keeps `siumai-registry` usable as an integration point for external
-//! provider crates without pulling in `siumai-providers` by default.
+//! provider crates without pulling in built-in provider implementations by default.
 
 pub mod builder;
 pub mod entry;
 
-// Built-in provider factory implementations (require `siumai-providers`).
-#[cfg(feature = "builtins")]
-pub mod factory;
+// Built-in provider factory implementations (feature-gated; depend on provider crates).
 #[cfg(feature = "builtins")]
 pub mod factories;
+#[cfg(feature = "builtins")]
+pub mod factory;
 
 pub mod helpers;
 
@@ -40,9 +40,9 @@ mod builtins {
     use crate::error::LlmError;
 
     #[cfg(feature = "openai")]
-    use siumai_providers::providers::openai_compatible::adapter::ProviderAdapter;
-    #[cfg(feature = "openai")]
-    use siumai_providers::providers::openai_compatible::{ConfigurableAdapter, ProviderConfig};
+    use siumai_provider_openai_compatible::providers::openai_compatible::{
+        ConfigurableAdapter, ProviderAdapter, ProviderConfig,
+    };
 
     /// Unified provider record maintained by the built-in catalog.
     #[derive(Debug, Clone)]
@@ -114,7 +114,7 @@ mod builtins {
             // Register native providers from the shared metadata table so that
             // names, base URLs, and capabilities stay consistent across the
             // registry and documentation helpers.
-            let metas = siumai_providers::providers::metadata::native_providers_metadata();
+            let metas = crate::native_provider_metadata::native_providers_metadata();
             for meta in metas {
                 self.register_native(
                     meta.id,
@@ -146,7 +146,7 @@ mod builtins {
         #[cfg(feature = "openai")]
         fn register_openai_compatible_providers(&mut self) {
             let builtin_providers =
-                siumai_providers::providers::openai_compatible::config::get_builtin_providers();
+                siumai_provider_openai_compatible::providers::openai_compatible::get_builtin_providers();
 
             for (_id, config) in builtin_providers {
                 let _ = self.register_openai_compatible_from_config(config);
@@ -190,15 +190,15 @@ mod builtins {
         #[cfg(feature = "openai")]
         pub fn register_openai_compatible(&mut self, provider_id: &str) -> Result<(), LlmError> {
             let config =
-                siumai_providers::providers::openai_compatible::config::get_provider_config(
+                siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
                     provider_id,
                 )
-                .ok_or_else(|| {
-                    LlmError::ConfigurationError(format!(
-                        "Unknown OpenAI-compatible provider: {}",
-                        provider_id
-                    ))
-                })?;
+            .ok_or_else(|| {
+                LlmError::ConfigurationError(format!(
+                    "Unknown OpenAI-compatible provider: {}",
+                    provider_id
+                ))
+            })?;
 
             self.register_openai_compatible_from_config(config)
         }
@@ -331,7 +331,9 @@ mod builtins {
 
     /// Convenience function to get an adapter for an OpenAI vendor preset (OpenAI-like provider).
     #[cfg(feature = "openai")]
-    pub fn get_openai_vendor_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
+    pub fn get_openai_vendor_adapter(
+        provider_id: &str,
+    ) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
         get_provider_adapter(provider_id)
     }
 

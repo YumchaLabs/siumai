@@ -5,9 +5,7 @@
 //! Reference: https://github.com/ollama/ollama/blob/main/docs/api.md
 
 use serde_json::json;
-use siumai::builder::LlmBuilder;
-use siumai::prelude::*;
-use siumai::types::ContentPart;
+use siumai::prelude::unified::*;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -50,7 +48,7 @@ async fn test_ollama_chat_non_streaming() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .ollama()
         .base_url(mock_server.uri())
         .model("llama3.2")
@@ -87,7 +85,7 @@ async fn test_ollama_error_response() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .ollama()
         .base_url(mock_server.uri())
         .model("invalid-model")
@@ -116,7 +114,7 @@ async fn test_ollama_request_format() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .ollama()
         .base_url(mock_server.uri())
         .model("llama3.2")
@@ -172,7 +170,7 @@ async fn test_ollama_tool_calling() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .ollama()
         .base_url(mock_server.uri())
         .model("llama3.2")
@@ -263,8 +261,7 @@ async fn test_ollama_json_mode() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
-        .ollama()
+    let client = Provider::ollama()
         .base_url(mock_server.uri())
         .model("llama3.2")
         .format("json")

@@ -10,7 +10,6 @@
 
 use futures::StreamExt;
 use siumai::prelude::*;
-use siumai::types::{ChatStreamEvent, ContentPart, Tool};
 use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 
 // Simple tool resolver
@@ -22,7 +21,7 @@ impl ToolResolver for NewsResolver {
         &self,
         name: &str,
         arguments: serde_json::Value,
-    ) -> Result<serde_json::Value, siumai::error::LlmError> {
+    ) -> Result<serde_json::Value, LlmError> {
         match name {
             "get_headlines" => {
                 let category = arguments
@@ -48,10 +47,7 @@ impl ToolResolver for NewsResolver {
                     "author": "AI Reporter"
                 }))
             }
-            _ => Err(siumai::error::LlmError::InternalError(format!(
-                "Unknown tool: {}",
-                name
-            ))),
+            _ => Err(LlmError::InternalError(format!("Unknown tool: {}", name))),
         }
     }
 }

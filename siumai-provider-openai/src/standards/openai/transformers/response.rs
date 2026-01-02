@@ -206,13 +206,13 @@ mod moderation_tests {
         let resp = tx
             .transform_moderation_response(&raw)
             .expect("moderation response");
-	        assert_eq!(resp.model, "text-moderation-latest");
-	        assert_eq!(resp.results.len(), 1);
-	        assert!(resp.results[0].flagged);
-	        assert!(!resp.results[0].categories["hate"]);
-	        assert!(resp.results[0].categories["hate/threatening"]);
-	        assert!(resp.results[0].category_scores["hate/threatening"] > 0.9);
-	    }
+        assert_eq!(resp.model, "text-moderation-latest");
+        assert_eq!(resp.results.len(), 1);
+        assert!(resp.results[0].flagged);
+        assert!(!resp.results[0].categories["hate"]);
+        assert!(resp.results[0].categories["hate/threatening"]);
+        assert!(resp.results[0].category_scores["hate/threatening"] > 0.9);
+    }
 }
 
 /// Extract thinking content from multiple possible field names with priority order
@@ -302,10 +302,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         // User-defined function call (tool calling).
                         //
                         // OpenAI Responses encodes arguments as a JSON string. Parse into JSON when possible.
-                        let call_id = item
-                            .get("call_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                         if call_id.is_empty() {
                             continue;
                         }
@@ -315,7 +312,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             continue;
                         }
 
-                        let args_str = item.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                        let args_str = item
+                            .get("arguments")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("{}");
                         let args_json = serde_json::from_str::<serde_json::Value>(args_str)
                             .unwrap_or_else(|_| serde_json::Value::String(args_str.to_string()));
 

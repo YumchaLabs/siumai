@@ -11,7 +11,6 @@
 
 use siumai::prelude::*;
 use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
-use siumai::types::ChatRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

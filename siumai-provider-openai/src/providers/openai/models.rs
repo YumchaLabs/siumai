@@ -62,14 +62,8 @@ impl OpenAiModels {
         )
         .with_org_project(self.organization.clone(), self.project.clone());
 
-        crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: "openai".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: Vec::new(),
-            retry_options: None,
-        }
+        crate::execution::wiring::HttpExecutionWiring::new("openai", self.http_client.clone(), ctx)
+            .config(spec)
     }
 
     /// Convert `OpenAI` model response to `ModelInfo`
@@ -173,7 +167,9 @@ impl ModelListingCapability for OpenAiModels {
     /// Get information about a specific model
     async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
         let config = self.build_http_config();
-        let url = config.provider_spec.model_url(&model_id, &config.provider_context);
+        let url = config
+            .provider_spec
+            .model_url(&model_id, &config.provider_context);
         let result =
             crate::execution::executors::common::execute_get_request(&config, &url, None).await?;
 

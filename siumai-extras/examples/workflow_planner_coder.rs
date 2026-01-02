@@ -14,9 +14,8 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use siumai::error::LlmError;
 use siumai::prelude::Siumai;
-use siumai::types::{ChatMessage, OutputSchema, Tool};
+use siumai::prelude::unified::{ChatMessage, LlmError, OutputSchema, Tool};
 use siumai_extras::orchestrator::{
     InMemoryWorkflowMemory, ToolLoopAgent, ToolResolver, WORKER_CODER, WORKER_PLANNER,
     WorkflowBuilder, WorkflowMemory,

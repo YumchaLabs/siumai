@@ -4,10 +4,10 @@
 
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
 use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
+use crate::standards::gemini::headers::build_gemini_headers;
 use crate::types::ChatRequest;
 use std::sync::Arc;
 
@@ -263,7 +263,7 @@ impl ProviderSpec for GeminiChatSpec {
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, LlmError> {
         let api_key = ctx.api_key.as_deref().unwrap_or("");
-        let mut headers = ProviderHeaders::gemini(api_key, &ctx.http_extra_headers)?;
+        let mut headers = build_gemini_headers(api_key, &ctx.http_extra_headers)?;
         if let Some(adapter) = &self.adapter {
             adapter.build_headers(api_key, &mut headers)?;
         }
@@ -303,8 +303,8 @@ impl ProviderSpec for GeminiChatSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // Leverage default custom provider options injection
-        crate::core::default_custom_options_hook(self.provider_id, req)
+        let _ = req;
+        None
     }
 }
 

@@ -6,30 +6,16 @@
 use super::OpenAiClient;
 use crate::error::LlmError;
 use crate::execution::executors::common::{
-    execute_delete_request, execute_get_request, execute_json_request, HttpBody, HttpExecutionConfig,
+    HttpBody, HttpExecutionConfig, execute_delete_request, execute_get_request,
+    execute_json_request,
 };
-use secrecy::ExposeSecret;
 use std::sync::Arc;
 
 impl OpenAiClient {
     fn responses_admin_config(&self) -> HttpExecutionConfig {
-        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
-        let ctx = crate::core::ProviderContext::new(
-            "openai",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        )
-        .with_org_project(self.organization.clone(), self.project.clone());
-
-        HttpExecutionConfig {
-            provider_id: "openai".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        }
+        let spec: Arc<dyn crate::core::ProviderSpec> =
+            Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
+        self.http_wiring().config(spec)
     }
 
     fn responses_url(&self, suffix: &str) -> String {
@@ -142,7 +128,9 @@ impl OpenAiClient {
         let res = execute_get_request(&config, &url, None).await?;
         let page: crate::providers::openai::ext::responses::OpenAiResponsesInputItemsPage =
             serde_json::from_value(res.json).map_err(|e| {
-                LlmError::ParseError(format!("Invalid OpenAI responses input_items response: {e}"))
+                LlmError::ParseError(format!(
+                    "Invalid OpenAI responses input_items response: {e}"
+                ))
             })?;
         Ok(page)
     }
@@ -165,4 +153,3 @@ impl OpenAiClient {
         Ok(obj)
     }
 }
-

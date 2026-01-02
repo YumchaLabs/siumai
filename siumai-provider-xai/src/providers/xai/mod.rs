@@ -1,18 +1,10 @@
 //! `xAI` Provider Module
 //!
-//! Modular implementation of `xAI` API client with capability separation.
-//! This module follows the design pattern of separating different AI capabilities
-//! into distinct modules while providing a unified client interface.
+//! Thin wrapper around the OpenAI-compatible vendor implementation.
 //!
 //! # Architecture
-//! - `client.rs` - Main `xAI` client that aggregates all capabilities
-//! - `config.rs` - Configuration structures and validation
-//! - `builder.rs` - Builder pattern implementation for client creation
-//! - `chat.rs` - Chat completion capability implementation
-//! - `types.rs` - xAI-specific type definitions
-//! - `api.rs` - Model listing/retrieval capability
-//! - `spec.rs` - ProviderSpec wiring (delegates protocol to `standards::openai`)
 //! - `models.rs` - Built-in model catalog (fallback)
+//! - `builder.rs` - Builder that delegates to `openai().compatible("xai")`
 //!
 //! # Example Usage
 //! ```rust,no_run
@@ -35,24 +27,17 @@
 //! }
 //! ```
 
-// Core modules
-pub mod api;
 pub mod builder;
-pub mod client;
-pub mod config;
+/// xAI extension APIs (non-unified surface)
+pub mod ext;
 pub mod models;
-pub mod spec;
-pub mod types;
 
-// Capability modules
-pub mod chat;
-
-// Re-export main types for convenience
-pub use api::XaiModels;
 pub use builder::XaiBuilder;
-pub use client::XaiClient;
-pub use config::XaiConfig;
-pub use types::*;
 
-// Re-export capability implementations
-pub use chat::XaiChatCapability;
+pub type XaiClient =
+    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
+
+// Provider-owned typed options live at the crate root; re-export them under the provider path.
+pub use crate::provider_options::{
+    SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+};

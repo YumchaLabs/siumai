@@ -30,6 +30,7 @@ mod moderation;
 mod rerank;
 mod responses_admin;
 mod speech_streaming;
+mod sse_helpers;
 pub(crate) mod transcription_streaming;
 
 /// `OpenAI` Client
@@ -288,6 +289,16 @@ impl OpenAiClient {
         .with_extras(extras)
     }
 
+    fn http_wiring(&self) -> crate::execution::wiring::HttpExecutionWiring {
+        crate::execution::wiring::HttpExecutionWiring::new(
+            "openai",
+            self.http_client.clone(),
+            self.build_context(),
+        )
+        .with_interceptors(self.http_interceptors.clone())
+        .with_retry_options(self.retry_options.clone())
+    }
+
     /// Helper: Build ChatExecutor with common configuration
     fn build_chat_executor(
         &self,
@@ -317,99 +328,104 @@ impl OpenAiClient {
         let defaults = self.specific_params.clone();
         let openai_params = self.openai_params.clone();
         let client_defaults_hook: Option<crate::execution::executors::BeforeSendHook> =
-            Some(Arc::new(move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-            let mut out = body.clone();
-            let Some(obj) = out.as_object_mut() else {
-                return Ok(out);
-            };
+            Some(Arc::new(
+                move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+                    let mut out = body.clone();
+                    let Some(obj) = out.as_object_mut() else {
+                        return Ok(out);
+                    };
 
-            // Cross-endpoint defaults (supported by both /chat/completions and /responses).
-            if obj.get("tool_choice").is_none()
-                && let Some(tc) = openai_params.tool_choice.clone()
-                && let Ok(v) = serde_json::to_value(tc)
-            {
-                obj.insert("tool_choice".to_string(), v);
-            }
-            if obj.get("parallel_tool_calls").is_none()
-                && let Some(v) = openai_params.parallel_tool_calls
-            {
-                obj.insert("parallel_tool_calls".to_string(), serde_json::Value::Bool(v));
-            }
-            if obj.get("store").is_none()
-                && let Some(v) = openai_params.store
-            {
-                obj.insert("store".to_string(), serde_json::Value::Bool(v));
-            }
-            if obj.get("metadata").is_none()
-                && let Some(meta) = openai_params.metadata.clone()
-                && let Ok(v) = serde_json::to_value(meta)
-            {
-                obj.insert("metadata".to_string(), v);
-            }
-            if obj.get("prompt_cache_key").is_none()
-                && let Some(v) = openai_params.prompt_cache_key.clone()
-            {
-                obj.insert("prompt_cache_key".to_string(), serde_json::Value::String(v));
-            }
-            if obj.get("service_tier").is_none()
-                && let Some(ref tier) = openai_params.service_tier
-                && let Ok(v) = serde_json::to_value(tier)
-            {
-                obj.insert("service_tier".to_string(), v);
-            }
-            if obj.get("top_logprobs").is_none()
-                && let Some(v) = openai_params.top_logprobs
-            {
-                obj.insert("top_logprobs".to_string(), serde_json::json!(v));
-            }
+                    // Cross-endpoint defaults (supported by both /chat/completions and /responses).
+                    if obj.get("tool_choice").is_none()
+                        && let Some(tc) = openai_params.tool_choice.clone()
+                        && let Ok(v) = serde_json::to_value(tc)
+                    {
+                        obj.insert("tool_choice".to_string(), v);
+                    }
+                    if obj.get("parallel_tool_calls").is_none()
+                        && let Some(v) = openai_params.parallel_tool_calls
+                    {
+                        obj.insert(
+                            "parallel_tool_calls".to_string(),
+                            serde_json::Value::Bool(v),
+                        );
+                    }
+                    if obj.get("store").is_none()
+                        && let Some(v) = openai_params.store
+                    {
+                        obj.insert("store".to_string(), serde_json::Value::Bool(v));
+                    }
+                    if obj.get("metadata").is_none()
+                        && let Some(meta) = openai_params.metadata.clone()
+                        && let Ok(v) = serde_json::to_value(meta)
+                    {
+                        obj.insert("metadata".to_string(), v);
+                    }
+                    if obj.get("prompt_cache_key").is_none()
+                        && let Some(v) = openai_params.prompt_cache_key.clone()
+                    {
+                        obj.insert("prompt_cache_key".to_string(), serde_json::Value::String(v));
+                    }
+                    if obj.get("service_tier").is_none()
+                        && let Some(ref tier) = openai_params.service_tier
+                        && let Ok(v) = serde_json::to_value(tier)
+                    {
+                        obj.insert("service_tier".to_string(), v);
+                    }
+                    if obj.get("top_logprobs").is_none()
+                        && let Some(v) = openai_params.top_logprobs
+                    {
+                        obj.insert("top_logprobs".to_string(), serde_json::json!(v));
+                    }
 
-            if !use_responses_api {
-                // Chat Completions-only defaults.
-                if obj.get("n").is_none()
-                    && let Some(v) = openai_params.n
-                {
-                    obj.insert("n".to_string(), serde_json::json!(v));
-                }
+                    if !use_responses_api {
+                        // Chat Completions-only defaults.
+                        if obj.get("n").is_none()
+                            && let Some(v) = openai_params.n
+                        {
+                            obj.insert("n".to_string(), serde_json::json!(v));
+                        }
 
-                if obj.get("response_format").is_none()
-                    && let Some(v) = defaults.response_format.clone()
-                {
-                    obj.insert("response_format".to_string(), v);
-                }
-                if obj.get("logit_bias").is_none()
-                    && let Some(v) = defaults.logit_bias.clone()
-                {
-                    obj.insert("logit_bias".to_string(), v);
-                }
-                if obj.get("logprobs").is_none()
-                    && let Some(v) = defaults.logprobs
-                {
-                    obj.insert("logprobs".to_string(), serde_json::Value::Bool(v));
-                }
-                if obj.get("top_logprobs").is_none()
-                    && let Some(v) = defaults.top_logprobs
-                {
-                    obj.insert("top_logprobs".to_string(), serde_json::json!(v));
-                }
-                if obj.get("presence_penalty").is_none()
-                    && let Some(v) = defaults.presence_penalty
-                {
-                    obj.insert("presence_penalty".to_string(), serde_json::json!(v));
-                }
-                if obj.get("frequency_penalty").is_none()
-                    && let Some(v) = defaults.frequency_penalty
-                {
-                    obj.insert("frequency_penalty".to_string(), serde_json::json!(v));
-                }
-                if obj.get("user").is_none()
-                    && let Some(v) = defaults.user.clone()
-                {
-                    obj.insert("user".to_string(), serde_json::Value::String(v));
-                }
-            }
+                        if obj.get("response_format").is_none()
+                            && let Some(v) = defaults.response_format.clone()
+                        {
+                            obj.insert("response_format".to_string(), v);
+                        }
+                        if obj.get("logit_bias").is_none()
+                            && let Some(v) = defaults.logit_bias.clone()
+                        {
+                            obj.insert("logit_bias".to_string(), v);
+                        }
+                        if obj.get("logprobs").is_none()
+                            && let Some(v) = defaults.logprobs
+                        {
+                            obj.insert("logprobs".to_string(), serde_json::Value::Bool(v));
+                        }
+                        if obj.get("top_logprobs").is_none()
+                            && let Some(v) = defaults.top_logprobs
+                        {
+                            obj.insert("top_logprobs".to_string(), serde_json::json!(v));
+                        }
+                        if obj.get("presence_penalty").is_none()
+                            && let Some(v) = defaults.presence_penalty
+                        {
+                            obj.insert("presence_penalty".to_string(), serde_json::json!(v));
+                        }
+                        if obj.get("frequency_penalty").is_none()
+                            && let Some(v) = defaults.frequency_penalty
+                        {
+                            obj.insert("frequency_penalty".to_string(), serde_json::json!(v));
+                        }
+                        if obj.get("user").is_none()
+                            && let Some(v) = defaults.user.clone()
+                        {
+                            obj.insert("user".to_string(), serde_json::Value::String(v));
+                        }
+                    }
 
-            Ok(out)
-        }));
+                    Ok(out)
+                },
+            ));
 
         let before_send_hook = match (client_defaults_hook, before_send_hook) {
             (None, None) => None,
@@ -692,6 +708,7 @@ mod tests {
     use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
     use crate::execution::transformers::request::RequestTransformer;
     use crate::providers::openai::OpenAiConfig;
+    use crate::providers::openai::ext::OpenAiChatRequestExt;
     use crate::providers::openai::transformers;
     use std::sync::{Arc, Mutex};
 
@@ -758,6 +775,17 @@ mod tests {
     }
 
     #[test]
+    fn set_retry_options_backoff_keeps_backoff_backend() {
+        let config = OpenAiConfig::new("test-key");
+        let mut client = OpenAiClient::new(config, reqwest::Client::new());
+
+        client.set_retry_options(Some(crate::retry_api::RetryOptions::backoff()));
+
+        let opts = client.retry_options.as_ref().expect("retry options set");
+        assert_eq!(opts.backend, crate::retry_api::RetryBackend::Backoff);
+    }
+
+    #[test]
     fn test_openai_client_uses_builder_model() {
         let config = OpenAiConfig::new("test-key").with_model("gpt-4");
         let client = OpenAiClient::new(config, reqwest::Client::new());
@@ -819,7 +847,7 @@ mod tests {
         let client = client.with_http_interceptors(vec![Arc::new(cap)]);
 
         // Create request with provider_options for Responses API
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
@@ -924,9 +952,11 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        assert!(include
-            .iter()
-            .any(|v| v.as_str() == Some("file_search_call.results")));
+        assert!(
+            include
+                .iter()
+                .any(|v| v.as_str() == Some("file_search_call.results"))
+        );
     }
 
     #[test]
@@ -954,7 +984,7 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with duplicate built-in tools
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
@@ -1004,7 +1034,7 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different max_num_results
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
@@ -1064,7 +1094,7 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different ranking_options
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
@@ -1121,7 +1151,7 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
 
         // Create request with two file_search tools with different max_num_results
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
                 .with_openai_options(
@@ -1250,10 +1280,7 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
             rf.get("type").and_then(|v| v.as_str()).unwrap_or(""),
             "json_schema"
         );
-        let name = rf
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = rf.get("name").and_then(|v| v.as_str()).unwrap_or("");
         assert_eq!(name, "User");
     }
 
@@ -1283,7 +1310,9 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         let client = client.with_http_interceptors(vec![Arc::new(cap)]);
 
         // Create request with all extended ResponsesApiConfig parameters
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig, TextVerbosity, Truncation};
+        use crate::provider_options::openai::{
+            OpenAiOptions, ResponsesApiConfig, TextVerbosity, Truncation,
+        };
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("user_id".to_string(), "test_123".to_string());
 
@@ -1355,8 +1384,8 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig, TextVer
 
     #[tokio::test]
     async fn responses_non_stream_parses_function_call_output_item() {
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         use crate::traits::ChatCapability;
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1390,8 +1419,11 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
             .with_model("gpt-4o-mini");
         let client = OpenAiClient::new(cfg, reqwest::Client::new());
 
-        let request = crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-            .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
+        let request =
+            crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+                .with_openai_options(
+                    OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()),
+                );
 
         let resp = client.chat_request(request).await.unwrap();
         assert_eq!(resp.content_text(), Some("Done."));
@@ -1422,8 +1454,8 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
 
     #[tokio::test]
     async fn responses_stream_function_call_delta_uses_call_id() {
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         use crate::traits::ChatCapability;
-use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
         use futures_util::StreamExt;
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1456,7 +1488,9 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
 
         let mut request =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-                .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
+                .with_openai_options(
+                    OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()),
+                );
         request.stream = true;
 
         let mut stream = client.chat_stream_request(request).await.unwrap();
@@ -1475,7 +1509,8 @@ use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
                 } => {
                     // Both the "item added" and the "arguments delta" should use call_id (call_1).
                     assert_eq!(id, "call_1");
-                    if function_name.as_deref() == Some("get_weather") && arguments_delta.is_none() {
+                    if function_name.as_deref() == Some("get_weather") && arguments_delta.is_none()
+                    {
                         saw_added = true;
                     }
                     if function_name.is_none()

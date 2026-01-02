@@ -36,10 +36,6 @@ pub struct ChatRequest {
     /// Common parameters (for backward compatibility)
     pub common_params: CommonParams,
 
-    /// Provider-specific options (type-safe!)
-    #[serde(default)]
-    pub provider_options: crate::types::ProviderOptions,
-
     /// Open provider options map (Vercel-aligned).
     ///
     /// Provider implementations should prefer this open map over the closed enum
@@ -69,7 +65,6 @@ impl ChatRequest {
             tools: None,
             tool_choice: None,
             common_params: CommonParams::default(),
-            provider_options: crate::types::ProviderOptions::None,
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
             stream: false,
@@ -145,7 +140,7 @@ impl ChatRequest {
     }
 
     // ============================================================================
-    // 🎯 NEW: Type-safe provider options (v0.12+)
+    // Provider options (open map)
     // ============================================================================
 
     /// Replace the full provider options map (open JSON map).
@@ -169,102 +164,6 @@ impl ChatRequest {
         self.provider_options_map.get(provider_id)
     }
 
-    /// Set provider-specific options (type-safe!)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use siumai::types::{ChatRequest, ProviderOptions, XaiOptions, XaiSearchParameters};
-    ///
-    /// let req = ChatRequest::new(messages)
-    ///     .with_provider_options(ProviderOptions::Xai(
-    ///         XaiOptions::new().with_default_search()
-    ///     ));
-    /// ```
-    pub fn with_provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
-        if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
-            self.provider_options_map.insert(provider_id, value);
-        }
-        self.provider_options = options;
-        self
-    }
-
-    /// Convenience: Set OpenAI-specific options
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use siumai::types::ChatRequest;
-    /// use siumai::provider_ext::openai::{OpenAiOptions, ServiceTier};
-    ///
-    /// let req = ChatRequest::new(messages)
-    ///     .with_openai_options(
-    ///         OpenAiOptions::new()
-    ///             .with_service_tier(ServiceTier::Standard)
-    ///     );
-    /// ```
-    #[cfg(feature = "openai")]
-    pub fn with_openai_options<T: serde::Serialize>(self, options: T) -> Self {
-        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
-        self.with_provider_options(crate::types::ProviderOptions::OpenAi(value))
-    }
-
-    /// Convenience: Set xAI-specific options
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use siumai::types::{ChatRequest, XaiOptions};
-    ///
-    /// let req = ChatRequest::new(messages)
-    ///     .with_xai_options(
-    ///         XaiOptions::new().with_default_search()
-    ///     );
-    /// ```
-    #[cfg(feature = "xai")]
-    pub fn with_xai_options(self, options: crate::types::XaiOptions) -> Self {
-        self.with_provider_options(crate::types::ProviderOptions::Xai(options))
-    }
-
-    /// Convenience: Set Anthropic-specific options
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use siumai::types::ChatRequest;
-    /// use siumai::provider_ext::anthropic::{AnthropicOptions, PromptCachingConfig};
-    ///
-    /// let req = ChatRequest::new(messages)
-    ///     .with_anthropic_options(
-    ///         AnthropicOptions::new()
-    ///             .with_prompt_caching(PromptCachingConfig::default())
-    ///     );
-    /// ```
-    #[cfg(feature = "anthropic")]
-    pub fn with_anthropic_options<T: serde::Serialize>(self, options: T) -> Self {
-        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
-        self.with_provider_options(crate::types::ProviderOptions::Anthropic(value))
-    }
-
-    /// Convenience: Set Gemini-specific options
-    #[cfg(feature = "google")]
-    pub fn with_gemini_options<T: serde::Serialize>(self, options: T) -> Self {
-        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
-        self.with_provider_options(crate::types::ProviderOptions::Gemini(value))
-    }
-
-    /// Convenience: Set Groq-specific options
-    #[cfg(feature = "groq")]
-    pub fn with_groq_options(self, options: crate::types::GroqOptions) -> Self {
-        self.with_provider_options(crate::types::ProviderOptions::Groq(options))
-    }
-
-    /// Convenience: Set Ollama-specific options
-    #[cfg(feature = "ollama")]
-    pub fn with_ollama_options(self, options: crate::types::OllamaOptions) -> Self {
-        self.with_provider_options(crate::types::ProviderOptions::Ollama(options))
-    }
-
     /// Set HTTP configuration
     pub fn with_http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = Some(config);
@@ -279,7 +178,6 @@ pub struct ChatRequestBuilder {
     tools: Option<Vec<Tool>>,
     tool_choice: Option<crate::types::ToolChoice>,
     common_params: CommonParams,
-    provider_options: crate::types::ProviderOptions,
     provider_options_map: ProviderOptionsMap,
     http_config: Option<HttpConfig>,
     stream: bool,
@@ -293,7 +191,6 @@ impl ChatRequestBuilder {
             tools: None,
             tool_choice: None,
             common_params: CommonParams::default(),
-            provider_options: crate::types::ProviderOptions::None,
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
             stream: false,
@@ -406,58 +303,6 @@ impl ChatRequestBuilder {
         self
     }
 
-    // ============================================================================
-    // 🎯 NEW: Type-safe provider options (v0.12+)
-    // ============================================================================
-
-    /// Set provider-specific options (type-safe!)
-    pub fn provider_options(mut self, options: crate::types::ProviderOptions) -> Self {
-        if let Some((provider_id, value)) = options.to_provider_options_map_entry() {
-            self.provider_options_map.insert(provider_id, value);
-        }
-        self.provider_options = options;
-        self
-    }
-
-    /// Convenience: Set OpenAI-specific options
-    #[cfg(feature = "openai")]
-    pub fn openai_options<T: serde::Serialize>(self, options: T) -> Self {
-        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
-        self.provider_options(crate::types::ProviderOptions::OpenAi(value))
-    }
-
-    /// Convenience: Set xAI-specific options
-    #[cfg(feature = "xai")]
-    pub fn xai_options(self, options: crate::types::XaiOptions) -> Self {
-        self.provider_options(crate::types::ProviderOptions::Xai(options))
-    }
-
-    /// Convenience: Set Anthropic-specific options
-    #[cfg(feature = "anthropic")]
-    pub fn anthropic_options<T: serde::Serialize>(self, options: T) -> Self {
-        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
-        self.provider_options(crate::types::ProviderOptions::Anthropic(value))
-    }
-
-    /// Convenience: Set Gemini-specific options
-    #[cfg(feature = "google")]
-    pub fn gemini_options<T: serde::Serialize>(self, options: T) -> Self {
-        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
-        self.provider_options(crate::types::ProviderOptions::Gemini(value))
-    }
-
-    /// Convenience: Set Groq-specific options
-    #[cfg(feature = "groq")]
-    pub fn groq_options(self, options: crate::types::GroqOptions) -> Self {
-        self.provider_options(crate::types::ProviderOptions::Groq(options))
-    }
-
-    /// Convenience: Set Ollama-specific options
-    #[cfg(feature = "ollama")]
-    pub fn ollama_options(self, options: crate::types::OllamaOptions) -> Self {
-        self.provider_options(crate::types::ProviderOptions::Ollama(options))
-    }
-
     /// Set HTTP configuration
     pub fn http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = Some(config);
@@ -471,7 +316,6 @@ impl ChatRequestBuilder {
             tools: self.tools,
             tool_choice: self.tool_choice,
             common_params: self.common_params,
-            provider_options: self.provider_options,
             provider_options_map: self.provider_options_map,
             http_config: self.http_config,
             stream: self.stream,

@@ -11,13 +11,13 @@ use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    AudioCapability, ChatCapability, ImageGenerationCapability, MusicGenerationCapability,
-    FileManagementCapability, ImageExtras, ProviderCapabilities, VideoGenerationCapability,
+    AudioCapability, ChatCapability, FileManagementCapability, ImageExtras,
+    ImageGenerationCapability, MusicGenerationCapability, ProviderCapabilities,
+    VideoGenerationCapability,
 };
 use crate::types::*;
 use std::sync::Arc;
 
-use super::chat::MinimaxiChatCapability;
 use super::config::MinimaxiConfig;
 use super::files::MinimaxiFiles;
 
@@ -29,8 +29,6 @@ pub struct MinimaxiClient {
     http_client: reqwest::Client,
     /// HTTP configuration (headers, proxy, timeouts)
     http_config: HttpConfig,
-    /// Chat capability
-    chat_capability: MinimaxiChatCapability,
     /// Tracing configuration
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active
@@ -40,6 +38,8 @@ pub struct MinimaxiClient {
     retry_options: Option<RetryOptions>,
     /// Optional HTTP interceptors applied to all requests
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares (applied to chat).
+    model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl Clone for MinimaxiClient {
@@ -48,11 +48,11 @@ impl Clone for MinimaxiClient {
             config: self.config.clone(),
             http_client: self.http_client.clone(),
             http_config: self.http_config.clone(),
-            chat_capability: self.chat_capability.clone(),
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
             http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         }
     }
 }
@@ -83,23 +83,15 @@ impl MinimaxiClient {
         http_client: reqwest::Client,
         http_config: HttpConfig,
     ) -> Self {
-        let chat_capability = MinimaxiChatCapability::new(
-            config.api_key.clone(),
-            config.base_url.clone(),
-            http_client.clone(),
-            config.common_params.clone(),
-            http_config.clone(),
-        );
-
         Self {
             config,
             http_client,
             http_config,
-            chat_capability,
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
             http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -113,11 +105,6 @@ impl MinimaxiClient {
         &self.http_client
     }
 
-    /// Get chat capability
-    pub fn chat_capability(&self) -> &MinimaxiChatCapability {
-        &self.chat_capability
-    }
-
     /// Set tracing configuration
     pub fn with_tracing(mut self, config: crate::observability::tracing::TracingConfig) -> Self {
         self.tracing_config = Some(config);
@@ -127,20 +114,12 @@ impl MinimaxiClient {
     /// Set retry options
     pub fn with_retry(mut self, retry_options: RetryOptions) -> Self {
         self.retry_options = Some(retry_options);
-        self.chat_capability = self
-            .chat_capability
-            .clone()
-            .with_retry_options(self.retry_options.clone());
         self
     }
 
     /// Set HTTP interceptors
     pub fn with_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
-        self.chat_capability = self
-            .chat_capability
-            .clone()
-            .with_interceptors(self.http_interceptors.clone());
         self
     }
 
@@ -149,8 +128,47 @@ impl MinimaxiClient {
         mut self,
         middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     ) -> Self {
-        self.chat_capability = self.chat_capability.clone().with_middlewares(middlewares);
+        self.model_middlewares = middlewares;
         self
+    }
+
+    fn build_context(&self) -> crate::core::ProviderContext {
+        super::utils::build_context(
+            &self.config.api_key,
+            &self.config.base_url,
+            &self.http_config,
+        )
+    }
+
+    fn build_chat_executor(
+        &self,
+        request: &ChatRequest,
+    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
+        use crate::core::ProviderSpec;
+        use crate::execution::executors::chat::ChatExecutorBuilder;
+
+        let ctx = self.build_context();
+        let spec = Arc::new(super::spec::MinimaxiSpec::new());
+        let bundle = spec.choose_chat_transformers(request, &ctx);
+        let before_send_hook = spec.chat_before_send(request, &ctx);
+
+        let mut builder = ChatExecutorBuilder::new("minimaxi", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
+
+        if let Some(retry) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry);
+        }
+
+        if let Some(hook) = before_send_hook {
+            builder = builder.with_before_send(hook);
+        }
+
+        builder.build()
     }
 }
 
@@ -213,7 +231,9 @@ impl LlmClient for MinimaxiClient {
         Some(self)
     }
 
-    fn as_file_management_capability(&self) -> Option<&dyn crate::traits::FileManagementCapability> {
+    fn as_file_management_capability(
+        &self,
+    ) -> Option<&dyn crate::traits::FileManagementCapability> {
         Some(self)
     }
 
@@ -237,7 +257,19 @@ impl ChatCapability for MinimaxiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        self.chat_capability.chat_with_tools(messages, tools).await
+        use crate::execution::executors::chat::ChatExecutor;
+
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.config.common_params.clone())
+            .http_config(self.http_config.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
+
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute(&*exec, request).await
     }
 
     async fn chat_stream(
@@ -245,7 +277,20 @@ impl ChatCapability for MinimaxiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        self.chat_capability.chat_stream(messages, tools).await
+        use crate::execution::executors::chat::ChatExecutor;
+
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.config.common_params.clone())
+            .http_config(self.http_config.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
+
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute_stream(&*exec, request).await
     }
 }
 
@@ -475,14 +520,18 @@ mod tests {
     impl crate::execution::http::interceptor::HttpInterceptor for NoopInterceptor {}
 
     #[test]
-    fn with_interceptors_propagates_to_chat_capability() {
+    fn build_chat_executor_inherits_interceptors_and_retry() {
         let cfg = MinimaxiConfig::new("test-key");
-        let client =
-            MinimaxiClient::new(cfg, reqwest::Client::new()).with_interceptors(vec![Arc::new(
-                NoopInterceptor,
-            )]);
+        let client = MinimaxiClient::new(cfg, reqwest::Client::new())
+            .with_interceptors(vec![Arc::new(NoopInterceptor)])
+            .with_retry(RetryOptions::backoff());
 
-        assert_eq!(client.http_interceptors.len(), 1);
-        assert_eq!(client.chat_capability().interceptors.len(), 1);
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_common_params(client.config().common_params.clone())
+            .with_http_config(client.http_config.clone());
+
+        let exec = client.build_chat_executor(&req);
+        assert_eq!(exec.policy.interceptors.len(), 1);
+        assert!(exec.policy.retry_options.is_some());
     }
 }

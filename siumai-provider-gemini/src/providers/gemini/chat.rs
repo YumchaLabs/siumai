@@ -144,19 +144,16 @@ mod tests {
             .with_http_config(HttpConfig::builder().build());
         let cap = GeminiChatCapability::new(cfg, reqwest::Client::new(), Vec::new());
 
-        let mut custom = std::collections::HashMap::new();
-        custom.insert("my_custom".to_string(), serde_json::json!("x"));
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
             .with_common_params(crate::types::CommonParams {
                 model: "gemini-1.5-flash".to_string(),
                 ..Default::default()
             })
-            .with_provider_options(crate::types::ProviderOptions::Custom {
-                provider_id: "gemini".to_string(),
-                options: custom,
-            });
+            .with_provider_option("gemini", serde_json::json!({ "my_custom": "x" }));
 
         let exec = cap.build_chat_executor(&req).await;
-        assert!(exec.policy.before_send.is_some());
+        // Provider options are provider-owned and interpreted by the Gemini mapping layer;
+        // unknown keys are not implicitly merged into the outbound request body.
+        assert!(exec.policy.before_send.is_none());
     }
 }

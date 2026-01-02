@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::StreamExt;
+use siumai::experimental::client::LlmClient;
 use siumai::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -24,9 +25,7 @@ impl ChatCapability for CancelTestProvider {
         _messages: Vec<ChatMessage>,
         _tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        Ok(ChatResponse::new(siumai::types::MessageContent::Text(
-            "ok".to_string(),
-        )))
+        Ok(ChatResponse::new(MessageContent::Text("ok".to_string())))
     }
 
     async fn chat_stream(
@@ -41,9 +40,7 @@ impl ChatCapability for CancelTestProvider {
             tokio::time::sleep(Duration::from_millis(25)).await;
             yield Ok(ChatStreamEvent::ContentDelta { delta: "B".to_string(), index: None });
             tokio::time::sleep(Duration::from_millis(25)).await;
-            let response = ChatResponse::new(siumai::types::MessageContent::Text(
-                "done".to_string(),
-            ));
+            let response = ChatResponse::new(MessageContent::Text("done".to_string()));
             yield Ok(ChatStreamEvent::StreamEnd { response });
         };
         Ok(Box::pin(s))
@@ -83,7 +80,7 @@ async fn chat_stream_with_cancel_stops_further_events() {
         .await
         .expect("start stream");
 
-    let siumai::streaming::ChatStreamHandle { mut stream, cancel } = handle;
+    let ChatStreamHandle { mut stream, cancel } = handle;
 
     // Read first delta
     let first = stream.next().await.expect("first event").expect("ok");

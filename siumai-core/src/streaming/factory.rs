@@ -164,6 +164,7 @@ impl StreamFactory {
     {
         Self::create_eventsource_stream_with_retry_options(
             provider_id,
+            None,
             _url,
             retry_401,
             build_request,
@@ -183,6 +184,7 @@ impl StreamFactory {
     #[allow(clippy::too_many_arguments)]
     pub async fn create_eventsource_stream_with_retry_options<B, C>(
         provider_id: &str,
+        provider_spec: Option<&dyn crate::core::ProviderSpec>,
         _url: &str,
         retry_401: bool,
         build_request: B,
@@ -262,8 +264,9 @@ impl StreamFactory {
                 } else {
                     let headers = response.headers().clone();
                     let text = response.text().await.unwrap_or_default();
-                    let error = crate::retry_api::classify_http_error(
+                    let error = crate::execution::executors::errors::classify_http_error(
                         provider_id,
+                        provider_spec,
                         status.as_u16(),
                         &text,
                         &headers,
@@ -323,7 +326,7 @@ impl StreamFactory {
                 Ok(line) => Ok(line),
                 Err(e) => Err(LlmError::ParseError(format!("JSON line error: {e}"))),
             })
-            .then(move |line_res| {
+            .then(move |line_res: Result<String, LlmError>| {
                 let converter = converter.clone();
                 async move {
                     match line_res {

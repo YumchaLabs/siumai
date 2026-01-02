@@ -1,7 +1,7 @@
+use crate::LlmError;
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::retry_api::RetryOptions;
 use crate::types::CommonParams;
-use crate::LlmError;
 
 /// Gemini-specific builder for configuring Gemini clients.
 ///

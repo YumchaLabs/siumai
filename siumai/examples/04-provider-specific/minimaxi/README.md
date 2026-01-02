@@ -144,7 +144,6 @@ Generate images using MiniMaxi's image generation models.
 **Example:**
 ```rust
 use siumai::prelude::unified::*;
-use siumai::types::ImageGenerationRequest;
 
 let client = Siumai::builder()
     .minimaxi()

@@ -4,4 +4,6 @@
 //! Use them when you need Groq-specific escape hatches.
 
 pub mod audio_options;
+pub mod request_options;
 
+pub use request_options::GroqChatRequestExt;

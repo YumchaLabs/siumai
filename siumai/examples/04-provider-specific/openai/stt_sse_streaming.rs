@@ -10,7 +10,6 @@
 
 use futures_util::StreamExt;
 use siumai::prelude::unified::*;
-use siumai::types::SttRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,4 +59,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

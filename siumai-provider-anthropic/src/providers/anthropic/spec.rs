@@ -1,11 +1,13 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
-use crate::provider_options::anthropic::{AnthropicOptions, AnthropicResponseFormat, ThinkingModeConfig};
+use crate::provider_options::anthropic::{
+    AnthropicOptions, AnthropicResponseFormat, ThinkingModeConfig,
+};
 use crate::standards::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
-use crate::types::{ChatRequest, ProviderOptions};
+use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Anthropic ProviderSpec implementation
@@ -45,7 +47,70 @@ impl ProviderSpec for AnthropicSpec {
             .api_key
             .as_ref()
             .ok_or_else(|| LlmError::MissingApiKey("Anthropic API key not provided".into()))?;
-        ProviderHeaders::anthropic(api_key, &ctx.http_extra_headers)
+        crate::standards::anthropic::utils::build_headers(api_key, &ctx.http_extra_headers)
+    }
+
+    fn merge_request_headers(
+        &self,
+        mut base: HeaderMap,
+        extra: &HashMap<String, String>,
+    ) -> HeaderMap {
+        fn merge_comma_separated_tokens(a: &str, b: &str) -> String {
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut out: Vec<String> = Vec::new();
+
+            for raw in a.split(',').chain(b.split(',')) {
+                let token = raw.trim();
+                if token.is_empty() {
+                    continue;
+                }
+                if seen.insert(token.to_string()) {
+                    out.push(token.to_string());
+                }
+            }
+
+            out.join(",")
+        }
+
+        for (k, v) in extra {
+            // Anthropic beta features are additive; merge values instead of overriding.
+            if k.eq_ignore_ascii_case("anthropic-beta") {
+                let existing = base
+                    .get("anthropic-beta")
+                    .and_then(|hv| hv.to_str().ok())
+                    .unwrap_or("");
+                let merged = merge_comma_separated_tokens(existing, v);
+                if let (Ok(name), Ok(val)) = (
+                    reqwest::header::HeaderName::from_bytes(b"anthropic-beta"),
+                    reqwest::header::HeaderValue::from_str(&merged),
+                ) {
+                    base.insert(name, val);
+                }
+                continue;
+            }
+
+            if let (Ok(name), Ok(val)) = (
+                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                reqwest::header::HeaderValue::from_str(v),
+            ) {
+                base.insert(name, val);
+            }
+        }
+
+        base
+    }
+
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        crate::standards::anthropic::errors::classify_anthropic_http_error(
+            self.id(),
+            status,
+            body_text,
+        )
     }
 
     fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
@@ -90,21 +155,8 @@ impl ProviderSpec for AnthropicSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // 1. First check for CustomProviderOptions (using default implementation)
-        if let Some(hook) = crate::core::default_custom_options_hook(self.id(), req) {
-            return Some(hook);
-        }
-
-        // 2. Handle Anthropic-specific options (thinking_mode, response_format)
-        // 🎯 Extract Anthropic-specific options from provider_options
-        let options = self
-            .anthropic_options_from_provider_options_map(req)
-            .or_else(|| match req.provider_options {
-                ProviderOptions::Anthropic(ref value) => {
-                    self.anthropic_options_from_provider_options_value(value)
-                }
-                _ => None,
-            })?;
+        // Handle Anthropic-specific options (thinking_mode, response_format).
+        let options = self.anthropic_options_from_provider_options_map(req)?;
 
         let thinking_mode: Option<ThinkingModeConfig> = options.thinking_mode.clone();
         let response_format: Option<AnthropicResponseFormat> = options.response_format.clone();
@@ -157,8 +209,52 @@ impl ProviderSpec for AnthropicSpec {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_request_headers_unions_anthropic_beta_features() {
+        let mut ctx_headers = HashMap::new();
+        ctx_headers.insert(
+            "anthropic-beta".to_string(),
+            "web-fetch-2025-09-10,advanced-tool-use-2025-11-20".to_string(),
+        );
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com",
+            Some("k".to_string()),
+            ctx_headers,
+        );
+
+        let spec = AnthropicSpec::new();
+        let base = spec.build_headers(&ctx).unwrap();
+
+        let mut extra = HashMap::new();
+        extra.insert(
+            "Anthropic-Beta".to_string(),
+            "advanced-tool-use-2025-11-20,code-execution-2025-05-22".to_string(),
+        );
+
+        let merged = spec.merge_request_headers(base, &extra);
+        let value = merged
+            .get("anthropic-beta")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        assert_eq!(
+            value,
+            "web-fetch-2025-09-10,advanced-tool-use-2025-11-20,code-execution-2025-05-22"
+        );
+    }
+}
+
 impl AnthropicSpec {
-    fn anthropic_options_from_provider_options_map(&self, req: &ChatRequest) -> Option<AnthropicOptions> {
+    fn anthropic_options_from_provider_options_map(
+        &self,
+        req: &ChatRequest,
+    ) -> Option<AnthropicOptions> {
         let value = req.provider_options_map.get("anthropic")?;
         self.anthropic_options_from_provider_options_value(value)
     }
@@ -199,7 +295,9 @@ impl AnthropicSpec {
                     }
                     serde_json::Value::Object(out)
                 }
-                serde_json::Value::Array(arr) => serde_json::Value::Array(arr.iter().map(inner).collect()),
+                serde_json::Value::Array(arr) => {
+                    serde_json::Value::Array(arr.iter().map(inner).collect())
+                }
                 other => other.clone(),
             }
         }

@@ -377,15 +377,15 @@ impl ThinkingAwareMessageBuilder {
             return self.message;
         }
 
-	        let mut message = self.message;
+        let mut message = self.message;
 
-	        // Add thinking tags to assistant messages (for context)
-	        if message.role == crate::types::MessageRole::Assistant
-	            && let MessageContent::Text(text) = &message.content
-	        {
-	            message.content = MessageContent::Text(format!("<thinking>{}</thinking>", text));
-	        }
+        // Add thinking tags to assistant messages (for context)
+        if message.role == crate::types::MessageRole::Assistant
+            && let MessageContent::Text(text) = &message.content
+        {
+            message.content = MessageContent::Text(format!("<thinking>{}</thinking>", text));
+        }
 
-	        message
-	    }
+        message
+    }
 }

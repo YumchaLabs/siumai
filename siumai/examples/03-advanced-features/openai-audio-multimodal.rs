@@ -17,7 +17,7 @@
 use siumai::prelude::*;
 use siumai::provider_ext::openai::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
-    ChatCompletionModalities, OpenAiOptions,
+    ChatCompletionModalities, OpenAiChatRequestExt, OpenAiOptions,
 };
 
 #[tokio::main]
@@ -64,15 +64,17 @@ async fn example_audio_output(client: &Siumai) -> Result<(), Box<dyn std::error:
         format: ChatCompletionAudioFormat::Wav,
     };
 
-    let req = ChatRequest::new(vec![user!("Please say 'Hello, world!' in a friendly tone.")])
-        .with_openai_options(
-            OpenAiOptions::new()
-                .with_modalities(vec![
-                    ChatCompletionModalities::Text,
-                    ChatCompletionModalities::Audio,
-                ])
-                .with_audio(audio_config),
-        );
+    let req = ChatRequest::new(vec![user!(
+        "Please say 'Hello, world!' in a friendly tone."
+    )])
+    .with_openai_options(
+        OpenAiOptions::new()
+            .with_modalities(vec![
+                ChatCompletionModalities::Text,
+                ChatCompletionModalities::Audio,
+            ])
+            .with_audio(audio_config),
+    );
 
     let resp = client.chat_request(req).await?;
     println!("Text: {}", resp.content_text().unwrap_or_default());

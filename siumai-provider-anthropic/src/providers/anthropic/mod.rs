@@ -5,6 +5,7 @@
 pub mod builder;
 pub mod cache;
 pub mod client;
+pub mod config;
 /// Anthropic extension APIs (non-unified surface)
 pub mod ext;
 pub mod model_constants;
@@ -19,6 +20,7 @@ pub mod utils;
 // Re-export main types for backward compatibility
 pub use builder::AnthropicBuilder;
 pub use client::AnthropicClient;
+pub use config::*;
 pub use types::*;
 
 // Re-export capability implementations

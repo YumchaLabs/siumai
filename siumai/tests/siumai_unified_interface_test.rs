@@ -13,9 +13,9 @@
 
 #![allow(unsafe_code)]
 
-use siumai::error::LlmError;
+use siumai::prelude::unified::LlmError;
+use siumai::prelude::unified::{ChatMessage, MessageContent, MessageRole, ProviderType};
 use siumai::provider::SiumaiBuilder;
-use siumai::types::{ChatMessage, MessageContent, MessageRole, ProviderType};
 
 /// Test that all providers can be created through the unified interface
 #[tokio::test]

@@ -15,7 +15,9 @@ use crate::execution::executors::common::{
     execute_multipart_request,
 };
 use crate::execution::executors::http_request::execute_get_binary;
+use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
 use crate::traits::{FileManagementCapability, ProviderCapabilities};
 use crate::types::{
@@ -46,19 +48,26 @@ impl crate::core::ProviderSpec for MinimaxiFilesSpec {
             .as_ref()
             .ok_or_else(|| LlmError::MissingApiKey("MiniMaxi API key not provided".into()))?;
 
-        crate::execution::http::headers::ProviderHeaders::openai(
-            api_key,
-            ctx.organization.as_deref(),
-            ctx.project.as_deref(),
-            &ctx.http_extra_headers,
-        )
+        let mut builder = HttpHeaderBuilder::new()
+            .with_bearer_auth(api_key)?
+            .with_json_content_type();
+
+        if let Some(org) = ctx.organization.as_deref() {
+            builder = builder.with_header("OpenAI-Organization", org)?;
+        }
+        if let Some(proj) = ctx.project.as_deref() {
+            builder = builder.with_header("OpenAI-Project", proj)?;
+        }
+
+        builder = builder.with_custom_headers(&ctx.http_extra_headers)?;
+        Ok(builder.build())
     }
 }
 
 fn parse_file_id(file_id: &str) -> Result<i64, LlmError> {
-    file_id
-        .parse::<i64>()
-        .map_err(|e| LlmError::InvalidParameter(format!("Invalid MiniMaxi file_id '{file_id}': {e}")))
+    file_id.parse::<i64>().map_err(|e| {
+        LlmError::InvalidParameter(format!("Invalid MiniMaxi file_id '{file_id}': {e}"))
+    })
 }
 
 fn check_base_resp(provider: &str, json: &serde_json::Value) -> Result<(), LlmError> {
@@ -116,7 +125,10 @@ fn map_file_object(provider: &str, raw: &serde_json::Value) -> Result<FileObject
     let mut metadata = std::collections::HashMap::new();
     if let Some(obj) = raw.as_object() {
         for (k, v) in obj {
-            if matches!(k.as_str(), "file_id" | "bytes" | "created_at" | "filename" | "purpose") {
+            if matches!(
+                k.as_str(),
+                "file_id" | "bytes" | "created_at" | "filename" | "purpose"
+            ) {
                 continue;
             }
             metadata.insert(k.clone(), v.clone());
@@ -169,15 +181,15 @@ impl MinimaxiFiles {
 
     fn build_http_config(&self) -> HttpExecutionConfig {
         let base_url = resolve_api_root_base_url(&self.config.base_url);
-        let ctx = build_context(&self.config.api_key, &base_url, &self.http_config);
-        HttpExecutionConfig {
-            provider_id: "minimaxi".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: std::sync::Arc::new(MinimaxiFilesSpec),
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        }
+        let wiring = HttpExecutionWiring::new(
+            "minimaxi",
+            self.http_client.clone(),
+            build_context(&self.config.api_key, &base_url, &self.http_config),
+        )
+        .with_interceptors(self.http_interceptors.clone())
+        .with_retry_options(self.retry_options.clone());
+
+        wiring.config(std::sync::Arc::new(MinimaxiFilesSpec))
     }
 
     fn base_url(&self) -> String {

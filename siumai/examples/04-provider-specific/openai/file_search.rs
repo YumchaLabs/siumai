@@ -15,8 +15,7 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
-use siumai::types::ChatRequest;
+use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,21 +1,10 @@
 //! `Groq` Provider Module
 //!
-//! Modular implementation of `Groq` API client with capability separation.
-//! This module follows the design pattern of separating different AI capabilities
-//! into distinct modules while providing a unified client interface.
-//!
-//! Groq provides OpenAI-compatible API endpoints with high-performance inference.
+//! Thin wrapper around the OpenAI-compatible vendor implementation.
 //!
 //! # Architecture
-//! - `client.rs` - Main `Groq` client that aggregates all capabilities
-//! - `config.rs` - Configuration structures and validation
-//! - `builder.rs` - Builder pattern implementation for client creation
-//! - `chat.rs` - Chat completion capability implementation
-//! - Audio processing (TTS/STT) via Executors + Transformers
-//! - (removed) File management capability implementation
-//! - `models.rs` - Model listing capability implementation
-//! - `types.rs` - Groq-specific type definitions
-//! - `utils.rs` - Utility functions and helpers
+//! - `models.rs` - Built-in model catalog (fallback)
+//! - `builder.rs` - Builder that delegates to `openai().compatible("groq")`
 //!
 //! # Example Usage
 //! ```rust,no_run
@@ -42,31 +31,12 @@
 //! }
 //! ```
 
-// Core modules
 pub mod builder;
-pub mod client;
-pub mod config;
-pub mod types;
-pub mod utils;
-
-// Capability modules
-pub mod api;
-pub mod chat;
+mod client;
 pub mod ext;
 pub mod models;
-pub mod spec;
-pub mod transformers;
-
-// Re-export main types for convenience
+mod spec;
+mod transformers;
+mod utils;
 pub use builder::GroqBuilder;
 pub use client::GroqClient;
-pub use config::GroqConfig;
-pub use types::*;
-
-// Re-export capability implementations
-pub use api::GroqModels;
-pub use chat::GroqChatCapability;
-
-// Tests module
-#[cfg(test)]
-mod tests;

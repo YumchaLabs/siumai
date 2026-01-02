@@ -52,7 +52,7 @@ async fn partial_disconnect_then_immediate_cancel() {
         .await
         .expect("start stream");
 
-    let siumai::streaming::ChatStreamHandle { mut stream, cancel } = handle;
+    let ChatStreamHandle { mut stream, cancel } = handle;
 
     // Receive first content delta ("A") then cancel immediately
     let mut first_delta: Option<String> = None;

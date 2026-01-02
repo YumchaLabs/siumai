@@ -102,28 +102,59 @@ impl ChatExecutor for HttpChatExecutor {
             let retry_options = retry_options.clone();
             Box::pin({
                 async move {
-                    let json_body =
-                        build_chat_body(&request_tx, &middlewares, &before_send, &req_in)?;
+                    let retry_wrapper_opts = retry_options.clone();
+                    let run_once = move || {
+                        let req_in = req_in.clone();
+                        let url = url.clone();
+                        let client = client.clone();
+                        let request_tx = request_tx.clone();
+                        let response_tx = response_tx.clone();
+                        let interceptors = interceptors.clone();
+                        let before_send = before_send.clone();
+                        let provider_id = provider_id.clone();
+                        let provider_spec = provider_spec.clone();
+                        let provider_context = provider_context.clone();
+                        let middlewares = middlewares.clone();
+                        let retry_options = retry_options.clone();
 
-                    let config = crate::execution::executors::common::HttpExecutionConfig {
-                        provider_id: provider_id.clone(),
-                        http_client: client.clone(),
-                        provider_spec: provider_spec.clone(),
-                        provider_context: provider_context.clone(),
-                        interceptors: interceptors.clone(),
-                        retry_options: retry_options.clone(),
+                        async move {
+                            let json_body = build_chat_body(
+                                &request_tx,
+                                &middlewares,
+                                &provider_spec,
+                                &provider_context,
+                                &before_send,
+                                &req_in,
+                            )?;
+
+                            let config = crate::execution::executors::common::HttpExecutionConfig {
+                                provider_id: provider_id.clone(),
+                                http_client: client.clone(),
+                                provider_spec: provider_spec.clone(),
+                                provider_context: provider_context.clone(),
+                                interceptors: interceptors.clone(),
+                                retry_options: retry_options.clone(),
+                            };
+                            let per_request_headers =
+                                req_in.http_config.as_ref().map(|hc| &hc.headers);
+                            let result = crate::execution::executors::common::execute_json_request(
+                                &config,
+                                &url,
+                                crate::execution::executors::common::HttpBody::Json(json_body),
+                                per_request_headers,
+                                false,
+                            )
+                            .await?;
+                            let resp = response_tx.transform_chat_response(&result.json)?;
+                            Ok(resp)
+                        }
                     };
-                    let per_request_headers = req_in.http_config.as_ref().map(|hc| &hc.headers);
-                    let result = crate::execution::executors::common::execute_json_request(
-                        &config,
-                        &url,
-                        crate::execution::executors::common::HttpBody::Json(json_body),
-                        per_request_headers,
-                        false,
-                    )
-                    .await?;
-                    let resp = response_tx.transform_chat_response(&result.json)?;
-                    Ok(resp)
+
+                    if let Some(opts) = retry_wrapper_opts {
+                        crate::retry_api::retry_with(run_once, opts).await
+                    } else {
+                        run_once().await
+                    }
                 }
             })
         });
@@ -246,12 +277,18 @@ impl ChatExecutor for HttpChatExecutor {
             let url = url.clone();
             let headers_base = headers_base.clone();
             let middlewares = middlewares.clone();
-            let _provider_spec = provider_spec.clone();
-            let _provider_context = provider_context.clone();
+            let provider_spec = provider_spec.clone();
+            let provider_context = provider_context.clone();
             let retry_options = retry_options.clone();
             Box::pin(async move {
-                let transformed =
-                    build_chat_body(&request_tx, &middlewares, &before_send, &req_in)?;
+                let transformed = build_chat_body(
+                    &request_tx,
+                    &middlewares,
+                    &provider_spec,
+                    &provider_context,
+                    &before_send,
+                    &req_in,
+                )?;
 
                 // Build and send streaming via helpers below (SSE or JSON)
 
@@ -259,6 +296,7 @@ impl ChatExecutor for HttpChatExecutor {
                 if let Some(stream_tx) = sse_tx {
                     create_sse_stream_with_middlewares(
                         provider_id.clone(),
+                        provider_spec.clone(),
                         url.clone(),
                         http.clone(),
                         headers_base.clone(),
@@ -274,6 +312,7 @@ impl ChatExecutor for HttpChatExecutor {
                 } else if let Some(jsonc) = json_tx {
                     create_json_stream_with_middlewares(
                         provider_id.clone(),
+                        provider_spec.clone(),
                         url.clone(),
                         http.clone(),
                         headers_base.clone(),

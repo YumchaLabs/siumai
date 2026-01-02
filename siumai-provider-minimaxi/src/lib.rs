@@ -20,3 +20,5 @@ pub mod standards;
 
 pub use types::{ChatResponse, CommonParams};
 
+/// Provider-owned typed option structs (MiniMaxi-specific).
+pub mod provider_options;

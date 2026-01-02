@@ -9,8 +9,7 @@
 //! ```
 
 use siumai::prelude::unified::*;
-use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
-use siumai::types::ChatRequest;
+use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 use siumai::user;
 
 #[tokio::main]

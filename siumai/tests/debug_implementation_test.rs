@@ -3,7 +3,7 @@
 //! This module tests that all client types properly implement Debug trait
 //! with appropriate security measures for sensitive information.
 
-use siumai::client::ClientWrapper;
+use siumai::experimental::client::ClientWrapper;
 use siumai::provider::SiumaiBuilder;
 
 #[cfg(test)]
@@ -37,8 +37,7 @@ mod debug_tests {
     #[cfg(feature = "openai")]
     #[tokio::test]
     async fn test_openai_client_debug() {
-        use siumai::providers::openai::OpenAiClient;
-        use siumai::providers::openai::config::OpenAiConfig;
+        use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
         let config = OpenAiConfig::new("sk-test-key-1234567890abcdef".to_string())
             .with_model("gpt-4o-mini")
@@ -62,9 +61,9 @@ mod debug_tests {
     #[cfg(feature = "anthropic")]
     #[test]
     fn test_anthropic_client_debug() {
-        use siumai::params::anthropic::AnthropicParams;
-        use siumai::providers::anthropic::AnthropicClient;
-        use siumai::types::{CommonParams, HttpConfig};
+        use siumai::prelude::unified::{CommonParams, HttpConfig};
+        use siumai::provider_ext::anthropic::AnthropicClient;
+        use siumai::provider_ext::anthropic::AnthropicParams;
 
         let common_params = CommonParams {
             model: "claude-3-5-sonnet-20241022".to_string(),
@@ -96,19 +95,20 @@ mod debug_tests {
     }
 
     #[cfg(feature = "groq")]
-    #[test]
-    fn test_groq_client_debug() {
-        use siumai::providers::groq::{GroqClient, GroqConfig};
+    #[tokio::test]
+    async fn test_groq_client_debug() {
+        use siumai::Provider;
 
-        let config = GroqConfig::new("gsk-test-key-1234567890abcdef".to_string())
-            .with_model("llama-3.3-70b-versatile")
-            .with_temperature(0.6);
-
-        let client = GroqClient::new(config, reqwest::Client::new());
+        let client = Provider::groq()
+            .api_key("gsk-test-key-1234567890abcdef")
+            .model("llama-3.3-70b-versatile")
+            .temperature(0.6)
+            .build()
+            .await
+            .expect("build groq client");
         let debug_output = format!("{:?}", client);
 
         // Should contain useful information
-        assert!(debug_output.contains("GroqClient"));
         assert!(debug_output.contains("provider_id"));
         assert!(debug_output.contains("groq"));
         assert!(debug_output.contains("model"));
@@ -122,8 +122,8 @@ mod debug_tests {
     #[cfg(feature = "ollama")]
     #[test]
     fn test_ollama_client_debug() {
-        use siumai::providers::ollama::{OllamaClient, OllamaConfig};
-        use siumai::types::CommonParams;
+        use siumai::prelude::unified::CommonParams;
+        use siumai::provider_ext::ollama::{OllamaClient, OllamaConfig};
 
         let common_params = CommonParams {
             model: "llama3.2:3b".to_string(),
@@ -150,7 +150,7 @@ mod debug_tests {
     #[cfg(feature = "openai")]
     #[test]
     fn test_client_wrapper_debug() {
-        use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
+        use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
         let config = OpenAiConfig::new("test-key".to_string()).with_model("gpt-4o-mini");
 

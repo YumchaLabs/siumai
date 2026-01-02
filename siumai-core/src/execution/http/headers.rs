@@ -108,139 +108,6 @@ impl Default for HttpHeaderBuilder {
     }
 }
 
-/// Provider-specific header builders
-pub struct ProviderHeaders;
-
-impl ProviderHeaders {
-    /// Build headers for OpenAI API
-    pub fn openai(
-        api_key: &str,
-        organization: Option<&str>,
-        project: Option<&str>,
-        custom_headers: &HashMap<String, String>,
-    ) -> Result<HeaderMap, LlmError> {
-        let mut builder = HttpHeaderBuilder::new()
-            .with_bearer_auth(api_key)?
-            .with_json_content_type();
-
-        // Add OpenAI-specific headers
-        if let Some(org) = organization {
-            builder = builder.with_header("OpenAI-Organization", org)?;
-        }
-
-        if let Some(proj) = project {
-            builder = builder.with_header("OpenAI-Project", proj)?;
-        }
-
-        builder = builder.with_custom_headers(custom_headers)?;
-        Ok(builder.build())
-    }
-
-    /// Build headers for Anthropic API
-    pub fn anthropic(
-        api_key: &str,
-        custom_headers: &HashMap<String, String>,
-    ) -> Result<HeaderMap, LlmError> {
-        let mut builder = HttpHeaderBuilder::new()
-            .with_custom_auth("x-api-key", api_key)?
-            .with_json_content_type()
-            .with_header("anthropic-version", "2023-06-01")?;
-
-        // Handle anthropic-beta header specially
-        if let Some(beta_features) = custom_headers.get("anthropic-beta") {
-            builder = builder.with_header("anthropic-beta", beta_features)?;
-        }
-
-        // Add other custom headers (excluding anthropic-beta which we handled above)
-        let filtered_headers: HashMap<String, String> = custom_headers
-            .iter()
-            .filter(|(k, _)| k.as_str() != "anthropic-beta")
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-
-        builder = builder.with_custom_headers(&filtered_headers)?;
-        Ok(builder.build())
-    }
-
-    /// Build headers for Groq API
-    pub fn groq(
-        api_key: &str,
-        custom_headers: &HashMap<String, String>,
-    ) -> Result<HeaderMap, LlmError> {
-        let builder = HttpHeaderBuilder::new()
-            .with_bearer_auth(api_key)?
-            .with_json_content_type()
-            .with_user_agent("siumai/0.1.0 (groq-provider)")?
-            .with_custom_headers(custom_headers)?;
-
-        Ok(builder.build())
-    }
-
-    /// Build headers for xAI API
-    pub fn xai(
-        api_key: &str,
-        custom_headers: &HashMap<String, String>,
-    ) -> Result<HeaderMap, LlmError> {
-        let builder = HttpHeaderBuilder::new()
-            .with_bearer_auth(api_key)?
-            .with_json_content_type()
-            .with_custom_headers(custom_headers)?;
-
-        Ok(builder.build())
-    }
-
-    /// Build headers for Ollama API (no auth required)
-    pub fn ollama(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
-        let version = env!("CARGO_PKG_VERSION");
-        let builder = HttpHeaderBuilder::new()
-            .with_json_content_type()
-            .with_user_agent(&format!("siumai/{version}"))?
-            .with_custom_headers(custom_headers)?;
-
-        Ok(builder.build())
-    }
-
-    /// Build headers for Gemini API
-    ///
-    /// Behavior:
-    /// - If `custom_headers` already contains `Authorization` (case-insensitive),
-    ///   treat it as a Bearer token (e.g., Vertex AI enterprise auth) and DO NOT
-    ///   inject `x-goog-api-key`.
-    /// - Otherwise, if `api_key` is non-empty, inject `x-goog-api-key`.
-    /// - Always include `Content-Type: application/json` and pass through custom headers.
-    pub fn gemini(
-        api_key: &str,
-        custom_headers: &HashMap<String, String>,
-    ) -> Result<HeaderMap, LlmError> {
-        // Base headers: JSON + custom headers
-        let mut builder = HttpHeaderBuilder::new()
-            .with_json_content_type()
-            .with_custom_headers(custom_headers)?;
-
-        // Detect whether Authorization (Bearer) is provided; if so, skip x-goog-api-key
-        let has_authorization = custom_headers
-            .keys()
-            .any(|k| k.eq_ignore_ascii_case("authorization"));
-
-        if !has_authorization {
-            // Without Authorization, fall back to API Key if provided
-            if !api_key.is_empty() {
-                builder = builder.with_custom_auth("x-goog-api-key", api_key)?;
-            }
-        }
-
-        Ok(builder.build())
-    }
-
-    /// Build headers for Vertex (Bearer-only JSON)
-    pub fn vertex_bearer(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
-        let mut builder = HttpHeaderBuilder::new().with_json_content_type();
-        // Pass through custom headers (should include Authorization)
-        builder = builder.with_custom_headers(custom_headers)?;
-        Ok(builder.build())
-    }
-}
-
 /// Merge extra headers into base headers (immutable version).
 ///
 /// Creates a new HeaderMap by cloning the base headers and adding extra headers.
@@ -261,21 +128,6 @@ impl ProviderHeaders {
 /// ```
 pub fn merge_headers(mut base: HeaderMap, extra: &HashMap<String, String>) -> HeaderMap {
     for (k, v) in extra {
-        // Anthropic beta features are additive; merge values instead of overriding.
-        if k.eq_ignore_ascii_case("anthropic-beta") {
-            let existing = base
-                .get("anthropic-beta")
-                .and_then(|hv| hv.to_str().ok())
-                .unwrap_or("");
-            let merged = merge_comma_separated_tokens(existing, v);
-            if let (Ok(name), Ok(val)) = (
-                HeaderName::from_bytes(b"anthropic-beta"),
-                HeaderValue::from_str(&merged),
-            ) {
-                base.insert(name, val);
-            }
-            continue;
-        }
         if let (Ok(name), Ok(val)) = (
             HeaderName::from_bytes(k.as_bytes()),
             HeaderValue::from_str(v),
@@ -284,25 +136,6 @@ pub fn merge_headers(mut base: HeaderMap, extra: &HashMap<String, String>) -> He
         }
     }
     base
-}
-
-fn merge_comma_separated_tokens(a: &str, b: &str) -> String {
-    use std::collections::HashSet;
-
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut out: Vec<String> = Vec::new();
-
-    for raw in a.split(',').chain(b.split(',')) {
-        let token = raw.trim();
-        if token.is_empty() {
-            continue;
-        }
-        if seen.insert(token.to_string()) {
-            out.push(token.to_string());
-        }
-    }
-
-    out.join(",")
 }
 
 /// Apply extra headers to a mutable HeaderMap (mutable version).
@@ -345,7 +178,7 @@ pub fn apply_extra_headers(base: &mut HeaderMap, extra: &HashMap<String, String>
 /// # Example
 /// ```rust,ignore
 /// use reqwest::header::HeaderMap;
-/// use siumai::execution::http::headers::headermap_to_hashmap;
+/// use siumai::experimental::execution::http::headers::headermap_to_hashmap;
 ///
 /// let headers = HeaderMap::new();
 /// let map = headermap_to_hashmap(&headers);
@@ -383,61 +216,21 @@ mod tests {
     }
 
     #[test]
-    fn test_gemini_headers_with_bearer_authorization() {
-        // When Authorization is provided, x-goog-api-key must NOT be injected
-        let mut extra = HashMap::new();
-        extra.insert("Authorization".to_string(), "Bearer test-token".to_string());
-
-        let headers = ProviderHeaders::gemini("", &extra).unwrap();
-
-        assert_eq!(headers.get("Authorization").unwrap(), "Bearer test-token");
-        assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "application/json");
-        assert!(headers.get("x-goog-api-key").is_none());
-    }
-
-    #[test]
-    fn test_openai_headers() {
-        let custom_headers = HashMap::new();
-        let headers =
-            ProviderHeaders::openai("test-key", Some("org"), Some("proj"), &custom_headers)
-                .unwrap();
-
-        assert_eq!(headers.get(AUTHORIZATION).unwrap(), "Bearer test-key");
-        assert_eq!(headers.get("OpenAI-Organization").unwrap(), "org");
-        assert_eq!(headers.get("OpenAI-Project").unwrap(), "proj");
-    }
-
-    #[test]
-    fn test_anthropic_headers() {
-        let custom_headers = HashMap::new();
-        let headers = ProviderHeaders::anthropic("test-key", &custom_headers).unwrap();
-
-        assert_eq!(headers.get("x-api-key").unwrap(), "test-key");
-        assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
-    }
-
-    #[test]
-    fn merge_headers_unions_anthropic_beta_features() {
+    fn merge_headers_overrides_existing_values() {
         let mut base = HeaderMap::new();
         base.insert(
             HeaderName::from_bytes(b"anthropic-beta").unwrap(),
-            HeaderValue::from_str("web-fetch-2025-09-10,advanced-tool-use-2025-11-20").unwrap(),
+            HeaderValue::from_str("a,b").unwrap(),
         );
 
         let mut extra = HashMap::new();
-        extra.insert(
-            "Anthropic-Beta".to_string(),
-            "advanced-tool-use-2025-11-20,code-execution-2025-05-22".to_string(),
-        );
+        extra.insert("Anthropic-Beta".to_string(), "c".to_string());
 
         let merged = merge_headers(base, &extra);
         let value = merged
             .get("anthropic-beta")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
-        assert_eq!(
-            value,
-            "web-fetch-2025-09-10,advanced-tool-use-2025-11-20,code-execution-2025-05-22"
-        );
+        assert_eq!(value, "c");
     }
 }

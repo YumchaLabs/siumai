@@ -13,8 +13,8 @@
 //! ```
 
 use siumai::prelude::unified::*;
-use siumai::provider_ext::anthropic::thinking;
 use siumai::provider_ext::anthropic::ThinkingModeConfig;
+use siumai::provider_ext::anthropic::thinking;
 use siumai::user;
 
 #[tokio::main]
@@ -26,9 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let question = user!(
-        "Prove that the sum of the first n odd numbers equals n^2. Show your reasoning."
-    );
+    let question =
+        user!("Prove that the sum of the first n odd numbers equals n^2. Show your reasoning.");
 
     let request = ChatRequest::builder().message(question.clone()).build();
 
@@ -56,4 +55,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

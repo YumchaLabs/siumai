@@ -61,7 +61,7 @@
 //! For advanced use cases, you can use the core abstractions:
 //!
 //! ```rust,ignore
-//! use siumai::core::{ChatCapability, ProviderSpec};
+//! use siumai_core::core::{ChatCapability, ProviderSpec};
 //!
 //! async fn generic_chat(client: &dyn ChatCapability) -> Result<(), LlmError> {
 //!     let response = client.chat(vec![user!("Hello!")]).await?;
@@ -76,7 +76,6 @@ pub mod provider_spec;
 pub use provider_spec::{
     AudioTransformer, CapabilityKind, ChatTransformers, EmbeddingTransformers, FilesTransformer,
     ImageTransformers, ProviderContext, ProviderSpec, RerankTransformers,
-    default_custom_options_hook,
 };
 
 // Re-export capability traits directly from traits module

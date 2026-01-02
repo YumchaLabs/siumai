@@ -4,9 +4,8 @@
 //! These tests verify that grounding tools can be properly configured and sent to the API.
 
 use serde_json::json;
-use siumai::builder::LlmBuilder;
 use siumai::prelude::*;
-use siumai::providers::gemini::{
+use siumai_provider_gemini::providers::gemini::types::{
     DynamicRetrievalConfig, DynamicRetrievalMode, GeminiTool, GoogleSearch, GoogleSearchRetrieval,
     UrlContext,
 };
@@ -105,7 +104,7 @@ async fn test_google_search_in_request() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -175,7 +174,7 @@ async fn test_url_context_in_request() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key("test-api-key")
         .base_url(mock_server.uri())

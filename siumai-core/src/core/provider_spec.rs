@@ -19,7 +19,7 @@
 //! ## Example
 //!
 //! ```rust,ignore
-//! use siumai::core::{ProviderSpec, ProviderContext, ChatTransformers};
+//! use siumai_core::core::{ProviderSpec, ProviderContext, ChatTransformers};
 //!
 //! struct MyProviderSpec;
 //!
@@ -45,9 +45,7 @@ use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::traits::ProviderCapabilities;
-use crate::types::{
-    ChatRequest, EmbeddingRequest, ImageGenerationRequest, ProviderOptions, RerankRequest,
-};
+use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest, RerankRequest};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -323,6 +321,27 @@ pub trait ProviderSpec: Send + Sync {
     /// Build JSON headers (auth + custom). Tracing headers are injected by caller.
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError>;
 
+    /// Merge per-request headers into the base headers produced by `build_headers`.
+    ///
+    /// Default behavior is "last write wins" (per-request overrides base).
+    /// Providers may override this to implement additive semantics for specific headers.
+    fn merge_request_headers(&self, base: HeaderMap, extra: &HashMap<String, String>) -> HeaderMap {
+        crate::execution::http::headers::merge_headers(base, extra)
+    }
+
+    /// Optional: provider/standard-specific HTTP error classification.
+    ///
+    /// When returning `Some`, executors will use the returned error instead of the
+    /// generic `retry_api::classify_http_error` heuristics.
+    fn classify_http_error(
+        &self,
+        _status: u16,
+        _body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        None
+    }
+
     /// Compute chat route URL (may depend on request/provider params/extras)
     fn chat_url(&self, _stream: bool, _req: &ChatRequest, ctx: &ProviderContext) -> String {
         // OpenAI-compatible default route; providers that don't implement chat should be guarded
@@ -349,16 +368,13 @@ pub trait ProviderSpec: Send + Sync {
     }
 
     /// Optional: mutate JSON body before sending (e.g., merge built-in tools)
-    ///
-    /// Default implementation handles CustomProviderOptions injection.
     /// Providers can override this to add provider-specific logic.
     fn chat_before_send(
         &self,
-        req: &ChatRequest,
+        _req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // Default: handle CustomProviderOptions
-        default_custom_options_hook(self.id(), req)
+        None
     }
 
     /// Compute embedding route URL (default OpenAI-style)
@@ -383,15 +399,12 @@ pub trait ProviderSpec: Send + Sync {
     }
 
     /// Optional: mutate embedding JSON body before sending.
-    ///
-    /// Default implementation injects `ProviderOptions::Custom` when the
-    /// provider IDs match (same behavior as chat for custom options).
     fn embedding_before_send(
         &self,
-        req: &EmbeddingRequest,
+        _req: &EmbeddingRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        default_custom_options_hook_embedding(self.id(), req)
+        None
     }
 
     /// Compute image generation route URL (default OpenAI-compatible)
@@ -495,185 +508,4 @@ pub trait ProviderSpec: Send + Sync {
     fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
         format!("{}/models/{}", ctx.base_url.trim_end_matches('/'), model_id)
     }
-}
-
-/// Default hook for CustomProviderOptions injection
-///
-/// This function provides a standard implementation for injecting custom provider
-/// options into the request JSON body. All providers automatically support
-/// `CustomProviderOptions` through this default implementation.
-///
-/// Architecture note:
-/// - This helper currently relies on `registry::helpers::matches_provider_id`
-///   to resolve provider id aliases using the global registry. It is the only
-///   place where `core::ProviderSpec` depends on the registry module.
-/// - When the architecture is split into `siumai-core` / `siumai-providers` /
-///   `siumai-extras`, this alias resolution logic will be moved into a thin
-///   adapter layer so that the core crate remains independent of registry
-///   state. The *behavior* of merging custom options into the outbound JSON
-///   body will remain the same.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// // In a provider implementation:
-/// fn chat_before_send(&self, req: &ChatRequest, ctx: &ProviderContext)
-///     -> Option<BeforeSendHook> {
-///     // 1. First check for CustomProviderOptions
-///     if let Some(hook) = default_custom_options_hook(self.id(), req) {
-///         return Some(hook);
-///     }
-///
-///     // 2. Then handle provider-specific logic
-///     // ... your custom logic
-/// }
-/// ```
-pub fn default_custom_options_hook(
-    provider_id: &str,
-    req: &ChatRequest,
-) -> Option<crate::execution::executors::BeforeSendHook> {
-    fn matches_provider_id(provider_id: &str, custom_id: &str) -> bool {
-        fn is_known_alias(a: &str, b: &str) -> bool {
-            matches!(
-                (a, b),
-                // Vercel AI SDK alignment: "google" provider owns the Gemini model family.
-                ("gemini", "google") | ("google", "gemini")
-            )
-        }
-
-        let provider_id = provider_id.to_ascii_lowercase();
-        let custom_id = custom_id.to_ascii_lowercase();
-
-        if provider_id == custom_id || is_known_alias(&provider_id, &custom_id) {
-            return true;
-        }
-
-        let provider_base = provider_id
-            .split_once('-')
-            .map(|(a, _)| a)
-            .unwrap_or(provider_id.as_str());
-        let custom_base = custom_id
-            .split_once('-')
-            .map(|(a, _)| a)
-            .unwrap_or(custom_id.as_str());
-
-        provider_base == custom_base || is_known_alias(provider_base, custom_base)
-    }
-
-    if let ProviderOptions::Custom {
-        provider_id: custom_provider_id,
-        options,
-    } = &req.provider_options
-        && matches_provider_id(provider_id, custom_provider_id)
-    {
-        let custom_options = options.clone();
-        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-            let mut out = body.clone();
-            if let Some(obj) = out.as_object_mut() {
-                // Merge custom options into the request body
-                for (k, v) in &custom_options {
-                    obj.insert(k.clone(), v.clone());
-                }
-            }
-            Ok(out)
-        };
-        return Some(Arc::new(hook));
-    }
-    None
-}
-
-/// Default hook for injecting Custom provider options into embedding requests.
-///
-/// Mirrors `default_custom_options_hook` for chat, but reads from
-/// `EmbeddingRequest::provider_options`. This enables user-defined provider
-/// options to be merged into the outbound JSON body for embeddings.
-pub fn default_custom_options_hook_embedding(
-    provider_id: &str,
-    req: &EmbeddingRequest,
-) -> Option<crate::execution::executors::BeforeSendHook> {
-    if let ProviderOptions::Custom {
-        provider_id: custom_provider_id,
-        options,
-    } = &req.provider_options
-        && {
-            fn is_known_alias(a: &str, b: &str) -> bool {
-                matches!(
-                    (a, b),
-                    // Vercel AI SDK alignment: "google" provider owns the Gemini model family.
-                    ("gemini", "google") | ("google", "gemini")
-                )
-            }
-
-            let provider_id = provider_id.to_ascii_lowercase();
-            let custom_provider_id = custom_provider_id.to_ascii_lowercase();
-
-            if provider_id == custom_provider_id
-                || is_known_alias(&provider_id, &custom_provider_id)
-            {
-                true
-            } else {
-                let provider_base = provider_id
-                    .split_once('-')
-                    .map(|(a, _)| a)
-                    .unwrap_or(provider_id.as_str());
-                let custom_base = custom_provider_id
-                    .split_once('-')
-                    .map(|(a, _)| a)
-                    .unwrap_or(custom_provider_id.as_str());
-                provider_base == custom_base || is_known_alias(provider_base, custom_base)
-            }
-        }
-    {
-        let custom_options = options.clone();
-        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-            let mut out = body.clone();
-            if let Some(obj) = out.as_object_mut() {
-                for (k, v) in &custom_options {
-                    obj.insert(k.clone(), v.clone());
-                }
-            }
-            Ok(out)
-        };
-        return Some(Arc::new(hook));
-    }
-    None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn custom_options_hook_accepts_google_alias_for_gemini_chat() {
-        let mut options = std::collections::HashMap::new();
-        options.insert("x".to_string(), serde_json::json!(1));
-
-        let req =
-            crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-                .with_provider_options(crate::types::ProviderOptions::Custom {
-                    provider_id: "google".to_string(),
-                    options,
-                });
-
-        let hook = default_custom_options_hook("gemini", &req).expect("hook");
-        let out = hook(&serde_json::json!({})).expect("merge ok");
-        assert_eq!(out["x"], 1);
-    }
-
-    #[test]
-    fn custom_options_hook_accepts_google_alias_for_gemini_embedding() {
-        let mut options = std::collections::HashMap::new();
-        options.insert("x".to_string(), serde_json::json!(1));
-
-        let req = crate::types::EmbeddingRequest::new(vec!["hello".to_string()])
-            .with_provider_options(crate::types::ProviderOptions::Custom {
-                provider_id: "google".to_string(),
-                options,
-            });
-
-        let hook = default_custom_options_hook_embedding("gemini", &req).expect("hook");
-        let out = hook(&serde_json::json!({})).expect("merge ok");
-        assert_eq!(out["x"], 1);
-    }
-
 }

@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// # Example
 ///
 /// ```rust,ignore
-/// use siumai::execution::middleware::{NamedMiddleware, LanguageModelMiddleware};
+/// use siumai::experimental::execution::middleware::{NamedMiddleware, LanguageModelMiddleware};
 /// use std::sync::Arc;
 ///
 /// let middleware = Arc::new(MyMiddleware::new());

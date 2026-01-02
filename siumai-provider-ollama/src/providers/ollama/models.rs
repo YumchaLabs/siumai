@@ -66,16 +66,11 @@ impl OllamaModelsCapability {
         &self,
         ctx: crate::core::ProviderContext,
     ) -> crate::execution::executors::common::HttpExecutionConfig {
-        crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: "ollama".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: Arc::new(crate::providers::ollama::spec::OllamaSpec::new(
-                crate::providers::ollama::config::OllamaParams::default(),
-            )),
-            provider_context: ctx,
-            interceptors: Vec::new(),
-            retry_options: None,
-        }
+        let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec::new(
+            crate::providers::ollama::config::OllamaParams::default(),
+        ));
+        crate::execution::wiring::HttpExecutionWiring::new("ollama", self.http_client.clone(), ctx)
+            .config(spec)
     }
 
     /// Pull a model from Ollama registry

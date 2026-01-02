@@ -20,7 +20,6 @@
 use futures::StreamExt;
 use serde_json::json;
 use siumai::prelude::*;
-use siumai::streaming::ChatStreamEvent;
 use std::env;
 
 /// Create a simple calculator tool for testing
@@ -259,7 +258,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
     match provider_name {
         "OpenAI" => {
             let api_key = env::var(api_key_env).unwrap();
-            let mut builder = LlmBuilder::new().openai().api_key(api_key).model(model);
+            let mut builder = Siumai::builder().openai().api_key(api_key).model(model);
 
             if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
                 builder = builder.base_url(base_url);
@@ -279,7 +278,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         }
         "Anthropic" => {
             let api_key = env::var(api_key_env).unwrap();
-            let mut builder = LlmBuilder::new().anthropic().api_key(api_key).model(model);
+            let mut builder = Siumai::builder().anthropic().api_key(api_key).model(model);
 
             if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
                 builder = builder.base_url(base_url);
@@ -299,7 +298,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         }
         "Gemini" => {
             let api_key = env::var(api_key_env).unwrap();
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .gemini()
                 .api_key(api_key)
                 .model(model)
@@ -319,7 +318,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         }
         "xAI" => {
             let api_key = env::var(api_key_env).unwrap();
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .xai()
                 .api_key(api_key)
                 .model(model)
@@ -340,7 +339,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         "Ollama" => {
             let base_url = env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string());
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .ollama()
                 .base_url(&base_url)
                 .model(model)

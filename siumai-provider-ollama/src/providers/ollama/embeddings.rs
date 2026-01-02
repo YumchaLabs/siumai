@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::core::ProviderContext;
 use crate::error::LlmError;
 use crate::execution::executors::embedding::{EmbeddingExecutor, EmbeddingExecutorBuilder};
+use crate::retry_api::RetryOptions;
 use crate::traits::{EmbeddingCapability, EmbeddingExtensions};
 use crate::types::{EmbeddingModelInfo, EmbeddingRequest, EmbeddingResponse, HttpConfig};
 
@@ -39,6 +40,8 @@ pub struct OllamaEmbeddings {
     http_config: HttpConfig,
     /// Ollama-specific parameters
     ollama_params: OllamaParams,
+    /// Unified retry options (optional)
+    retry_options: Option<RetryOptions>,
 }
 
 impl OllamaEmbeddings {
@@ -56,7 +59,14 @@ impl OllamaEmbeddings {
             http_client,
             http_config,
             ollama_params,
+            retry_options: None,
         }
+    }
+
+    /// Set unified retry options for embedding requests.
+    pub fn with_retry_options(mut self, retry: Option<RetryOptions>) -> Self {
+        self.retry_options = retry;
+        self
     }
 
     /// Get the default embedding model
@@ -79,10 +89,15 @@ impl OllamaEmbeddings {
             self.default_model.clone(),
         ));
 
-        EmbeddingExecutorBuilder::new("ollama", self.http_client.clone())
+        let mut builder = EmbeddingExecutorBuilder::new("ollama", self.http_client.clone())
             .with_spec(spec)
-            .with_context(ctx)
-            .build_for_request(request)
+            .with_context(ctx);
+
+        if let Some(retry) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry);
+        }
+
+        builder.build_for_request(request)
     }
 
     /// Get model information for Ollama embedding models
@@ -174,7 +189,7 @@ impl EmbeddingExtensions for OllamaEmbeddings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::OllamaOptions;
+    use crate::provider_options::OllamaOptions;
 
     #[test]
     fn test_embedding_dimensions() {
@@ -235,10 +250,10 @@ mod tests {
     #[test]
     fn test_build_request() {
         let params = OllamaParams::default();
-        let req = EmbeddingRequest::new(vec!["test text".to_string()]).with_provider_options(
-            crate::types::ProviderOptions::Ollama(
-                OllamaOptions::new().with_param("truncate", serde_json::json!(false)),
-            ),
+        let opts = OllamaOptions::new().with_param("truncate", serde_json::json!(false));
+        let req = EmbeddingRequest::new(vec!["test text".to_string()]).with_provider_option(
+            "ollama",
+            serde_json::to_value(&opts).unwrap_or(serde_json::Value::Null),
         );
 
         let request = crate::providers::ollama::utils::build_embedding_request(

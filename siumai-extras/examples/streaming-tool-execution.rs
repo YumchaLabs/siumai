@@ -15,7 +15,6 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
-use siumai::error::LlmError;
 use siumai::prelude::*;
 use siumai_extras::orchestrator::{
     OrchestratorOptions, ToolExecutionResult, ToolResolver, generate, step_count_is,

@@ -41,6 +41,8 @@
 // Core modules
 pub mod client;
 pub mod config;
+/// Ollama extension APIs (non-unified surface)
+pub mod ext;
 pub mod model_constants;
 pub mod spec;
 pub mod transformers;

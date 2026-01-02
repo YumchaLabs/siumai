@@ -3,7 +3,6 @@
 //! This module provides comprehensive error handling for the LLM library, including:
 //! - Core error types (`LlmError`, `ErrorCategory`)
 //! - User-facing error helpers and summaries
-//! - API error handlers for provider responses
 //! - Type conversions from common error types
 //!
 //! # Example
@@ -18,11 +17,9 @@
 
 // Module declarations
 mod conversions;
-pub mod handlers;
 pub mod helpers;
 pub mod types;
 
 // Re-exports for public API
-pub use handlers::*;
 pub use helpers::*;
 pub use types::*;

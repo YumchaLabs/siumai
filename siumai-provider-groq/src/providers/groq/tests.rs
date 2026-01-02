@@ -99,60 +99,6 @@ mod groq_tests {
     }
 
     #[test]
-    fn test_groq_utils_build_headers() {
-        use super::super::utils::build_headers;
-        use std::collections::HashMap;
-
-        let custom_headers = HashMap::new();
-        let headers = build_headers("test-api-key", &custom_headers).unwrap();
-
-        assert_eq!(
-            headers.get(reqwest::header::AUTHORIZATION).unwrap(),
-            "Bearer test-api-key"
-        );
-        assert_eq!(
-            headers.get(reqwest::header::CONTENT_TYPE).unwrap(),
-            "application/json"
-        );
-        assert!(headers.get(reqwest::header::USER_AGENT).is_some());
-    }
-
-    #[test]
-    fn test_groq_utils_convert_messages() {
-        use super::super::utils::convert_messages;
-
-        let messages = vec![
-            ChatMessage::system("You are a helpful assistant").build(),
-            ChatMessage::user("Hello, world!").build(),
-        ];
-
-        let groq_messages = convert_messages(&messages).unwrap();
-        assert_eq!(groq_messages.len(), 2);
-        assert_eq!(groq_messages[0]["role"], "system");
-        assert_eq!(groq_messages[1]["role"], "user");
-    }
-
-    #[test]
-    fn test_groq_utils_parse_finish_reason() {
-        use super::super::utils::parse_finish_reason;
-
-        assert_eq!(parse_finish_reason(Some("stop")), FinishReason::Stop);
-        assert_eq!(parse_finish_reason(Some("length")), FinishReason::Length);
-        assert_eq!(
-            parse_finish_reason(Some("tool_calls")),
-            FinishReason::ToolCalls
-        );
-        assert_eq!(
-            parse_finish_reason(Some("unknown")),
-            FinishReason::Other("unknown".to_string())
-        );
-        assert_eq!(
-            parse_finish_reason(None),
-            FinishReason::Other("unknown".to_string())
-        );
-    }
-
-    #[test]
     fn test_groq_utils_validate_params() {
         use super::super::utils::validate_groq_params;
 
@@ -182,24 +128,6 @@ mod groq_tests {
             "service_tier": "invalid"
         });
         assert!(validate_groq_params(&invalid_tier).is_err());
-    }
-
-    #[test]
-    fn test_groq_params() {
-        let params = GroqParams::new()
-            .with_frequency_penalty(0.5)
-            .with_presence_penalty(-0.2)
-            .with_parallel_tool_calls(true)
-            .with_service_tier("auto")
-            .with_reasoning_effort("default")
-            .with_reasoning_format("hidden");
-
-        assert_eq!(params.frequency_penalty, Some(0.5));
-        assert_eq!(params.presence_penalty, Some(-0.2));
-        assert_eq!(params.parallel_tool_calls, Some(true));
-        assert_eq!(params.service_tier, Some("auto".to_string()));
-        assert_eq!(params.reasoning_effort, Some("default".to_string()));
-        assert_eq!(params.reasoning_format, Some("hidden".to_string()));
     }
 
     #[test]
@@ -310,7 +238,6 @@ mod groq_tests {
             voice: None,
             format: None,
             speed: None,
-            provider_options: Default::default(),
             provider_options_map: Default::default(),
             extra_params: std::collections::HashMap::new(),
             http_config: None,
@@ -334,7 +261,6 @@ mod groq_tests {
             model: None,
             language: None,
             timestamp_granularities: None,
-            provider_options: Default::default(),
             provider_options_map: Default::default(),
             extra_params: std::collections::HashMap::new(),
             http_config: None,

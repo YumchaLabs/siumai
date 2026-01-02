@@ -5,7 +5,7 @@ This folder contains Architecture Decision Records for the fearless refactor.
 ## Index
 
 - `0001-vercel-aligned-modular-split.md` — Adopt a Vercel-aligned modular split (interfaces / provider-utils / providers) adapted for Rust.
-- `0002-provider-crates-by-provider.md` — Split provider implementations into provider crates (provider-first), keeping `siumai-providers` as a thin umbrella.
+- `0002-provider-crates-by-provider.md` — Split provider implementations into provider crates (provider-first). (The historical umbrella `siumai-providers` is now legacy and removed from the workspace.)
 
 ## Conventions
 

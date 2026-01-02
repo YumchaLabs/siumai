@@ -18,6 +18,7 @@
 pub mod chat;
 pub mod convert;
 pub mod embedding;
+pub mod headers;
 pub mod image;
 mod sources;
 pub mod streaming;

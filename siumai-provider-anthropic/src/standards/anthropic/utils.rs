@@ -4,7 +4,7 @@
 
 use super::types::*;
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
+use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::types::*;
 use base64::Engine;
 use reqwest::header::HeaderMap;
@@ -15,7 +15,58 @@ pub fn build_headers(
     api_key: &str,
     custom_headers: &std::collections::HashMap<String, String>,
 ) -> Result<HeaderMap, LlmError> {
-    ProviderHeaders::anthropic(api_key, custom_headers)
+    let mut builder = HttpHeaderBuilder::new()
+        .with_custom_auth("x-api-key", api_key)?
+        .with_json_content_type()
+        .with_header("anthropic-version", "2023-06-01")?;
+
+    if let Some(beta_features) = custom_headers.get("anthropic-beta") {
+        builder = builder.with_header("anthropic-beta", beta_features)?;
+    }
+
+    let filtered_headers: std::collections::HashMap<String, String> = custom_headers
+        .iter()
+        .filter(|(k, _)| k.as_str() != "anthropic-beta")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    builder = builder.with_custom_headers(&filtered_headers)?;
+    Ok(builder.build())
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::*;
+
+    #[test]
+    fn build_headers_includes_required_anthropic_headers() {
+        let headers = build_headers("k", &std::collections::HashMap::new()).unwrap();
+        assert_eq!(
+            headers.get("x-api-key").and_then(|v| v.to_str().ok()),
+            Some("k")
+        );
+        assert!(headers.contains_key("anthropic-version"));
+        assert_eq!(
+            headers
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json")
+        );
+    }
+
+    #[test]
+    fn build_headers_preserves_anthropic_beta_header() {
+        let mut custom = std::collections::HashMap::new();
+        custom.insert(
+            "anthropic-beta".to_string(),
+            "feature-a,feature-b".to_string(),
+        );
+        let headers = build_headers("k", &custom).unwrap();
+        assert_eq!(
+            headers.get("anthropic-beta").and_then(|v| v.to_str().ok()),
+            Some("feature-a,feature-b")
+        );
+    }
 }
 
 /// Convert message content to Anthropic format
@@ -129,8 +180,10 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                     })
                                 }
                                 crate::types::chat::MediaSource::Binary { data } => {
-                                    let text = String::from_utf8(data.clone())
-                                        .unwrap_or_else(|_| "[Invalid UTF-8 text/plain]".to_string());
+                                    let text =
+                                        String::from_utf8(data.clone()).unwrap_or_else(|_| {
+                                            "[Invalid UTF-8 text/plain]".to_string()
+                                        });
                                     serde_json::json!({
                                         "type": "text",
                                         "media_type": "text/plain",
@@ -142,7 +195,9 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                         .decode(data.as_bytes())
                                         .ok()
                                         .and_then(|bytes| String::from_utf8(bytes).ok())
-                                        .unwrap_or_else(|| "[Invalid base64 text/plain]".to_string());
+                                        .unwrap_or_else(|| {
+                                            "[Invalid base64 text/plain]".to_string()
+                                        });
                                     serde_json::json!({
                                         "type": "text",
                                         "media_type": "text/plain",
@@ -374,7 +429,8 @@ pub fn convert_messages(
                     }
 
                     // If caller explicitly requested redacted thinking, convert the block.
-                    if signature_global.is_none() && signatures_by_index.is_none()
+                    if signature_global.is_none()
+                        && signatures_by_index.is_none()
                         && let Some(data) = &redacted_data
                     {
                         *part = serde_json::json!({
@@ -451,7 +507,9 @@ pub fn convert_messages(
             let enabled = if let Some(b) = cfg.as_bool() {
                 b
             } else {
-                cfg.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false)
+                cfg.get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
             };
             if !enabled {
                 continue;
@@ -483,36 +541,36 @@ pub fn convert_messages(
             return;
         };
 
-	        for (idx_str, meta) in map {
-	            let Ok(idx) = idx_str.parse::<usize>() else {
-	                continue;
-	            };
+        for (idx_str, meta) in map {
+            let Ok(idx) = idx_str.parse::<usize>() else {
+                continue;
+            };
             let Some(part) = parts.get_mut(idx) else {
                 continue;
             };
             let Some(obj) = part.as_object_mut() else {
                 continue;
             };
-	            if obj.get("type").and_then(|v| v.as_str()) != Some("document") {
-	                continue;
-	            }
+            if obj.get("type").and_then(|v| v.as_str()) != Some("document") {
+                continue;
+            }
 
             let Some(meta_obj) = meta.as_object() else {
                 continue;
             };
 
-	            if let Some(title) = meta_obj.get("title").and_then(|v| v.as_str())
-	                && !title.is_empty()
-	            {
-	                obj.insert("title".to_string(), serde_json::json!(title));
-	            }
-	            if let Some(context) = meta_obj.get("context").and_then(|v| v.as_str())
-	                && !context.is_empty()
-	            {
-	                obj.insert("context".to_string(), serde_json::json!(context));
-	            }
-	        }
-	    }
+            if let Some(title) = meta_obj.get("title").and_then(|v| v.as_str())
+                && !title.is_empty()
+            {
+                obj.insert("title".to_string(), serde_json::json!(title));
+            }
+            if let Some(context) = meta_obj.get("context").and_then(|v| v.as_str())
+                && !context.is_empty()
+            {
+                obj.insert("context".to_string(), serde_json::json!(context));
+            }
+        }
+    }
 
     fn flatten_system_text(content: &MessageContent) -> String {
         match content {
@@ -568,7 +626,11 @@ pub fn convert_messages(
                     })]);
                 }
 
-                normalize_reasoning_blocks(&message.role, &message.metadata.custom, &mut content_json);
+                normalize_reasoning_blocks(
+                    &message.role,
+                    &message.metadata.custom,
+                    &mut content_json,
+                );
                 apply_document_citations(&message.metadata.custom, &mut content_json);
                 apply_document_metadata(&message.metadata.custom, &mut content_json);
 
@@ -651,7 +713,11 @@ pub fn convert_messages(
                     })]);
                 }
 
-                normalize_reasoning_blocks(&message.role, &message.metadata.custom, &mut content_json);
+                normalize_reasoning_blocks(
+                    &message.role,
+                    &message.metadata.custom,
+                    &mut content_json,
+                );
                 apply_document_citations(&message.metadata.custom, &mut content_json);
                 apply_document_metadata(&message.metadata.custom, &mut content_json);
 
@@ -750,7 +816,11 @@ pub fn convert_messages(
                     })]);
                 }
 
-                normalize_reasoning_blocks(&message.role, &message.metadata.custom, &mut content_json);
+                normalize_reasoning_blocks(
+                    &message.role,
+                    &message.metadata.custom,
+                    &mut content_json,
+                );
 
                 // Apply per-part cache controls (same escape hatch as user/assistant).
                 let mut part_cache_controls: std::collections::HashMap<usize, serde_json::Value> =
@@ -817,13 +887,8 @@ pub fn convert_messages(
     let system = if system_blocks.is_empty() {
         None
     } else if system_blocks.len() == 1
-        && system_blocks[0]
-            .get("cache_control")
-            .is_none()
-        && system_blocks[0]
-            .get("type")
-            .and_then(|v| v.as_str())
-            == Some("text")
+        && system_blocks[0].get("cache_control").is_none()
+        && system_blocks[0].get("type").and_then(|v| v.as_str()) == Some("text")
     {
         // Backward-compatible: allow a single system string.
         system_blocks[0]
@@ -995,10 +1060,12 @@ mod system_message_tests {
 
     #[test]
     fn assistant_reasoning_with_signature_emits_thinking_block() {
-        let mut msg = ChatMessage::assistant_with_content(vec![ContentPart::reasoning("hi")]).build();
-        msg.metadata
-            .custom
-            .insert("anthropic_thinking_signature".to_string(), serde_json::json!("sig"));
+        let mut msg =
+            ChatMessage::assistant_with_content(vec![ContentPart::reasoning("hi")]).build();
+        msg.metadata.custom.insert(
+            "anthropic_thinking_signature".to_string(),
+            serde_json::json!("sig"),
+        );
 
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
         let parts = msgs[0].content.as_array().expect("content array");
@@ -1018,9 +1085,10 @@ mod system_message_tests {
         .cache_control(crate::types::CacheControl::Ephemeral)
         .cache_control_for_part(0, crate::types::CacheControl::Ephemeral)
         .build();
-        msg.metadata
-            .custom
-            .insert("anthropic_thinking_signature".to_string(), serde_json::json!("sig"));
+        msg.metadata.custom.insert(
+            "anthropic_thinking_signature".to_string(),
+            serde_json::json!("sig"),
+        );
 
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
         let parts = msgs[0].content.as_array().expect("content array");
@@ -1963,7 +2031,9 @@ mod document_citations_tests {
         let doc = arr.get(1).and_then(|v| v.as_object()).expect("document");
         assert_eq!(doc.get("type").and_then(|v| v.as_str()), Some("document"));
         assert_eq!(
-            doc.get("citations").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()),
+            doc.get("citations")
+                .and_then(|v| v.get("enabled"))
+                .and_then(|v| v.as_bool()),
             Some(true)
         );
         assert_eq!(

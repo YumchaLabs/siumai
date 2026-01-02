@@ -32,49 +32,61 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
                 "Embedding is not supported by this provider".to_string(),
             ));
         }
-        // 1. Transform request to JSON
-        let mut body = self.request_transformer.transform_embedding(&req)?;
+        let retry_options = self.policy.retry_options.clone();
+        let run_once = move || {
+            let req = req.clone();
+            async move {
+                // 1. Transform request to JSON
+                let mut body = self.request_transformer.transform_embedding(&req)?;
 
-        // 2. Apply ProviderSpec-level embedding_before_send, then policy hook
-        if let Some(cb) = self
-            .provider_spec
-            .embedding_before_send(&req, &self.provider_context)
-        {
-            body = cb(&body)?;
-        }
-        if let Some(cb) = &self.policy.before_send {
-            body = cb(&body)?;
-        }
+                // 2. Apply ProviderSpec-level embedding_before_send, then policy hook
+                if let Some(cb) = self
+                    .provider_spec
+                    .embedding_before_send(&req, &self.provider_context)
+                {
+                    body = cb(&body)?;
+                }
+                if let Some(cb) = &self.policy.before_send {
+                    body = cb(&body)?;
+                }
 
-        // 3. Get URL from provider spec
-        let url = self
-            .provider_spec
-            .embedding_url(&req, &self.provider_context);
+                // 3. Get URL from provider spec
+                let url = self
+                    .provider_spec
+                    .embedding_url(&req, &self.provider_context);
 
-        // 4. Build execution config for common HTTP layer
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: self.provider_id.clone(),
-            http_client: self.http_client.clone(),
-            provider_spec: self.provider_spec.clone(),
-            provider_context: self.provider_context.clone(),
-            interceptors: self.policy.interceptors.clone(),
-            retry_options: self.policy.retry_options.clone(),
+                // 4. Build execution config for common HTTP layer
+                let config = crate::execution::executors::common::HttpExecutionConfig {
+                    provider_id: self.provider_id.clone(),
+                    http_client: self.http_client.clone(),
+                    provider_spec: self.provider_spec.clone(),
+                    provider_context: self.provider_context.clone(),
+                    interceptors: self.policy.interceptors.clone(),
+                    retry_options: self.policy.retry_options.clone(),
+                };
+
+                // 5. Execute request using common HTTP layer
+                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
+                let result = crate::execution::executors::common::execute_json_request(
+                    &config,
+                    &url,
+                    crate::execution::executors::common::HttpBody::Json(body),
+                    per_request_headers,
+                    false, // stream = false for embedding
+                )
+                .await?;
+
+                // 6. Transform response
+                self.response_transformer
+                    .transform_embedding_response(&result.json)
+            }
         };
 
-        // 5. Execute request using common HTTP layer
-        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
-        let result = crate::execution::executors::common::execute_json_request(
-            &config,
-            &url,
-            crate::execution::executors::common::HttpBody::Json(body),
-            per_request_headers,
-            false, // stream = false for embedding
-        )
-        .await?;
-
-        // 6. Transform response
-        self.response_transformer
-            .transform_embedding_response(&result.json)
+        if let Some(opts) = retry_options {
+            crate::retry_api::retry_with(run_once, opts).await
+        } else {
+            run_once().await
+        }
     }
 }
 

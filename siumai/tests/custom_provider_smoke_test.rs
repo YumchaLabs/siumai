@@ -4,12 +4,11 @@
 
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
-use siumai::ProviderCapabilities;
-use siumai::custom_provider::*;
-use siumai::error::LlmError;
-use siumai::streaming::{ChatStream, ChatStreamEvent};
-use siumai::traits::ChatCapability;
-use siumai::types::*;
+use siumai::experimental::custom_provider::*;
+use siumai::prelude::unified::{
+    ChatCapability, ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, FinishReason, LlmError,
+    MessageContent, ProviderCapabilities, ResponseMetadata,
+};
 
 #[derive(Clone)]
 struct MiniProvider {

@@ -3,6 +3,7 @@
 //! Provides flexible control over when to stop multi-step tool calling loops.
 
 use super::types::StepResult;
+use siumai::prelude::unified::ContentPart;
 
 /// A condition that determines when to stop orchestration.
 ///
@@ -64,7 +65,7 @@ impl StopCondition for HasToolCall {
     fn should_stop(&self, steps: &[StepResult]) -> bool {
         if let Some(last_step) = steps.last() {
             last_step.tool_calls.iter().any(|call| {
-                if let siumai::types::ContentPart::ToolCall { tool_name, .. } = call {
+                if let ContentPart::ToolCall { tool_name, .. } = call {
                     tool_name == &self.tool_name
                 } else {
                     false
@@ -287,10 +288,10 @@ pub fn has_no_tool_calls() -> Box<dyn StopCondition> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai::types::ChatMessage;
+    use siumai::prelude::unified::ChatMessage;
 
     fn create_step_with_tools(tool_names: Vec<&str>) -> StepResult {
-        use siumai::types::ContentPart;
+        use siumai::prelude::unified::ContentPart;
 
         StepResult {
             messages: vec![],
@@ -419,7 +420,7 @@ mod tests {
             finish_reason: None,
             usage: None,
             tool_calls: vec![],
-            tool_results: vec![siumai::types::ContentPart::Text {
+            tool_results: vec![ContentPart::Text {
                 text: "result".to_string(),
             }],
             warnings: None,

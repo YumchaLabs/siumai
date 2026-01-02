@@ -15,8 +15,7 @@ use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use siumai::error::LlmError;
-use siumai::types::OutputSchema;
+use siumai::prelude::unified::{LlmError, OutputSchema};
 
 /// Type alias for JSON repair function used in structured output APIs.
 pub type RepairFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;

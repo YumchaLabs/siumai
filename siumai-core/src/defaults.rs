@@ -279,7 +279,7 @@ pub mod model_params {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use siumai::defaults::profiles;
+/// use siumai::experimental::defaults::profiles;
 /// use siumai::retry_api::RetryOptions;
 ///
 /// // Development: Fast feedback, verbose errors

@@ -5,10 +5,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 
 use super::*;
-use siumai::error::LlmError;
-use siumai::types::{
-    ChatMessage, ChatResponse, ContentPart, FinishReason, MessageContent, Tool, Usage,
-};
+use siumai::prelude::unified::*;
 
 // ============================================================================
 // Mock Implementations
@@ -38,7 +35,7 @@ impl MockChatModel {
 }
 
 #[async_trait::async_trait]
-impl siumai::traits::ChatCapability for MockChatModel {
+impl ChatCapability for MockChatModel {
     async fn chat(&self, messages: Vec<ChatMessage>) -> Result<ChatResponse, LlmError> {
         self.calls.lock().unwrap().push(messages.clone());
         let mut responses = self.responses.lock().unwrap();
@@ -52,7 +49,7 @@ impl siumai::traits::ChatCapability for MockChatModel {
         &self,
         _messages: Vec<ChatMessage>,
         _tools: Option<Vec<Tool>>,
-    ) -> Result<siumai::streaming::ChatStream, LlmError> {
+    ) -> Result<ChatStream, LlmError> {
         // Not used in these tests
         Err(LlmError::InternalError(
             "Stream not implemented in mock".into(),
@@ -538,12 +535,7 @@ fn test_all_of_stop_condition() {
             messages: vec![],
             finish_reason: None,
             usage: None,
-            tool_calls: vec![siumai::types::ContentPart::tool_call(
-                "call_1",
-                "tool1",
-                json!({}),
-                None,
-            )],
+            tool_calls: vec![ContentPart::tool_call("call_1", "tool1", json!({}), None)],
             tool_results: vec![],
             warnings: None,
         },

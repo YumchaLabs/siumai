@@ -118,7 +118,9 @@ pub async fn execute_bytes_request(
 
     // 2. Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -182,7 +184,9 @@ pub async fn execute_bytes_request(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -212,8 +216,9 @@ pub async fn execute_bytes_request(
             .text()
             .await
             .unwrap_or_else(|_| "Failed to read error response".to_string());
-        let error = crate::retry_api::classify_http_error(
+        let error = exec_errors::classify_http_error(
             &config.provider_id,
+            Some(config.provider_spec.as_ref()),
             status.as_u16(),
             &error_text,
             &response_headers,
@@ -255,7 +260,9 @@ where
 
     // 2. Merge per-request headers if provided
     let mut effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -322,7 +329,9 @@ where
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -356,6 +365,7 @@ where
     if !resp.status().is_success() {
         let err = exec_errors::classify_error_with_text(
             &config.provider_id,
+            Some(config.provider_spec.as_ref()),
             resp,
             &ctx,
             &config.interceptors,
@@ -404,6 +414,25 @@ pub async fn execute_json_request_streaming_response(
     body: serde_json::Value,
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<reqwest::Response, LlmError> {
+    let ctx = HttpRequestContext {
+        request_id: crate::execution::http::interceptor::generate_request_id(),
+        provider_id: config.provider_id.clone(),
+        url: url.to_string(),
+        stream: true,
+    };
+    execute_json_request_streaming_response_with_ctx(config, url, body, per_request_headers, ctx)
+        .await
+}
+
+/// JSON request that returns the raw `reqwest::Response` for streaming consumption,
+/// using a caller-provided `HttpRequestContext` (so interceptors can correlate SSE events).
+pub async fn execute_json_request_streaming_response_with_ctx(
+    config: &HttpExecutionConfig,
+    url: &str,
+    body: serde_json::Value,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    ctx: HttpRequestContext,
+) -> Result<reqwest::Response, LlmError> {
     // 1. Build base headers from provider spec
     let base_headers = config
         .provider_spec
@@ -411,7 +440,9 @@ pub async fn execute_json_request_streaming_response(
 
     // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -428,12 +459,6 @@ pub async fn execute_json_request_streaming_response(
     }
 
     // 4. Interceptors (before send)
-    let ctx = HttpRequestContext {
-        request_id: crate::execution::http::interceptor::generate_request_id(),
-        provider_id: config.provider_id.clone(),
-        url: url.to_string(),
-        stream: true,
-    };
     rb = apply_before_send_interceptors(&config.interceptors, &ctx, rb, &body, &effective_headers)?;
 
     // 5. Send
@@ -458,7 +483,9 @@ pub async fn execute_json_request_streaming_response(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -485,6 +512,7 @@ pub async fn execute_json_request_streaming_response(
     if !resp.status().is_success() {
         let err = exec_errors::classify_error_with_text(
             &config.provider_id,
+            Some(config.provider_spec.as_ref()),
             resp,
             &ctx,
             &config.interceptors,
@@ -498,6 +526,153 @@ pub async fn execute_json_request_streaming_response(
         interceptor.on_response(&ctx, &resp)?;
     }
     Ok(resp)
+}
+
+/// Multipart request that returns the raw `reqwest::Response` for streaming consumption,
+/// using a caller-provided `HttpRequestContext` (so interceptors can correlate SSE events).
+pub async fn execute_multipart_request_streaming_response_with_ctx<F>(
+    config: &HttpExecutionConfig,
+    url: &str,
+    build_form: F,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    ctx: HttpRequestContext,
+) -> Result<reqwest::Response, LlmError>
+where
+    F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
+{
+    // 1. Build base headers from provider spec
+    let base_headers = config
+        .provider_spec
+        .build_headers(&config.provider_context)?;
+
+    // 2. Merge per-request headers if provided
+    let mut effective_headers = if let Some(req_headers) = per_request_headers {
+        config
+            .provider_spec
+            .merge_request_headers(base_headers.clone(), req_headers)
+    } else {
+        base_headers.clone()
+    };
+    // Multipart must own its boundary-based Content-Type; strip JSON Content-Type if present.
+    effective_headers.remove(reqwest::header::CONTENT_TYPE);
+
+    // 3. Build form and request
+    let form = build_form()?;
+    let mut rb = config
+        .http_client
+        .post(url)
+        .headers(effective_headers.clone())
+        .multipart(form);
+    #[cfg(test)]
+    {
+        rb = rb.header("x-retry-attempt", "0");
+    }
+
+    // 4. Interceptors (before send)
+    let empty_json = serde_json::json!({});
+    rb = apply_before_send_interceptors(
+        &config.interceptors,
+        &ctx,
+        rb,
+        &empty_json,
+        &effective_headers,
+    )?;
+
+    // 5. Send
+    let mut resp = rb
+        .send()
+        .await
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+
+    // 6. 401 retry once
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let should_retry_401 = config
+            .retry_options
+            .as_ref()
+            .map(|opts| opts.retry_401)
+            .unwrap_or(true);
+        if status.as_u16() == 401 && should_retry_401 {
+            for interceptor in &config.interceptors {
+                interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
+            }
+            let retry_headers = config
+                .provider_spec
+                .build_headers(&config.provider_context)?;
+            let mut retry_effective_headers = if let Some(req_headers) = per_request_headers {
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
+            } else {
+                retry_headers
+            };
+            retry_effective_headers.remove(reqwest::header::CONTENT_TYPE);
+
+            resp = rebuild_headers_and_retry_once_multipart(
+                &config.http_client,
+                url,
+                &config.interceptors,
+                &ctx,
+                retry_effective_headers.clone(),
+                build_form,
+            )
+            .await?;
+        }
+    }
+
+    // 7. Error classification (read text only on non-success)
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let response_headers = resp.headers().clone();
+        let error_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error response".to_string());
+        let error = exec_errors::classify_http_error(
+            &config.provider_id,
+            Some(config.provider_spec.as_ref()),
+            status.as_u16(),
+            &error_text,
+            &response_headers,
+            None,
+        );
+        for interceptor in &config.interceptors {
+            interceptor.on_error(&ctx, &error);
+        }
+        return Err(error);
+    }
+
+    // 8. Success path: notify interceptors and return raw response for streaming
+    for interceptor in &config.interceptors {
+        interceptor.on_response(&ctx, &resp)?;
+    }
+    Ok(resp)
+}
+
+/// Multipart request that returns the raw `reqwest::Response` for streaming consumption.
+pub async fn execute_multipart_request_streaming_response<F>(
+    config: &HttpExecutionConfig,
+    url: &str,
+    build_form: F,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<reqwest::Response, LlmError>
+where
+    F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
+{
+    let ctx = HttpRequestContext {
+        request_id: crate::execution::http::interceptor::generate_request_id(),
+        provider_id: config.provider_id.clone(),
+        url: url.to_string(),
+        stream: true,
+    };
+    execute_multipart_request_streaming_response_with_ctx(
+        config,
+        url,
+        build_form,
+        per_request_headers,
+        ctx,
+    )
+    .await
 }
 
 /// JSON request (core implementation). For multipart, use `execute_multipart_request`.
@@ -515,7 +690,9 @@ pub async fn execute_request(
 
     // 2. Merge per-request headers if provided
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -582,7 +759,9 @@ pub async fn execute_request(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -614,8 +793,9 @@ pub async fn execute_request(
             .unwrap_or_else(|_| "Failed to read error response".to_string());
 
         // Notify interceptors of error
-        let error = crate::retry_api::classify_http_error(
+        let error = exec_errors::classify_http_error(
             &config.provider_id,
+            Some(config.provider_spec.as_ref()),
             status.as_u16(),
             &error_text,
             &response_headers,
@@ -674,7 +854,9 @@ where
 
     // 2. Merge per-request headers if provided
     let mut effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -728,7 +910,9 @@ where
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -752,8 +936,9 @@ where
             .text()
             .await
             .unwrap_or_else(|_| "Failed to read error response".to_string());
-        let error = crate::retry_api::classify_http_error(
+        let error = exec_errors::classify_http_error(
             &config.provider_id,
+            Some(config.provider_spec.as_ref()),
             status.as_u16(),
             &error_text,
             &response_headers,
@@ -805,7 +990,9 @@ pub async fn execute_get_request(
 
     // 2. Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(headers, req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(headers, req_headers)
     } else {
         headers
     };
@@ -862,7 +1049,9 @@ pub async fn execute_get_request(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -882,8 +1071,9 @@ pub async fn execute_get_request(
             let status = resp.status();
             let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            let error = crate::retry_api::classify_http_error(
+            let error = exec_errors::classify_http_error(
                 &config.provider_id,
+                Some(config.provider_spec.as_ref()),
                 status.as_u16(),
                 &text,
                 &headers,
@@ -928,7 +1118,9 @@ pub async fn execute_delete_request(
         .provider_spec
         .build_headers(&config.provider_context)?;
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(headers, req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(headers, req_headers)
     } else {
         headers
     };
@@ -978,7 +1170,9 @@ pub async fn execute_delete_request(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -996,8 +1190,9 @@ pub async fn execute_delete_request(
             let status = resp.status();
             let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            let error = crate::retry_api::classify_http_error(
+            let error = exec_errors::classify_http_error(
                 &config.provider_id,
+                Some(config.provider_spec.as_ref()),
                 status.as_u16(),
                 &text,
                 &headers,
@@ -1050,7 +1245,9 @@ pub async fn execute_delete_json_request(
 
     // 2. Merge per-request headers
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(base_headers.clone(), req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(base_headers.clone(), req_headers)
     } else {
         base_headers.clone()
     };
@@ -1098,7 +1295,9 @@ pub async fn execute_delete_json_request(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -1126,8 +1325,9 @@ pub async fn execute_delete_json_request(
         let status = resp.status();
         let headers = resp.headers().clone();
         let text = resp.text().await.unwrap_or_default();
-        let error = crate::retry_api::classify_http_error(
+        let error = exec_errors::classify_http_error(
             &config.provider_id,
+            Some(config.provider_spec.as_ref()),
             status.as_u16(),
             &text,
             &headers,
@@ -1177,7 +1377,9 @@ pub async fn execute_get_binary(
         .provider_spec
         .build_headers(&config.provider_context)?;
     let effective_headers = if let Some(req_headers) = per_request_headers {
-        crate::execution::http::headers::merge_headers(headers, req_headers)
+        config
+            .provider_spec
+            .merge_request_headers(headers, req_headers)
     } else {
         headers
     };
@@ -1230,7 +1432,9 @@ pub async fn execute_get_binary(
                 .provider_spec
                 .build_headers(&config.provider_context)?;
             let retry_effective_headers = if let Some(req_headers) = per_request_headers {
-                crate::execution::http::headers::merge_headers(retry_headers, req_headers)
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, req_headers)
             } else {
                 retry_headers
             };
@@ -1248,8 +1452,9 @@ pub async fn execute_get_binary(
             let status = resp.status();
             let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            let error = crate::retry_api::classify_http_error(
+            let error = exec_errors::classify_http_error(
                 &config.provider_id,
+                Some(config.provider_spec.as_ref()),
                 status.as_u16(),
                 &text,
                 &headers,

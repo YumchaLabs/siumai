@@ -515,12 +515,14 @@ mod tests {
 
     #[test]
     fn file_search_is_ignored_when_model_does_not_support_it() {
-        let tools = vec![Tool::provider_defined("google.file_search", "file_search").with_args(
-            serde_json::json!({
-                "fileSearchStoreNames": ["fileSearchStores/abc123"],
-                "topK": 5
-            }),
-        )];
+        let tools = vec![
+            Tool::provider_defined("google.file_search", "file_search").with_args(
+                serde_json::json!({
+                    "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                    "topK": 5
+                }),
+            ),
+        ];
 
         let mapped = convert_tools_to_gemini("gemini-2.0-flash", &tools).expect("map ok");
         assert!(
@@ -853,12 +855,8 @@ mod system_and_tool_message_tests {
     #[test]
     fn tool_role_messages_are_supported_as_function_responses() {
         let cfg = GeminiConfig::default();
-        let messages = vec![crate::types::ChatMessage::tool_result_text(
-            "call_1",
-            "search",
-            "ok",
-        )
-        .build()];
+        let messages =
+            vec![crate::types::ChatMessage::tool_result_text("call_1", "search", "ok").build()];
 
         let req = build_request_body(&cfg, &messages, None).unwrap();
         assert_eq!(req.contents.len(), 1);

@@ -6,8 +6,7 @@
 
 use serde_json::json;
 use siumai::prelude::*;
-use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-use siumai::types::ContentPart;
+use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 

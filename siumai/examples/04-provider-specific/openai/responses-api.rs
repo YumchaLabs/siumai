@@ -23,7 +23,8 @@
 
 use siumai::prelude::*;
 use siumai::provider_ext::openai::{
-    OpenAiOptions, ReasoningEffort, ResponsesApiConfig, TextVerbosity, Truncation,
+    OpenAiChatRequestExt, OpenAiOptions, ReasoningEffort, ResponsesApiConfig, TextVerbosity,
+    Truncation,
 };
 
 #[tokio::main]

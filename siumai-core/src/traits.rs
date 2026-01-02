@@ -34,7 +34,7 @@
 //! Traits are also re-exported from `core` for convenience:
 //!
 //! ```rust
-//! use siumai::core::{ChatCapability, EmbeddingCapability};
+//! use siumai_core::core::{ChatCapability, EmbeddingCapability};
 //! ```
 //!
 //! ### Trait Hierarchy

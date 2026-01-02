@@ -241,4 +241,3 @@ impl GeminiChatResponseExt for crate::types::ChatResponse {
         GeminiMetadata::from_metadata(meta)
     }
 }
-

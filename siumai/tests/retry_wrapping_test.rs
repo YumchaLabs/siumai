@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;
+use siumai::experimental::client::LlmClient;
 use siumai::prelude::*;
 
 #[derive(Debug)]

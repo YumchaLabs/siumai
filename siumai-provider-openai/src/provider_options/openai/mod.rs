@@ -18,8 +18,8 @@ pub mod web_search;
 
 // Re-exports
 pub use audio::{
-    ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice, ChatCompletionModalities,
-    InputAudio, InputAudioFormat,
+    ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
+    ChatCompletionModalities, InputAudio, InputAudioFormat,
 };
 pub use enums::{ReasoningEffort, ServiceTier, TextVerbosity, Truncation};
 pub use prediction::{PredictionContent, PredictionContentData};
@@ -33,7 +33,7 @@ use crate::types::Tool;
 /// Type-safe configuration for OpenAI-specific features.
 ///
 /// This is usually carried via the open `providerOptions` JSON map (`provider_id = "openai"`),
-/// or via the legacy `ProviderOptions::OpenAi` compatibility variant.
+/// and should be carried via `providerOptions["openai"]`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OpenAiOptions {
     /// Responses API configuration
@@ -111,7 +111,10 @@ impl OpenAiOptions {
     ///
     /// This is a convenience method that automatically sets modalities to include audio.
     pub fn with_audio_voice(mut self, voice: ChatCompletionAudioVoice) -> Self {
-        self.modalities = Some(vec![ChatCompletionModalities::Text, ChatCompletionModalities::Audio]);
+        self.modalities = Some(vec![
+            ChatCompletionModalities::Text,
+            ChatCompletionModalities::Audio,
+        ]);
         self.audio = Some(ChatCompletionAudio::with_voice(voice));
         self
     }
@@ -165,4 +168,3 @@ mod tests {
         assert_eq!(audio.format, ChatCompletionAudioFormat::Mp3);
     }
 }
-

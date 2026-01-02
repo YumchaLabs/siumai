@@ -11,7 +11,6 @@
 //! Run with: cargo run -p siumai-extras --example agent-pattern
 
 use siumai::prelude::*;
-use siumai::types::Tool;
 use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 
 // Simple tool resolver
@@ -23,7 +22,7 @@ impl ToolResolver for WeatherResolver {
         &self,
         name: &str,
         arguments: serde_json::Value,
-    ) -> Result<serde_json::Value, siumai::error::LlmError> {
+    ) -> Result<serde_json::Value, LlmError> {
         match name {
             "get_weather" => {
                 let location = arguments
@@ -48,10 +47,7 @@ impl ToolResolver for WeatherResolver {
                     "forecast": "Mostly sunny with occasional clouds"
                 }))
             }
-            _ => Err(siumai::error::LlmError::InternalError(format!(
-                "Unknown tool: {}",
-                name
-            ))),
+            _ => Err(LlmError::InternalError(format!("Unknown tool: {}", name))),
         }
     }
 }

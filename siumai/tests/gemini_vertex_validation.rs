@@ -2,15 +2,14 @@
 //! Validation: When using Authorization (Bearer) for Vertex AI auth,
 //! Gemini should not be blocked by API key validation.
 
-use siumai::{provider::SiumaiBuilder, types::ProviderType};
+use siumai::prelude::unified::*;
 
 #[tokio::test]
 async fn build_gemini_with_bearer_does_not_require_api_key() {
     // Simulate a Vertex AI base_url prefix (no real call, construction only)
-    let vertex_base =
-        "https://us-central1-aiplatform.googleapis.com/v1/projects/test/locations/us-central1/publishers/google";
+    let vertex_base = "https://us-central1-aiplatform.googleapis.com/v1/projects/test/locations/us-central1/publishers/google";
 
-    let result = SiumaiBuilder::new()
+    let result = Siumai::builder()
         .provider(ProviderType::Gemini)
         .model("gemini-1.5-flash")
         .base_url(vertex_base)
@@ -39,7 +38,7 @@ async fn build_gemini_without_key_and_without_bearer_should_fail() {
         std::env::remove_var("GEMINI_API_KEY");
     }
 
-    let result = SiumaiBuilder::new()
+    let result = Siumai::builder()
         .provider(ProviderType::Gemini)
         .model("gemini-1.5-flash")
         .base_url(genai_base)

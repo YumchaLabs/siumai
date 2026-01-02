@@ -116,6 +116,9 @@ mod tests {
         assert_eq!(input[0]["type"], "text");
         assert_eq!(input[0]["text"], "hello");
         assert_eq!(input[1]["type"], "image_url");
-        assert_eq!(input[1]["image_url"]["url"], "https://example.com/image.jpg");
+        assert_eq!(
+            input[1]["image_url"]["url"],
+            "https://example.com/image.jpg"
+        );
     }
 }

@@ -10,16 +10,13 @@
 //! export OPENAI_API_KEY="your-key"
 //! cargo test test_openai_audio -- --ignored
 //!
-//! export GROQ_API_KEY="your-key"
-//! cargo test test_groq_audio -- --ignored
-//!
 //! # Test all available providers
 //! cargo test test_all_provider_audio -- --ignored
 //! ```
 
+use siumai::extensions::AudioCapability;
+use siumai::prelude::unified::TtsRequest;
 use siumai::prelude::*;
-use siumai::traits::AudioCapability;
-use siumai::types::TtsRequest;
 use std::env;
 
 /// Test Text-to-Speech functionality
@@ -28,7 +25,6 @@ async fn test_text_to_speech<T: AudioCapability>(client: &T, provider_name: &str
 
     let (voice, format, model) = match provider_name {
         "OpenAI" => ("alloy", "mp3", "tts-1"),
-        "Groq" => ("Fritz-PlayAI", "wav", "playai-tts"),
         _ => ("alloy", "mp3", "default"),
     };
 
@@ -38,7 +34,6 @@ async fn test_text_to_speech<T: AudioCapability>(client: &T, provider_name: &str
         format: Some(format.to_string()),
         speed: Some(1.0),
         model: Some(model.to_string()),
-        provider_options: Default::default(),
         provider_options_map: Default::default(),
         extra_params: std::collections::HashMap::new(),
         http_config: None,
@@ -142,7 +137,7 @@ async fn test_openai_audio() {
     println!("🔊 Testing OpenAI audio capabilities...");
     let api_key = env::var("OPENAI_API_KEY").unwrap();
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .api_key(api_key)
         .model("gpt-4o-mini")
@@ -157,41 +152,12 @@ async fn test_openai_audio() {
     println!("✅ OpenAI audio testing completed\n");
 }
 
-/// Test Groq audio capabilities
-async fn test_groq_audio() {
-    if env::var("GROQ_API_KEY").is_err() {
-        println!("⏭️ Skipping Groq audio tests: GROQ_API_KEY not set");
-        return;
-    }
-
-    println!("⚡ Testing Groq audio capabilities...");
-    let api_key = env::var("GROQ_API_KEY").unwrap();
-
-    let client = LlmBuilder::new()
-        .groq()
-        .api_key(api_key)
-        // Chat model is irrelevant for TTS; the request's `model` controls `/audio/speech`.
-        .model(models::groq::LLAMA_3_1_8B_INSTANT)
-        .build()
-        .await
-        .expect("Failed to build Groq client");
-
-    test_audio_features(&client, "Groq").await;
-    test_text_to_speech(&client, "Groq").await;
-    test_speech_to_text(&client, "Groq").await;
-
-    println!("✅ Groq audio testing completed\n");
-}
-
 /// Test audio capability availability across providers
 async fn test_audio_capability_availability() {
     println!("📊 Testing audio capability availability across providers...");
 
     // Check which providers claim to support audio
-    let providers_with_audio = vec![
-        ("OpenAI", env::var("OPENAI_API_KEY").is_ok(), true),
-        ("Groq", env::var("GROQ_API_KEY").is_ok(), true),
-    ];
+    let providers_with_audio = vec![("OpenAI", env::var("OPENAI_API_KEY").is_ok(), true)];
 
     println!("  📋 Audio capability status:");
     for (provider, has_key, has_trait) in providers_with_audio {
@@ -221,17 +187,10 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
-    async fn test_groq_audio_capability() {
-        test_groq_audio().await;
-    }
-
-    #[tokio::test]
-    #[ignore]
     async fn test_all_provider_audio() {
         println!("🚀 Running audio capability tests for all available providers...\n");
 
         test_openai_audio().await;
-        test_groq_audio().await;
         test_audio_capability_availability().await;
 
         println!("🎉 All provider audio testing completed!");
@@ -258,7 +217,7 @@ mod manual_test_utils {
         match provider {
             "openai" => {
                 if let Ok(api_key) = env::var("OPENAI_API_KEY") {
-                    let client = LlmBuilder::new()
+                    let client = Siumai::builder()
                         .openai()
                         .api_key(api_key)
                         .model("gpt-4o-mini")
@@ -271,7 +230,6 @@ mod manual_test_utils {
                         format: Some("mp3".to_string()),
                         speed: Some(1.0),
                         model: Some("tts-1".to_string()),
-                        provider_options: Default::default(),
                         provider_options_map: Default::default(),
                         extra_params: std::collections::HashMap::new(),
                         http_config: None,
@@ -280,32 +238,6 @@ mod manual_test_utils {
                     let response = client.text_to_speech(request).await?;
                     std::fs::write("manual_test_output.mp3", response.audio_data)?;
                     println!("Audio saved to manual_test_output.mp3");
-                }
-            }
-            "groq" => {
-                if let Ok(api_key) = env::var("GROQ_API_KEY") {
-                    let client = LlmBuilder::new()
-                        .groq()
-                        .api_key(api_key)
-                        .model(models::groq::LLAMA_3_1_8B_INSTANT)
-                        .build()
-                        .await?;
-
-                    let request = TtsRequest {
-                        text: text.to_string(),
-                        voice: Some("Fritz-PlayAI".to_string()),
-                        format: Some("wav".to_string()),
-                        speed: Some(1.0),
-                        model: Some("playai-tts".to_string()),
-                        provider_options: Default::default(),
-                        provider_options_map: Default::default(),
-                        extra_params: std::collections::HashMap::new(),
-                        http_config: None,
-                    };
-
-                    let response = client.text_to_speech(request).await?;
-                    std::fs::write("manual_test_output.wav", response.audio_data)?;
-                    println!("Audio saved to manual_test_output.wav");
                 }
             }
             _ => {

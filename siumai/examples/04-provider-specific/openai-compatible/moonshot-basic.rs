@@ -20,8 +20,8 @@
 //! ## Get API Key
 //! Visit https://platform.moonshot.cn/ to get your API key
 
-use siumai::prelude::*;
 use siumai::models;
+use siumai::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

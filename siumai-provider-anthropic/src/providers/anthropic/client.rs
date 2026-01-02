@@ -3,7 +3,9 @@
 //! Main client structure that aggregates all Anthropic capabilities.
 
 use async_trait::async_trait;
+use backoff::ExponentialBackoffBuilder;
 use secrecy::SecretString;
+use std::time::Duration;
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
@@ -166,7 +168,7 @@ impl AnthropicClient {
 
     /// Set unified retry options
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
-        self.retry_options = options;
+        self.retry_options = options.map(normalize_anthropic_retry_options);
     }
 
     /// Install HTTP interceptors for all chat requests.
@@ -234,6 +236,25 @@ impl AnthropicClient {
     }
 }
 
+fn normalize_anthropic_retry_options(mut options: RetryOptions) -> RetryOptions {
+    if matches!(options.backend, crate::retry_api::RetryBackend::Backoff)
+        && options.backoff_executor.is_none()
+    {
+        options.backoff_executor = Some(anthropic_backoff_executor());
+    }
+    options
+}
+
+fn anthropic_backoff_executor() -> crate::retry_api::BackoffRetryExecutor {
+    let backoff = ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(1000))
+        .with_max_interval(Duration::from_secs(60))
+        .with_multiplier(1.5)
+        .with_max_elapsed_time(Some(Duration::from_secs(300)))
+        .build();
+    crate::retry_api::BackoffRetryExecutor::with_backoff(backoff)
+}
+
 impl AnthropicClient {
     /// Create provider context for this client
     fn build_context(&self) -> crate::core::ProviderContext {
@@ -299,6 +320,10 @@ impl AnthropicClient {
 
         if let Some(hook) = before_send_hook {
             builder = builder.with_before_send(hook);
+        }
+
+        if let Some(retry) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry);
         }
 
         builder.build()

@@ -14,7 +14,7 @@
 //! ```rust,ignore
 //! use axum::{Router, routing::get, response::sse::Sse};
 //! use siumai_extras::server::axum::{to_sse_response, SseOptions};
-//! use siumai::streaming::ChatStream;
+//! use siumai::prelude::unified::ChatStream;
 //!
 //! async fn chat_handler(stream: ChatStream) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
 //!     to_sse_response(stream, SseOptions::production())
@@ -33,8 +33,7 @@ use std::pin::Pin;
 use axum::response::sse::{Event, Sse};
 use futures::{Stream, StreamExt};
 
-use siumai::error::LlmError;
-use siumai::streaming::{ChatStream, ChatStreamEvent};
+use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmError};
 
 /// Options for SSE encoding.
 ///
@@ -133,7 +132,7 @@ impl SseOptions {
 /// ```rust,no_run
 /// use axum::response::sse::Sse;
 /// use siumai_extras::server::axum::{to_sse_response, SseOptions};
-/// use siumai::streaming::ChatStream;
+/// use siumai::prelude::unified::ChatStream;
 ///
 /// async fn handler(stream: ChatStream) -> Sse<impl futures::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
 ///     to_sse_response(stream, SseOptions::production())
@@ -256,7 +255,7 @@ pub fn to_sse_response(
 /// use axum::response::Response;
 /// use axum::body::Body;
 /// use siumai_extras::server::axum::to_text_stream;
-/// use siumai::streaming::ChatStream;
+/// use siumai::prelude::unified::ChatStream;
 ///
 /// async fn handler(stream: ChatStream) -> Response<Body> {
 ///     let text_stream = to_text_stream(stream);
@@ -288,9 +287,7 @@ pub fn to_text_stream(
 mod tests {
     use super::*;
     use futures::stream;
-    use siumai::types::ResponseMetadata;
-    use siumai::types::Usage;
-    use siumai::types::chat::{ChatResponse, MessageContent};
+    use siumai::prelude::unified::{ChatResponse, MessageContent, ResponseMetadata, Usage};
 
     #[tokio::test]
     async fn test_to_sse_response_basic() {

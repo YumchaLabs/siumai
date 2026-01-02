@@ -154,7 +154,7 @@ let _ = client
 ### Tracing HTTP Requests (legacy)
 
 ```rust
-use siumai::observability::tracing::ProviderTracer;
+use siumai::experimental::observability::tracing::ProviderTracer;
 
 let tracer = ProviderTracer::new("openai")
     .with_model("gpt-4");
@@ -208,7 +208,7 @@ The tracing module automatically masks sensitive values in logs:
 ### Disable Masking (for debugging only)
 
 ```rust
-use siumai::observability::tracing::set_mask_sensitive_values;
+use siumai::experimental::observability::tracing::set_mask_sensitive_values;
 
 // WARNING: Only use in secure development environments
 set_mask_sensitive_values(false);
@@ -256,7 +256,7 @@ async fn make_request(client: &Client, prompt: &str) -> Result<String> {
 ### Tracing Context
 
 ```rust
-use siumai::observability::tracing::TracingContext;
+use siumai::experimental::observability::tracing::TracingContext;
 
 let ctx = TracingContext::new("openai")
     .with_model("gpt-4")

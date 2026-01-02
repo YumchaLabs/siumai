@@ -9,6 +9,8 @@ use crate::error::LlmError;
 use crate::standards::anthropic;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
+use reqwest::header::HeaderMap;
+use std::collections::{HashMap, HashSet};
 
 /// Vertex Anthropic provider specification
 #[derive(Clone)]
@@ -45,7 +47,68 @@ impl ProviderSpec for VertexAnthropicSpec {
         &self,
         _ctx: &ProviderContext,
     ) -> Result<reqwest::header::HeaderMap, LlmError> {
-        crate::execution::http::headers::ProviderHeaders::vertex_bearer(&self.extra_headers)
+        let builder = crate::execution::http::headers::HttpHeaderBuilder::new()
+            .with_json_content_type()
+            .with_custom_headers(&self.extra_headers)?;
+        Ok(builder.build())
+    }
+
+    fn merge_request_headers(
+        &self,
+        mut base: HeaderMap,
+        extra: &HashMap<String, String>,
+    ) -> HeaderMap {
+        fn merge_comma_separated_tokens(a: &str, b: &str) -> String {
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut out: Vec<String> = Vec::new();
+
+            for raw in a.split(',').chain(b.split(',')) {
+                let token = raw.trim();
+                if token.is_empty() {
+                    continue;
+                }
+                if seen.insert(token.to_string()) {
+                    out.push(token.to_string());
+                }
+            }
+
+            out.join(",")
+        }
+
+        for (k, v) in extra {
+            if k.eq_ignore_ascii_case("anthropic-beta") {
+                let existing = base
+                    .get("anthropic-beta")
+                    .and_then(|hv| hv.to_str().ok())
+                    .unwrap_or("");
+                let merged = merge_comma_separated_tokens(existing, v);
+                if let (Ok(name), Ok(val)) = (
+                    reqwest::header::HeaderName::from_bytes(b"anthropic-beta"),
+                    reqwest::header::HeaderValue::from_str(&merged),
+                ) {
+                    base.insert(name, val);
+                }
+                continue;
+            }
+
+            if let (Ok(name), Ok(val)) = (
+                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                reqwest::header::HeaderValue::from_str(v),
+            ) {
+                base.insert(name, val);
+            }
+        }
+
+        base
+    }
+
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        anthropic::errors::classify_anthropic_http_error(self.id(), status, body_text)
     }
 
     fn chat_url(&self, stream: bool, _req: &ChatRequest, _ctx: &ProviderContext) -> String {

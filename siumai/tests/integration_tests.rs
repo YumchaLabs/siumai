@@ -2,9 +2,7 @@
 //!
 //! These tests verify the core functionality of the unified LLM interface
 
-use siumai::prelude::*;
-use siumai::streaming::{ProcessedEvent, StreamProcessor};
-use siumai::types::{ChatRequest, ContentPart, ProviderOptions};
+use siumai::prelude::unified::*;
 use siumai::user_builder;
 use std::time::Duration;
 
@@ -93,16 +91,6 @@ mod tests {
         assert_eq!(request.common_params.model, "gpt-4");
         assert_eq!(request.common_params.temperature, Some(0.7));
         assert_eq!(request.common_params.max_tokens, Some(1000));
-    }
-
-    #[test]
-    fn test_provider_options_basic() {
-        // Test ProviderOptions enum basics and helpers
-        let opts = siumai::provider_ext::openai::OpenAiOptions::new();
-        let po = ProviderOptions::OpenAi(serde_json::to_value(opts).unwrap());
-        assert_eq!(po.provider_id(), Some("openai"));
-        assert!(po.is_for_provider("openai"));
-        assert!(!po.is_none());
     }
 
     #[test]
@@ -234,7 +222,7 @@ mod tests {
     // Commented out until provider info functions are implemented
     // #[test]
     // fn test_provider_info() {
-    //     use siumai::providers::{get_provider_info, get_supported_providers, is_model_supported};
+    //     use siumai::provider_catalog::{get_provider_info, get_supported_providers, is_model_supported};
     //     // Test implementation when available
     // }
 
@@ -246,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_parameter_validation() {
-        use siumai::params::EnhancedParameterValidator;
+        use siumai::experimental::params::EnhancedParameterValidator;
 
         let params = CommonParams {
             model: "gpt-4".to_string(),
@@ -269,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_retry_policy() {
-        use siumai::retry::RetryPolicy;
+        use siumai::retry_api::RetryPolicy;
         use std::time::Duration;
 
         let policy = RetryPolicy::new()
@@ -290,8 +278,6 @@ mod tests {
 
     #[test]
     fn test_error_classification() {
-        use siumai::error::ErrorCategory;
-
         let error = LlmError::ApiError {
             code: 429,
             message: "Rate limit exceeded".to_string(),
@@ -312,11 +298,13 @@ mod tests {
 #[cfg(test)]
 mod builder_tests {
     use super::*;
+    use siumai::experimental::client::LlmClient;
+    use siumai::provider::Siumai;
 
     #[test]
     fn test_llm_builder_creation() {
         // Test basic builder creation
-        let builder = LlmBuilder::new();
+        let builder = Siumai::builder();
 
         // Test OpenAI builder
         let _openai_builder = builder
@@ -337,7 +325,7 @@ mod builder_tests {
             .build()
             .unwrap();
 
-        let builder = LlmBuilder::new()
+        let builder = Siumai::builder()
             .with_http_client(custom_client)
             .with_timeout(Duration::from_secs(30));
 
@@ -351,36 +339,24 @@ mod builder_tests {
     async fn test_openai_compatible_http_config() {
         println!("🧪 Testing OpenAI-compatible HTTP configuration");
 
-        // Create HTTP config with various settings
-        let http_config = HttpConfig {
-            timeout: Some(Duration::from_secs(60)),
-            connect_timeout: Some(Duration::from_secs(10)),
-            user_agent: Some("test-agent/1.0".to_string()),
-            ..Default::default()
-        };
-
-        // Add custom headers
-        let mut http_config = http_config;
-        let mut headers = std::collections::HashMap::new();
-        headers.insert("X-Custom-Header".to_string(), "test-value".to_string());
-        headers.insert("X-Request-ID".to_string(), "test-123".to_string());
-        http_config.headers = headers;
-
         // Test SiliconFlow with HTTP config
-        let result = LlmBuilder::new()
+        let result = Siumai::builder()
+            .with_timeout(Duration::from_secs(60))
+            .with_connect_timeout(Duration::from_secs(10))
+            .with_user_agent("test-agent/1.0")
+            .with_header("X-Custom-Header", "test-value")
+            .with_header("X-Request-ID", "test-123")
             .openai()
             .siliconflow()
             .api_key("test-key")
             .model("deepseek-chat")
-            .with_http_config(http_config.clone())
             .build()
             .await;
 
         match result {
             Ok(client) => {
                 println!("    ✅ SiliconFlow client created with HTTP config");
-                assert_eq!(client.provider_id(), "siliconflow");
-                assert_eq!(client.model(), "deepseek-chat");
+                assert_eq!(client.provider_id().as_ref(), "siliconflow");
             }
             Err(e) => {
                 // Expected to fail with invalid API key, but should not fail due to HTTP config
@@ -394,18 +370,22 @@ mod builder_tests {
         }
 
         // Test DeepSeek with HTTP config
-        let result = LlmBuilder::new()
+        let result = Siumai::builder()
+            .with_timeout(Duration::from_secs(60))
+            .with_connect_timeout(Duration::from_secs(10))
+            .with_user_agent("test-agent/1.0")
+            .with_header("X-Custom-Header", "test-value")
+            .with_header("X-Request-ID", "test-123")
             .openai()
             .deepseek()
             .api_key("test-key")
-            .with_http_config(http_config)
             .build()
             .await;
 
         match result {
             Ok(client) => {
                 println!("    ✅ DeepSeek client created with HTTP config");
-                assert_eq!(client.provider_id(), "deepseek");
+                assert_eq!(client.provider_id().as_ref(), "deepseek");
             }
             Err(e) => {
                 println!(
@@ -423,42 +403,13 @@ mod builder_tests {
         println!("🧪 Testing default model configuration for OpenAI-compatible providers");
 
         // Test SiliconFlow default model
-        let result = LlmBuilder::new()
-            .openai()
-            .siliconflow()
-            .api_key("test-key")
-            .build()
-            .await;
-
-        match result {
-            Ok(client) => {
-                println!("    ✅ SiliconFlow client created with default model");
-                assert_eq!(client.model(), "deepseek-ai/DeepSeek-V3.1");
-            }
-            Err(e) => {
-                println!("    ✅ Failed with expected error: {}", e);
-                // Should not fail due to model configuration
-                assert!(!e.to_string().contains("model"));
-            }
-        }
+        let siliconflow_default = siumai_provider_openai::providers::openai_compatible::default_models::get_default_chat_model("siliconflow")
+            .expect("siliconflow should have a default chat model");
+        assert_eq!(siliconflow_default, siumai_provider_openai::providers::openai_compatible::providers::models::siliconflow::DEEPSEEK_V3_1);
 
         // Test OpenRouter default model
-        let result = LlmBuilder::new()
-            .openai()
-            .openrouter()
-            .api_key("test-key")
-            .build()
-            .await;
-
-        match result {
-            Ok(client) => {
-                println!("    ✅ OpenRouter client created with default model");
-                assert_eq!(client.model(), "openai/gpt-4o");
-            }
-            Err(e) => {
-                println!("    ✅ Failed with expected error: {}", e);
-                assert!(!e.to_string().contains("model"));
-            }
-        }
+        let openrouter_default = siumai_provider_openai::providers::openai_compatible::default_models::get_default_chat_model("openrouter")
+            .expect("openrouter should have a default chat model");
+        assert_eq!(openrouter_default, siumai_provider_openai::providers::openai_compatible::providers::models::openrouter::openai::GPT_4O);
     }
 }

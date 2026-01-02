@@ -9,7 +9,7 @@
 ///
 /// # Examples
 /// ```rust
-/// use siumai::utils::url::join_url;
+/// use siumai::experimental::utils::url::join_url;
 ///
 /// assert_eq!(join_url("https://api.example.com", "v1/chat"), "https://api.example.com/v1/chat");
 /// assert_eq!(join_url("https://api.example.com/", "v1/chat"), "https://api.example.com/v1/chat");
@@ -31,7 +31,7 @@ pub fn join_url(base: &str, path: &str) -> String {
 ///
 /// # Examples
 /// ```rust
-/// use siumai::utils::url::join_url_segments;
+/// use siumai::experimental::utils::url::join_url_segments;
 ///
 /// assert_eq!(
 ///     join_url_segments(&["https://api.example.com", "v1", "models", "gpt-4"]),
@@ -64,7 +64,7 @@ pub fn join_url_segments(segments: &[&str]) -> String {
 ///
 /// # Examples
 /// ```rust
-/// use siumai::utils::url::normalize_url;
+/// use siumai::experimental::utils::url::normalize_url;
 ///
 /// assert_eq!(normalize_url("https://api.example.com//v1//chat"), "https://api.example.com/v1/chat");
 /// assert_eq!(normalize_url("http://localhost:11434//api//chat"), "http://localhost:11434/api/chat");

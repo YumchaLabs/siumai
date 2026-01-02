@@ -13,12 +13,10 @@
 //! Run with: cargo run --example complete_custom_provider --features openai
 
 use siumai::experimental::core::{ChatTransformers, ProviderContext, ProviderSpec};
-use siumai::error::LlmError;
 use siumai::experimental::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
 use siumai::experimental::execution::transformers::request::RequestTransformer;
 use siumai::experimental::execution::transformers::response::ResponseTransformer;
-use siumai::traits::ProviderCapabilities;
-use siumai::types::{ChatMessage, ChatRequest, ChatResponse};
+use siumai::prelude::unified::*;
 use std::sync::Arc;
 
 // ============================================================================
@@ -148,7 +146,8 @@ impl RequestTransformer for MyCustomRequestTransformer {
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         // For this example, we'll use OpenAI format as base
         // In a real implementation, you would transform to your provider's format
-        let openai_tx = siumai::standards::openai::transformers::request::OpenAiRequestTransformer;
+        let openai_tx =
+            siumai::experimental::standards::openai::transformers::request::OpenAiRequestTransformer;
         let body = openai_tx.transform_chat(req)?;
 
         // You could add custom transformations here
@@ -173,7 +172,7 @@ impl ResponseTransformer for MyCustomResponseTransformer {
         // For this example, we'll use OpenAI format as base
         // In a real implementation, you would parse your provider's response format
         let openai_tx =
-            siumai::standards::openai::transformers::response::OpenAiResponseTransformer;
+            siumai::experimental::standards::openai::transformers::response::OpenAiResponseTransformer;
         openai_tx.transform_chat_response(raw)
     }
 }
@@ -256,7 +255,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ChatMessage::user("What is the capital of France?").build(),
     ])
     .with_model_params(
-        siumai::types::CommonParamsBuilder::new()
+        CommonParams::builder()
             .model("gpt-4o-mini")
             .build()
             .unwrap(),
@@ -268,7 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client.chat(request).await?;
 
     println!("📥 Response:");
-    if let siumai::types::MessageContent::Text(text) = &response.content {
+    if let MessageContent::Text(text) = &response.content {
         println!("{}\n", text);
     } else {
         println!("{:?}\n", response.content);

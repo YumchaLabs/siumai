@@ -84,8 +84,7 @@ use rmcp::{
     transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess},
 };
 use serde_json::Value;
-use siumai::error::LlmError;
-use siumai::types::Tool;
+use siumai::prelude::unified::{LlmError, Tool};
 use std::sync::Arc;
 
 /// MCP tool resolver that executes tools via an MCP service.

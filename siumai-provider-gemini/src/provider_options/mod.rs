@@ -5,4 +5,3 @@
 //! coupling in the provider-agnostic core.
 
 pub mod gemini;
-

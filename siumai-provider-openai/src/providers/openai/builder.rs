@@ -357,7 +357,10 @@ impl OpenAiBuilder {
     }
 
     /// Switch into an OpenAI-compatible vendor builder using a typed vendor id.
-    pub fn vendor(self, vendor: OpenAiVendorId) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
+    pub fn vendor(
+        self,
+        vendor: OpenAiVendorId,
+    ) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
         self.compatible(vendor.as_str())
     }
 
@@ -419,13 +422,15 @@ impl OpenAiBuilder {
         // so request-level overrides still work.
         if self.use_responses_api {
             let mut openai_obj = serde_json::json!({ "responsesApi": { "enabled": true } });
-            if let Some(id) = self.responses_previous_response_id {
-                if let Some(obj) = openai_obj
+            if let Some(id) = self.responses_previous_response_id
+                && let Some(obj) = openai_obj
                     .get_mut("responsesApi")
                     .and_then(|v| v.as_object_mut())
-                {
-                    obj.insert("previousResponseId".to_string(), serde_json::Value::String(id));
-                }
+            {
+                obj.insert(
+                    "previousResponseId".to_string(),
+                    serde_json::Value::String(id),
+                );
             }
 
             let mut overrides = ProviderOptionsMap::new();

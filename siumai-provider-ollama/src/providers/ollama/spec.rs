@@ -1,6 +1,5 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
 use crate::traits::ProviderCapabilities;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
@@ -34,7 +33,7 @@ impl ProviderSpec for OllamaSpec {
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
         // Ollama typically has no auth; pass through extra headers and JSON content-type
-        ProviderHeaders::ollama(&ctx.http_extra_headers)
+        crate::standards::ollama::utils::build_headers(&ctx.http_extra_headers)
     }
 
     fn chat_url(
@@ -110,7 +109,7 @@ impl ProviderSpec for OllamaSpecWithConfig {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        ProviderHeaders::ollama(&ctx.http_extra_headers)
+        crate::standards::ollama::utils::build_headers(&ctx.http_extra_headers)
     }
 
     fn chat_url(

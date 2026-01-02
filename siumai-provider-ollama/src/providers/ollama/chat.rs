@@ -105,14 +105,12 @@ impl OllamaChatCapability {
         let body = self.build_chat_request_body(&request)?;
         let body_json = serde_json::to_value(&body)?;
 
-        let config = crate::execution::executors::common::HttpExecutionConfig {
-            provider_id: "ollama".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: Vec::new(),
-            retry_options: None,
-        };
+        let config = crate::execution::wiring::HttpExecutionWiring::new(
+            "ollama",
+            self.http_client.clone(),
+            ctx,
+        )
+        .config(spec);
         let res = crate::execution::executors::common::execute_json_request(
             &config,
             &url,

@@ -45,10 +45,9 @@ impl AnthropicChatStandard {
             adapter: self.adapter.clone(),
         });
 
-        let inner =
-            crate::standards::anthropic::streaming::AnthropicEventConverter::new(
-                crate::params::AnthropicParams::default(),
-            );
+        let inner = crate::standards::anthropic::streaming::AnthropicEventConverter::new(
+            crate::params::AnthropicParams::default(),
+        );
         let stream_tx = Arc::new(AnthropicChatStreamTransformer {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
@@ -189,22 +188,24 @@ impl ProviderSpec for AnthropicChatSpec {
             if let Some(b) = cfg.as_bool() {
                 return b;
             }
-            cfg.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false)
+            cfg.get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
         }
 
-	        fn document_title_for_part(
-	            message_custom: &std::collections::HashMap<String, serde_json::Value>,
-	            index: usize,
-	        ) -> Option<String> {
-	            let map = message_custom
-	                .get("anthropic_document_metadata")
-	                .and_then(|v| v.as_object())?;
-	            let meta = map.get(&index.to_string()).and_then(|v| v.as_object())?;
-	            meta.get("title")
-	                .and_then(|v| v.as_str())
-	                .filter(|s| !s.is_empty())
-	                .map(|s| s.to_string())
-	        }
+        fn document_title_for_part(
+            message_custom: &std::collections::HashMap<String, serde_json::Value>,
+            index: usize,
+        ) -> Option<String> {
+            let map = message_custom
+                .get("anthropic_document_metadata")
+                .and_then(|v| v.as_object())?;
+            let meta = map.get(&index.to_string()).and_then(|v| v.as_object())?;
+            meta.get("title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        }
 
         fn extract_citation_documents(
             req: &ChatRequest,
@@ -238,13 +239,15 @@ impl ProviderSpec for AnthropicChatSpec {
                     }
 
                     let title_override = document_title_for_part(&msg.metadata.custom, i);
-                    out.push(crate::standards::anthropic::streaming::AnthropicCitationDocument {
-                        title: title_override
-                            .or_else(|| filename.clone())
-                            .unwrap_or_else(|| "Untitled Document".to_string()),
-                        filename: filename.clone(),
-                        media_type: media_type.clone(),
-                    });
+                    out.push(
+                        crate::standards::anthropic::streaming::AnthropicCitationDocument {
+                            title: title_override
+                                .or_else(|| filename.clone())
+                                .unwrap_or_else(|| "Untitled Document".to_string()),
+                            filename: filename.clone(),
+                            media_type: media_type.clone(),
+                        },
+                    );
                 }
             }
 
@@ -252,11 +255,10 @@ impl ProviderSpec for AnthropicChatSpec {
         }
 
         let citation_documents = extract_citation_documents(req);
-        let inner =
-            crate::standards::anthropic::streaming::AnthropicEventConverter::new(
-                crate::params::AnthropicParams::default(),
-            )
-            .with_citation_documents(citation_documents);
+        let inner = crate::standards::anthropic::streaming::AnthropicEventConverter::new(
+            crate::params::AnthropicParams::default(),
+        )
+        .with_citation_documents(citation_documents);
         let stream_tx = Arc::new(AnthropicChatStreamTransformer {
             provider_id: ctx.provider_id.clone(),
             adapter: self.adapter.clone(),
@@ -296,8 +298,8 @@ impl ProviderSpec for AnthropicChatSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // Use default custom options hook
-        crate::core::default_custom_options_hook(self.provider_id, req)
+        let _ = req;
+        None
     }
 }
 

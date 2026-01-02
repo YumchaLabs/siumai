@@ -10,9 +10,7 @@ use std::sync::Arc;
 use crate::execution::http::interceptor::LoggingInterceptor;
 #[cfg(feature = "builtins")]
 use crate::execution::middleware::samples::chain_default_and_clamp;
-use crate::registry::entry::{
-    ProviderRegistryHandle, RegistryOptions, create_provider_registry,
-};
+use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_provider_registry};
 
 #[cfg(feature = "builtins")]
 use crate::registry::entry::ProviderFactory;
@@ -102,7 +100,8 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "openai")]
     {
         let builtin =
-            siumai_providers::providers::openai_compatible::config::get_builtin_providers();
+            siumai_provider_openai_compatible::providers::openai_compatible::get_builtin_providers(
+            );
         for (_id, cfg) in builtin {
             let id_str = cfg.id.clone();
             // Skip providers that already have native factories registered (e.g., groq, minimaxi).

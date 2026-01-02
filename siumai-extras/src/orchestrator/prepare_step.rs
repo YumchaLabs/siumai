@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use super::types::StepResult;
-use siumai::types::{ChatMessage, Tool};
+use siumai::prelude::unified::{ChatMessage, Tool};
 
 /// Context provided to the prepare step callback.
 pub struct PrepareStepContext<'a> {
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_filter_active_tools() {
-        use siumai::types::Tool;
+        use siumai::prelude::unified::Tool;
 
         let tools = vec![
             Tool::function(

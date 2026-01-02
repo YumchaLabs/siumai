@@ -191,3 +191,48 @@ async fn json_with_headers_classifies_500_api_error() {
         other => panic!("expected ApiError(500), got: {:?}", other),
     }
 }
+
+#[tokio::test]
+async fn multipart_streaming_response_retries_401_then_200() {
+    let mut server = mockito::Server::new_async().await;
+    let _m1 = server
+        .mock("POST", "/mretry")
+        .match_header("x-retry-attempt", "0")
+        .with_status(401)
+        .with_body("unauthorized")
+        .expect(1)
+        .create_async()
+        .await;
+
+    let _m2 = server
+        .mock("POST", "/mretry")
+        .match_header("x-retry-attempt", "1")
+        .with_status(200)
+        .with_header("content-type", "text/event-stream")
+        .with_body("data: ok\n\n")
+        .expect(1)
+        .create_async()
+        .await;
+
+    let url = format!("{}/mretry", server.url());
+    let client = reqwest::Client::new();
+    let config = test_config(
+        &client,
+        reqwest::header::HeaderMap::new(),
+        vec![],
+        Some(crate::retry_api::RetryOptions::default()),
+    );
+
+    let resp = execute_multipart_request_streaming_response(
+        &config,
+        &url,
+        || Ok(reqwest::multipart::Form::new().text("a", "b")),
+        None,
+    )
+    .await
+    .expect("should succeed after retry");
+
+    assert_eq!(resp.status().as_u16(), 200);
+    let text = resp.text().await.expect("read body");
+    assert!(text.contains("data: ok"));
+}

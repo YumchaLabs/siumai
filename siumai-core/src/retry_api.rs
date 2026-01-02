@@ -2,23 +2,19 @@
 //!
 //! This module provides a unified, recommended retry API.
 //!
-//! - Simple defaults: `retry` and `retry_for_provider` use backoff-based executor
+//! - Simple defaults: `retry` uses backoff-based executor
 //! - Opt-in control: use `RetryOptions` to select backend and configuration
 //! - Builder/registry integration: `RetryOptions` can be attached to providers via
 //!   `Siumai::builder().with_retry(...)` or `RegistryOptions.retry_options`
 //!
 //! Example
 //! ```rust,no_run
-//! use siumai::retry_api::{retry, retry_for_provider, retry_with, RetryOptions, RetryBackend};
-//! use siumai::types::ProviderType;
+//! use siumai::retry_api::{retry, retry_with, RetryOptions, RetryBackend};
 //!
 //! # async fn do_work() -> Result<String, siumai::LlmError> { Ok("ok".into()) }
 //! # async fn example() -> Result<(), siumai::LlmError> {
 //! // Recommended default (backoff-based)
 //! let result = retry(|| do_work()).await?;
-//!
-//! // Provider-aware backoff
-//! let result = retry_for_provider(&ProviderType::OpenAi, || do_work()).await?;
 //!
 //! // Explicit backend selection (policy-based)
 //! let options = RetryOptions::policy_default().with_max_attempts(5);
@@ -28,7 +24,6 @@
 //! ```
 
 use crate::error::LlmError;
-use crate::types::ProviderType;
 use reqwest::header::HeaderMap;
 
 // Re-export core types for convenience
@@ -49,7 +44,8 @@ pub enum RetryBackend {
 #[derive(Debug, Clone)]
 pub struct RetryOptions {
     pub backend: RetryBackend,
-    pub provider: Option<ProviderType>,
+    /// Optional backoff executor override (Backoff backend only).
+    pub backoff_executor: Option<BackoffRetryExecutor>,
     // Policy-based options
     pub policy: Option<RetryPolicy>,
     /// Whether to retry 401 Unauthorized errors (useful for token refresh scenarios)
@@ -62,7 +58,7 @@ impl Default for RetryOptions {
     fn default() -> Self {
         Self {
             backend: RetryBackend::Backoff,
-            provider: None,
+            backoff_executor: None,
             policy: None,
             retry_401: true,  // Default to true for backward compatibility
             idempotent: true, // Default to true (most LLM requests are idempotent)
@@ -76,13 +72,10 @@ impl RetryOptions {
         Self::default()
     }
 
-    /// Use provider-aware backoff backend
-    pub fn backoff_for_provider(provider: ProviderType) -> Self {
-        Self {
-            backend: RetryBackend::Backoff,
-            provider: Some(provider),
-            ..Default::default()
-        }
+    /// Use backoff backend with a custom executor.
+    pub fn with_backoff_executor(mut self, executor: BackoffRetryExecutor) -> Self {
+        self.backoff_executor = Some(executor);
+        self
     }
 
     /// Use policy-based backend with default policy
@@ -125,19 +118,6 @@ where
     crate::retry::retry_with_backoff(operation).await
 }
 
-/// Recommended provider-aware retry (backoff-based)
-pub async fn retry_for_provider<F, Fut, T>(
-    provider: &ProviderType,
-    operation: F,
-) -> Result<T, LlmError>
-where
-    F: Fn() -> Fut + Send + Sync,
-    Fut: std::future::Future<Output = Result<T, LlmError>> + Send,
-    T: Send,
-{
-    crate::retry::retry_for_provider_backoff(provider, operation).await
-}
-
 /// Retry with explicit options (backend selection)
 pub async fn retry_with<F, Fut, T>(operation: F, options: RetryOptions) -> Result<T, LlmError>
 where
@@ -147,8 +127,8 @@ where
 {
     match options.backend {
         RetryBackend::Backoff => {
-            if let Some(provider) = options.provider.as_ref() {
-                crate::retry::retry_for_provider_backoff(provider, operation).await
+            if let Some(executor) = options.backoff_executor.as_ref() {
+                executor.execute(operation).await
             } else {
                 crate::retry::retry_with_backoff(operation).await
             }
@@ -158,6 +138,26 @@ where
             let executor = crate::retry::RetryExecutor::new(policy);
             executor.execute(operation).await
         }
+    }
+}
+
+/// Retry only when options are provided.
+///
+/// This is a small helper to keep call sites consistent when retry is optional
+/// (e.g. per-client or per-request policy injection).
+pub async fn maybe_retry<F, Fut, T>(
+    options: Option<RetryOptions>,
+    operation: F,
+) -> Result<T, LlmError>
+where
+    F: Fn() -> Fut + Send + Sync,
+    Fut: std::future::Future<Output = Result<T, LlmError>> + Send,
+    T: Send,
+{
+    if let Some(opts) = options {
+        retry_with(operation, opts).await
+    } else {
+        operation().await
     }
 }
 
@@ -224,6 +224,28 @@ pub fn classify_http_error(
         ));
     }
 
+    // 404 → NotFound
+    if status == 404 {
+        return LlmError::NotFound(format!(
+            "provider={} http=404{} body_sample={}",
+            provider_id, ids_suffix, body_sample
+        ));
+    }
+
+    // 413/415 → InvalidInput (common for file/image/multipart APIs)
+    if status == 413 {
+        return LlmError::InvalidInput(format!(
+            "provider={} http=413 payload too large{} body_sample={}",
+            provider_id, ids_suffix, body_sample
+        ));
+    }
+    if status == 415 {
+        return LlmError::InvalidInput(format!(
+            "provider={} http=415 unsupported media type{} body_sample={}",
+            provider_id, ids_suffix, body_sample
+        ));
+    }
+
     // 403/400 with quota/rate patterns → QuotaExceeded or RateLimit
     if status == 403 || status == 400 {
         let quota_like = lower.contains("quota") || lower.contains("exceed");
@@ -242,6 +264,20 @@ pub fn classify_http_error(
         if rate_like {
             return LlmError::RateLimitError(format!("provider={} rate limited", provider_id));
         }
+    }
+
+    // Generic 403/400 mapping when not a quota/rate envelope.
+    if status == 403 {
+        return LlmError::AuthenticationError(format!(
+            "provider={} forbidden{} body_sample={}",
+            provider_id, ids_suffix, body_sample
+        ));
+    }
+    if status == 400 {
+        return LlmError::InvalidInput(format!(
+            "provider={} bad request{} body_sample={}",
+            provider_id, ids_suffix, body_sample
+        ));
     }
 
     // 5xx → Server error (retryable via is_retryable())

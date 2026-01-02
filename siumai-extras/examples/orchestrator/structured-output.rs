@@ -9,9 +9,9 @@
 //! ```
 
 use serde_json::json;
-use siumai_extras::orchestrator::{step_count_is, ToolLoopAgent};
 use siumai::prelude::Siumai;
-use siumai::types::{ChatMessage, OutputSchema};
+use siumai::prelude::unified::{ChatMessage, OutputSchema};
+use siumai_extras::orchestrator::{ToolLoopAgent, step_count_is};
 
 // Simple tool resolver that doesn't actually execute tools
 struct DummyResolver;
@@ -22,7 +22,7 @@ impl siumai_extras::orchestrator::ToolResolver for DummyResolver {
         &self,
         _name: &str,
         _arguments: serde_json::Value,
-    ) -> Result<serde_json::Value, siumai::error::LlmError> {
+    ) -> Result<serde_json::Value, siumai::prelude::unified::LlmError> {
         Ok(json!({"status": "ok"}))
     }
 }
@@ -85,12 +85,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 1: Extract person information");
     println!("{}", "=".repeat(80));
 
-    let messages = vec![ChatMessage::user(
-        "Extract information about this person: \
+    let messages = vec![
+        ChatMessage::user(
+            "Extract information about this person: \
          John Smith is a 35-year-old software engineer who enjoys hiking, \
          photography, and playing guitar in his free time.",
-    )
-    .build()];
+        )
+        .build(),
+    ];
 
     let resolver = DummyResolver;
     let result = agent.generate(messages, &resolver).await?;
@@ -142,13 +144,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_description("List of people"),
         );
 
-    let messages2 = vec![ChatMessage::user(
-        "Extract information about these people: \
+    let messages2 = vec![
+        ChatMessage::user(
+            "Extract information about these people: \
          Alice Johnson, 28, is a data scientist. \
          Bob Williams, 42, works as a teacher. \
          Carol Davis, 31, is a graphic designer.",
-    )
-    .build()];
+        )
+        .build(),
+    ];
 
     let result2 = agent2.generate(messages2, &resolver).await?;
 
@@ -162,8 +166,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 3: Demonstrate validation with siumai-extras (if available)
     #[cfg(feature = "schema")]
     {
+        use siumai::prelude::unified::SchemaValidator;
         use siumai_extras::schema::JsonSchemaValidator;
-        use siumai::types::SchemaValidator;
 
         println!("\n{}", "=".repeat(80));
         println!("Example 3: Schema Validation (with siumai-extras)");
@@ -171,7 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if let Some(output) = &result.output {
             let validator = JsonSchemaValidator::new(&schema)?;
-            
+
             match validator.validate(output) {
                 Ok(_) => println!("✅ Output is valid according to schema!"),
                 Err(e) => println!("❌ Validation failed: {}", e),
@@ -182,7 +186,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "schema"))]
     {
         println!("\n💡 Tip: Enable the 'schema' feature in siumai-extras for validation:");
-        println!("   cargo run -p siumai-extras --example orchestrator_structured_output --features \"openai schema\"");
+        println!(
+            "   cargo run -p siumai-extras --example orchestrator_structured_output --features \"openai schema\""
+        );
     }
 
     println!("\n{}", "=".repeat(80));

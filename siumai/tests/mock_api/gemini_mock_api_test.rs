@@ -5,7 +5,6 @@
 //! https://ai.google.dev/api/generate-content
 
 use serde_json::json;
-use siumai::builder::LlmBuilder;
 use siumai::prelude::*;
 use wiremock::matchers::{header, method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -100,7 +99,7 @@ async fn test_gemini_generate_content_non_streaming() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -147,7 +146,7 @@ async fn test_gemini_error_response() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key("invalid-key")
         .base_url(mock_server.uri())
@@ -177,7 +176,7 @@ async fn test_gemini_request_headers() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -207,7 +206,7 @@ async fn test_gemini_function_calling_response() {
         .mount(&mock_server)
         .await;
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -242,8 +241,6 @@ async fn test_gemini_function_calling_response() {
         .unwrap();
 
     // Verify response
-    use siumai::types::ContentPart;
-
     assert!(response.has_tool_calls());
 
     let tool_calls = response.tool_calls();

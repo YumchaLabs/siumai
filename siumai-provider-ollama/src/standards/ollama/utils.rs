@@ -5,10 +5,10 @@
 use super::params::OllamaParams;
 use super::types::*;
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
+use crate::execution::http::headers::HttpHeaderBuilder;
+use crate::provider_options::OllamaOptions;
 use crate::types::{
-    ChatMessage, ChatRequest, CommonParams, EmbeddingRequest, EmbeddingResponse, ProviderOptions,
-    Tool,
+    ChatMessage, ChatRequest, CommonParams, EmbeddingRequest, EmbeddingResponse, Tool,
 };
 use base64::Engine;
 use reqwest::header::HeaderMap;
@@ -16,7 +16,29 @@ use std::collections::HashMap;
 
 /// Build HTTP headers for Ollama requests
 pub fn build_headers(additional_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
-    ProviderHeaders::ollama(additional_headers)
+    let version = env!("CARGO_PKG_VERSION");
+    let builder = HttpHeaderBuilder::new()
+        .with_json_content_type()
+        .with_user_agent(&format!("siumai-provider-ollama/{version}"))?
+        .with_custom_headers(additional_headers)?;
+    Ok(builder.build())
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::*;
+
+    #[test]
+    fn build_headers_sets_json_and_user_agent() {
+        let headers = build_headers(&HashMap::new()).unwrap();
+        assert_eq!(
+            headers
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json")
+        );
+        assert!(headers.contains_key(reqwest::header::USER_AGENT));
+    }
 }
 
 /// Convert common `ChatMessage` to Ollama format
@@ -396,7 +418,7 @@ fn apply_common_params_options(
 /// This function merges:
 /// - `ChatRequest.common_params` (temperature/max_tokens/top_p/stop/seed)
 /// - client-level `OllamaParams` (keep_alive/format/think + runtime options)
-/// - per-request `ProviderOptions::Ollama` (keep_alive/format + extra_params)
+/// - per-request `providerOptions["ollama"]` (keep_alive/format + extra_params)
 pub fn build_chat_request(
     request: &ChatRequest,
     default_params: &OllamaParams,
@@ -425,7 +447,11 @@ pub fn build_chat_request(
     let mut think_override: Option<bool> = None;
     let mut extra_params: HashMap<String, serde_json::Value> = HashMap::new();
 
-    if let ProviderOptions::Ollama(opts) = &request.provider_options {
+    let options_value = request.provider_options_map.get("ollama").cloned();
+
+    if let Some(val) = options_value
+        && let Ok(opts) = serde_json::from_value::<OllamaOptions>(val)
+    {
         if opts.keep_alive.is_some() {
             keep_alive = opts.keep_alive.clone();
         }
@@ -493,10 +519,10 @@ pub fn build_chat_request(
 /// This function merges:
 /// - `EmbeddingRequest.model` (fallback to `default_model`)
 /// - client-level `OllamaParams.keep_alive` and `OllamaParams.options`
-/// - per-request `ProviderOptions::Ollama` (`keep_alive`, plus `extra_params`)
+/// - per-request `providerOptions["ollama"]` (`keep_alive`, plus `extra_params`)
 ///
 /// Notes:
-/// - `truncate` is carried via `ProviderOptions::Ollama.extra_params["truncate"]`.
+/// - `truncate` is carried via `providerOptions["ollama"].extra_params["truncate"]`.
 /// - Other `extra_params` are merged into `options`.
 pub fn build_embedding_request(
     request: &EmbeddingRequest,
@@ -533,7 +559,11 @@ pub fn build_embedding_request(
     let mut extra_params: HashMap<String, serde_json::Value> = HashMap::new();
 
     // Per-request overrides
-    if let ProviderOptions::Ollama(opts) = &request.provider_options {
+    let options_value = request.provider_options_map.get("ollama").cloned();
+
+    if let Some(val) = options_value
+        && let Ok(opts) = serde_json::from_value::<OllamaOptions>(val)
+    {
         if opts.keep_alive.is_some() {
             keep_alive = opts.keep_alive.clone();
         }

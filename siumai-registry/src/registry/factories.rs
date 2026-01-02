@@ -14,8 +14,6 @@
 ))]
 use std::sync::Arc;
 
-#[allow(unused_imports)]
-use siumai_providers::builder::LlmBuilder;
 #[cfg(any(
     test,
     feature = "openai",
@@ -82,7 +80,7 @@ pub struct OpenAIProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAIProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "openai")
             .map(|m| m.capabilities)
@@ -103,10 +101,7 @@ impl ProviderFactory for OpenAIProviderFactory {
         use crate::execution::http::client::build_http_client_from_config;
 
         // Resolve HTTP configuration and client (prefer provided client).
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -201,7 +196,7 @@ pub struct AnthropicProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for AnthropicProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "anthropic")
             .map(|m| m.capabilities)
@@ -220,10 +215,7 @@ impl ProviderFactory for AnthropicProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -318,7 +310,7 @@ pub struct AnthropicVertexProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for AnthropicVertexProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "anthropic-vertex")
             .map(|m| m.capabilities)
@@ -337,10 +329,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -417,7 +406,7 @@ pub struct GeminiProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for GeminiProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "gemini")
             .map(|m| m.capabilities)
@@ -436,10 +425,7 @@ impl ProviderFactory for GeminiProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -546,7 +532,7 @@ pub struct GroqProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for GroqProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "groq")
             .map(|m| m.capabilities)
@@ -565,10 +551,7 @@ impl ProviderFactory for GroqProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -592,20 +575,74 @@ impl ProviderFactory for GroqProviderFactory {
             model_id,
         );
 
-        crate::registry::factory::build_openai_compatible_client(
-            "groq".to_string(),
-            api_key,
-            ctx.base_url.clone(),
-            http_client,
-            common_params,
-            http_config,
-            None,
-            ctx.tracing_config.clone(),
-            ctx.retry_options.clone(),
-            ctx.http_interceptors.clone(),
-            ctx.model_middlewares.clone(),
-        )
-        .await
+        // OpenAI-compatible Groq client (configuration-driven).
+        let provider_config =
+            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
+                "groq",
+            )
+            .ok_or_else(|| {
+                LlmError::ConfigurationError("Unknown OpenAI-compatible provider id: groq".into())
+            })?;
+
+        let adapter: Arc<
+            dyn siumai_provider_openai_compatible::providers::openai_compatible::ProviderAdapter,
+        > = Arc::new(
+            siumai_provider_openai_compatible::providers::openai_compatible::ConfigurableAdapter::new(
+                provider_config,
+            ),
+        );
+
+        // Groq uses `/openai/v1`. If a custom base URL is provided without a path, append it.
+        let base_url = if let Some(custom) = ctx.base_url.clone() {
+            let path = custom.splitn(4, '/').nth(3).unwrap_or("");
+            if path.is_empty() {
+                format!("{}/openai/v1", custom.trim_end_matches('/'))
+            } else {
+                custom
+            }
+        } else {
+            adapter.base_url().to_string()
+        };
+
+        let mut config =
+            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                "groq", &api_key, &base_url, adapter,
+            );
+
+        if !common_params.model.is_empty() {
+            config = config.with_model(&common_params.model);
+        }
+        config = config.with_common_params(common_params.clone());
+        config = config.with_http_config(http_config.clone());
+
+        let mut client =
+            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+                config,
+                http_client,
+            )
+            .await?;
+
+        // Apply retry options when present.
+        if let Some(opts) = &ctx.retry_options {
+            client.set_retry_options(Some(opts.clone()));
+        }
+
+        // Install HTTP interceptors.
+        if !ctx.http_interceptors.is_empty() {
+            client = client.with_http_interceptors(ctx.http_interceptors.clone());
+        }
+
+        // Auto + user middlewares.
+        let mut auto_mws =
+            crate::execution::middleware::build_auto_middlewares_vec("groq", &common_params.model);
+        auto_mws.extend(ctx.model_middlewares.clone());
+        if !auto_mws.is_empty() {
+            client = client.with_model_middlewares(auto_mws);
+        }
+
+        Ok(Arc::new(
+            siumai_provider_groq::providers::groq::GroqClient::new(client),
+        ))
     }
 
     async fn embedding_model_with_ctx(
@@ -654,7 +691,7 @@ pub struct XAIProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for XAIProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "xai")
             .map(|m| m.capabilities)
@@ -672,13 +709,8 @@ impl ProviderFactory for XAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        use siumai_providers::providers::xai::{XaiClient, XaiConfig};
-
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -696,29 +728,50 @@ impl ProviderFactory for XAIProviderFactory {
             })?
         };
 
-        // Resolve base URL (context override → default).
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
-            ctx.base_url.clone(),
-            "https://api.x.ai/v1",
-        );
-
         // Resolve common parameters for model selection.
         let common_params = crate::utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
 
-        // Build XAI config and client.
-        let xai_cfg = XaiConfig::new(api_key)
-            .with_base_url(base_url)
-            .with_model(common_params.model.clone());
+        let provider_config =
+            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
+                "xai",
+            )
+            .ok_or_else(|| {
+                LlmError::ConfigurationError("Unknown OpenAI-compatible provider id: xai".into())
+            })?;
 
-        let mut client = XaiClient::with_http_client(xai_cfg, http_client).await?;
+        let adapter: Arc<
+            dyn siumai_provider_openai_compatible::providers::openai_compatible::ProviderAdapter,
+        > = Arc::new(
+            siumai_provider_openai_compatible::providers::openai_compatible::ConfigurableAdapter::new(
+                provider_config,
+            ),
+        );
 
-        // Apply tracing configuration if provided.
-        if let Some(tc) = ctx.tracing_config.clone() {
-            client.set_tracing_config(Some(tc));
+        let base_url = crate::utils::builder_helpers::resolve_base_url(
+            ctx.base_url.clone(),
+            adapter.base_url(),
+        );
+
+        let mut config =
+            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
+                "xai", &api_key, &base_url, adapter,
+            );
+
+        if !common_params.model.is_empty() {
+            config = config.with_model(&common_params.model);
         }
+        config = config.with_common_params(common_params.clone());
+        config = config.with_http_config(http_config.clone());
+
+        let mut client =
+            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+                config,
+                http_client,
+            )
+            .await?;
 
         // Install HTTP interceptors.
         if !ctx.http_interceptors.is_empty() {
@@ -787,7 +840,7 @@ pub struct OllamaProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for OllamaProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "ollama")
             .map(|m| m.capabilities)
@@ -806,10 +859,7 @@ impl ProviderFactory for OllamaProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -888,7 +938,7 @@ pub struct MiniMaxiProviderFactory;
 #[async_trait::async_trait]
 impl ProviderFactory for MiniMaxiProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
-        let meta = siumai_providers::providers::metadata::native_providers_metadata();
+        let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
             .find(|m| m.id == "minimaxi")
             .map(|m| m.capabilities)
@@ -907,10 +957,7 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -931,7 +978,7 @@ impl ProviderFactory for MiniMaxiProviderFactory {
         // Resolve base URL (context override → config default).
         let base_url = crate::utils::builder_helpers::resolve_base_url(
             ctx.base_url.clone(),
-            siumai_providers::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL,
+            siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL,
         );
 
         // Resolve common parameters.
@@ -1022,10 +1069,7 @@ impl ProviderFactory for OpenRouterProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -1124,10 +1168,7 @@ impl ProviderFactory for DeepSeekProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -1217,7 +1258,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
         let mut caps = ProviderCapabilities::new().with_chat().with_streaming();
         let Some(cfg) =
-            siumai_providers::providers::openai_compatible::config::get_provider_config(
+            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
                 &self.provider_id,
             )
         else {
@@ -1259,10 +1300,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         // Resolve HTTP configuration and client.
-        let http_config = ctx
-            .http_config
-            .clone()
-            .unwrap_or_default();
+        let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
         } else {
@@ -1271,7 +1309,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
 
         // Resolve API key using shared helper (context override + configured envs + fallback).
         let provider_config =
-            siumai_providers::providers::openai_compatible::config::get_provider_config(
+            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
                 &self.provider_id,
             );
         let api_key = if let Some(cfg) = &provider_config {
@@ -1282,7 +1320,10 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
                 &cfg.api_key_env_aliases,
             )?
         } else {
-            crate::utils::builder_helpers::get_api_key_with_env(ctx.api_key.clone(), &self.provider_id)?
+            crate::utils::builder_helpers::get_api_key_with_env(
+                ctx.api_key.clone(),
+                &self.provider_id,
+            )?
         };
 
         // Resolve common parameters.

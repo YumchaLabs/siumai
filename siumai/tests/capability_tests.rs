@@ -7,7 +7,12 @@
 #[path = "capabilities/audio_capability_test.rs"]
 mod audio_capability_test;
 
-#[cfg(all(feature = "openai", feature = "anthropic", feature = "google", feature = "xai"))]
+#[cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "xai"
+))]
 #[path = "capabilities/vision_capability_test.rs"]
 mod vision_capability_test;
 
@@ -28,4 +33,3 @@ mod image_generation_test;
 #[cfg(all(feature = "openai", feature = "google", feature = "ollama"))]
 #[path = "capabilities/embedding_integration_tests.rs"]
 mod embedding_integration_tests;
-

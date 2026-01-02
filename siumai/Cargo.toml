@@ -35,8 +35,17 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 # Workspace split crates (beta.5)
 siumai-core = { workspace = true, default-features = false }
-siumai-providers = { workspace = true, default-features = false }
 siumai-registry = { workspace = true, default-features = false }
+
+# Provider crates (direct dependencies; breaking from the legacy umbrella `siumai-providers`)
+siumai-provider-openai = { version = "0.11.0-beta.5", path = "../siumai-provider-openai", default-features = false, optional = true }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
+siumai-provider-anthropic = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic", default-features = false, optional = true }
+siumai-provider-gemini = { version = "0.11.0-beta.5", path = "../siumai-provider-gemini", default-features = false, optional = true }
+siumai-provider-ollama = { version = "0.11.0-beta.5", path = "../siumai-provider-ollama", default-features = false, optional = true }
+siumai-provider-groq = { version = "0.11.0-beta.5", path = "../siumai-provider-groq", default-features = false, optional = true }
+siumai-provider-xai = { version = "0.11.0-beta.5", path = "../siumai-provider-xai", default-features = false, optional = true }
+siumai-provider-minimaxi = { version = "0.11.0-beta.5", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
 
 # Async traits
 async-trait.workspace = true
@@ -91,43 +100,58 @@ base64 = "0.22.1"
 hex = { version = "0.4.3", optional = true }
 
 [features]
-# Default features - include all providers for convenience
-default = ["all-providers"]
+# Default features - keep builds minimal by enabling OpenAI only.
+# Enable other providers explicitly or use `all-providers`.
+default = ["openai"]
 
 # Enable structured JSON messages (MessageContent::Json)
 structured-messages = [
     "siumai-core/structured-messages",
-    "siumai-providers/structured-messages",
     "siumai-registry/structured-messages",
+    "siumai-provider-openai/structured-messages",
+    "siumai-provider-anthropic/structured-messages",
+    "siumai-provider-gemini/structured-messages",
+    "siumai-provider-ollama/structured-messages",
+    "siumai-provider-groq/structured-messages",
+    "siumai-provider-xai/structured-messages",
+    "siumai-provider-minimaxi/structured-messages",
 ]
 
 # Provider features - forwarded to split crates
-openai = ["siumai-core/openai", "siumai-providers/openai", "siumai-registry/openai"]
+openai = [
+    "siumai-core/openai",
+    "siumai-registry/openai",
+    "dep:siumai-provider-openai",
+    "siumai-provider-openai/openai",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+]
 anthropic = [
     "siumai-core/anthropic",
-    "siumai-providers/anthropic",
     "siumai-registry/anthropic",
+    "dep:siumai-provider-anthropic",
+    "siumai-provider-anthropic/anthropic",
 ]
-google = ["siumai-core/google", "siumai-providers/google", "siumai-registry/google"]
-ollama = ["siumai-core/ollama", "siumai-providers/ollama", "siumai-registry/ollama"]
-xai = ["siumai-core/xai", "siumai-providers/xai", "siumai-registry/xai"]
-groq = ["siumai-core/groq", "siumai-providers/groq", "siumai-registry/groq"]
-minimaxi = ["siumai-core/minimaxi", "siumai-providers/minimaxi", "siumai-registry/minimaxi"]
+google = ["siumai-core/google", "siumai-registry/google", "dep:siumai-provider-gemini", "siumai-provider-gemini/google"]
+ollama = ["siumai-core/ollama", "siumai-registry/ollama", "dep:siumai-provider-ollama", "siumai-provider-ollama/ollama"]
+xai = ["siumai-core/xai", "siumai-registry/xai", "dep:siumai-provider-xai", "siumai-provider-xai/xai"]
+groq = ["siumai-core/groq", "siumai-registry/groq", "dep:siumai-provider-groq", "siumai-provider-groq/groq"]
+minimaxi = ["siumai-core/minimaxi", "siumai-registry/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
-gcp = ["siumai-core/gcp", "siumai-providers/gcp", "siumai-registry/gcp", "google"]
+gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google"]
 
 # JSON repair support for handling malformed LLM outputs
 json-repair = [
     "dep:jsonrepair",
     "siumai-core/json-repair",
-    "siumai-providers/json-repair",
     "siumai-registry/json-repair",
+    "siumai-provider-gemini/json-repair",
 ]
 
 # HTTP client features (passed through to reqwest)
-gzip = ["siumai-core/gzip", "siumai-providers/gzip", "siumai-registry/gzip"]
-brotli = ["siumai-core/brotli", "siumai-providers/brotli", "siumai-registry/brotli"]
+gzip = ["siumai-core/gzip", "siumai-registry/gzip"]
+brotli = ["siumai-core/brotli", "siumai-registry/brotli"]
 
 # Convenience features for common combinations
 all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]

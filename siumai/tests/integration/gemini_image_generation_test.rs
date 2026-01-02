@@ -12,7 +12,7 @@ async fn test_gemini_image_generation_integration() -> Result<(), Box<dyn std::e
 
     // Choose a model that supports image generation via generateContent
     // Adjust if your key/model availability differs
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key(api_key)
         .model("gemini-2.0-flash-exp")
@@ -38,4 +38,3 @@ async fn test_gemini_image_generation_integration() -> Result<(), Box<dyn std::e
     }
     Ok(())
 }
-

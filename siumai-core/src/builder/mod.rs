@@ -4,9 +4,10 @@
 //! in separate crates while still sharing a consistent, ergonomic builder experience.
 //!
 //! Notes:
-//! - `LlmBuilder` (the user-facing entry point) lives in `siumai-providers`.
-//! - Provider builders should consume `BuilderBase` (a provider-agnostic snapshot of `LlmBuilder`)
-//!   to avoid circular dependencies between provider crates and the umbrella crate.
+//! - The user-facing unified builder lives in `siumai-registry` (`provider::SiumaiBuilder`) and is
+//!   re-exported by the `siumai` facade as `Siumai::builder()`.
+//! - Provider builders should consume `BuilderBase` (a provider-agnostic snapshot of unified HTTP
+//!   config/interceptor settings) to avoid circular dependencies.
 
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{
@@ -19,10 +20,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// A provider-agnostic snapshot of the user-facing `LlmBuilder`.
+/// A provider-agnostic snapshot of the user-facing unified builder.
 ///
 /// Provider crates use this type to inherit common HTTP/interceptor/debug configuration
-/// without depending on the `siumai-providers` crate.
+/// without depending on the facade or registry crates.
 #[derive(Clone, Default)]
 pub struct BuilderBase {
     /// Custom reqwest client (takes precedence over all other HTTP settings).
@@ -74,11 +75,13 @@ impl ProviderCore {
 
         // Derive initial HttpConfig from the base builder so that global HTTP settings
         // (timeout, proxy, headers, UA) are honored by provider builders.
-        let mut http_config = HttpConfig::default();
-        http_config.timeout = base.timeout;
-        http_config.connect_timeout = base.connect_timeout;
-        http_config.proxy = base.proxy.clone();
-        http_config.user_agent = base.user_agent.clone();
+        let mut http_config = HttpConfig {
+            timeout: base.timeout,
+            connect_timeout: base.connect_timeout,
+            proxy: base.proxy.clone(),
+            user_agent: base.user_agent.clone(),
+            ..Default::default()
+        };
         if !base.default_headers.is_empty() {
             http_config.headers.extend(base.default_headers.clone());
         }
@@ -253,7 +256,9 @@ mod tests {
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10));
         assert_eq!(core.http_config.timeout, Some(Duration::from_secs(30)));
-        assert_eq!(core.http_config.connect_timeout, Some(Duration::from_secs(10)));
+        assert_eq!(
+            core.http_config.connect_timeout,
+            Some(Duration::from_secs(10))
+        );
     }
 }
-

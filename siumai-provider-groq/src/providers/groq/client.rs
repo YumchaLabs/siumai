@@ -1,154 +1,92 @@
-//! `Groq` Client Implementation
+//! `Groq` hybrid client implementation.
 //!
-//! Main client implementation that aggregates all Groq capabilities.
-
-use async_trait::async_trait;
+//! - Chat/streaming/tools reuse the OpenAI-compatible vendor client.
+//! - Audio (TTS/STT) uses Groq's OpenAI-like audio endpoints via `GroqSpec`.
 
 use crate::client::LlmClient;
 use crate::error::LlmError;
-
 use crate::streaming::ChatStream;
-use crate::traits::{ChatCapability, ModelListingCapability, ProviderCapabilities};
-use crate::types::*;
+use crate::traits::{
+    AudioCapability, ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
+    ModelListingCapability, RerankCapability,
+};
+use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo, Tool};
+use async_trait::async_trait;
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
 
-use super::api::GroqModels;
-use super::chat::GroqChatCapability;
-use super::config::GroqConfig;
-use crate::execution::http::interceptor::HttpInterceptor;
-use crate::execution::middleware::language_model::LanguageModelMiddleware;
-use crate::retry_api::RetryOptions;
-use secrecy::ExposeSecret;
-use std::sync::Arc;
-
-// Split capability implementations into submodules (no public API changes)
 mod audio;
 
-/// `Groq` client that implements all capabilities
+#[derive(Clone, Debug)]
 pub struct GroqClient {
-    /// Configuration
-    config: GroqConfig,
-    /// HTTP client
-    http_client: reqwest::Client,
-    /// Chat capability
-    chat_capability: GroqChatCapability,
-    /// Models capability
-    models_capability: GroqModels,
-    /// Tracing configuration
-    tracing_config: Option<crate::observability::tracing::TracingConfig>,
-    /// Tracing guard to keep tracing system active
-    /// NOTE: Tracing subscriber functionality has been moved to siumai-extras
-    #[allow(dead_code)]
-    _tracing_guard: Option<()>,
-    /// Unified retry options for chat
-    retry_options: Option<RetryOptions>,
-    /// Optional HTTP interceptors applied to all chat requests
-    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
-}
-
-impl Clone for GroqClient {
-    fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            http_client: self.http_client.clone(),
-            chat_capability: self.chat_capability.clone(),
-            models_capability: self.models_capability.clone(),
-            tracing_config: self.tracing_config.clone(),
-            _tracing_guard: None, // Don't clone the tracing guard
-            retry_options: self.retry_options.clone(),
-            http_interceptors: self.http_interceptors.clone(),
-        }
-    }
-}
-
-impl std::fmt::Debug for GroqClient {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GroqClient")
-            .field("provider_id", &"groq")
-            .field("model", &self.config.common_params.model)
-            .field("base_url", &self.config.base_url)
-            .field("temperature", &self.config.common_params.temperature)
-            .field("max_tokens", &self.config.common_params.max_tokens)
-            .field("top_p", &self.config.common_params.top_p)
-            .field("seed", &self.config.common_params.seed)
-            .field("has_tracing", &self.tracing_config.is_some())
-            .finish()
-    }
+    inner: OpenAiCompatibleClient,
 }
 
 impl GroqClient {
-    /// Create a new `Groq` client
-    pub fn new(config: GroqConfig, http_client: reqwest::Client) -> Self {
-        let chat_capability = GroqChatCapability::new(
-            config.api_key.clone(),
-            config.base_url.clone(),
-            http_client.clone(),
-            config.http_config.clone(),
-            config.common_params.clone(),
-        );
-
-        let models_capability = GroqModels::new(
-            config.api_key.clone(),
-            config.base_url.clone(),
-            http_client.clone(),
-            config.http_config.clone(),
-        );
-
-        Self {
-            config,
-            http_client,
-            chat_capability,
-            models_capability,
-            tracing_config: None,
-            _tracing_guard: None,
-            retry_options: None,
-            http_interceptors: Vec::new(),
-        }
+    pub fn new(inner: OpenAiCompatibleClient) -> Self {
+        Self { inner }
     }
 
-    /// Get the configuration
-    pub fn config(&self) -> &GroqConfig {
-        &self.config
+    pub fn inner(&self) -> &OpenAiCompatibleClient {
+        &self.inner
     }
 
-    /// Get the HTTP client
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.http_client
+    fn provider_context(&self) -> crate::core::ProviderContext {
+        self.inner.provider_context()
     }
 
-    /// Get chat capability
-    pub fn chat_capability(&self) -> &GroqChatCapability {
-        &self.chat_capability
+    fn http_client(&self) -> reqwest::Client {
+        self.inner.http_client()
     }
 
-    /// Install model-level middlewares for chat requests.
-    pub fn with_model_middlewares(
-        mut self,
-        middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
-    ) -> Self {
-        self.chat_capability = self.chat_capability.clone().with_middlewares(middlewares);
-        self
+    fn retry_options(&self) -> Option<crate::retry_api::RetryOptions> {
+        self.inner.retry_options()
+    }
+
+    fn http_interceptors(
+        &self,
+    ) -> Vec<std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>> {
+        self.inner.http_interceptors()
     }
 }
 
 #[async_trait]
+impl ChatCapability for GroqClient {
+    async fn chat_with_tools(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
+        self.inner.chat_with_tools(messages, tools).await
+    }
+
+    async fn chat_stream(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStream, LlmError> {
+        self.inner.chat_stream(messages, tools).await
+    }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        self.inner.chat_request(request).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        self.inner.chat_stream_request(request).await
+    }
+}
+
 impl LlmClient for GroqClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("groq")
+        crate::client::LlmClient::provider_id(&self.inner)
     }
 
     fn supported_models(&self) -> Vec<String> {
-        GroqConfig::supported_models()
-            .iter()
-            .map(|&s| s.to_string())
-            .collect()
+        crate::client::LlmClient::supported_models(&self.inner)
     }
 
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_audio()
+    fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+        self.inner.capabilities().with_audio()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -159,7 +97,11 @@ impl LlmClient for GroqClient {
         Box::new(self.clone())
     }
 
-    fn as_audio_capability(&self) -> Option<&dyn crate::traits::AudioCapability> {
+    fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+        self.inner.as_embedding_capability()
+    }
+
+    fn as_audio_capability(&self) -> Option<&dyn AudioCapability> {
         Some(self)
     }
 
@@ -171,193 +113,30 @@ impl LlmClient for GroqClient {
         Some(self)
     }
 
-    fn as_model_listing_capability(&self) -> Option<&dyn crate::traits::ModelListingCapability> {
+    fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
+        self.inner.as_image_generation_capability()
+    }
+
+    fn as_image_extras(&self) -> Option<&dyn ImageExtras> {
+        self.inner.as_image_extras()
+    }
+
+    fn as_rerank_capability(&self) -> Option<&dyn RerankCapability> {
+        self.inner.as_rerank_capability()
+    }
+
+    fn as_model_listing_capability(&self) -> Option<&dyn ModelListingCapability> {
         Some(self)
-    }
-}
-
-#[async_trait]
-impl ChatCapability for GroqClient {
-    async fn chat_with_tools(
-        &self,
-        messages: Vec<ChatMessage>,
-        tools: Option<Vec<Tool>>,
-    ) -> Result<ChatResponse, LlmError> {
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Groq);
-            }
-            crate::retry_api::retry_with(
-                || {
-                    let m = messages.clone();
-                    let t = tools.clone();
-                    async move { self.chat_capability.chat_with_tools(m, t).await }
-                },
-                opts,
-            )
-            .await
-        } else {
-            self.chat_capability.chat_with_tools(messages, tools).await
-        }
-    }
-
-    async fn chat_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        tools: Option<Vec<Tool>>,
-    ) -> Result<ChatStream, LlmError> {
-        self.chat_capability.chat_stream(messages, tools).await
-    }
-
-    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        self.chat_request_via_spec(request).await
-    }
-
-    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        self.chat_stream_request_via_spec(request).await
-    }
-}
-
-// Audio capability implementation moved to client/audio.rs (no behavior change)
-
-impl GroqClient {
-    /// Create provider context for this client
-    fn build_context(&self) -> crate::core::ProviderContext {
-        use secrecy::ExposeSecret;
-        crate::core::ProviderContext::new(
-            "groq",
-            self.config.base_url.clone(),
-            Some(self.config.api_key.expose_secret().to_string()),
-            self.config.http_config.headers.clone(),
-        )
-    }
-
-    /// Create chat executor using the builder pattern
-    fn build_chat_executor(
-        &self,
-        request: &ChatRequest,
-    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
-        use crate::core::ProviderSpec;
-        use crate::execution::executors::chat::ChatExecutorBuilder;
-
-        let ctx = self.build_context();
-        let spec = Arc::new(crate::providers::groq::spec::GroqSpec);
-        let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
-
-        let mut builder = ChatExecutorBuilder::new("groq", self.http_client.clone())
-            .with_spec(spec)
-            .with_context(ctx)
-            .with_transformer_bundle(bundle)
-            .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
-            .with_interceptors(self.http_interceptors.clone())
-            .with_middlewares(self.chat_capability.middlewares.clone());
-
-        if let Some(hook) = before_send_hook {
-            builder = builder.with_before_send(hook);
-        }
-
-        builder.build()
-    }
-
-    /// Execute chat request via spec (unified implementation)
-    async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        use crate::execution::executors::chat::ChatExecutor;
-
-        let exec = self.build_chat_executor(&request);
-        ChatExecutor::execute(&*exec, request).await
-    }
-
-    /// Execute streaming chat request via spec (unified implementation)
-    async fn chat_stream_request_via_spec(
-        &self,
-        request: ChatRequest,
-    ) -> Result<ChatStream, LlmError> {
-        use crate::execution::executors::chat::ChatExecutor;
-
-        let exec = self.build_chat_executor(&request);
-        ChatExecutor::execute_stream(&*exec, request).await
-    }
-
-    /// Set the tracing configuration
-    pub(crate) fn set_tracing_config(
-        &mut self,
-        config: Option<crate::observability::tracing::TracingConfig>,
-    ) {
-        self.tracing_config = config;
-    }
-
-    /// Set unified retry options
-    pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
-        self.retry_options = options;
-    }
-
-    /// Install HTTP interceptors for all chat requests.
-    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
-        self.http_interceptors = interceptors.clone();
-        let mut cap = self.chat_capability.clone();
-        cap.interceptors = interceptors;
-        self.chat_capability = cap;
-        self
     }
 }
 
 #[async_trait]
 impl ModelListingCapability for GroqClient {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        use crate::execution::executors::common::{HttpExecutionConfig, execute_get_request};
-
-        let ctx = crate::core::ProviderContext::new(
-            "groq",
-            self.config.base_url.clone(),
-            Some(self.config.api_key.expose_secret().to_string()),
-            self.config.http_config.headers.clone(),
-        );
-        let spec: Arc<dyn crate::core::ProviderSpec> = Arc::new(crate::providers::groq::spec::GroqSpec);
-        let url = spec.models_url(&ctx);
-        let config = HttpExecutionConfig {
-            provider_id: "groq".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        };
-
-        let res = execute_get_request(&config, &url, None).await?;
-        let groq_response: crate::providers::groq::types::GroqModelsResponse =
-            serde_json::from_value(res.json)?;
-        Ok(groq_response
-            .data
-            .into_iter()
-            .map(|m| crate::providers::groq::api::convert_groq_model_to_model_info(&m))
-            .collect())
+        self.inner.list_models().await
     }
 
     async fn get_model(&self, model_id: String) -> Result<ModelInfo, LlmError> {
-        use crate::execution::executors::common::{HttpExecutionConfig, execute_get_request};
-
-        let ctx = crate::core::ProviderContext::new(
-            "groq",
-            self.config.base_url.clone(),
-            Some(self.config.api_key.expose_secret().to_string()),
-            self.config.http_config.headers.clone(),
-        );
-        let spec: Arc<dyn crate::core::ProviderSpec> = Arc::new(crate::providers::groq::spec::GroqSpec);
-        let url = spec.model_url(&model_id, &ctx);
-        let config = HttpExecutionConfig {
-            provider_id: "groq".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        };
-
-        let res = execute_get_request(&config, &url, None).await?;
-        let groq_model: crate::providers::groq::types::GroqModel =
-            serde_json::from_value(res.json)?;
-        Ok(crate::providers::groq::api::convert_groq_model_to_model_info(&groq_model))
+        self.inner.get_model(model_id).await
     }
 }

@@ -4,7 +4,7 @@
 
 use super::types::*;
 use crate::error::LlmError;
-use crate::execution::http::headers::ProviderHeaders;
+use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::types::*;
 use reqwest::header::HeaderMap;
 
@@ -15,7 +15,19 @@ pub fn build_headers(
     project: Option<&str>,
     custom_headers: &std::collections::HashMap<String, String>,
 ) -> Result<HeaderMap, LlmError> {
-    ProviderHeaders::openai(api_key, organization, project, custom_headers)
+    let mut builder = HttpHeaderBuilder::new()
+        .with_bearer_auth(api_key)?
+        .with_json_content_type();
+
+    if let Some(org) = organization {
+        builder = builder.with_header("OpenAI-Organization", org)?;
+    }
+    if let Some(proj) = project {
+        builder = builder.with_header("OpenAI-Project", proj)?;
+    }
+
+    builder = builder.with_custom_headers(custom_headers)?;
+    Ok(builder.build())
 }
 
 /// Convert tools to OpenAI Chat API format

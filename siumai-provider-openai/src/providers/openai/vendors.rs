@@ -25,13 +25,8 @@ impl OpenAiVendorId {
 }
 
 pub use crate::providers::openai_compatible::{
-    OpenAiCompatibleBuilder as OpenAiVendorBuilder,
-    OpenAiCompatibleClient as OpenAiVendorClient,
-    ProviderConfig,
-    get_provider_config,
-    list_provider_ids,
-    provider_supports_capability,
+    OpenAiCompatibleBuilder as OpenAiVendorBuilder, OpenAiCompatibleClient as OpenAiVendorClient,
+    ProviderConfig, get_provider_config, list_provider_ids, provider_supports_capability,
 };
 
 pub use crate::providers::openai_compatible::providers::models;
-

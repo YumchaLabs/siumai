@@ -6,4 +6,7 @@
 pub mod code_execution;
 pub mod file_search_stores;
 pub mod hosted_tools;
+pub mod request_options;
 pub mod tools;
+
+pub use request_options::GeminiChatRequestExt;

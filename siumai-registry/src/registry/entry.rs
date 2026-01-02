@@ -21,9 +21,9 @@ use crate::traits::{
     ProviderCapabilities, RerankCapability,
 };
 use crate::types::{
-    AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingResponse,
-    ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
-    RerankRequest, RerankResponse, SttRequest, SttResponse, Tool, TtsRequest, TtsResponse,
+    AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingResponse, ImageEditRequest,
+    ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest, RerankRequest,
+    RerankResponse, SttRequest, SttResponse, Tool, TtsRequest, TtsResponse,
 };
 
 use lru::LruCache;

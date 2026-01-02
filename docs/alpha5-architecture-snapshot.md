@@ -5,7 +5,7 @@ focused on **where protocol standards live** and **how provider-specific extensi
 
 ## Where `standards/*` lives now
 
-`standards/*` is provider-owned (not in `siumai-core`):
+Provider-specific protocol mapping is provider-owned:
 
 - OpenAI-like standard: `siumai-provider-openai/src/standards/openai/*`
 - Anthropic standard: `siumai-provider-anthropic/src/standards/anthropic/*`
@@ -13,6 +13,9 @@ focused on **where protocol standards live** and **how provider-specific extensi
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
 
 Providers that reuse another provider’s standard may not have a `src/standards/*` directory.
+
+Note: `siumai-core` may host **protocol-level shared building blocks** under `siumai-core/src/standards/*`
+(e.g. OpenAI-compatible wire helpers). These are not provider-specific mapping modules.
 
 ## Provider-specific typed options / typed metadata ownership
 
@@ -27,17 +30,26 @@ Current state:
 - Anthropic typed metadata: `siumai-provider-anthropic/src/provider_metadata/anthropic.rs`
 - Gemini typed options: `siumai-provider-gemini/src/provider_options/gemini/*`
 - Gemini typed metadata: `siumai-provider-gemini/src/provider_metadata/gemini.rs`
+- Groq typed options: `siumai-provider-groq/src/provider_options/*`
+- xAI typed options: `siumai-provider-xai/src/provider_options/*`
+- Ollama typed options: `siumai-provider-ollama/src/provider_options/*`
+- MiniMaxi typed options: `siumai-provider-minimaxi/src/provider_options/*`
 
 Stable facade exports:
 
 - `siumai::provider_ext::openai::*`
 - `siumai::provider_ext::anthropic::*`
+- `siumai::provider_ext::gemini::*`
+- `siumai::provider_ext::groq::*`
+- `siumai::provider_ext::xai::*`
+- `siumai::provider_ext::ollama::*`
+- `siumai::provider_ext::minimaxi::*`
 
-## Provider options transport (compatibility layer)
+## Provider options transport (Vercel-aligned)
 
-Requests carry provider options in two forms during the refactor:
+Requests carry provider options as an **open, provider-id keyed JSON map**:
 
-1. Preferred: an open, provider-id keyed JSON map: `request.provider_options_map["<provider_id>"] = <json>`.
-2. Compatibility: `ProviderOptions::<Provider>(serde_json::Value)` (JSON payload, not typed structs).
+- `request.provider_options_map["<provider_id>"] = <json object>`
 
-Providers should parse options from the map first, and fall back to the enum variant if present.
+There is no longer a closed `ProviderOptions` enum transport in `siumai-core` (breaking change).
+Typed option structs are provider-owned and exposed via `siumai::provider_ext::<provider>::*`.

@@ -9,7 +9,6 @@
 //! Run with: cargo run -p siumai-extras --example tool-approval
 
 use siumai::prelude::*;
-use siumai::types::Tool;
 use siumai_extras::orchestrator::{
     OrchestratorOptions, ToolApproval, ToolResolver, generate, step_count_is,
 };
@@ -24,7 +23,7 @@ impl ToolResolver for SystemResolver {
         &self,
         name: &str,
         arguments: serde_json::Value,
-    ) -> Result<serde_json::Value, siumai::error::LlmError> {
+    ) -> Result<serde_json::Value, LlmError> {
         match name {
             "read_file" => {
                 let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
@@ -52,10 +51,7 @@ impl ToolResolver for SystemResolver {
                     "deleted": path
                 }))
             }
-            _ => Err(siumai::error::LlmError::InternalError(format!(
-                "Unknown tool: {}",
-                name
-            ))),
+            _ => Err(LlmError::InternalError(format!("Unknown tool: {}", name))),
         }
     }
 }

@@ -78,19 +78,36 @@ pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 
 // Workspace split facade (beta.5):
 // - siumai-core: provider-agnostic runtime + types
-// - siumai-providers: provider implementations + LlmBuilder
 // - siumai-registry: registry handle + factories
-// Stable facade modules (recommended).
-pub use siumai_core::{custom_provider, error, hosted_tools, retry_api, streaming, traits, types};
+// Stable facade modules (recommended):
+// Prefer `siumai::prelude::unified::*` + `siumai::provider_ext::<provider>::*`.
+
+/// Internal re-exports used by `#[macro_export]` macros.
+///
+/// These are intentionally not part of the stable public API surface.
+#[doc(hidden)]
+pub mod __private {
+    pub use siumai_core::types;
+}
+
+/// Hosted tools are part of the stable unified experience (Vercel-aligned).
+pub use siumai_core::hosted_tools;
+
+// Unified retry facade (siumai-core re-export + provider-aware defaults)
+pub mod retry_api;
 
 // Compatibility / internal modules (kept but hidden to reduce accidental coupling).
-#[doc(hidden)]
-pub use siumai_core::{auth, client, defaults, execution, observability, params, retry, utils};
+//
+// NOTE: These low-level modules are intentionally NOT re-exported at the top-level.
+// Use `siumai::experimental::*` for advanced integrations and internal building blocks.
 
-pub use siumai_providers::builder;
-
+/// Legacy builder module (provider construction internals).
+///
+/// Prefer `Siumai::builder()` / `Provider::...()` / `registry::global()` for stable construction.
 #[doc(hidden)]
-pub use siumai_providers::{core, model_catalog};
+pub mod builder {
+    pub use siumai_core::builder::*;
+}
 
 /// Experimental low-level APIs (advanced use only).
 ///
@@ -104,24 +121,53 @@ pub mod experimental {
         pub use siumai_core::core::*;
     }
 
+    /// Custom provider API (advanced).
+    pub mod custom_provider {
+        pub use siumai_core::custom_provider::*;
+    }
+
+    /// Provider implementation internals (advanced API).
+    ///
+    /// If you find yourself importing from here, consider depending on the relevant
+    /// provider crate directly instead of going through the facade.
+    pub mod providers {
+        pub use siumai_core as core;
+
+        #[cfg(feature = "anthropic")]
+        pub use siumai_provider_anthropic as anthropic;
+        #[cfg(feature = "google")]
+        pub use siumai_provider_gemini as gemini;
+        #[cfg(feature = "groq")]
+        pub use siumai_provider_groq as groq;
+        #[cfg(feature = "minimaxi")]
+        pub use siumai_provider_minimaxi as minimaxi;
+        #[cfg(feature = "ollama")]
+        pub use siumai_provider_ollama as ollama;
+        #[cfg(feature = "openai")]
+        pub use siumai_provider_openai as openai;
+        #[cfg(feature = "xai")]
+        pub use siumai_provider_xai as xai;
+    }
+
+    /// Protocol mapping and adapter helpers (advanced API).
+    ///
+    /// Prefer `siumai::prelude::unified::*` unless you are building integrations or custom providers.
+    pub mod standards {
+        #[cfg(feature = "anthropic")]
+        pub use siumai_provider_anthropic::standards::anthropic;
+        #[cfg(feature = "google")]
+        pub use siumai_provider_gemini::standards::gemini;
+        #[cfg(feature = "ollama")]
+        pub use siumai_provider_ollama::standards::ollama;
+        #[cfg(feature = "openai")]
+        pub use siumai_provider_openai::standards::openai;
+    }
+
     pub use siumai_core::{auth, client, defaults, execution, observability, params, retry, utils};
 }
 
-/// Protocol mapping and adapter helpers (advanced API).
-///
-/// Most users should prefer the unified surface via `siumai::prelude::unified::*`.
-pub use siumai_providers::standards;
+pub use siumai_core::siumai_for_each_openai_compatible_provider;
 pub use siumai_registry::registry;
-
-// Keep the historical `siumai::providers::*` module path.
-pub mod providers {
-    pub use siumai_providers::providers::*;
-
-    pub use crate::provider_catalog::{
-        ProviderInfo, get_provider_info, get_provider_info_by_id, get_supported_providers,
-        is_model_supported, is_model_supported_by_id,
-    };
-}
 
 /// Provider extension APIs (non-unified surface).
 ///
@@ -129,49 +175,127 @@ pub mod providers {
 pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai {
-        pub use crate::providers::openai::OpenAiClient;
-        pub use crate::providers::openai::{
-            ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
-            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiChatResponseExt,
-            OpenAiMetadata, OpenAiOptions, OpenAiSource, OpenAiWebSearchOptions, PredictionContent,
-            PredictionContentData, ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity,
-            Truncation, UserLocationWrapper, WebSearchLocation,
+        pub use siumai_provider_openai::providers::openai::{OpenAiClient, OpenAiConfig};
+
+        pub use siumai_provider_openai::provider_metadata::openai::{
+            OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource,
         };
-        pub use crate::providers::openai::ext::*;
+        pub use siumai_provider_openai::provider_options::openai::{
+            ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
+            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiOptions,
+            OpenAiWebSearchOptions, PredictionContent, PredictionContentData, ReasoningEffort,
+            ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
+            WebSearchLocation,
+        };
+        pub use siumai_provider_openai::providers::openai::ext::*;
+        pub use siumai_provider_openai::providers::openai::responses::OpenAiResponsesEventConverter;
+        pub use siumai_provider_openai::providers::openai::types::{
+            OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt,
+        };
+
+        /// Legacy OpenAI parameter structs (client-level defaults).
+        ///
+        /// Prefer request-level provider options (`OpenAiOptions`) for new code.
+        pub mod legacy_params {
+            pub use siumai_provider_openai::params::openai::{
+                FunctionChoice, OpenAiParams, OpenAiParamsBuilder, ResponseFormat, ToolChoice,
+            };
+        }
     }
 
     #[cfg(feature = "anthropic")]
     pub mod anthropic {
-        pub use crate::providers::anthropic::AnthropicClient;
-        pub use crate::providers::anthropic::ext::*;
-        pub use crate::providers::anthropic::{
+        pub use siumai_provider_anthropic::providers::anthropic::AnthropicClient;
+        pub use siumai_provider_anthropic::providers::anthropic::ext::*;
+        pub use siumai_provider_anthropic::providers::anthropic::{
             AnthropicCacheControl, AnthropicCacheType, AnthropicChatResponseExt, AnthropicCitation,
             AnthropicCitationsBlock, AnthropicMetadata, AnthropicOptions, AnthropicResponseFormat,
             AnthropicServerToolUse, AnthropicSource, PromptCachingConfig, ThinkingModeConfig,
         };
+
+        // Legacy Anthropic parameter structs (provider-owned).
+        pub use siumai_provider_anthropic::params::anthropic::{AnthropicParams, CacheControl};
     }
 
     #[cfg(feature = "google")]
     pub mod gemini {
-        pub use crate::providers::gemini::GeminiClient;
-        pub use crate::providers::gemini::ext::*;
+        pub use siumai_provider_gemini::providers::gemini::GeminiClient;
+        pub use siumai_provider_gemini::providers::gemini::ext::*;
+        pub use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
+        pub use siumai_provider_gemini::providers::gemini::types::{
+            GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
+        };
 
         // Provider-owned typed options and metadata (kept out of `siumai-core`).
-        pub use crate::providers::gemini::{
+        pub use siumai_provider_gemini::providers::gemini::{
             GeminiChatResponseExt, GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiMetadata,
             GeminiOptions, GeminiResponseModality, GeminiSafetySetting, GeminiSource,
             GeminiThinkingConfig, GeminiThinkingLevel,
+        };
+
+        // Legacy Gemini parameter structs (provider-owned).
+        pub use siumai_provider_gemini::params::gemini::{
+            GeminiParams, GeminiParamsBuilder, GenerationConfig, SafetyCategory, SafetySetting,
+            SafetyThreshold,
         };
     }
 
     #[cfg(feature = "minimaxi")]
     pub mod minimaxi {
-        pub use crate::providers::minimaxi::ext::*;
+        pub use siumai_provider_minimaxi::providers::minimaxi::MinimaxiClient;
+        pub use siumai_provider_minimaxi::providers::minimaxi::ext::*;
+
+        // Provider-owned typed options (kept out of `siumai-core`).
+        pub use siumai_provider_minimaxi::providers::minimaxi::MinimaxiTtsOptions;
+        pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts::MinimaxiTtsRequestBuilder;
+        pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts_options::MinimaxiTtsRequestExt;
+
+        /// MiniMaxi file management API client (extension resource).
+        pub use siumai_provider_minimaxi::providers::minimaxi::files::MinimaxiFiles;
+
+        /// MiniMaxi low-level config (for advanced use; prefer the builder for most cases).
+        pub use siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig;
+    }
+
+    #[cfg(feature = "ollama")]
+    pub mod ollama {
+        pub use siumai_provider_ollama::providers::ollama::{OllamaClient, OllamaConfig};
+
+        // Provider-owned typed options (kept out of `siumai-core`).
+        pub use siumai_provider_ollama::providers::ollama::OllamaOptions;
+        pub use siumai_provider_ollama::providers::ollama::types::{
+            OllamaEmbeddingOptions, OllamaEmbeddingRequestExt,
+        };
+
+        pub use siumai_provider_ollama::providers::ollama::ext::*;
+    }
+
+    #[cfg(feature = "anthropic")]
+    pub mod anthropic_vertex {
+        pub use siumai_provider_anthropic::providers::anthropic_vertex::client::{
+            VertexAnthropicClient, VertexAnthropicConfig,
+        };
+    }
+
+    #[cfg(feature = "xai")]
+    pub mod xai {
+        pub use siumai_provider_xai::providers::xai::XaiClient;
+
+        // Provider-owned typed options (kept out of `siumai-core`).
+        pub use siumai_provider_xai::providers::xai::{
+            SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+        };
+
+        pub use siumai_provider_xai::providers::xai::ext::*;
     }
 
     #[cfg(feature = "groq")]
     pub mod groq {
-        pub use crate::providers::groq::ext::*;
+        pub use siumai_provider_groq::providers::groq::GroqClient;
+
+        // Provider-owned typed options (kept out of `siumai-core`).
+        pub use siumai_provider_groq::providers::groq::GroqOptions;
+        pub use siumai_provider_groq::providers::groq::ext::*;
     }
 }
 
@@ -179,90 +303,27 @@ pub mod provider_ext {
 pub mod provider;
 pub mod provider_catalog;
 
-// Re-export main types and traits
-pub use error::LlmError;
-
-// Core traits
-#[allow(deprecated)]
-pub use traits::VisionCapability;
-pub use traits::{
-    ChatCapability, EmbeddingCapability, ImageGenerationCapability, ProviderCapabilities,
-    RerankCapability,
-};
-
 /// Extension capabilities (non-unified surface).
 ///
 /// These are intentionally *not* part of the Vercel-aligned unified model families.
 /// Prefer `siumai::prelude::unified` for the stable unified surface.
 pub mod extensions {
-    pub use crate::traits::{
-        AudioCapability, FileManagementCapability, ModelListingCapability, ModerationCapability,
-        ImageExtras, MusicGenerationCapability, SpeechExtras, TimeoutCapability, TranscriptionExtras,
-        VideoGenerationCapability,
+    pub use siumai_core::traits::{
+        AudioCapability, FileManagementCapability, ImageExtras, ModelListingCapability,
+        ModerationCapability, MusicGenerationCapability, SpeechExtras, TimeoutCapability,
+        TranscriptionExtras, VideoGenerationCapability,
     };
+
+    /// Types used by non-unified extension capabilities.
+    pub mod types {
+        pub use siumai_core::types::{
+            FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
+            ImageEditRequest, ImageVariationRequest, ModerationRequest, ModerationResponse,
+            VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus,
+            VideoTaskStatusResponse,
+        };
+    }
 }
-
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Compatibility/convenience trait; prefer `SpeechCapability` + `TranscriptionCapability` on the unified surface."
-)]
-pub use traits::AudioCapability;
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Not part of the Vercel-aligned unified model families; use `siumai::extensions::FileManagementCapability`."
-)]
-pub use traits::FileManagementCapability;
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Not part of the Vercel-aligned unified model families; use `siumai::extensions::ModelListingCapability`."
-)]
-pub use traits::ModelListingCapability;
-#[deprecated(
-    since = "0.11.0-beta.5",
-    note = "Not part of the Vercel-aligned unified model families; use `siumai::extensions::ModerationCapability`."
-)]
-pub use traits::ModerationCapability;
-
-// Client trait
-pub use client::LlmClient;
-
-// Core types (only re-export commonly used types)
-pub use types::{
-    ChatMessage, ChatResponse, CommonParams, CompletionRequest, CompletionResponse,
-    EmbeddingRequest, EmbeddingResponse, FinishReason, HttpConfig, ImageGenerationRequest,
-    ImageGenerationResponse, MessageContent, MessageRole, ModelInfo, ModerationRequest,
-    ModerationResponse, ProviderDefinedTool, ProviderType, ResponseMetadata, Tool, ToolChoice,
-    Usage,
-};
-
-// Builders
-pub use builder::LlmBuilder;
-#[cfg(feature = "anthropic")]
-pub use providers::anthropic::AnthropicBuilder;
-#[cfg(feature = "google")]
-pub use providers::gemini::GeminiBuilder;
-#[cfg(feature = "ollama")]
-pub use providers::ollama::OllamaBuilder;
-#[cfg(feature = "openai")]
-pub use providers::openai::OpenAiBuilder;
-
-// Streaming
-pub use streaming::ChatStreamHandle;
-pub use streaming::{ChatStream, ChatStreamEvent};
-
-// Web search (use types re-export)
-// Legacy unified web search config/types have been removed (Vercel-aligned: treat as provider tools).
-
-// Unified retry facade
-pub use retry_api::{RetryBackend, RetryOptions, retry, retry_for_provider, retry_with};
-
-// Custom provider support
-pub use custom_provider::{CustomProvider, CustomProviderConfig};
-
-// Registry - unified provider access (recommended)
-pub use registry::{
-    EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderRegistryHandle,
-};
 
 /// Global registry handle with built-in provider factories.
 ///
@@ -286,93 +347,46 @@ pub use model_catalog::constants;
 
 /// Convenient pre-import module
 pub mod prelude {
-    // Error & core traits/types
-    pub use crate::error::LlmError;
-    pub use crate::traits::*;
-    pub use crate::types::*;
-
-    // Core client / builder interfaces
-    pub use crate::LlmBuilder;
-    pub use crate::LlmClient;
-    pub use crate::Provider;
-    pub use crate::provider::Siumai;
-    pub use crate::provider::SiumaiBuilder;
-
-    // Custom provider support and feature flags
-    pub use crate::custom_provider::*;
-
-    // Retry & streaming helpers
-    pub use crate::retry_api::*;
-    pub use crate::streaming::*;
-
-    // Model constants for easy access
-    pub use crate::constants;
-    pub use crate::models;
-    pub use crate::{assistant, provider, system, tool, user, user_with_image};
-    pub use crate::{conversation, conversation_with_system, messages, quick_chat};
-
-    // Registry - unified provider access
-    /// Provider registry module for unified access to all providers
+    /// Default prelude: Vercel-aligned unified surface.
     ///
-    /// # Example
-    /// ```rust,no_run
-    /// use siumai::prelude::*;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let reg = registry::global();
-    /// let model = reg.language_model("openai:gpt-4")?;
-    /// let resp = model.chat(vec![user!("Hello!")]).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub mod registry {
-        pub use crate::registry::{
-            EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
-            ProviderRegistryHandle, create_bare_registry, create_empty_registry,
-            create_provider_registry,
-        };
-
-        #[cfg(any(
-            feature = "openai",
-            feature = "anthropic",
-            feature = "google",
-            feature = "ollama",
-            feature = "xai",
-            feature = "groq",
-            feature = "minimaxi"
-        ))]
-        pub use crate::registry::{create_registry_with_defaults, global};
-    }
-
-    // Conditional provider quick functions
-    #[cfg(feature = "anthropic")]
-    pub use crate::builder::{quick_anthropic, quick_anthropic_with_model};
-    #[cfg(feature = "google")]
-    pub use crate::builder::{quick_gemini, quick_gemini_with_model};
-    #[cfg(feature = "groq")]
-    pub use crate::builder::{quick_groq, quick_groq_with_model};
-    #[cfg(feature = "openai")]
-    pub use crate::builder::{quick_openai, quick_openai_with_model};
+    /// - Stable model families: `siumai::prelude::*` / `siumai::prelude::unified::*`
+    /// - Non-family capabilities: `siumai::prelude::extensions::*`
+    /// - Provider-specific APIs: `siumai::provider_ext::<provider>::*`
+    pub use self::unified::*;
 
     /// Vercel-aligned unified surface (recommended for new code).
     ///
     /// This module intentionally exports only the six stable model families:
     /// Language/Embedding/Image/Reranking/Speech/Transcription.
     pub mod unified {
-        pub use crate::error::LlmError;
+        pub use crate::Provider;
         pub use crate::provider::Siumai;
         pub use crate::retry_api::*;
-        pub use crate::streaming::*;
-        pub use crate::traits::{
-            ChatCapability, EmbeddingCapability, ImageGenerationCapability, RerankCapability,
-            SpeechCapability, TranscriptionCapability,
+        pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
+        pub use crate::{system, tool, user, user_with_image};
+        pub use siumai_core::error::{ErrorCategory, LlmError};
+        pub use siumai_core::streaming::*;
+        pub use siumai_core::traits::{
+            ChatCapability, EmbeddingCapability, EmbeddingExtensions, ImageGenerationCapability,
+            ProviderCapabilities, RerankCapability, SpeechCapability, TranscriptionCapability,
         };
-        pub use crate::types::*;
+
+        // Core request/response types for the six stable model families.
+        pub use siumai_core::types::{
+            AudioStreamEvent, CacheControl, ChatMessage, ChatRequest, ChatRequestBuilder,
+            ChatResponse, CommonParams, CompletionTokensDetails, ContentPart,
+            CustomProviderOptions, EmbeddingRequest, EmbeddingResponse, FinishReason,
+            GeneratedImage, HttpConfig, ImageDetail, ImageGenerationRequest,
+            ImageGenerationResponse, MediaSource, MessageContent, MessageMetadata, MessageRole,
+            ModelInfo, OutputSchema, PromptTokensDetails, ProviderDefinedTool, ProviderOptionsMap,
+            ProviderType, RerankRequest, RerankResponse, ResponseMetadata, SchemaValidator,
+            SttRequest, SttResponse, Tool, ToolChoice, TtsRequest, TtsResponse, Usage, Warning,
+        };
 
         pub mod registry {
             pub use crate::registry::{
                 EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
-                ProviderRegistryHandle, RerankingModelHandle, SpeechModelHandle,
+                ProviderRegistryHandle, RegistryOptions, RerankingModelHandle, SpeechModelHandle,
                 TranscriptionModelHandle, create_bare_registry, create_empty_registry,
                 create_provider_registry,
             };
@@ -393,6 +407,13 @@ pub mod prelude {
     /// Non-unified extension capabilities (provider-specific or non-family features).
     pub mod extensions {
         pub use crate::extensions::*;
+    }
+
+    /// Registry module kept for compatibility with historical imports.
+    ///
+    /// Prefer `siumai::prelude::unified::registry::*` for the Vercel-aligned surface.
+    pub mod registry {
+        pub use super::unified::registry::*;
     }
 }
 
@@ -428,50 +449,62 @@ pub struct Provider;
 impl Provider {
     /// Create an `OpenAI` client builder
     #[cfg(feature = "openai")]
-    pub fn openai() -> providers::openai::OpenAiBuilder {
-        crate::builder::LlmBuilder::new().openai()
+    pub fn openai() -> siumai_provider_openai::providers::openai::OpenAiBuilder {
+        siumai_provider_openai::providers::openai::OpenAiBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
     }
 
     /// Create an Anthropic client builder
     #[cfg(feature = "anthropic")]
-    pub fn anthropic() -> providers::anthropic::AnthropicBuilder {
-        crate::builder::LlmBuilder::new().anthropic()
+    pub fn anthropic() -> siumai_provider_anthropic::providers::anthropic::AnthropicBuilder {
+        siumai_provider_anthropic::providers::anthropic::AnthropicBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
     }
 
     /// Create a Gemini client builder
     #[cfg(feature = "google")]
-    pub fn gemini() -> providers::gemini::GeminiBuilder {
-        crate::builder::LlmBuilder::new().gemini()
+    pub fn gemini() -> siumai_provider_gemini::providers::gemini::GeminiBuilder {
+        siumai_provider_gemini::providers::gemini::GeminiBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
     }
 
     /// Create an Ollama client builder
     #[cfg(feature = "ollama")]
-    pub fn ollama() -> providers::ollama::OllamaBuilder {
-        crate::builder::LlmBuilder::new().ollama()
+    pub fn ollama() -> siumai_provider_ollama::providers::ollama::OllamaBuilder {
+        siumai_provider_ollama::providers::ollama::OllamaBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
     }
 
     /// Create an xAI client builder
     #[cfg(feature = "xai")]
-    pub fn xai() -> crate::providers::xai::XaiBuilder {
-        crate::builder::LlmBuilder::new().xai()
+    pub fn xai() -> siumai_provider_xai::providers::xai::XaiBuilder {
+        siumai_provider_xai::providers::xai::XaiBuilder::new(crate::builder::BuilderBase::default())
     }
 
     /// Create a Groq client builder
     #[cfg(feature = "groq")]
-    pub fn groq() -> crate::providers::groq::GroqBuilder {
-        crate::builder::LlmBuilder::new().groq()
+    pub fn groq() -> siumai_provider_groq::providers::groq::GroqBuilder {
+        siumai_provider_groq::providers::groq::GroqBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
     }
 
-    // Provider convenience functions are now organized in providers::convenience module
-    // This keeps the main lib.rs clean and organized
+    // Provider convenience functions live on `LlmBuilder` / `Siumai::builder()` / `Provider::*`.
 }
 
 // Macros moved to a dedicated module for cleanliness
 mod macros;
 
+mod model_catalog;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::unified::*;
     use crate::provider::Siumai;
 
     #[test]

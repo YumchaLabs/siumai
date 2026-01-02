@@ -127,10 +127,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 You can attach telemetry to the agent or orchestrator using
-`siumai::observability::telemetry::TelemetryConfig`:
+`siumai::experimental::observability::telemetry::TelemetryConfig`:
 
 ```rust
-use siumai::observability::telemetry::TelemetryConfig;
+use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai_extras::orchestrator::OrchestratorBuilder;
 
 let telemetry = TelemetryConfig::builder()

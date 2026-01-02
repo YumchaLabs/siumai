@@ -21,29 +21,20 @@ impl ImageGenerationCapability for GeminiClient {
             self.config.clone(),
         ));
 
-        let exec = ImageExecutorBuilder::new("gemini", self.http_client.clone())
+        let builder = ImageExecutorBuilder::new("gemini", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
-            .with_interceptors(self.http_interceptors.clone())
-            .build_for_request(&request);
+            .with_interceptors(self.http_interceptors.clone());
 
-        if let Some(opts) = &self.retry_options {
-            let mut opts = opts.clone();
-            if opts.provider.is_none() {
-                opts.provider = Some(crate::types::ProviderType::Gemini);
-            }
-            crate::retry_api::retry_with(
-                || {
-                    let rq = request.clone();
-                    let exec = exec.clone();
-                    async move { ImageExecutor::execute(&*exec, rq).await }
-                },
-                opts,
-            )
-            .await
+        let exec = if let Some(retry) = self.retry_options.clone() {
+            builder
+                .with_retry_options(retry)
+                .build_for_request(&request)
         } else {
-            ImageExecutor::execute(&*exec, request).await
-        }
+            builder.build_for_request(&request)
+        };
+
+        ImageExecutor::execute(&*exec, request).await
     }
 }
 

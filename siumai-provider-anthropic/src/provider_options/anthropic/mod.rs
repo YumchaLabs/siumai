@@ -1,7 +1,7 @@
 //! Anthropic provider options.
 //!
 //! These types are carried via the open `providerOptions` JSON map (`provider_id = "anthropic"`),
-//! or via the legacy `ProviderOptions::Anthropic` compatibility variant.
+//! and should be carried via `providerOptions["anthropic"]`.
 
 use serde::{Deserialize, Serialize};
 
@@ -121,4 +121,3 @@ pub enum AnthropicResponseFormat {
         strict: bool,
     },
 }
-

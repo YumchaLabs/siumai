@@ -81,8 +81,17 @@ mod tests {
         // Verify request contains `stream=true` multipart field.
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].body.windows(b"name=\"stream\"".len()).any(|w| w == b"name=\"stream\""));
-        assert!(requests[0].body.windows(b"true".len()).any(|w| w == b"true"));
+        assert!(
+            requests[0]
+                .body
+                .windows(b"name=\"stream\"".len())
+                .any(|w| w == b"name=\"stream\"")
+        );
+        assert!(
+            requests[0]
+                .body
+                .windows(b"true".len())
+                .any(|w| w == b"true")
+        );
     }
 }
-

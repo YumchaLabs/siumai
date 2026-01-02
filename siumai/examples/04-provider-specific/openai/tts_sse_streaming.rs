@@ -9,7 +9,6 @@
 
 use futures_util::StreamExt;
 use siumai::prelude::unified::*;
-use siumai::types::{AudioStreamEvent, TtsRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,8 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_voice("alloy".to_string())
         .with_format("mp3".to_string());
 
-    let mut stream = siumai::provider_ext::openai::speech_streaming::tts_sse_stream(openai, req)
-        .await?;
+    let mut stream =
+        siumai::provider_ext::openai::speech_streaming::tts_sse_stream(openai, req).await?;
 
     let mut total_bytes = 0usize;
     while let Some(item) = stream.next().await {
@@ -53,4 +52,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

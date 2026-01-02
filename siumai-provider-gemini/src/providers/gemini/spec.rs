@@ -53,9 +53,8 @@ impl ProviderSpec for GeminiSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // Provider-specific behavior is implemented in the protocol-layer transformers (siumai-core),
-        // so providers only need to support custom provider options injection here.
-        crate::core::default_custom_options_hook(self.id(), req)
+        let _ = req;
+        None
     }
 
     fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {

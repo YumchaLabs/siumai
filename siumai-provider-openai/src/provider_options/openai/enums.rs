@@ -54,4 +54,3 @@ pub enum Truncation {
     /// Error if exceeding context window (default)
     Disabled,
 }
-

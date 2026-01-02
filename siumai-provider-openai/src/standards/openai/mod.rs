@@ -27,6 +27,7 @@ pub mod audio;
 pub mod chat;
 pub mod compat;
 pub mod embedding;
+pub mod errors;
 pub mod files;
 pub mod headers;
 pub mod image;
@@ -35,6 +36,9 @@ pub mod responses_sse;
 pub mod transformers;
 pub mod types;
 pub mod utils;
+
+#[cfg(test)]
+mod chat_adapter_sse_tests;
 
 // Re-export main types
 pub use audio::{

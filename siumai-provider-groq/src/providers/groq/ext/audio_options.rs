@@ -1,10 +1,10 @@
 //! Groq audio option helpers (non-unified surface)
 //!
 //! Groq's audio endpoints are OpenAI-compatible, but the provider id is `"groq"`.
-//! These helpers build `ProviderOptions::Custom { provider_id: "groq", options }` buckets.
+//! These helpers build `(provider_id, json)` entries for `providerOptions`.
 
 use crate::error::LlmError;
-use crate::types::{CustomProviderOptions, ProviderOptions};
+use crate::types::CustomProviderOptions;
 
 /// Groq-specific options for TTS requests.
 #[derive(Debug, Clone, Default)]
@@ -22,8 +22,8 @@ impl GroqTtsOptions {
         self
     }
 
-    pub fn into_provider_options(self) -> Result<ProviderOptions, LlmError> {
-        ProviderOptions::from_custom(self)
+    pub fn into_provider_options_map_entry(self) -> Result<(String, serde_json::Value), LlmError> {
+        self.to_provider_options_map_entry()
     }
 }
 
@@ -35,7 +35,10 @@ impl CustomProviderOptions for GroqTtsOptions {
     fn to_json(&self) -> Result<serde_json::Value, LlmError> {
         let mut obj = serde_json::Map::new();
         if let Some(v) = self.instructions.as_deref() {
-            obj.insert("instructions".to_string(), serde_json::Value::String(v.to_string()));
+            obj.insert(
+                "instructions".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
         }
         Ok(serde_json::Value::Object(obj))
     }
@@ -75,8 +78,8 @@ impl GroqSttOptions {
         self
     }
 
-    pub fn into_provider_options(self) -> Result<ProviderOptions, LlmError> {
-        ProviderOptions::from_custom(self)
+    pub fn into_provider_options_map_entry(self) -> Result<(String, serde_json::Value), LlmError> {
+        self.to_provider_options_map_entry()
     }
 }
 
@@ -94,7 +97,10 @@ impl CustomProviderOptions for GroqSttOptions {
             );
         }
         if let Some(v) = self.prompt.as_deref() {
-            obj.insert("prompt".to_string(), serde_json::Value::String(v.to_string()));
+            obj.insert(
+                "prompt".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
         }
         if let Some(v) = self.temperature {
             obj.insert("temperature".to_string(), serde_json::json!(v));
@@ -105,4 +111,3 @@ impl CustomProviderOptions for GroqSttOptions {
         Ok(serde_json::Value::Object(obj))
     }
 }
-

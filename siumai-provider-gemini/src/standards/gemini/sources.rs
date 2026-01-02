@@ -4,7 +4,9 @@ use super::types::{GroundingChunk, GroundingMetadata};
 use crate::provider_metadata::gemini::GeminiSource;
 
 fn filename_from_path(path: &str) -> Option<String> {
-    path.split('/').rfind(|s| !s.is_empty()).map(|s| s.to_string())
+    path.split('/')
+        .rfind(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 fn media_type_and_filename_from_uri(uri: &str) -> (String, Option<String>) {

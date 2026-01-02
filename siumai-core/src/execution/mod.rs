@@ -5,7 +5,7 @@
 //! ## Quick Start
 //!
 //! ```rust,ignore
-//! use siumai::execution::{
+//! use siumai::experimental::execution::{
 //!     executors::chat::HttpChatExecutor,
 //!     transformers::request::RequestTransformer,
 //!     middleware::LanguageModelMiddleware,
@@ -57,6 +57,7 @@ pub mod middleware;
 pub mod policy;
 pub mod telemetry;
 pub mod transformers;
+pub mod wiring;
 
 // Re-export commonly used types for convenience
 pub use executors::{

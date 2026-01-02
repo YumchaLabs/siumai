@@ -37,7 +37,7 @@ pub type ImagePostProcessor =
 ///
 /// # Example
 /// ```rust,no_run
-/// use siumai::execution::transformers::hook_builder::HookBuilder;
+/// use siumai::experimental::execution::transformers::hook_builder::HookBuilder;
 /// use serde_json::json;
 ///
 /// let hooks = HookBuilder::new()

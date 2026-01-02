@@ -84,4 +84,3 @@ impl OpenAiChatResponseExt for crate::types::ChatResponse {
         OpenAiMetadata::from_metadata(meta)
     }
 }
-

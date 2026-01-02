@@ -5,10 +5,11 @@
 //! - The converter provides a final StreamEnd carrying non-empty content on [DONE].
 
 use futures_util::StreamExt;
-use siumai::error::LlmError;
-use siumai::execution::http::{HttpRequestContext, generate_request_id};
-use siumai::streaming::ChatStreamEvent;
-use siumai::streaming::{SseEventConverter, StreamFactory};
+use siumai::experimental::execution::http::{HttpRequestContext, generate_request_id};
+use siumai::prelude::unified::{
+    ChatResponse, ChatStreamEvent, FinishReason, LlmError, MessageContent, SseEventConverter,
+    StreamFactory,
+};
 
 fn make_ctx(provider_id: &str, url: &str) -> HttpRequestContext {
     HttpRequestContext {
@@ -28,11 +29,8 @@ impl SseEventConverter for EndOnlyConverter {
         _event: eventsource_stream::Event,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Vec<
-                        Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>,
-                    >,
-                > + Send
+            dyn std::future::Future<Output = Vec<Result<ChatStreamEvent, LlmError>>>
+                + Send
                 + Sync
                 + '_,
         >,
@@ -40,13 +38,9 @@ impl SseEventConverter for EndOnlyConverter {
         Box::pin(async move { vec![] })
     }
 
-    fn handle_stream_end(
-        &self,
-    ) -> Option<Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>> {
-        let mut response = siumai::types::ChatResponse::new(siumai::types::MessageContent::Text(
-            "INJECT".to_string(),
-        ));
-        response.finish_reason = Some(siumai::types::FinishReason::Stop);
+    fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        let mut response = ChatResponse::new(MessageContent::Text("INJECT".to_string()));
+        response.finish_reason = Some(FinishReason::Stop);
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
 }
@@ -60,11 +54,8 @@ impl SseEventConverter for DeltaThenEndConverter {
         _event: eventsource_stream::Event,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Vec<
-                        Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>,
-                    >,
-                > + Send
+            dyn std::future::Future<Output = Vec<Result<ChatStreamEvent, LlmError>>>
+                + Send
                 + Sync
                 + '_,
         >,
@@ -77,13 +68,9 @@ impl SseEventConverter for DeltaThenEndConverter {
         })
     }
 
-    fn handle_stream_end(
-        &self,
-    ) -> Option<Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>> {
-        let mut response = siumai::types::ChatResponse::new(siumai::types::MessageContent::Text(
-            "END".to_string(),
-        ));
-        response.finish_reason = Some(siumai::types::FinishReason::Stop);
+    fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
+        let mut response = ChatResponse::new(MessageContent::Text("END".to_string()));
+        response.finish_reason = Some(FinishReason::Stop);
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
 }
@@ -298,11 +285,8 @@ impl SseEventConverter for DeltaOnlyConverter {
         event: eventsource_stream::Event,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Vec<
-                        Result<siumai::streaming::ChatStreamEvent, siumai::error::LlmError>,
-                    >,
-                > + Send
+            dyn std::future::Future<Output = Vec<Result<ChatStreamEvent, LlmError>>>
+                + Send
                 + Sync
                 + '_,
         >,

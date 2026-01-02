@@ -6,10 +6,9 @@
 use std::sync::{Arc, Mutex};
 
 use reqwest::header::{ACCEPT, ACCEPT_ENCODING, HeaderMap};
-use siumai::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+use siumai::experimental::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+use siumai::prelude::unified::{ChatCapability, ChatMessage, LlmError};
 use siumai::provider::SiumaiBuilder;
-use siumai::traits::ChatCapability;
-use siumai::types::ChatMessage;
 
 #[derive(Clone, Debug)]
 struct Captured {
@@ -37,7 +36,7 @@ impl HttpInterceptor for TestInterceptor {
         _builder: reqwest::RequestBuilder,
         body: &serde_json::Value,
         headers: &HeaderMap,
-    ) -> Result<reqwest::RequestBuilder, siumai::error::LlmError> {
+    ) -> Result<reqwest::RequestBuilder, LlmError> {
         let mut guard = self.slot.lock().expect("failed to lock capture slot");
         *guard = Some(Captured {
             ctx: ctx.clone(),
@@ -45,7 +44,7 @@ impl HttpInterceptor for TestInterceptor {
             body: body.clone(),
         });
         drop(guard);
-        Err(siumai::error::LlmError::UnsupportedOperation(
+        Err(LlmError::UnsupportedOperation(
             "interceptor_short_circuit".to_string(),
         ))
     }

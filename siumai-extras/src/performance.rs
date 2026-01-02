@@ -379,13 +379,14 @@ impl Default for MonitorConfig {
 /// In-memory cache for chat responses (simple LRU-style)
 pub mod cache {
     use super::*;
+    use siumai::prelude::unified::{ChatMessage, ChatResponse};
     use std::collections::{HashMap, VecDeque};
 
     /// Cached chat response with metadata
     #[derive(Debug, Clone)]
     pub struct CachedResponse {
         /// Cached chat response value.
-        pub response: siumai::types::ChatResponse,
+        pub response: ChatResponse,
         /// Time when the response was cached.
         pub timestamp: Instant,
         /// How many times this entry has been accessed.
@@ -415,7 +416,7 @@ pub mod cache {
         }
 
         /// Generate a cache key from messages
-        pub fn key_from_messages(messages: &[siumai::types::ChatMessage]) -> String {
+        pub fn key_from_messages(messages: &[ChatMessage]) -> String {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
 
@@ -430,7 +431,7 @@ pub mod cache {
         }
 
         /// Get cached response if available
-        pub fn get(&mut self, key: &str) -> Option<siumai::types::ChatResponse> {
+        pub fn get(&mut self, key: &str) -> Option<ChatResponse> {
             if let Some(cached) = self.cache.get_mut(key) {
                 // Update access statistics
                 cached.access_count += 1;
@@ -450,7 +451,7 @@ pub mod cache {
         }
 
         /// Store response in cache
-        pub fn put(&mut self, key: String, response: siumai::types::ChatResponse) {
+        pub fn put(&mut self, key: String, response: ChatResponse) {
             // Remove oldest entry if at capacity
             if self.cache.len() >= self.max_size
                 && let Some(oldest_key) = self.access_order.pop_back()

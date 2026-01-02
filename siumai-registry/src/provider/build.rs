@@ -144,7 +144,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             if let ProviderType::Custom(ref provider_id) = provider_type {
                 #[cfg(all(feature = "builtins", feature = "openai"))]
                 {
-                    if let Some(cfg) = siumai_providers::providers::openai_compatible::config::get_provider_config(provider_id) {
+                    if let Some(cfg) =
+                        siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(provider_id)
+                    {
                         crate::utils::builder_helpers::get_api_key_with_envs(
                             None,
                             provider_id,
@@ -241,16 +243,13 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // Set default model if none provided
     if common_params.model.is_empty() {
         // Set default model based on provider type
-        #[cfg(any(feature = "openai", feature = "anthropic", feature = "google"))]
-        use siumai_providers::models;
-
         common_params.model = match provider_type {
             #[cfg(feature = "openai")]
-            ProviderType::OpenAi => models::openai::GPT_4O.to_string(),
+            ProviderType::OpenAi => siumai_provider_openai::providers::openai::model_constants::gpt_4o::GPT_4O.to_string(),
             #[cfg(feature = "anthropic")]
-            ProviderType::Anthropic => models::anthropic::CLAUDE_SONNET_3_5.to_string(),
+            ProviderType::Anthropic => siumai_provider_anthropic::providers::anthropic::model_constants::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022.to_string(),
             #[cfg(feature = "google")]
-            ProviderType::Gemini => models::gemini::GEMINI_2_5_FLASH.to_string(),
+            ProviderType::Gemini => siumai_provider_gemini::providers::gemini::model_constants::gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
             #[cfg(feature = "ollama")]
             ProviderType::Ollama => "llama3.2".to_string(),
             #[cfg(feature = "xai")]
@@ -356,7 +355,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "openai")]
         ProviderType::OpenAi => {
             let default_base = "https://api.openai.com/v1".to_string();
-            let resolved_base = crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
+            let resolved_base =
+                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             // Build unified context and delegate to OpenAIProviderFactory.
             let ctx = BuildContext {
@@ -446,7 +446,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "google")]
         ProviderType::Gemini => {
             let default_base = "https://generativelanguage.googleapis.com/v1beta".to_string();
-            let mut resolved_base = crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
+            let mut resolved_base =
+                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
             // Accept a more "root" style base URL (no version segment) for convenience.
             if resolved_base == "https://generativelanguage.googleapis.com" {
                 resolved_base = "https://generativelanguage.googleapis.com/v1beta".to_string();
@@ -618,7 +619,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::MiniMaxi => {
             // Use Anthropic-compatible endpoint by default
             let default_base =
-                siumai_providers::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL
+                siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL
                     .to_string();
             let resolved_base =
                 crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);

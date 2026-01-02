@@ -4,13 +4,17 @@
 
 Accepted (incremental rollout)
 
+## Update (beta.5+)
+
+The historical umbrella crate `siumai-providers` is now **legacy** and removed from the workspace.
+The `siumai` facade and `siumai-registry` wire provider crates directly.
+
 ## Context
 
 Siumai is in a fearless refactor phase and is already split into:
 
 - `siumai` (facade)
 - `siumai-core` (provider-agnostic runtime + types)
-- `siumai-providers` (umbrella facade: builders + re-exports)
 - `siumai-registry` (registry + factories)
 - `siumai-extras` (orchestrator/telemetry/server/mcp utilities)
 - `siumai-provider-openai` (OpenAI provider + OpenAI-like protocol family)
@@ -44,10 +48,10 @@ Adopt a **provider-first crate split**:
    - `siumai-provider-groq`
    - `siumai-provider-xai`
    - `siumai-provider-minimaxi`
-3. Keep `siumai-providers` as an **umbrella** crate for:
-   - ergonomic builder entry points
+3. Keep `siumai` as the **only** umbrella facade for:
+   - ergonomic entry points (`Siumai::builder()`, `Provider::<provider>()`)
    - optional “all-providers” feature aggregation
-   - re-exports (only for stable, intended surfaces)
+   - stable re-exports (`prelude::*`, `provider_ext::*`)
 
 ### OpenAI-like family reuse
 
@@ -98,7 +102,7 @@ Cons:
 
 Add a new milestone (M6) after MVP:
 
-1. Move OpenAI implementation into `siumai-provider-openai` (keeping existing public APIs via `siumai-providers`).
+1. Move OpenAI implementation into `siumai-provider-openai` (keeping stable public APIs via `siumai`).
 2. Extract the next provider with the least shared surface (e.g. `ollama`).
 3. Repeat for remaining providers.
 

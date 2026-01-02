@@ -28,6 +28,12 @@ siumai = "0.11.0-beta.5"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
+## Migration (beta.5)
+
+Upgrading from `0.11.0-beta.4` (or earlier)?
+
+- See `docs/migration-0.11.0-beta.5.md`
+
 Feature flags (enable only what you need):
 
 ```toml
@@ -37,9 +43,11 @@ siumai = { version = "0.11.0-beta.5", features = ["openai"] }
 # Multiple providers
 siumai = { version = "0.11.0-beta.5", features = ["openai", "anthropic", "google"] }
 
-# All (default)
+# All
 siumai = { version = "0.11.0-beta.5", features = ["all-providers"] }
 ```
+
+Note: `siumai` enables `openai` by default. Disable defaults via `default-features = false`.
 
 Optional package for advanced utilities:
 
@@ -56,7 +64,7 @@ siumai-extras = { version = "0.11.0-beta.5", features = ["schema", "telemetry", 
 Use the registry to resolve models via `provider:model` and get a handle with a uniform API.
 
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -85,7 +93,7 @@ OpenAI‑compatible vendors follow the same pattern (API keys read as `{PROVIDER
 Provider‑specific client:
 
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -104,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Unified interface (portable across providers):
 
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -124,12 +132,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 OpenAI‑compatible (custom base URL):
 
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let vllm = LlmBuilder::new()
-        .openai()
+    // For OpenAI-compatible local endpoints, you can use any non-empty API key.
+    let vllm = Siumai::builder().openai()
+        .api_key("dummy")
         .base_url("http://localhost:8000/v1")
         .model("meta-llama/Llama-3.1-8B-Instruct")
         .build()
@@ -145,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use futures::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -171,7 +180,7 @@ Use `siumai-extras` to parse model text into typed JSON with optional schema val
 
 ```rust
 use serde::Deserialize;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::highlevel::object::generate_object;
 
 #[derive(Deserialize, Debug)]
@@ -202,22 +211,20 @@ For providers that expose native structured outputs, configure them via provider
 You still can combine them with the decoding helpers above if you want:
 
 ```rust
-use siumai::prelude::*;
-use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
+use siumai::prelude::unified::*;
+use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 use serde_json::json;
 
 let schema = json!({"type":"object","properties":{"title":{"type":"string"}},"required":["title"]});
 let req = ChatRequestBuilder::new()
     .message(user!("Return an object with title"))
-    .openai_options(
-        OpenAiOptions::new().with_responses_api(
-            ResponsesApiConfig::new().with_response_format(json!({
-                "type": "json_object",
-                "json_schema": { "schema": schema, "strict": true }
-            }))
-        )
-    )
-    .build();
+    .build()
+    .with_openai_options(OpenAiOptions::new().with_responses_api(
+        ResponsesApiConfig::new().with_response_format(json!({
+            "type": "json_object",
+            "json_schema": { "schema": schema, "strict": true }
+        }))
+    ));
 let resp = client.chat_request(req).await?;
 // Optionally: further validate/repair/deserialize using `siumai-extras` helpers.
 ```
@@ -225,7 +232,7 @@ let resp = client.chat_request(req).await?;
 ### Retries
 
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::retry_api::{retry_with, RetryOptions};
 
 let text = client
@@ -247,19 +254,7 @@ You have three practical ways to control HTTP behavior, from simple to advanced.
 1) Per‑builder toggles (most common)
 
 ```rust
-use siumai::prelude::*;
-
-// Provider-specific builder (LlmBuilder)
-let client = LlmBuilder::new()
-    .with_timeout(std::time::Duration::from_secs(30))
-    .with_connect_timeout(std::time::Duration::from_secs(10))
-    .with_user_agent("my-app/1.0")
-    .with_header("X-User-Project", "acme")
-    .with_proxy("http://proxy.example.com:8080") // optional
-    .openai()
-    .model("gpt-4o-mini")
-    .build()
-    .await?;
+use siumai::prelude::unified::*;
 
 // Unified builder (Siumai::builder) with SSE stability control
 let client = Siumai::builder()
@@ -278,9 +273,8 @@ let client = Siumai::builder()
 2) HttpConfig builder + shared client builder (centralized configuration)
 
 ```rust
-use siumai::execution::http::client::build_http_client_from_config;
-use siumai::types::HttpConfig;
-use siumai::prelude::*;
+use siumai::experimental::execution::http::client::build_http_client_from_config;
+use siumai::prelude::unified::*;
 
 // Construct a reusable HTTP config
 let http_cfg = HttpConfig::builder()
@@ -296,9 +290,10 @@ let http_cfg = HttpConfig::builder()
 let http = build_http_client_from_config(&http_cfg)?;
 
 // Inject it into a builder (takes precedence over other HTTP settings)
-let client = LlmBuilder::new()
+let client = Siumai::builder()
     .with_http_client(http)
     .openai()
+    .api_key(std::env::var("OPENAI_API_KEY")?)
     .model("gpt-4o-mini")
     .build()
     .await?;
@@ -307,16 +302,17 @@ let client = LlmBuilder::new()
 3) Fully custom reqwest client (maximum control)
 
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 let http = reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(30))
     // .danger_accept_invalid_certs(true) // if needed for dev
     .build()?;
 
-let client = LlmBuilder::new()
+let client = Siumai::builder()
     .with_http_client(http)
     .openai()
+    .api_key(std::env::var("OPENAI_API_KEY")?)
     .model("gpt-4o-mini")
     .build()
     .await?;
@@ -329,10 +325,10 @@ Notes:
 Registry with custom middleware and interceptors:
 
 ```rust
-use siumai::prelude::*;
-use siumai::execution::middleware::samples::chain_default_and_clamp;
-use siumai::execution::http::interceptor::LoggingInterceptor;
-use siumai::registry::{create_provider_registry, RegistryOptions};
+use siumai::prelude::unified::*;
+use siumai::experimental::execution::middleware::samples::chain_default_and_clamp;
+use siumai::experimental::execution::http::interceptor::LoggingInterceptor;
+use siumai::prelude::unified::registry::{create_provider_registry, RegistryOptions};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -342,6 +338,7 @@ let reg = create_provider_registry(
         separator: ':',
         language_model_middleware: chain_default_and_clamp(),
         http_interceptors: vec![Arc::new(LoggingInterceptor)],
+        http_config: None,
         retry_options: None,
         max_cache_entries: Some(128),
         client_ttl: None,

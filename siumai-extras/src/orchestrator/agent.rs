@@ -10,9 +10,7 @@ use super::types::{
     AgentResult, OrchestratorOptions, OrchestratorStreamOptions, StepResult, ToolResolver,
 };
 use crate::structured_output::{OutputDecodeConfig, decode_json_value};
-use siumai::error::LlmError;
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatResponse, CommonParams, OutputSchema, Tool};
+use siumai::prelude::unified::*;
 
 /// A reusable agent that can generate text, stream responses, and use tools across multiple steps.
 ///
@@ -399,19 +397,19 @@ where
     /// Attach a telemetry configuration to this agent.
     ///
     /// This enables structured telemetry events (spans, orchestrator events,
-    /// tool execution events) to be emitted via `siumai::observability::telemetry`.
+    /// tool execution events) to be emitted via `siumai::experimental::observability::telemetry`.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use siumai::observability::telemetry::TelemetryConfig;
+    /// use siumai::experimental::observability::telemetry::TelemetryConfig;
     ///
     /// let telemetry = TelemetryConfig::minimal();
     /// let agent = agent.with_telemetry(telemetry);
     /// ```
     pub fn with_telemetry(
         mut self,
-        cfg: siumai::observability::telemetry::TelemetryConfig,
+        cfg: siumai::experimental::observability::telemetry::TelemetryConfig,
     ) -> Self {
         self.options.telemetry = Some(cfg);
         self

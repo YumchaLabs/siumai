@@ -163,7 +163,7 @@ pub trait LlmClient: ChatCapability + Send + Sync {
 /// ClientWrapper is useful for advanced scenarios like client pools or
 /// dynamic provider switching:
 /// ```rust,no_run
-/// use siumai::client::ClientWrapper;
+/// use siumai::experimental::client::ClientWrapper;
 /// use siumai::prelude::*;
 ///
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {

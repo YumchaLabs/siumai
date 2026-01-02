@@ -23,8 +23,8 @@ cargo run --example custom_provider_parameters --features xai
 
 Key Concepts:
 1. Implement `CustomProviderOptions` trait
-2. Use `ProviderOptions::from_custom()` to convert
-3. Parameters are automatically injected into API requests via provider hooks
+2. Attach via `ChatRequest::with_provider_option(provider_id, json)`
+3. Provider reads `providerOptions` and maps it into API requests
 4. All supported providers work with this pattern
 
 ---
@@ -74,9 +74,9 @@ cargo run --example custom-provider-options --features xai
 
 Key Concepts:
 1. Implement `CustomProviderOptions` for your custom features
-2. Use `ProviderOptions::from_custom()` to convert to `ProviderOptions`
-3. Custom options are injected by `ProviderSpec::chat_before_send()`
-4. Only use the `Custom` variant for features not yet in the library
+2. Attach options via `ChatRequest::with_provider_option(provider_id, json)`
+3. Provider decides how to interpret `providerOptions`
+4. Only use custom `providerOptions` for features not yet in the library
 5. Prefer built-in type-safe options when available
 
 ## When to Use Custom Options
@@ -105,11 +105,14 @@ let custom_feature = CustomXaiFeature {
 };
 
 let req = ChatRequest::new(messages)
-    .with_provider_options(ProviderOptions::from_custom(custom_feature)?);
+    .with_provider_option(custom_feature.provider_id(), custom_feature.to_json()?);
 ```
 
 After (Built-in):
 ```rust
+	use siumai::provider_ext::xai::{SearchMode, XaiChatRequestExt, XaiOptions, XaiSearchParameters};
+	use siumai::prelude::unified::ChatRequest;
+
 let req = ChatRequest::new(messages)
     .with_xai_options(
         XaiOptions::new()

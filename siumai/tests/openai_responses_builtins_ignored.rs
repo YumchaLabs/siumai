@@ -2,14 +2,14 @@
 //! Requires network and OPENAI_API_KEY; run with:
 //!   cargo test --test openai_responses_builtins_ignored --features openai -- --ignored
 
-use siumai::ChatCapability;
+use siumai::prelude::unified::ChatCapability;
 
 #[cfg(feature = "openai")]
 #[tokio::test]
 #[ignore]
 async fn responses_with_advanced_builtins_smoke() {
-    use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-    use siumai::types::ChatMessage;
+    use siumai::prelude::unified::ChatMessage;
+    use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
     // Skip if no key set
     if std::env::var("OPENAI_API_KEY").is_err() {
@@ -24,7 +24,7 @@ async fn responses_with_advanced_builtins_smoke() {
     // JSON input will be mapped as input_json
     #[cfg(feature = "structured-messages")]
     let msg = {
-        use siumai::types::{MessageContent, MessageMetadata, MessageRole};
+        use siumai::prelude::unified::{MessageContent, MessageMetadata, MessageRole};
         ChatMessage {
             role: MessageRole::User,
             content: MessageContent::Json(serde_json::json!({"query":"hello"})),

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["siumai", "siumai-core", "siumai-providers", "siumai-registry", "siumai-extras", "siumai-provider-openai", "siumai-provider-ollama", "siumai-provider-anthropic", "siumai-provider-gemini", "siumai-provider-groq", "siumai-provider-xai", "siumai-provider-minimaxi"]
+members = ["siumai", "siumai-core", "siumai-registry", "siumai-extras", "siumai-provider-openai", "siumai-provider-openai-compatible", "siumai-provider-ollama", "siumai-provider-anthropic", "siumai-provider-gemini", "siumai-provider-groq", "siumai-provider-xai", "siumai-provider-minimaxi"]
 
 [workspace.package]
 version = "0.11.0-beta.5"
@@ -30,7 +30,7 @@ futures = "0.3"
 futures-util = "0.3"
 async-stream = "0.3"
 eventsource-stream = "0.2"
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["codec"] }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -58,7 +58,6 @@ infer = "0.19"
 # Disable default features; downstream crates must opt-in provider features explicitly
 siumai = { version = "0.11.0-beta.5", path = "siumai", default-features = false }
 siumai-core = { version = "0.11.0-beta.5", path = "siumai-core", default-features = false }
-siumai-providers = { version = "0.11.0-beta.5", path = "siumai-providers", default-features = false }
 siumai-registry = { version = "0.11.0-beta.5", path = "siumai-registry", default-features = false }
 
 # Security

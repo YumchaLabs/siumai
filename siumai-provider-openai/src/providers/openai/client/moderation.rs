@@ -17,9 +17,8 @@ impl OpenAiClient {
         &self,
         request: crate::providers::openai::ext::moderation::OpenAiModerationRequest,
     ) -> Result<ModerationResponse, LlmError> {
+        use crate::execution::executors::common::{HttpBody, execute_json_request};
         use crate::execution::transformers::response::ResponseTransformer;
-        use crate::execution::executors::common::{execute_json_request, HttpBody, HttpExecutionConfig};
-        use secrecy::ExposeSecret;
         use std::sync::Arc;
 
         if request.input.is_empty() {
@@ -57,23 +56,9 @@ impl OpenAiClient {
         let input = serde_json::to_value(&request.input)
             .map_err(|e| LlmError::InvalidParameter(format!("Invalid moderation input: {e}")))?;
 
-        let spec = Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
-        let ctx = crate::core::ProviderContext::new(
-            "openai",
-            self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
-            self.http_config.headers.clone(),
-        )
-        .with_org_project(self.organization.clone(), self.project.clone());
-
-        let config = HttpExecutionConfig {
-            provider_id: "openai".to_string(),
-            http_client: self.http_client.clone(),
-            provider_spec: spec,
-            provider_context: ctx,
-            interceptors: self.http_interceptors.clone(),
-            retry_options: self.retry_options.clone(),
-        };
+        let spec: Arc<dyn crate::core::ProviderSpec> =
+            Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
+        let config = self.http_wiring().config(spec);
 
         let url = format!("{}/moderations", self.base_url.trim_end_matches('/'));
         let body = serde_json::json!({ "model": model, "input": input });

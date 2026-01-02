@@ -16,7 +16,7 @@ use std::str;
 /// # Example
 ///
 /// ```rust
-/// use siumai::utils::Utf8StreamDecoder;
+/// use siumai::experimental::utils::Utf8StreamDecoder;
 ///
 /// let mut decoder = Utf8StreamDecoder::new();
 ///

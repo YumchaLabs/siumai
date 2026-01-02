@@ -42,7 +42,7 @@ async fn test_json_repair_in_non_streaming_response() {
         .await;
 
     // Create client pointing to mock server
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -94,7 +94,7 @@ async fn test_malformed_json_fails_without_repair() {
         .await;
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
@@ -153,7 +153,7 @@ async fn test_valid_json_has_zero_overhead() {
         .await;
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .api_key("test-api-key")
         .base_url(mock_server.uri())

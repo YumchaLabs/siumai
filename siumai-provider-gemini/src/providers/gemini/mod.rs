@@ -36,6 +36,7 @@
 // Core modules
 pub mod chat;
 pub mod client;
+pub mod config;
 pub mod context;
 pub mod convert;
 /// Gemini extension APIs (non-unified surface)

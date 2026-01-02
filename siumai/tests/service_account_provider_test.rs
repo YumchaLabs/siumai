@@ -2,8 +2,10 @@
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use siumai::auth::TokenProvider;
-use siumai::auth::service_account::{ServiceAccountCredentials, ServiceAccountTokenProvider};
+use siumai::experimental::auth::TokenProvider;
+use siumai::experimental::auth::service_account::{
+    ServiceAccountCredentials, ServiceAccountTokenProvider,
+};
 
 // Minimal RSA private key for testing (do not use in production)
 const TEST_RSA_PRIVATE_KEY: &str = r#"-----BEGIN RSA PRIVATE KEY-----

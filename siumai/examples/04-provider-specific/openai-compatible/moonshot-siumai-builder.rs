@@ -18,7 +18,7 @@
 //! cargo run --example moonshot-siumai-builder --features openai
 //! ```
 //!
-//! ## Comparison with LlmBuilder
+//! ## Comparison with Provider::openai()
 //!
 //! **Using Siumai::builder() (this example)**:
 //! ```rust,ignore
@@ -32,20 +32,20 @@
 //! - Use case: Provider abstraction, dynamic switching
 //! - Environment variable: Automatically reads MOONSHOT_API_KEY
 //!
-//! **Using LlmBuilder::new() (recommended for direct usage)**:
+//! **Using Provider::openai() (recommended for provider-specific usage)**:
 //! ```rust,ignore
-//! let client = LlmBuilder::new()
-//!     .moonshot()
+//! let client = Provider::openai()
+//!     .moonshot() // OpenAI-compatible preset
 //!     .model(siumai::models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
 //!     .build()
 //!     .await?;
 //! ```
-//! - Returns: `OpenAiCompatibleClient` (specific type)
+//! - Returns: provider-specific client (concrete type)
 //! - Use case: Direct provider usage, type-specific features
 //! - Environment variable: Automatically reads MOONSHOT_API_KEY
 
-use siumai::prelude::*;
 use siumai::models;
+use siumai::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
