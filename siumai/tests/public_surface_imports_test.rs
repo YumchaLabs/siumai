@@ -27,7 +27,7 @@ fn public_surface_extensions_imports_compile() {
 #[test]
 fn public_surface_openai_provider_ext_compiles() {
     use siumai::prelude::unified::*;
-    use siumai::provider_ext::openai::*;
+    use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig, metadata::*, options::*};
 
     let _ = size_of::<OpenAiClient>();
     let _ = size_of::<OpenAiConfig>();
@@ -51,7 +51,7 @@ fn public_surface_openai_provider_ext_compiles() {
 #[test]
 fn public_surface_anthropic_provider_ext_compiles() {
     use siumai::prelude::unified::*;
-    use siumai::provider_ext::anthropic::*;
+    use siumai::provider_ext::anthropic::{AnthropicClient, metadata::*, options::*};
 
     let _ = size_of::<AnthropicClient>();
     let _ = size_of::<AnthropicOptions>();

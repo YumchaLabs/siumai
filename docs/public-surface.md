@@ -29,6 +29,13 @@ use siumai::provider_ext::anthropic::*;
 use siumai::provider_ext::gemini::*;
 ```
 
+For new code, prefer explicit imports from structured submodules:
+
+```rust
+use siumai::provider_ext::openai::{metadata::*, options::*};
+use siumai::provider_ext::anthropic::{metadata::*, options::*};
+```
+
 For navigation/discoverability, each provider extension module may also expose structured submodules:
 
 - `siumai::provider_ext::<provider>::options::*`

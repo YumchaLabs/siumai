@@ -194,6 +194,10 @@ pub mod provider_ext {
                 ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
                 WebSearchLocation,
             };
+            pub use siumai_provider_openai::providers::openai::ext::OpenAiChatRequestExt;
+            pub use siumai_provider_openai::providers::openai::types::{
+                OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt,
+            };
         }
         pub use options::{
             ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
@@ -203,15 +207,18 @@ pub mod provider_ext {
             WebSearchLocation,
         };
 
-        /// Non-unified OpenAI extension APIs (request extensions, streaming helpers, etc.).
+        /// Non-unified OpenAI extension APIs (streaming helpers, moderation/files resources, etc.).
         pub mod ext {
             pub use siumai_provider_openai::providers::openai::ext::*;
             pub use siumai_provider_openai::providers::openai::responses::OpenAiResponsesEventConverter;
-            pub use siumai_provider_openai::providers::openai::types::{
-                OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt,
+        }
+
+        /// Provider-specific resources not covered by the unified families.
+        pub mod resources {
+            pub use siumai_provider_openai::providers::openai::{
+                OpenAiFiles, OpenAiModeration, OpenAiModels, OpenAiRerank,
             };
         }
-        pub use ext::*;
 
         /// Legacy OpenAI parameter structs (client-level defaults).
         ///
@@ -233,6 +240,7 @@ pub mod provider_ext {
                 AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
                 PromptCachingConfig, ThinkingModeConfig,
             };
+            pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
         }
         pub use options::{
             AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
@@ -255,7 +263,6 @@ pub mod provider_ext {
         pub mod ext {
             pub use siumai_provider_anthropic::providers::anthropic::ext::*;
         }
-        pub use ext::*;
 
         // Legacy Anthropic parameter structs (provider-owned).
         pub use siumai_provider_anthropic::params::anthropic::{AnthropicParams, CacheControl};
