@@ -16,7 +16,9 @@ For the full rationale and architecture direction, see:
 - `siumai-core` may host **protocol-level shared building blocks** under `siumai-core/src/standards/*` (e.g. OpenAI-compatible wire helpers), but it does not own provider-specific mapping.
 - `siumai-registry` is now decoupled from the umbrella `siumai-providers` crate and wires built-ins by depending on individual provider crates directly.
 - `siumai` is now decoupled from the umbrella `siumai-providers` crate and re-exports provider-specific APIs directly from provider crates (feature-gated).
-- OpenAI / Anthropic / Gemini typed `providerOptions` and typed `providerMetadata` are provider-owned and exposed via `siumai::provider_ext::<provider>::*`.
+- OpenAI / Anthropic typed `providerOptions` are provider-owned and exposed via `siumai::provider_ext::<provider>::*`.
+- OpenAI-like / Anthropic Messages typed `providerMetadata` are protocol-owned (shared family crates) and re-exported via provider crates, surfaced under `siumai::provider_ext::<provider>::*`.
+- Gemini typed `providerOptions` and typed `providerMetadata` are provider-owned and exposed via `siumai::provider_ext::<provider>::*`.
 - Groq / xAI / Ollama / MiniMaxi typed `providerOptions` are provider-owned and exposed via `siumai::provider_ext::<provider>::*`.
 - `siumai-core` is provider-agnostic: requests carry an open `provider_options_map` (provider-id keyed JSON object).
 - The legacy closed `ProviderOptions` enum transport has been removed (breaking change).
@@ -48,9 +50,9 @@ For the full rationale and architecture direction, see:
      - split it into a small dedicated crate (recommended), or
      - keep it in the facade and accept maintenance cost.
 
-5. **Decide provider-owned metadata scope for each provider**
-   - For each built-in provider, decide whether to expose typed response metadata.
-   - If needed, move typed metadata to provider crates and expose via `siumai::provider_ext::<provider>::*`.
+5. **Decide typed metadata ownership per provider**
+   - For each built-in provider, decide whether typed response metadata is best owned by a shared protocol family crate (when reused) or the provider crate (when truly provider-specific).
+   - Expose typed metadata consistently under `siumai::provider_ext::<provider>::*`.
 
 6. **Expand the refactor safety net (smoke matrix)**
    - Keep the default profile fast (`openai` only).
