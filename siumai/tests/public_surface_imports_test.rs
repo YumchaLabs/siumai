@@ -67,7 +67,7 @@ fn public_surface_anthropic_provider_ext_compiles() {
 #[test]
 fn public_surface_gemini_provider_ext_compiles() {
     use siumai::prelude::unified::*;
-    use siumai::provider_ext::gemini::*;
+    use siumai::provider_ext::gemini::{GeminiClient, metadata::*, options::*};
 
     let _ = size_of::<GeminiClient>();
     let _ = size_of::<GeminiOptions>();
@@ -107,17 +107,22 @@ fn public_surface_xai_provider_ext_compiles() {
 #[cfg(feature = "ollama")]
 #[test]
 fn public_surface_ollama_provider_ext_compiles() {
-    use siumai::provider_ext::ollama::*;
+    use siumai::provider_ext::ollama::{OllamaClient, OllamaConfig, options::*};
 
     let _ = size_of::<OllamaClient>();
     let _ = size_of::<OllamaConfig>();
     let _ = size_of::<OllamaOptions>();
+
+    fn _assert_req_ext<T: OllamaChatRequestExt>() {}
+    _assert_req_ext::<siumai::prelude::unified::ChatRequest>();
 }
 
 #[cfg(feature = "minimaxi")]
 #[test]
 fn public_surface_minimaxi_provider_ext_compiles() {
-    use siumai::provider_ext::minimaxi::*;
+    use siumai::provider_ext::minimaxi::{
+        MinimaxiClient, MinimaxiConfig, options::*, resources::*,
+    };
 
     let _ = size_of::<MinimaxiClient>();
     let _ = size_of::<MinimaxiConfig>();

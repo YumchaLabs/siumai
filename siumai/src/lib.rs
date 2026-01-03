@@ -271,20 +271,47 @@ pub mod provider_ext {
     #[cfg(feature = "google")]
     pub mod gemini {
         pub use siumai_provider_gemini::providers::gemini::GeminiClient;
-        pub use siumai_provider_gemini::providers::gemini::ext::*;
         pub use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
-        pub use siumai_provider_gemini::providers::gemini::types::{
-            GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
-        };
 
-        // Provider-owned typed options and metadata (kept out of `siumai-core`).
-        pub use siumai_provider_gemini::provider_metadata::gemini::{
-            GeminiChatResponseExt, GeminiMetadata, GeminiSource,
-        };
-        pub use siumai_provider_gemini::provider_options::gemini::{
+        /// Typed provider options (`provider_options_map["google"]`).
+        pub mod options {
+            pub use siumai_provider_gemini::provider_options::gemini::{
+                GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions,
+                GeminiResponseModality, GeminiSafetySetting, GeminiThinkingConfig,
+                GeminiThinkingLevel,
+            };
+            pub use siumai_provider_gemini::providers::gemini::ext::GeminiChatRequestExt;
+            pub use siumai_provider_gemini::providers::gemini::types::{
+                GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
+            };
+        }
+
+        // Provider-owned typed options (kept out of `siumai-core`).
+        pub use options::{
+            GeminiChatRequestExt, GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
             GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions, GeminiResponseModality,
             GeminiSafetySetting, GeminiThinkingConfig, GeminiThinkingLevel,
         };
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["google"]`).
+        pub mod metadata {
+            pub use siumai_provider_gemini::provider_metadata::gemini::{
+                GeminiChatResponseExt, GeminiMetadata, GeminiSource,
+            };
+        }
+        pub use metadata::{GeminiChatResponseExt, GeminiMetadata, GeminiSource};
+
+        /// Non-unified Gemini extension APIs (escape hatches).
+        pub mod ext {
+            pub use siumai_provider_gemini::providers::gemini::ext::*;
+        }
+
+        /// Provider-specific resources not covered by the unified families.
+        pub mod resources {
+            pub use siumai_provider_gemini::providers::gemini::{
+                GeminiFileSearchStores, GeminiFiles, GeminiModels,
+            };
+        }
 
         // Legacy Gemini parameter structs (provider-owned).
         pub use siumai_provider_gemini::params::gemini::{
@@ -296,15 +323,27 @@ pub mod provider_ext {
     #[cfg(feature = "minimaxi")]
     pub mod minimaxi {
         pub use siumai_provider_minimaxi::providers::minimaxi::MinimaxiClient;
-        pub use siumai_provider_minimaxi::providers::minimaxi::ext::*;
+
+        /// Typed provider options (`provider_options_map["minimaxi"]`).
+        pub mod options {
+            pub use siumai_provider_minimaxi::provider_options::MinimaxiTtsOptions;
+            pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts::MinimaxiTtsRequestBuilder;
+            pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts_options::MinimaxiTtsRequestExt;
+        }
 
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use siumai_provider_minimaxi::provider_options::MinimaxiTtsOptions;
-        pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts::MinimaxiTtsRequestBuilder;
-        pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts_options::MinimaxiTtsRequestExt;
+        pub use options::{MinimaxiTtsOptions, MinimaxiTtsRequestBuilder, MinimaxiTtsRequestExt};
 
-        /// MiniMaxi file management API client (extension resource).
-        pub use siumai_provider_minimaxi::providers::minimaxi::files::MinimaxiFiles;
+        /// Non-unified MiniMaxi extension APIs (escape hatches).
+        pub mod ext {
+            pub use siumai_provider_minimaxi::providers::minimaxi::ext::*;
+        }
+
+        /// Provider-specific resources not covered by the unified families.
+        pub mod resources {
+            /// MiniMaxi file management API client (extension resource).
+            pub use siumai_provider_minimaxi::providers::minimaxi::files::MinimaxiFiles;
+        }
 
         /// MiniMaxi low-level config (for advanced use; prefer the builder for most cases).
         pub use siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig;
@@ -314,13 +353,24 @@ pub mod provider_ext {
     pub mod ollama {
         pub use siumai_provider_ollama::providers::ollama::{OllamaClient, OllamaConfig};
 
+        /// Typed provider options (`provider_options_map["ollama"]`).
+        pub mod options {
+            pub use siumai_provider_ollama::provider_options::OllamaOptions;
+            pub use siumai_provider_ollama::providers::ollama::ext::OllamaChatRequestExt;
+            pub use siumai_provider_ollama::providers::ollama::types::{
+                OllamaEmbeddingOptions, OllamaEmbeddingRequestExt,
+            };
+        }
+
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use siumai_provider_ollama::provider_options::OllamaOptions;
-        pub use siumai_provider_ollama::providers::ollama::types::{
-            OllamaEmbeddingOptions, OllamaEmbeddingRequestExt,
+        pub use options::{
+            OllamaChatRequestExt, OllamaEmbeddingOptions, OllamaEmbeddingRequestExt, OllamaOptions,
         };
 
-        pub use siumai_provider_ollama::providers::ollama::ext::*;
+        /// Non-unified Ollama extension APIs (escape hatches).
+        pub mod ext {
+            pub use siumai_provider_ollama::providers::ollama::ext::*;
+        }
     }
 
     #[cfg(feature = "anthropic")]
