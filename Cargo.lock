@@ -2890,6 +2890,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
+ "siumai-provider-openai-compatible",
  "tempfile",
  "thiserror",
  "tokio",

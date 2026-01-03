@@ -27,9 +27,12 @@ pub mod chat;
 pub mod compat;
 pub mod embedding;
 pub mod errors;
+pub mod files;
 pub mod headers;
 pub mod image;
 pub mod rerank;
+#[cfg(feature = "openai-responses")]
+pub mod responses_sse;
 pub mod transformers;
 pub mod types;
 pub mod utils;
@@ -40,5 +43,6 @@ pub use audio::{
 };
 pub use chat::{OpenAiChatAdapter, OpenAiChatStandard};
 pub use embedding::{OpenAiEmbeddingAdapter, OpenAiEmbeddingStandard};
+pub use files::{OpenAiFilesTransformer, OpenAiFilesTransformerWithProviderId};
 pub use image::{OpenAiImageAdapter, OpenAiImageStandard};
 pub use rerank::{OpenAiRerankAdapter, OpenAiRerankStandard};

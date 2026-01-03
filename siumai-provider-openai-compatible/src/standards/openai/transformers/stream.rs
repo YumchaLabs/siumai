@@ -36,3 +36,36 @@ impl StreamChunkTransformer for OpenAiStreamChunkTransformer {
         self.inner.handle_stream_end()
     }
 }
+
+/// Stream transformer for OpenAI Responses API using the standard Responses converter.
+#[cfg(feature = "openai-responses")]
+#[derive(Clone)]
+pub struct OpenAiResponsesStreamChunkTransformer {
+    pub provider_id: String,
+    pub inner: crate::standards::openai::responses_sse::OpenAiResponsesEventConverter,
+}
+
+#[cfg(feature = "openai-responses")]
+impl StreamChunkTransformer for OpenAiResponsesStreamChunkTransformer {
+    fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    fn convert_event(
+        &self,
+        event: eventsource_stream::Event,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Vec<Result<crate::streaming::ChatStreamEvent, LlmError>>>
+                + Send
+                + Sync
+                + '_,
+        >,
+    > {
+        self.inner.convert_event(event)
+    }
+
+    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        None
+    }
+}

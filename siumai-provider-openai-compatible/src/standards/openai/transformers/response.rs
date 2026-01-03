@@ -242,7 +242,6 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        use crate::provider_metadata::openai::OpenAiSource;
         use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
         let root = raw.get("response").unwrap_or(raw);
 
@@ -483,7 +482,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
         // Provider metadata (Vercel-aligned): sources extracted from web_search_call results.
         let provider_metadata = {
-            let mut sources: Vec<OpenAiSource> = Vec::new();
+            let mut sources: Vec<serde_json::Value> = Vec::new();
             let mut seen_urls: std::collections::HashSet<String> = std::collections::HashSet::new();
             if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
                 for item in output {
@@ -523,17 +522,21 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
 
-                        sources.push(OpenAiSource {
-                            id: format!("{tool_call_id}:{i}"),
-                            source_type: "url".to_string(),
-                            url: url.to_string(),
-                            title,
-                            tool_call_id: Some(tool_call_id.clone()),
-                            media_type: None,
-                            filename: None,
-                            provider_metadata: None,
-                            snippet,
-                        });
+                        let mut src = serde_json::Map::new();
+                        src.insert("id".to_string(), serde_json::Value::String(format!("{tool_call_id}:{i}")));
+                        src.insert("source_type".to_string(), serde_json::Value::String("url".to_string()));
+                        src.insert("url".to_string(), serde_json::Value::String(url.to_string()));
+                        if let Some(t) = title {
+                            src.insert("title".to_string(), serde_json::Value::String(t));
+                        }
+                        src.insert(
+                            "tool_call_id".to_string(),
+                            serde_json::Value::String(tool_call_id.clone()),
+                        );
+                        if let Some(s) = snippet {
+                            src.insert("snippet".to_string(), serde_json::Value::String(s));
+                        }
+                        sources.push(serde_json::Value::Object(src));
                     }
                 }
 
@@ -567,17 +570,14 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     .get("title")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
-                                sources.push(OpenAiSource {
-                                    id: format!("ann:{ann_idx}"),
-                                    source_type: "url".to_string(),
-                                    url: url.to_string(),
-                                    title,
-                                    tool_call_id: None,
-                                    media_type: None,
-                                    filename: None,
-                                    provider_metadata: None,
-                                    snippet: None,
-                                });
+                                let mut src = serde_json::Map::new();
+                                src.insert("id".to_string(), serde_json::Value::String(format!("ann:{ann_idx}")));
+                                src.insert("source_type".to_string(), serde_json::Value::String("url".to_string()));
+                                src.insert("url".to_string(), serde_json::Value::String(url.to_string()));
+                                if let Some(t) = title {
+                                    src.insert("title".to_string(), serde_json::Value::String(t));
+                                }
+                                sources.push(serde_json::Value::Object(src));
                                 ann_idx += 1;
                                 continue;
                             }
@@ -641,17 +641,23 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     _ => None,
                                 };
 
-                                sources.push(OpenAiSource {
-                                    id: format!("ann:{ann_idx}"),
-                                    source_type: "document".to_string(),
-                                    url: file_id.clone(),
-                                    title,
-                                    tool_call_id: None,
-                                    media_type,
-                                    filename,
-                                    provider_metadata,
-                                    snippet: None,
-                                });
+                                let mut src = serde_json::Map::new();
+                                src.insert("id".to_string(), serde_json::Value::String(format!("ann:{ann_idx}")));
+                                src.insert("source_type".to_string(), serde_json::Value::String("document".to_string()));
+                                src.insert("url".to_string(), serde_json::Value::String(file_id));
+                                if let Some(t) = title {
+                                    src.insert("title".to_string(), serde_json::Value::String(t));
+                                }
+                                if let Some(mt) = media_type {
+                                    src.insert("media_type".to_string(), serde_json::Value::String(mt));
+                                }
+                                if let Some(fn_) = filename {
+                                    src.insert("filename".to_string(), serde_json::Value::String(fn_));
+                                }
+                                if let Some(pm) = provider_metadata {
+                                    src.insert("provider_metadata".to_string(), pm);
+                                }
+                                sources.push(serde_json::Value::Object(src));
                                 ann_idx += 1;
                             }
                         }
@@ -664,9 +670,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             } else {
                 let mut openai_meta: std::collections::HashMap<String, serde_json::Value> =
                     std::collections::HashMap::new();
-                if let Ok(v) = serde_json::to_value(sources) {
-                    openai_meta.insert("sources".to_string(), v);
-                }
+                openai_meta.insert("sources".to_string(), serde_json::Value::Array(sources));
 
                 if openai_meta.is_empty() {
                     None

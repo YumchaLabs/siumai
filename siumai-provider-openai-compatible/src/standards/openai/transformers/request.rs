@@ -10,6 +10,7 @@ use crate::types::{
     ChatRequest, EmbeddingRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
     ModerationRequest, RerankRequest,
 };
+#[cfg(feature = "openai-responses")]
 use base64::Engine;
 use reqwest::multipart::{Form, Part};
 
@@ -367,8 +368,10 @@ mod tests_openai_rules {
 
 /// Request transformer for OpenAI Responses API
 #[derive(Clone)]
+#[cfg(feature = "openai-responses")]
 pub struct OpenAiResponsesRequestTransformer;
 
+#[cfg(feature = "openai-responses")]
 impl OpenAiResponsesRequestTransformer {
     fn convert_message(
         msg: &crate::types::ChatMessage,
@@ -585,6 +588,7 @@ impl OpenAiResponsesRequestTransformer {
     }
 }
 
+#[cfg(feature = "openai-responses")]
 impl RequestTransformer for OpenAiResponsesRequestTransformer {
     fn provider_id(&self) -> &str {
         "openai_responses"

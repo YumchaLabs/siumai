@@ -17,6 +17,7 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
@@ -46,19 +47,20 @@ once_cell.workspace = true
 default = []
 
 # Forwarded feature flags used by the OpenAI-like standard implementation.
-structured-messages = ["siumai-core/structured-messages"]
+structured-messages = ["siumai-core/structured-messages", "siumai-provider-openai-compatible/structured-messages"]
 
 # Protocol standard only (no provider implementations).
 #
 # Note: we still enable `siumai-core/openai` to keep OpenAI-like metadata types available
 # (e.g. `provider_metadata::openai::OpenAiSource`) used by the shared protocol mapping.
-openai-standard = ["siumai-core/openai"]
+openai-standard = [
+    "siumai-core/openai",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+]
 
 # Matches the feature name used by downstream crates.
-openai = ["openai-standard"]
-groq = ["siumai-core/groq", "openai-standard"]
-xai = ["siumai-core/xai", "openai-standard"]
-minimaxi = ["siumai-core/minimaxi", "openai-standard"]
+openai = ["openai-standard", "siumai-provider-openai-compatible/openai-responses"]
 
 [dev-dependencies]
 tokio-test.workspace = true
