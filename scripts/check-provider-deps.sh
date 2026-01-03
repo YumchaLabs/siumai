@@ -21,6 +21,16 @@ is_allowed_dep() {
   return 1
 }
 
+find_first_line() {
+  local pattern="$1"
+  local file="$2"
+  if command -v rg >/dev/null 2>&1; then
+    rg -m 1 "${pattern}" "${file}" 2>/dev/null || true
+  else
+    grep -m 1 -E "${pattern}" "${file}" 2>/dev/null || true
+  fi
+}
+
 extract_provider_deps_from_section() {
   local toml="$1"
   local section="$2"
@@ -40,8 +50,8 @@ for toml in siumai-provider-*/Cargo.toml; do
   [[ -f "${toml}" ]] || continue
 
   crate_name="$(
-    rg -m 1 '^name = "siumai-provider-' "${toml}" 2>/dev/null \
-      | sed -E 's/^name = "([^"]+)".*$/\\1/'
+    find_first_line '^name = "siumai-provider-' "${toml}" \
+      | sed -E 's/^name = "([^"]+)".*$/\1/'
   )"
   [[ -n "${crate_name}" ]] || continue
 

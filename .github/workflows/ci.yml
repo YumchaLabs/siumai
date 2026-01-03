@@ -25,6 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Guardrail (provider dependency graph)
+        run: ./scripts/check-provider-deps.sh
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -39,11 +42,11 @@ jobs:
         run: |
           cargo test -p siumai-core --lib
           cargo test -p siumai-registry --lib
-          cargo test -p siumai-providers --lib
+          cargo test -p siumai --no-default-features --features openai --lib
 
       - name: Clippy (core crates)
         if: ${{ github.event_name == 'pull_request' }}
-        run: cargo clippy -p siumai-core -p siumai-registry -p siumai-providers -- -D warnings
+        run: cargo clippy -p siumai-core -p siumai-registry -- -D warnings
 
       - name: Clippy (facade minimal features)
         if: ${{ github.event_name == 'pull_request' }}
