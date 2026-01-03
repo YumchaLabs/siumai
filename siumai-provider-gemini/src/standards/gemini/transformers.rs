@@ -516,6 +516,7 @@ impl RequestTransformer for GeminiRequestTransformer {
 #[cfg(test)]
 mod tests_gemini_rules {
     use super::*;
+    use crate::providers::gemini::ext::request_options::GeminiChatRequestExt;
 
     #[test]
     fn move_common_params_into_generation_config() {
