@@ -227,10 +227,12 @@ pub mod provider_ext {
         };
 
         // Provider-owned typed options and metadata (kept out of `siumai-core`).
-        pub use siumai_provider_gemini::providers::gemini::{
-            GeminiChatResponseExt, GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiMetadata,
-            GeminiOptions, GeminiResponseModality, GeminiSafetySetting, GeminiSource,
-            GeminiThinkingConfig, GeminiThinkingLevel,
+        pub use siumai_provider_gemini::provider_metadata::gemini::{
+            GeminiChatResponseExt, GeminiMetadata, GeminiSource,
+        };
+        pub use siumai_provider_gemini::provider_options::gemini::{
+            GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions, GeminiResponseModality,
+            GeminiSafetySetting, GeminiThinkingConfig, GeminiThinkingLevel,
         };
 
         // Legacy Gemini parameter structs (provider-owned).
@@ -246,7 +248,7 @@ pub mod provider_ext {
         pub use siumai_provider_minimaxi::providers::minimaxi::ext::*;
 
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use siumai_provider_minimaxi::providers::minimaxi::MinimaxiTtsOptions;
+        pub use siumai_provider_minimaxi::provider_options::MinimaxiTtsOptions;
         pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts::MinimaxiTtsRequestBuilder;
         pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts_options::MinimaxiTtsRequestExt;
 
@@ -262,7 +264,7 @@ pub mod provider_ext {
         pub use siumai_provider_ollama::providers::ollama::{OllamaClient, OllamaConfig};
 
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use siumai_provider_ollama::providers::ollama::OllamaOptions;
+        pub use siumai_provider_ollama::provider_options::OllamaOptions;
         pub use siumai_provider_ollama::providers::ollama::types::{
             OllamaEmbeddingOptions, OllamaEmbeddingRequestExt,
         };
@@ -294,7 +296,7 @@ pub mod provider_ext {
         pub use siumai_provider_groq::providers::groq::GroqClient;
 
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use siumai_provider_groq::providers::groq::GroqOptions;
+        pub use siumai_provider_groq::provider_options::GroqOptions;
         pub use siumai_provider_groq::providers::groq::ext::*;
     }
 }
