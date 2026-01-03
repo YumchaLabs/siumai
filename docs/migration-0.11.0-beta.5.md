@@ -55,6 +55,25 @@ Typed option structs live in provider crates and are exposed via stable facade p
 If you imported typed options from `siumai::types::*` before, update imports accordingly (the top-level
 `siumai::types` module is no longer part of the stable facade surface; see breaking change #8).
 
+### 3b) Typed provider metadata ownership is split (provider vs protocol family)
+
+Typed response metadata helpers are still imported from the stable facade paths:
+
+- `siumai::provider_ext::openai::*`
+- `siumai::provider_ext::anthropic::*`
+- `siumai::provider_ext::gemini::*`
+
+However, internally the ownership now follows the **protocol-family rule**:
+
+- OpenAI-like metadata types/extensions are protocol-owned in `siumai-provider-openai-compatible`
+  and re-exported by `siumai-provider-openai`.
+- Anthropic Messages metadata types/extensions are protocol-owned in `siumai-provider-anthropic-compatible`
+  and re-exported by `siumai-provider-anthropic`.
+- Provider-specific (non-shared) metadata stays provider-owned (e.g. Gemini).
+
+This change is mostly internal. If you were depending on file-level paths or internal modules,
+switch to the stable import paths shown above.
+
 ### 4) `siumai::providers::*` removed
 
 The historical `siumai::providers::*` module path is removed to prevent cross-layer coupling.
