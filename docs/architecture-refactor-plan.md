@@ -34,7 +34,8 @@ Provider crates (feature-gated):
 
 - `siumai-provider-openai` (OpenAI provider)
 - `siumai-provider-openai-compatible` (OpenAI-like protocol standard shared by multiple providers)
-- `siumai-provider-anthropic`
+- `siumai-provider-anthropic` (Anthropic provider)
+- `siumai-provider-anthropic-compatible` (Anthropic Messages protocol standard shared by multiple providers)
 - `siumai-provider-gemini`
 - `siumai-provider-ollama`
 - `siumai-provider-groq`

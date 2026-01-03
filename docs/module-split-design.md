@@ -29,7 +29,8 @@ Workspace members:
 - `siumai-provider-openai` — OpenAI provider implementation (native) + OpenAI-compatible vendor wiring
 - `siumai-provider-openai-compatible` — OpenAI-like protocol standard (shared mapping + streaming/tool-call helpers)
 - `siumai-provider-ollama` — Ollama provider + Ollama protocol standard
-- `siumai-provider-anthropic` — Anthropic provider + Anthropic protocol standard
+- `siumai-provider-anthropic` — Anthropic provider implementation (native)
+- `siumai-provider-anthropic-compatible` — Anthropic Messages protocol standard (shared mapping + streaming)
 - `siumai-provider-gemini` — Gemini provider + Gemini protocol standard
 - `siumai-provider-groq` — Groq provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
 - `siumai-provider-xai` — xAI provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
@@ -49,7 +50,8 @@ siumai-registry (optional)
   ├─ siumai-provider-openai (OpenAI provider)
   ├─ siumai-provider-openai-compatible (OpenAI-like family standard)          ← shared implementation layer (family crate)
   ├─ siumai-provider-ollama (Ollama provider + Ollama standard)
-  ├─ siumai-provider-anthropic (Anthropic provider + Anthropic standard)
+  ├─ siumai-provider-anthropic (Anthropic provider)
+  ├─ siumai-provider-anthropic-compatible (Anthropic Messages standard)       ← shared implementation layer (family crate)
   ├─ siumai-provider-gemini (Gemini provider + Gemini standard)
   ├─ siumai-provider-groq (Groq provider)
   ├─ siumai-provider-xai (xAI provider)
@@ -63,6 +65,8 @@ Notes:
 
 - We keep a single shared *family* crate for the OpenAI-like protocol (`siumai-provider-openai-compatible`)
   because multiple providers reuse the OpenAI-like mapping logic (Groq/xAI/OpenAI-compatible vendors, and parts of MiniMaxi).
+- We keep a shared *family* crate for the Anthropic Messages protocol (`siumai-provider-anthropic-compatible`)
+  because multiple providers reuse the Messages mapping (Anthropic native, and providers like MiniMaxi).
 - `siumai-core` must not import provider-specific protocol modules.
 
 ## Ownership rules (what belongs where)
@@ -196,9 +200,9 @@ This mirrors Vercel’s *concept* (shared adapter + vendor providers), while kee
 
 Provider-specific protocol mapping is provider-owned:
 
-- OpenAI-like (shared): `siumai-provider-openai/src/standards/openai/*`
+- OpenAI-like (shared): `siumai-provider-openai-compatible/src/standards/openai/*`
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
-- Anthropic standard: `siumai-provider-anthropic/src/standards/anthropic/*`
+- Anthropic Messages (shared): `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
 - Gemini standard: `siumai-provider-gemini/src/standards/gemini/*`
 
 `siumai-core` may still contain **protocol-level shared building blocks** under `siumai-core/src/standards/*`
@@ -210,8 +214,8 @@ they are surfaced through `siumai::experimental::standards::*` via provider re-e
 Some provider crates expose a **standard-only** feature to allow other providers to reuse protocol
 mapping logic without pulling the provider implementation modules:
 
-- `siumai-provider-openai/openai-standard`: OpenAI-like protocol mapping only (chat/embeddings/images/audio/rerank).
-- `siumai-provider-anthropic/anthropic-standard`: Anthropic protocol mapping only (chat + streaming helpers).
+- `siumai-provider-openai-compatible/openai-standard`: OpenAI-like protocol mapping only (chat/embeddings/images/audio/rerank).
+- `siumai-provider-anthropic-compatible/anthropic-standard`: Anthropic Messages protocol mapping only (chat + streaming helpers).
 
 ## Capability composition (TanStack-inspired, Rust-friendly)
 

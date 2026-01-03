@@ -10,7 +10,9 @@ For the full rationale and architecture direction, see:
 
 ## Current checkpoint (what is already done)
 
-- Provider-specific protocol mapping lives in provider crates. For the OpenAI-like family, the shared mapping lives in `siumai-provider-openai-compatible/src/standards/openai/*` and is reused by multiple providers.
+- Provider-specific protocol mapping lives in provider crates. For shared protocol families, we use dedicated “standard crates” reused by multiple providers:
+  - OpenAI-like: `siumai-provider-openai-compatible/src/standards/openai/*`
+  - Anthropic Messages: `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
 - `siumai-core` may host **protocol-level shared building blocks** under `siumai-core/src/standards/*` (e.g. OpenAI-compatible wire helpers), but it does not own provider-specific mapping.
 - `siumai-registry` is now decoupled from the umbrella `siumai-providers` crate and wires built-ins by depending on individual provider crates directly.
 - `siumai` is now decoupled from the umbrella `siumai-providers` crate and re-exports provider-specific APIs directly from provider crates (feature-gated).

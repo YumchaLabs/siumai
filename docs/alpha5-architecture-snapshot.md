@@ -7,8 +7,8 @@ focused on **where protocol standards live** and **how provider-specific extensi
 
 Provider-specific protocol mapping is provider-owned:
 
-- OpenAI-like standard: `siumai-provider-openai/src/standards/openai/*`
-- Anthropic standard: `siumai-provider-anthropic/src/standards/anthropic/*`
+- OpenAI-like standard: `siumai-provider-openai-compatible/src/standards/openai/*`
+- Anthropic Messages standard: `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
 - Gemini standard: `siumai-provider-gemini/src/standards/gemini/*`
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
 

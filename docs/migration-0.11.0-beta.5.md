@@ -61,7 +61,7 @@ The historical `siumai::providers::*` module path is removed to prevent cross-la
 
 - Unified surface: `use siumai::prelude::unified::*;`
 - Provider-specific surface: `use siumai::provider_ext::<provider>::*;`
-- Protocol-layer/helpers: `use siumai::experimental::*;` (advanced) or depend on the relevant protocol/provider crate directly (e.g. `siumai-provider-openai-compatible` for OpenAI-like mapping).
+- Protocol-layer/helpers: `use siumai::experimental::*;` (advanced) or depend on the relevant protocol/provider crate directly (e.g. `siumai-provider-openai-compatible` for OpenAI-like mapping, `siumai-provider-anthropic-compatible` for Anthropic Messages mapping).
 
 ### 5) Groq/xAI internal chat capability modules removed
 
