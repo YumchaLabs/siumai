@@ -19,7 +19,9 @@ pub mod builder {
     pub use siumai_core::builder::*;
 }
 
+/// Protocol-owned typed metadata views.
+pub mod provider_metadata;
+
 pub mod standards;
 
 pub use types::{ChatResponse, CommonParams};
-

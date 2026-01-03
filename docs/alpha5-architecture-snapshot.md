@@ -27,7 +27,7 @@ Current state:
 - OpenAI typed options: `siumai-provider-openai/src/provider_options/openai/*`
 - OpenAI typed metadata: `siumai-provider-openai/src/provider_metadata/openai.rs`
 - Anthropic typed options: `siumai-provider-anthropic/src/provider_options/anthropic/*`
-- Anthropic typed metadata: `siumai-provider-anthropic/src/provider_metadata/anthropic.rs`
+- Anthropic typed metadata: `siumai-provider-anthropic-compatible/src/provider_metadata/anthropic.rs` (re-exported by `siumai-provider-anthropic`)
 - Gemini typed options: `siumai-provider-gemini/src/provider_options/gemini/*`
 - Gemini typed metadata: `siumai-provider-gemini/src/provider_metadata/gemini.rs`
 - Groq typed options: `siumai-provider-groq/src/provider_options/*`

@@ -23,5 +23,17 @@ pub use client::AnthropicClient;
 pub use config::*;
 pub use types::*;
 
+// Provider-owned typed options (kept out of `siumai-core`).
+pub use crate::provider_options::anthropic::{
+    AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
+    PromptCachingConfig, ThinkingModeConfig,
+};
+
+// Typed provider metadata views (protocol-owned; re-exported via this provider for ergonomics).
+pub use crate::provider_metadata::anthropic::{
+    AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock, AnthropicMetadata,
+    AnthropicServerToolUse, AnthropicSource,
+};
+
 // Re-export capability implementations
 pub use models::AnthropicModels;

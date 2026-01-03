@@ -17,7 +17,7 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-anthropic-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic-compatible", default-features = false, optional = true }
+siumai-provider-anthropic-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic-compatible", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
@@ -50,7 +50,6 @@ structured-messages = ["siumai-core/structured-messages", "siumai-provider-anthr
 
 anthropic-standard = [
     "siumai-core/anthropic",
-    "dep:siumai-provider-anthropic-compatible",
     "siumai-provider-anthropic-compatible/anthropic-standard",
 ]
 

@@ -1,10 +1,12 @@
 //! siumai-provider-anthropic
 //!
-//! Anthropic provider implementation + shared Anthropic protocol standard.
+//! Anthropic provider implementation + shared Anthropic Messages protocol standard.
 //!
 //! This crate owns:
 //! - the Anthropic provider implementation (client + builder + extensions)
-//! - the Anthropic protocol mapping and streaming helpers used by the provider
+//! - the Anthropic provider implementation (client + builder + extensions)
+//!
+//! The reusable Anthropic Messages protocol mapping lives in `siumai-provider-anthropic-compatible`.
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the provider implementation.
@@ -22,7 +24,7 @@ pub mod builder {
 /// Provider-owned legacy parameter types.
 pub mod params;
 
-// Provider-owned typed options and metadata (kept out of `siumai-core`).
+// Provider-owned typed options and typed metadata re-exports (kept out of `siumai-core`).
 pub mod provider_metadata;
 pub mod provider_options;
 
