@@ -1,7 +1,7 @@
 //! Anthropic-specific response metadata (minimal, Vercel-aligned).
 //!
-//! This lives under the MiniMaxi provider crate to keep protocol mapping provider-owned
-//! while still exposing a stable provider metadata shape (`provider_metadata["anthropic"]`).
+//! This lives under the shared protocol crate to keep provider crates decoupled while still
+//! exposing a stable provider metadata shape (`provider_metadata["anthropic"]`).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -104,4 +104,3 @@ impl crate::types::provider_metadata::FromMetadata for AnthropicMetadata {
         serde_json::from_value(serde_json::to_value(metadata).ok()?).ok()
     }
 }
-

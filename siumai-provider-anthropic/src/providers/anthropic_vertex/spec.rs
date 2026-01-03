@@ -132,7 +132,7 @@ impl ProviderSpec for VertexAnthropicSpec {
     ) -> ChatTransformers {
         let stream_transformer = if req.stream {
             let converter = anthropic::streaming::AnthropicEventConverter::new(
-                crate::params::AnthropicParams::default(),
+                anthropic::params::AnthropicParams::default(),
             );
             let stream_tx = anthropic::transformers::AnthropicStreamChunkTransformer {
                 provider_id: "anthropic-vertex".to_string(),

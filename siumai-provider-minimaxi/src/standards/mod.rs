@@ -5,7 +5,7 @@
 //! - OpenAI-style image/audio endpoints
 
 #[cfg(feature = "minimaxi")]
-pub mod anthropic;
+pub use siumai_provider_anthropic_compatible::standards::anthropic;
 
 #[cfg(feature = "minimaxi")]
 pub use siumai_provider_openai_compatible::standards::openai;

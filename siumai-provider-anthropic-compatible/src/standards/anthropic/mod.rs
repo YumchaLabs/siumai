@@ -1,10 +1,9 @@
-//! Anthropic API Standard
+//! Anthropic Messages API Standard
 //!
 //! This module implements the Anthropic Messages API format.
 //!
-//! Note: MiniMaxi uses Anthropic-style chat mapping, but this module is kept
-//! provider-owned (inside `siumai-provider-minimaxi`) to avoid provider→provider
-//! dependencies during the alpha.5 split-crate refactor.
+//! This crate is a shared protocol layer used by multiple providers during the
+//! alpha.5 split-crate refactor to avoid provider→provider dependencies.
 
 pub mod cache;
 pub mod chat;

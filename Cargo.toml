@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["siumai", "siumai-core", "siumai-registry", "siumai-extras", "siumai-provider-openai", "siumai-provider-openai-compatible", "siumai-provider-ollama", "siumai-provider-anthropic", "siumai-provider-gemini", "siumai-provider-groq", "siumai-provider-xai", "siumai-provider-minimaxi"]
+members = ["siumai", "siumai-core", "siumai-registry", "siumai-extras", "siumai-provider-openai", "siumai-provider-openai-compatible", "siumai-provider-anthropic", "siumai-provider-anthropic-compatible", "siumai-provider-ollama", "siumai-provider-gemini", "siumai-provider-groq", "siumai-provider-xai", "siumai-provider-minimaxi"]
 
 [workspace.package]
 version = "0.11.0-beta.5"

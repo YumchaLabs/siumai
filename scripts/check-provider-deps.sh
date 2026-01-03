@@ -8,6 +8,7 @@ set -euo pipefail
 
 allowed_deps=(
   "siumai-provider-openai-compatible"
+  "siumai-provider-anthropic-compatible"
 )
 
 is_allowed_dep() {

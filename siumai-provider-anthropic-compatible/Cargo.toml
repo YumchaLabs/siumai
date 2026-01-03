@@ -1,15 +1,15 @@
 [package]
-name = "siumai-provider-minimaxi"
+name = "siumai-provider-anthropic-compatible"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "MiniMaxi provider implementation for siumai"
+description = "Anthropic-compatible protocol standard for siumai (Anthropic Messages API mapping)"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/siumai-provider-minimaxi"
+documentation = "https://docs.rs/siumai-provider-anthropic-compatible"
 readme = "../README.md"
-keywords = ["llm", "ai", "minimaxi"]
+keywords = ["llm", "ai", "anthropic", "compat"]
 categories = ["api-bindings"]
 
 [lib]
@@ -17,8 +17,6 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false }
-siumai-provider-anthropic-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic-compatible", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
@@ -43,20 +41,23 @@ backoff.workspace = true
 lru.workspace = true
 base64.workspace = true
 once_cell.workspace = true
-hex = { version = "0.4.3", optional = true }
 
 [features]
 default = []
 
-structured-messages = [
-    "siumai-core/structured-messages",
-    "siumai-provider-openai-compatible/structured-messages",
-    "siumai-provider-anthropic-compatible/structured-messages",
-]
+structured-messages = ["siumai-core/structured-messages"]
 
-minimaxi = [
-    "dep:hex",
-    "siumai-core/minimaxi",
-    "siumai-provider-openai-compatible/openai-standard",
-    "siumai-provider-anthropic-compatible/anthropic-standard",
-]
+# Protocol standard only (no provider implementations).
+anthropic-standard = ["siumai-core/anthropic"]
+
+# Matches the feature name used by downstream crates.
+anthropic = ["anthropic-standard"]
+
+[dev-dependencies]
+tokio-test.workspace = true
+mockito.workspace = true
+wiremock.workspace = true
+tracing-test.workspace = true
+tempfile.workspace = true
+proptest.workspace = true
+
