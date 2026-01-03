@@ -25,7 +25,7 @@ owned by the provider crate** and surfaced via stable facade paths.
 Current state:
 
 - OpenAI typed options: `siumai-provider-openai/src/provider_options/openai/*`
-- OpenAI typed metadata: `siumai-provider-openai/src/provider_metadata/openai.rs`
+- OpenAI typed metadata: `siumai-provider-openai-compatible/src/provider_metadata/openai.rs` (re-exported by `siumai-provider-openai`)
 - Anthropic typed options: `siumai-provider-anthropic/src/provider_options/anthropic/*`
 - Anthropic typed metadata: `siumai-provider-anthropic-compatible/src/provider_metadata/anthropic.rs` (re-exported by `siumai-provider-anthropic`)
 - Gemini typed options: `siumai-provider-gemini/src/provider_options/gemini/*`

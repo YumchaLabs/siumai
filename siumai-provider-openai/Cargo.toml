@@ -17,7 +17,9 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
+# Always depend on the shared OpenAI-like protocol crate.
+# This keeps provider-owned typed metadata available via re-exports.
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
@@ -51,11 +53,9 @@ structured-messages = ["siumai-core/structured-messages", "siumai-provider-opena
 
 # Protocol standard only (no provider implementations).
 #
-# Note: we still enable `siumai-core/openai` to keep OpenAI-like metadata types available
-# (e.g. `provider_metadata::openai::OpenAiSource`) used by the shared protocol mapping.
+# Note: we still enable `siumai-core/openai` to keep OpenAI protocol types available.
 openai-standard = [
     "siumai-core/openai",
-    "dep:siumai-provider-openai-compatible",
     "siumai-provider-openai-compatible/openai-standard",
 ]
 

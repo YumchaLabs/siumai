@@ -19,5 +19,8 @@ pub mod builder {
     pub use siumai_core::builder::*;
 }
 
+/// Protocol-owned typed metadata views.
+pub mod provider_metadata;
+
 pub mod providers;
 pub mod standards;

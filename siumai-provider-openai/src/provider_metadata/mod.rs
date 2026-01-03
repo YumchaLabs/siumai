@@ -5,4 +5,6 @@
 //!
 //! Provider crates may define typed views over those maps for ergonomics.
 
-pub mod openai;
+pub mod openai {
+    pub use siumai_provider_openai_compatible::provider_metadata::openai::*;
+}
