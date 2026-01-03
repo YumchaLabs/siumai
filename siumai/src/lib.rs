@@ -216,7 +216,7 @@ pub mod provider_ext {
         /// Provider-specific resources not covered by the unified families.
         pub mod resources {
             pub use siumai_provider_openai::providers::openai::{
-                OpenAiFiles, OpenAiModeration, OpenAiModels, OpenAiRerank,
+                OpenAiFiles, OpenAiModels, OpenAiModeration, OpenAiRerank,
             };
         }
 
@@ -237,8 +237,8 @@ pub mod provider_ext {
         /// Typed provider options (`provider_options_map["anthropic"]`).
         pub mod options {
             pub use siumai_provider_anthropic::provider_options::anthropic::{
-                AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
-                PromptCachingConfig, ThinkingModeConfig,
+                AnthropicCacheControl, AnthropicCacheType, AnthropicOptions,
+                AnthropicResponseFormat, PromptCachingConfig, ThinkingModeConfig,
             };
             pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
         }
@@ -255,8 +255,8 @@ pub mod provider_ext {
             };
         }
         pub use metadata::{
-            AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock, AnthropicMetadata,
-            AnthropicServerToolUse, AnthropicSource,
+            AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
+            AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
         };
 
         /// Non-unified Anthropic extension APIs (request extensions, tool helpers, thinking, etc.).
@@ -334,21 +334,43 @@ pub mod provider_ext {
     pub mod xai {
         pub use siumai_provider_xai::providers::xai::XaiClient;
 
+        /// Typed provider options (`provider_options_map["xai"]`).
+        pub mod options {
+            pub use siumai_provider_xai::providers::xai::ext::XaiChatRequestExt;
+            pub use siumai_provider_xai::providers::xai::{
+                SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+            };
+        }
+
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use siumai_provider_xai::providers::xai::{
-            SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+        pub use options::{
+            SearchMode, SearchSource, SearchSourceType, XaiChatRequestExt, XaiOptions,
+            XaiSearchParameters,
         };
 
-        pub use siumai_provider_xai::providers::xai::ext::*;
+        /// Non-unified xAI extension APIs (escape hatches).
+        pub mod ext {
+            pub use siumai_provider_xai::providers::xai::ext::*;
+        }
     }
 
     #[cfg(feature = "groq")]
     pub mod groq {
         pub use siumai_provider_groq::providers::groq::GroqClient;
 
+        /// Typed provider options (`provider_options_map["groq"]`).
+        pub mod options {
+            pub use siumai_provider_groq::provider_options::GroqOptions;
+            pub use siumai_provider_groq::providers::groq::ext::GroqChatRequestExt;
+        }
+
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use siumai_provider_groq::provider_options::GroqOptions;
-        pub use siumai_provider_groq::providers::groq::ext::*;
+        pub use options::{GroqChatRequestExt, GroqOptions};
+
+        /// Non-unified Groq extension APIs (escape hatches).
+        pub mod ext {
+            pub use siumai_provider_groq::providers::groq::ext::*;
+        }
     }
 }
 

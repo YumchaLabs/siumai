@@ -12,8 +12,8 @@ fn public_surface_unified_imports_compile() {
 
 #[test]
 fn public_surface_extensions_imports_compile() {
-    use siumai::extensions::*;
     use siumai::extensions::types::*;
+    use siumai::extensions::*;
 
     let _ = size_of::<ImageEditRequest>();
     let _ = size_of::<ModerationRequest>();
@@ -35,8 +35,7 @@ fn public_surface_openai_provider_ext_compiles() {
     let _ = size_of::<OpenAiMetadata>();
     let _ = size_of::<OpenAiSource>();
 
-    let req = ChatRequest::new(vec![user!("hi")])
-        .with_openai_options(OpenAiOptions::new());
+    let req = ChatRequest::new(vec![user!("hi")]).with_openai_options(OpenAiOptions::new());
     let _ = req;
 
     fn _assert_req_ext<T: OpenAiChatRequestExt>() {}
@@ -84,19 +83,25 @@ fn public_surface_gemini_provider_ext_compiles() {
 #[cfg(feature = "groq")]
 #[test]
 fn public_surface_groq_provider_ext_compiles() {
-    use siumai::provider_ext::groq::*;
+    use siumai::provider_ext::groq::{GroqClient, options::*};
 
     let _ = size_of::<GroqClient>();
     let _ = size_of::<GroqOptions>();
+
+    fn _assert_req_ext<T: GroqChatRequestExt>() {}
+    _assert_req_ext::<siumai::prelude::unified::ChatRequest>();
 }
 
 #[cfg(feature = "xai")]
 #[test]
 fn public_surface_xai_provider_ext_compiles() {
-    use siumai::provider_ext::xai::*;
+    use siumai::provider_ext::xai::{XaiClient, options::*};
 
     let _ = size_of::<XaiClient>();
     let _ = size_of::<XaiOptions>();
+
+    fn _assert_req_ext<T: XaiChatRequestExt>() {}
+    _assert_req_ext::<siumai::prelude::unified::ChatRequest>();
 }
 
 #[cfg(feature = "ollama")]
