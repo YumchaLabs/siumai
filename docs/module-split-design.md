@@ -26,12 +26,13 @@ Workspace members:
 - `siumai-core` — provider-agnostic runtime + types (protocol mapping moved out; remaining coupling is being reduced)
 - `siumai-registry` — registry + factories + handles (optional built-ins via feature)
 - `siumai-extras` — orchestrator + telemetry + server + MCP
-- `siumai-provider-openai` — OpenAI provider + OpenAI-like protocol standard (shared by multiple providers/vendors)
+- `siumai-provider-openai` — OpenAI provider implementation (native) + OpenAI-compatible vendor wiring
+- `siumai-provider-openai-compatible` — OpenAI-like protocol standard (shared mapping + streaming/tool-call helpers)
 - `siumai-provider-ollama` — Ollama provider + Ollama protocol standard
 - `siumai-provider-anthropic` — Anthropic provider + Anthropic protocol standard
 - `siumai-provider-gemini` — Gemini provider + Gemini protocol standard
-- `siumai-provider-groq` — Groq provider (OpenAI-like protocol)
-- `siumai-provider-xai` — xAI provider (OpenAI-like protocol)
+- `siumai-provider-groq` — Groq provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
+- `siumai-provider-xai` — xAI provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
 - `siumai-provider-minimaxi` — MiniMaxi provider (Anthropic chat + OpenAI-like media endpoints)
 
 ## Target layering (dependency direction)
@@ -45,7 +46,8 @@ siumai (facade)
   ↓
 siumai-registry (optional)
   ↓
-  ├─ siumai-provider-openai (OpenAI provider + OpenAI-like family standard)   ← shared implementation layer (family crate)
+  ├─ siumai-provider-openai (OpenAI provider)
+  ├─ siumai-provider-openai-compatible (OpenAI-like family standard)          ← shared implementation layer (family crate)
   ├─ siumai-provider-ollama (Ollama provider + Ollama standard)
   ├─ siumai-provider-anthropic (Anthropic provider + Anthropic standard)
   ├─ siumai-provider-gemini (Gemini provider + Gemini standard)
@@ -59,8 +61,8 @@ siumai-core (provider-agnostic runtime + shared types)
 
 Notes:
 
-- We start with a single shared *family* crate for the OpenAI-like protocol (`siumai-provider-openai`)
-  because multiple providers already reuse the OpenAI-like mapping logic (Groq/xAI/Minimaxi/openai_compatible).
+- We keep a single shared *family* crate for the OpenAI-like protocol (`siumai-provider-openai-compatible`)
+  because multiple providers reuse the OpenAI-like mapping logic (Groq/xAI/OpenAI-compatible vendors, and parts of MiniMaxi).
 - `siumai-core` must not import provider-specific protocol modules.
 
 ## Ownership rules (what belongs where)

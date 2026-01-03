@@ -32,7 +32,8 @@ keeping the *user-facing* surface aligned with the Vercel AI SDK philosophy.
 
 Provider crates (feature-gated):
 
-- `siumai-provider-openai` (OpenAI + OpenAI-compatible family standard)
+- `siumai-provider-openai` (OpenAI provider)
+- `siumai-provider-openai-compatible` (OpenAI-like protocol standard shared by multiple providers)
 - `siumai-provider-anthropic`
 - `siumai-provider-gemini`
 - `siumai-provider-ollama`

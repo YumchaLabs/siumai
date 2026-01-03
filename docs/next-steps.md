@@ -10,7 +10,7 @@ For the full rationale and architecture direction, see:
 
 ## Current checkpoint (what is already done)
 
-- Provider-specific protocol mapping lives in provider crates (e.g. `siumai-provider-openai/src/standards/openai/*`).
+- Provider-specific protocol mapping lives in provider crates. For the OpenAI-like family, the shared mapping lives in `siumai-provider-openai-compatible/src/standards/openai/*` and is reused by multiple providers.
 - `siumai-core` may host **protocol-level shared building blocks** under `siumai-core/src/standards/*` (e.g. OpenAI-compatible wire helpers), but it does not own provider-specific mapping.
 - `siumai-registry` is now decoupled from the umbrella `siumai-providers` crate and wires built-ins by depending on individual provider crates directly.
 - `siumai` is now decoupled from the umbrella `siumai-providers` crate and re-exports provider-specific APIs directly from provider crates (feature-gated).
@@ -29,9 +29,10 @@ For the full rationale and architecture direction, see:
 
 2. **Converge on one OpenAI-like strategy**
    - Treat “OpenAI-compatible vendors” as **configuration** (base URL, headers, error mapping), not as a separate “standard” split.
-   - Keep the OpenAI-compatible protocol layer reusable and provider-agnostic:
+   - Keep the OpenAI-like protocol mapping reusable and provider-agnostic by centralizing it in a shared crate:
      - protocol building blocks in `siumai-core/src/standards/openai/compat/*`
-     - provider-level wiring (spec + vendor presets) in provider crates (e.g. `siumai-provider-openai`)
+     - reusable mapping + streaming/tool-call helpers in `siumai-provider-openai-compatible`
+     - provider-level wiring (spec + vendor presets) in provider crates (e.g. `siumai-provider-openai`, `siumai-provider-groq`, `siumai-provider-xai`)
 
 3. **Tighten re-exports and stabilize the public paths**
    - Ensure the recommended stable surface stays in `siumai::prelude::unified::*`.
@@ -58,6 +59,7 @@ For the full rationale and architecture direction, see:
 
 - Keep a small “smoke” test matrix green (nextest):
   - `cargo nextest run -p siumai --features all-providers`
+- Add a lightweight dependency guardrail to prevent provider→provider dependencies from creeping back in (except approved shared family crates like `siumai-provider-openai-compatible`).
 - Treat `repo-ref/` and `_third_party/` as local reference inputs; do not commit large vendor trees by default.
 
 ## Stable surface reference

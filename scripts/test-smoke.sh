@@ -35,6 +35,8 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+./scripts/check-provider-deps.sh
+
 core_features="${SIUMAI_CORE_FEATURES:-openai}"
 registry_features="${SIUMAI_REGISTRY_FEATURES:-openai}"
 
