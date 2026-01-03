@@ -82,6 +82,17 @@ pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
 pub use types::*;
 
+// Provider-owned typed options (kept out of `siumai-core`).
+pub use crate::provider_options::openai::{
+    ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
+    ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiOptions, OpenAiWebSearchOptions,
+    PredictionContent, PredictionContentData, ReasoningEffort, ResponsesApiConfig, ServiceTier,
+    TextVerbosity, Truncation, UserLocationWrapper, WebSearchLocation,
+};
+
+// Typed provider metadata views (protocol-owned; re-exported via this provider for ergonomics).
+pub use crate::provider_metadata::openai::{OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource};
+
 /// OpenAI-compatible vendors (OpenAI-like providers).
 ///
 /// This is a thin re-export layer over `providers::openai_compatible` to keep the public

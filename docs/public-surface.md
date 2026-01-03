@@ -29,6 +29,12 @@ use siumai::provider_ext::anthropic::*;
 use siumai::provider_ext::gemini::*;
 ```
 
+For navigation/discoverability, each provider extension module may also expose structured submodules:
+
+- `siumai::provider_ext::<provider>::options::*`
+- `siumai::provider_ext::<provider>::metadata::*`
+- `siumai::provider_ext::<provider>::ext::*`
+
 ### 3) Provider-hosted tools (provider-executed tools)
 
 Use hosted tools via the stable module path:

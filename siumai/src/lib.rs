@@ -177,21 +177,41 @@ pub mod provider_ext {
     pub mod openai {
         pub use siumai_provider_openai::providers::openai::{OpenAiClient, OpenAiConfig};
 
-        pub use siumai_provider_openai::provider_metadata::openai::{
-            OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource,
-        };
-        pub use siumai_provider_openai::provider_options::openai::{
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["openai"]`).
+        pub mod metadata {
+            pub use siumai_provider_openai::provider_metadata::openai::{
+                OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource,
+            };
+        }
+        pub use metadata::{OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource};
+
+        /// Typed provider options (`provider_options_map["openai"]`).
+        pub mod options {
+            pub use siumai_provider_openai::provider_options::openai::{
+                ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
+                ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiOptions,
+                OpenAiWebSearchOptions, PredictionContent, PredictionContentData, ReasoningEffort,
+                ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
+                WebSearchLocation,
+            };
+        }
+        pub use options::{
             ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
             ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiOptions,
             OpenAiWebSearchOptions, PredictionContent, PredictionContentData, ReasoningEffort,
             ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
             WebSearchLocation,
         };
-        pub use siumai_provider_openai::providers::openai::ext::*;
-        pub use siumai_provider_openai::providers::openai::responses::OpenAiResponsesEventConverter;
-        pub use siumai_provider_openai::providers::openai::types::{
-            OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt,
-        };
+
+        /// Non-unified OpenAI extension APIs (request extensions, streaming helpers, etc.).
+        pub mod ext {
+            pub use siumai_provider_openai::providers::openai::ext::*;
+            pub use siumai_provider_openai::providers::openai::responses::OpenAiResponsesEventConverter;
+            pub use siumai_provider_openai::providers::openai::types::{
+                OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt,
+            };
+        }
+        pub use ext::*;
 
         /// Legacy OpenAI parameter structs (client-level defaults).
         ///
@@ -206,12 +226,36 @@ pub mod provider_ext {
     #[cfg(feature = "anthropic")]
     pub mod anthropic {
         pub use siumai_provider_anthropic::providers::anthropic::AnthropicClient;
-        pub use siumai_provider_anthropic::providers::anthropic::ext::*;
-        pub use siumai_provider_anthropic::providers::anthropic::{
-            AnthropicCacheControl, AnthropicCacheType, AnthropicChatResponseExt, AnthropicCitation,
-            AnthropicCitationsBlock, AnthropicMetadata, AnthropicOptions, AnthropicResponseFormat,
-            AnthropicServerToolUse, AnthropicSource, PromptCachingConfig, ThinkingModeConfig,
+
+        /// Typed provider options (`provider_options_map["anthropic"]`).
+        pub mod options {
+            pub use siumai_provider_anthropic::provider_options::anthropic::{
+                AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
+                PromptCachingConfig, ThinkingModeConfig,
+            };
+        }
+        pub use options::{
+            AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
+            PromptCachingConfig, ThinkingModeConfig,
         };
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).
+        pub mod metadata {
+            pub use siumai_provider_anthropic::provider_metadata::anthropic::{
+                AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
+                AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
+            };
+        }
+        pub use metadata::{
+            AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock, AnthropicMetadata,
+            AnthropicServerToolUse, AnthropicSource,
+        };
+
+        /// Non-unified Anthropic extension APIs (request extensions, tool helpers, thinking, etc.).
+        pub mod ext {
+            pub use siumai_provider_anthropic::providers::anthropic::ext::*;
+        }
+        pub use ext::*;
 
         // Legacy Anthropic parameter structs (provider-owned).
         pub use siumai_provider_anthropic::params::anthropic::{AnthropicParams, CacheControl};
