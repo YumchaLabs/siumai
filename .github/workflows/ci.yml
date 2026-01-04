@@ -101,6 +101,26 @@ jobs:
       - name: Cargo check (siumai)
         run: cargo check -p siumai --no-default-features --features ${{ matrix.features }}
 
+  pr-facade-guardrails:
+    name: PR Facade Guardrails (public surface + examples)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Compile facade examples (all providers)
+        run: cargo check -p siumai --examples --no-default-features --features all-providers
+
+      - name: Public surface import guard (all providers)
+        run: cargo test -p siumai --no-default-features --features all-providers --test public_surface_imports_test
+
   feature-build-matrix:
     name: Feature Build Matrix (core)
     if: ${{ github.event_name != 'pull_request' }}
