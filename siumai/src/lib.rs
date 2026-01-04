@@ -267,7 +267,9 @@ pub mod provider_ext {
 
         /// Non-unified Anthropic extension APIs (request extensions, tool helpers, thinking, etc.).
         pub mod ext {
-            pub use siumai_provider_anthropic::providers::anthropic::ext::*;
+            pub use siumai_provider_anthropic::providers::anthropic::ext::{
+                structured_output, thinking, tools,
+            };
         }
 
         // Legacy Anthropic parameter structs (provider-owned).
