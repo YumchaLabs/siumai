@@ -19,8 +19,11 @@ Note: `siumai-core` may host **protocol-level shared building blocks** under `si
 
 ## Provider-specific typed options / typed metadata ownership
 
-Guiding rule (Vercel-aligned): `siumai-core` is provider-agnostic; **typed provider options and metadata are
-owned by the provider crate** and surfaced via stable facade paths.
+Guiding rule (Vercel-aligned): `siumai-core` is provider-agnostic.
+
+- Typed provider options are provider-owned.
+- Typed response metadata may be provider-owned or protocol-family-owned (when shared across multiple providers).
+  In either case, they are surfaced via stable facade paths.
 
 Current state:
 
@@ -35,7 +38,7 @@ Current state:
 - Ollama typed options: `siumai-provider-ollama/src/provider_options/*`
 - MiniMaxi typed options: `siumai-provider-minimaxi/src/provider_options/*`
 
-Stable facade exports:
+Stable facade exports (stable module roots):
 
 - `siumai::provider_ext::openai::*`
 - `siumai::provider_ext::anthropic::*`
@@ -44,6 +47,13 @@ Stable facade exports:
 - `siumai::provider_ext::xai::*`
 - `siumai::provider_ext::ollama::*`
 - `siumai::provider_ext::minimaxi::*`
+
+For new code, prefer structured imports (to avoid accidental coupling):
+
+- Typed options: `siumai::provider_ext::<provider>::options::*`
+- Typed metadata: `siumai::provider_ext::<provider>::metadata::*` (when available)
+- Escape hatches: `siumai::provider_ext::<provider>::ext::*`
+- Extra resources: `siumai::provider_ext::<provider>::resources::*` (when available)
 
 ## Provider options transport (Vercel-aligned)
 
