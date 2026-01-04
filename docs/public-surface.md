@@ -6,6 +6,12 @@ Alpha.5 split-crate refactor.
 Goal: keep the default surface **small, Vercel-aligned, and hard to misuse** (avoid accidental
 cross-layer coupling).
 
+## Stability tiers
+
+- **Tier A (stable):** `siumai::prelude::unified::*`
+- **Tier B (stable roots, scoped):** `siumai::provider_ext::<provider>::{options,metadata,resources,ext}`
+- **Tier C (unstable):** `siumai::experimental::*` (advanced building blocks; may change without notice)
+
 ## Recommended imports
 
 ### 1) Unified surface (most code)
