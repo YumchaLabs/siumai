@@ -346,7 +346,7 @@ pub mod provider_ext {
 
         /// Non-unified MiniMaxi extension APIs (escape hatches).
         pub mod ext {
-            pub use siumai_provider_minimaxi::providers::minimaxi::ext::*;
+            pub use siumai_provider_minimaxi::providers::minimaxi::ext::{music, video};
         }
 
         /// Provider-specific resources not covered by the unified families.
