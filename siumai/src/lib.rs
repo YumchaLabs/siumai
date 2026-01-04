@@ -195,6 +195,9 @@ pub mod provider_ext {
                 WebSearchLocation,
             };
             pub use siumai_provider_openai::providers::openai::ext::OpenAiChatRequestExt;
+            pub use siumai_provider_openai::providers::openai::ext::audio_options::{
+                OpenAiSttOptions, OpenAiTtsOptions,
+            };
             pub use siumai_provider_openai::providers::openai::types::{
                 OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt,
             };
@@ -202,15 +205,17 @@ pub mod provider_ext {
         pub use options::{
             ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
             ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiChatRequestExt,
-            OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt, OpenAiOptions,
-            OpenAiWebSearchOptions, PredictionContent, PredictionContentData, ReasoningEffort,
-            ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
-            WebSearchLocation,
+            OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt, OpenAiOptions, OpenAiSttOptions,
+            OpenAiTtsOptions, OpenAiWebSearchOptions, PredictionContent, PredictionContentData,
+            ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation,
+            UserLocationWrapper, WebSearchLocation,
         };
 
         /// Non-unified OpenAI extension APIs (streaming helpers, moderation/files resources, etc.).
         pub mod ext {
-            pub use siumai_provider_openai::providers::openai::ext::*;
+            pub use siumai_provider_openai::providers::openai::ext::{
+                moderation, responses, speech_streaming, transcription_streaming,
+            };
             pub use siumai_provider_openai::providers::openai::responses::OpenAiResponsesEventConverter;
         }
 

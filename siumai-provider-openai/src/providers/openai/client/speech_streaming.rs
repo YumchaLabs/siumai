@@ -1,7 +1,7 @@
 //! OpenAI speech streaming (SSE) extension implementation.
 //!
 //! This is intentionally not part of the Vercel-aligned unified `SpeechCapability`.
-//! Users should access this via `siumai::provider_ext::openai::speech_streaming::*`.
+//! Users should access this via `siumai::provider_ext::openai::ext::speech_streaming::*`.
 
 use super::OpenAiClient;
 use crate::error::LlmError;

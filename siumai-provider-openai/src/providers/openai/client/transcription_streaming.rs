@@ -1,7 +1,7 @@
 //! OpenAI transcription streaming (SSE) extension implementation.
 //!
 //! This is intentionally not part of the Vercel-aligned unified `TranscriptionCapability`.
-//! Users should access this via `siumai::provider_ext::openai::transcription_streaming::*`.
+//! Users should access this via `siumai::provider_ext::openai::ext::transcription_streaming::*`.
 
 use super::OpenAiClient;
 use crate::error::LlmError;
