@@ -129,6 +129,30 @@ The facade no longer exposes `siumai::core::*` as a convenience path.
 - If you need provider internals, depend on the relevant provider crate directly (recommended) or use
   `siumai::experimental::providers::*` (advanced, unstable surface).
 
+### 10) `provider_ext::<provider>::ext::*` is no longer flattened
+
+To keep the public surface predictable and avoid accidental imports, provider extension modules no
+longer flatten `ext::*` into `siumai::provider_ext::<provider>::*`.
+
+Update your imports to use the structured submodules:
+
+```rust,ignore
+// Before (worked when ext::* was flattened):
+use siumai::provider_ext::openai::*;
+
+// After (recommended):
+use siumai::provider_ext::openai::{metadata::*, options::*};
+// Escape hatches / non-unified helpers:
+use siumai::provider_ext::openai::ext::*;
+```
+
+Quick mapping (same pattern for all providers):
+
+- Typed options: `siumai::provider_ext::<provider>::options::*`
+- Typed metadata: `siumai::provider_ext::<provider>::metadata::*` (if the provider exposes it)
+- Non-unified escape hatches: `siumai::provider_ext::<provider>::ext::*`
+- Extra resources: `siumai::provider_ext::<provider>::resources::*` (when applicable)
+
 ## Migration cookbook
 
 ### A) Attach provider options (open map)
@@ -277,6 +301,16 @@ Examples:
 ### `error[E0432]: unresolved import siumai::types` (or `siumai::traits`, `siumai::error`, `siumai::streaming`)
 
 Those top-level module paths are no longer part of the stable facade surface.
+
+### `error[E0432]: unresolved import siumai::provider_ext::<provider>::...` (after provider_ext scoping)
+
+If you previously relied on `use siumai::provider_ext::<provider>::*;` pulling in request extension
+traits or helper APIs, switch to structured imports:
+
+```rust,ignore
+use siumai::provider_ext::openai::{metadata::*, options::*};
+use siumai::provider_ext::openai::ext::*;
+```
 
 - Prefer: `use siumai::prelude::unified::*;`
 - For non-unified extension capabilities:
