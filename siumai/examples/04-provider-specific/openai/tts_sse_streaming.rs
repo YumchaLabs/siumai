@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_format("mp3".to_string());
 
     let mut stream =
-        siumai::provider_ext::openai::speech_streaming::tts_sse_stream(openai, req).await?;
+        siumai::provider_ext::openai::ext::speech_streaming::tts_sse_stream(openai, req).await?;
 
     let mut total_bytes = 0usize;
     while let Some(item) = stream.next().await {

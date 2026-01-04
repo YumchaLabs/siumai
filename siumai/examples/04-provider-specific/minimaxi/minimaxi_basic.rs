@@ -9,7 +9,7 @@
 use futures::StreamExt;
 use siumai::models;
 use siumai::prelude::unified::*;
-use siumai::provider_ext::minimaxi::tts::MinimaxiTtsRequestBuilder;
+use siumai::provider_ext::minimaxi::options::MinimaxiTtsRequestBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

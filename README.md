@@ -212,7 +212,7 @@ You still can combine them with the decoding helpers above if you want:
 
 ```rust
 use siumai::prelude::unified::*;
-use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
+use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 use serde_json::json;
 
 let schema = json!({"type":"object","properties":{"title":{"type":"string"}},"required":["title"]});

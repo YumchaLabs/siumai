@@ -60,7 +60,7 @@ OpenAI example:
 
 ```rust,no_run
 use siumai::prelude::unified::*;
-use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
+use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -83,7 +83,7 @@ let _ = client.chat_request(req).await?;
 Providers may also expose typed metadata helpers as extension traits:
 
 ```rust,ignore
-use siumai::provider_ext::openai::{OpenAiChatResponseExt, OpenAiMetadata};
+use siumai::provider_ext::openai::metadata::{OpenAiChatResponseExt, OpenAiMetadata};
 
 fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetadata> {
     resp.openai_metadata()
@@ -93,7 +93,7 @@ fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetada
 Gemini example:
 
 ```rust,ignore
-use siumai::provider_ext::gemini::{GeminiChatResponseExt, GeminiMetadata};
+use siumai::provider_ext::gemini::metadata::{GeminiChatResponseExt, GeminiMetadata};
 
 fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<GeminiMetadata> {
     resp.gemini_metadata()
@@ -103,7 +103,7 @@ fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<GeminiMetada
 Or use the provider-agnostic helper (works for any `Deserialize` metadata type):
 
 ```rust,ignore
-use siumai::provider_ext::openai::OpenAiMetadata;
+use siumai::provider_ext::openai::metadata::OpenAiMetadata;
 
 fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetadata> {
     resp.provider_metadata_as::<OpenAiMetadata>("openai")

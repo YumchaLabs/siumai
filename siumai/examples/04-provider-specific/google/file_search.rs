@@ -20,7 +20,7 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::provider_ext::gemini::file_search_stores::{
+use siumai::provider_ext::gemini::ext::file_search_stores::{
     ChunkingConfig, FileSearchUploadConfig, WhiteSpaceChunkingConfig,
 };
 

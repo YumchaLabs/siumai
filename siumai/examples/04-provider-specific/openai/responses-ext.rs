@@ -1,7 +1,7 @@
 //! OpenAI Responses API (extension API)
 //!
 //! This example demonstrates the provider extension entry point:
-//! `siumai::provider_ext::openai::responses::chat_via_responses_api`.
+//! `siumai::provider_ext::openai::ext::responses::chat_via_responses_api`.
 //!
 //! ## Run
 //! ```bash
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
     // Option A: explicit extension helper (makes intent obvious)
-    let resp = siumai::provider_ext::openai::responses::chat_via_responses_api(
+    let resp = siumai::provider_ext::openai::ext::responses::chat_via_responses_api(
         &client,
         req,
         ResponsesApiConfig::new(),

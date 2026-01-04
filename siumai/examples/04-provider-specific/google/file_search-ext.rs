@@ -3,7 +3,7 @@
 //! This example demonstrates:
 //! - Building via the unified `Siumai` interface
 //! - Using `downcast_client_cloned::<GeminiClient>()` to access provider-specific APIs
-//! - Managing File Search Stores via `siumai::provider_ext::gemini::file_search_stores`
+//! - Managing File Search Stores via `siumai::provider_ext::gemini::ext::file_search_stores`
 //! - Querying via the provider-defined tool `siumai::hosted_tools::google::file_search`
 //!
 //! Run:
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .downcast_client_cloned::<siumai::provider_ext::gemini::GeminiClient>()
         .expect("this Siumai instance is backed by GeminiClient");
 
-    let stores = siumai::provider_ext::gemini::file_search_stores::stores(&gemini);
+    let stores = siumai::provider_ext::gemini::ext::file_search_stores::stores(&gemini);
 
     println!("📦 Creating File Search Store...");
     let store = stores
@@ -51,11 +51,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Upload small content with whitespace chunking
     let content = b"Robert Graves was an English poet, novelist, critic, and classicist.".to_vec();
-    let cfg = siumai::provider_ext::gemini::file_search_stores::FileSearchUploadConfig {
+    let cfg = siumai::provider_ext::gemini::ext::file_search_stores::FileSearchUploadConfig {
         chunking_config: Some(
-            siumai::provider_ext::gemini::file_search_stores::ChunkingConfig {
+            siumai::provider_ext::gemini::ext::file_search_stores::ChunkingConfig {
                 white_space_config: Some(
-                    siumai::provider_ext::gemini::file_search_stores::WhiteSpaceChunkingConfig {
+                    siumai::provider_ext::gemini::ext::file_search_stores::WhiteSpaceChunkingConfig {
                         max_tokens_per_chunk: 200,
                         max_overlap_tokens: 20,
                     },

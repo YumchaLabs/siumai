@@ -11,7 +11,7 @@
 
 use siumai::prelude::extensions::*;
 use siumai::prelude::unified::*;
-use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
+use siumai::provider_ext::minimaxi::ext::music::MinimaxiMusicRequestBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

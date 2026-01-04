@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates how to observe provider-hosted tool execution in streaming mode:
 //! - Anthropic server tools emit `ChatStreamEvent::Custom` events (`anthropic:tool-call` / `anthropic:tool-result`)
-//! - Use `siumai::provider_ext::anthropic::tools::AnthropicCustomEvent` to parse them
+//! - Use `siumai::provider_ext::anthropic::ext::tools::AnthropicCustomEvent` to parse them
 //!
 //! Run:
 //! ```bash
@@ -35,16 +35,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ev = ev?;
 
         if let Some(custom) =
-            siumai::provider_ext::anthropic::tools::AnthropicCustomEvent::from_stream_event(&ev)
+            siumai::provider_ext::anthropic::ext::tools::AnthropicCustomEvent::from_stream_event(
+                &ev,
+            )
         {
             match custom {
-                siumai::provider_ext::anthropic::tools::AnthropicCustomEvent::ProviderToolCall(e) => {
+                siumai::provider_ext::anthropic::ext::tools::AnthropicCustomEvent::ProviderToolCall(e) => {
                     println!("provider tool call: {} ({})", e.tool_name, e.tool_call_id);
                 }
-                siumai::provider_ext::anthropic::tools::AnthropicCustomEvent::ProviderToolResult(e) => {
+                siumai::provider_ext::anthropic::ext::tools::AnthropicCustomEvent::ProviderToolResult(e) => {
                     println!("provider tool result: {} ({})", e.tool_name, e.tool_call_id);
                 }
-                siumai::provider_ext::anthropic::tools::AnthropicCustomEvent::Source(e) => {
+                siumai::provider_ext::anthropic::ext::tools::AnthropicCustomEvent::Source(e) => {
                     println!("source: {} ({})", e.url, e.id);
                 }
             }

@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates how to observe provider-hosted tool execution in streaming mode:
 //! - Web search tool emits `ChatStreamEvent::Custom` events (`openai:tool-call` / `openai:tool-result`)
-//! - Use `siumai::provider_ext::openai::responses::OpenAiResponsesCustomEvent` to parse them
+//! - Use `siumai::provider_ext::openai::ext::responses::OpenAiResponsesCustomEvent` to parse them
 //!
 //! Run:
 //! ```bash
@@ -38,18 +38,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(ev) = stream.next().await {
         let ev = ev?;
         if let Some(custom) =
-            siumai::provider_ext::openai::responses::OpenAiResponsesCustomEvent::from_stream_event(
+            siumai::provider_ext::openai::ext::responses::OpenAiResponsesCustomEvent::from_stream_event(
                 &ev,
             )
         {
             match custom {
-                siumai::provider_ext::openai::responses::OpenAiResponsesCustomEvent::ProviderToolCall(e) => {
+                siumai::provider_ext::openai::ext::responses::OpenAiResponsesCustomEvent::ProviderToolCall(e) => {
                     println!("provider tool call: {} ({})", e.tool_name, e.tool_call_id);
                 }
-                siumai::provider_ext::openai::responses::OpenAiResponsesCustomEvent::ProviderToolResult(e) => {
+                siumai::provider_ext::openai::ext::responses::OpenAiResponsesCustomEvent::ProviderToolResult(e) => {
                     println!("provider tool result: {} ({})", e.tool_name, e.tool_call_id);
                 }
-                siumai::provider_ext::openai::responses::OpenAiResponsesCustomEvent::Source(e) => {
+                siumai::provider_ext::openai::ext::responses::OpenAiResponsesCustomEvent::Source(e) => {
                     println!("source: {} ({})", e.url, e.id);
                 }
             }

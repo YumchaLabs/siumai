@@ -31,17 +31,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     req.model = Some("gpt-4o-mini-transcribe".to_string());
 
     let mut stream =
-        siumai::provider_ext::openai::transcription_streaming::stt_sse_stream(openai, req).await?;
+        siumai::provider_ext::openai::ext::transcription_streaming::stt_sse_stream(openai, req)
+            .await?;
 
     while let Some(item) = stream.next().await {
         match item? {
-            siumai::provider_ext::openai::transcription_streaming::OpenAiTranscriptionStreamEvent::TextDelta { delta, .. } => {
+            siumai::provider_ext::openai::ext::transcription_streaming::OpenAiTranscriptionStreamEvent::TextDelta { delta, .. } => {
                 print!("{delta}");
             }
-            siumai::provider_ext::openai::transcription_streaming::OpenAiTranscriptionStreamEvent::Segment { id, start, end, speaker, text } => {
+            siumai::provider_ext::openai::ext::transcription_streaming::OpenAiTranscriptionStreamEvent::Segment { id, start, end, speaker, text } => {
                 eprintln!("\nsegment {id} [{start:.2}-{end:.2}] speaker={:?}: {text}", speaker);
             }
-            siumai::provider_ext::openai::transcription_streaming::OpenAiTranscriptionStreamEvent::Done { text, usage, .. } => {
+            siumai::provider_ext::openai::ext::transcription_streaming::OpenAiTranscriptionStreamEvent::Done { text, usage, .. } => {
                 eprintln!("\n\ndone");
                 if let Some(t) = text {
                     eprintln!("text_len={}", t.len());
@@ -51,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 break;
             }
-            siumai::provider_ext::openai::transcription_streaming::OpenAiTranscriptionStreamEvent::Custom { event_type, .. } => {
+            siumai::provider_ext::openai::ext::transcription_streaming::OpenAiTranscriptionStreamEvent::Custom { event_type, .. } => {
                 eprintln!("\n(custom event: {event_type})");
             }
         }

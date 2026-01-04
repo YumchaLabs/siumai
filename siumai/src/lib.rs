@@ -201,7 +201,8 @@ pub mod provider_ext {
         }
         pub use options::{
             ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
-            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiOptions,
+            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiChatRequestExt,
+            OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt, OpenAiOptions,
             OpenAiWebSearchOptions, PredictionContent, PredictionContentData, ReasoningEffort,
             ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
             WebSearchLocation,
@@ -243,8 +244,8 @@ pub mod provider_ext {
             pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
         }
         pub use options::{
-            AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
-            PromptCachingConfig, ThinkingModeConfig,
+            AnthropicCacheControl, AnthropicCacheType, AnthropicChatRequestExt, AnthropicOptions,
+            AnthropicResponseFormat, PromptCachingConfig, ThinkingModeConfig,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).

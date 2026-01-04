@@ -162,7 +162,7 @@ Use `with_provider_option` directly:
 ```rust
 use siumai::prelude::unified::*;
 
-let req = ChatRequest::new(vec![user!("hi").build()])
+let req = ChatRequest::new(vec![user!("hi")])
     .with_provider_option("openai", serde_json::json!({
         "reasoning_effort": "high"
     }));
@@ -172,9 +172,9 @@ Or use the per-provider convenience setters (feature-gated):
 
 ```rust
 use siumai::prelude::unified::*;
-use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ReasoningEffort};
+use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions, ReasoningEffort};
 
-let req = ChatRequest::new(vec![user!("hi").build()])
+let req = ChatRequest::new(vec![user!("hi")])
     .with_openai_options(
         OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::High),
     );
@@ -225,7 +225,7 @@ let client = Siumai::builder()
     .build()
     .await?;
 
-let req = ChatRequest::new(vec![user!("hi").build()])
+let req = ChatRequest::new(vec![user!("hi")])
     .with_provider_option("deepseek", serde_json::json!({
         "stream_options": { "include_usage": true }
     }));
@@ -241,7 +241,7 @@ Use provider-defined tools (stable, Vercel-aligned) and explicitly enable the Re
 ```rust
 use siumai::prelude::unified::*;
 use siumai::hosted_tools::openai as openai_tools;
-use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
+use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 let req = ChatRequest::new(vec![user!("What's new in Rust async runtimes?")])
     .with_tools(vec![

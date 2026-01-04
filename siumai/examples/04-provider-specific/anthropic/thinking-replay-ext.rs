@@ -14,7 +14,7 @@
 
 use siumai::prelude::unified::*;
 use siumai::provider_ext::anthropic::ThinkingModeConfig;
-use siumai::provider_ext::anthropic::thinking;
+use siumai::provider_ext::anthropic::ext::thinking;
 use siumai::user;
 
 #[tokio::main]
