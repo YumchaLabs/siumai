@@ -311,7 +311,9 @@ pub mod provider_ext {
 
         /// Non-unified Gemini extension APIs (escape hatches).
         pub mod ext {
-            pub use siumai_provider_gemini::providers::gemini::ext::*;
+            pub use siumai_provider_gemini::providers::gemini::ext::{
+                code_execution, file_search_stores, tools,
+            };
         }
 
         /// Provider-specific resources not covered by the unified families.
