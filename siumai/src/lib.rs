@@ -379,7 +379,7 @@ pub mod provider_ext {
 
         /// Non-unified Ollama extension APIs (escape hatches).
         pub mod ext {
-            pub use siumai_provider_ollama::providers::ollama::ext::*;
+            pub use siumai_provider_ollama::providers::ollama::ext::request_options;
         }
     }
 
