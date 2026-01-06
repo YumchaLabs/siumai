@@ -50,3 +50,4 @@ pub(super) fn normalize_gemini_model_id(model: &str) -> String {
 pub use chat::{GeminiChatAdapter, GeminiChatSpec, GeminiChatStandard};
 pub use embedding::{GeminiEmbeddingAdapter, GeminiEmbeddingSpec, GeminiEmbeddingStandard};
 pub use image::{GeminiImageAdapter, GeminiImageSpec, GeminiImageStandard};
+pub use sources::GeminiSource;

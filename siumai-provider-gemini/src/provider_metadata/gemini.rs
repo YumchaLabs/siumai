@@ -4,31 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// A normalized "source" entry (Vercel-aligned), extracted from grounding chunks.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct GeminiSource {
-    /// Source identifier (stable within a response).
-    pub id: String,
-
-    /// Source type ("url" or "document").
-    pub source_type: String,
-
-    /// Source URL (only for `source_type = "url"`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-
-    /// Optional title.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-
-    /// Media type for document sources (e.g. "application/pdf").
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub media_type: Option<String>,
-
-    /// Filename for document sources.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filename: Option<String>,
-}
+pub use crate::standards::gemini::GeminiSource;
 
 /// Gemini-specific metadata from chat responses.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

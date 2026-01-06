@@ -16,14 +16,95 @@ use crate::types::EmbeddingRequest;
 use crate::types::ImageGenerationRequest;
 use crate::types::{ChatRequest, ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
+use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
-
-use crate::provider_options::gemini::GeminiOptions;
 
 use super::types::{CreateFileResponse, GeminiFile, GeminiFileState, ListFilesResponse};
 use super::types::{GeminiConfig, GenerateContentRequest, GenerateContentResponse, Part};
 // No longer depend on chat capability for request construction
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct GeminiProviderOptions {
+    response_mime_type: Option<String>,
+    cached_content: Option<String>,
+    response_modalities: Option<Vec<String>>,
+    thinking_config: Option<serde_json::Value>,
+    safety_settings: Option<Vec<serde_json::Value>>,
+    labels: Option<std::collections::HashMap<String, String>>,
+    audio_timestamp: Option<bool>,
+
+    // Legacy (deprecated) compatibility fields.
+    code_execution: Option<LegacyToggleConfig>,
+    search_grounding: Option<LegacySearchGroundingConfig>,
+    file_search: Option<LegacyFileSearchConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct LegacyToggleConfig {
+    enabled: bool,
+}
+
+impl Default for LegacyToggleConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct LegacySearchGroundingConfig {
+    enabled: bool,
+    dynamic_retrieval_config: Option<LegacyDynamicRetrievalConfig>,
+}
+
+impl Default for LegacySearchGroundingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            dynamic_retrieval_config: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct LegacyDynamicRetrievalConfig {
+    mode: LegacyDynamicRetrievalMode,
+    dynamic_threshold: Option<serde_json::Number>,
+}
+
+impl Default for LegacyDynamicRetrievalConfig {
+    fn default() -> Self {
+        Self {
+            mode: LegacyDynamicRetrievalMode::ModeUnspecified,
+            dynamic_threshold: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum LegacyDynamicRetrievalMode {
+    ModeUnspecified,
+    ModeDynamic,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct LegacyFileSearchConfig {
+    file_search_store_names: Vec<String>,
+}
+
+impl Default for LegacyFileSearchConfig {
+    fn default() -> Self {
+        Self {
+            file_search_store_names: Vec::new(),
+        }
+    }
+}
 
 fn normalize_gemini_provider_options_json(value: &serde_json::Value) -> serde_json::Value {
     fn normalize_key(k: &str) -> Option<&'static str> {
@@ -67,10 +148,10 @@ fn normalize_gemini_provider_options_json(value: &serde_json::Value) -> serde_js
     inner(value)
 }
 
-fn gemini_options_from_request(req: &ChatRequest) -> Option<GeminiOptions> {
+fn gemini_options_from_request(req: &ChatRequest) -> Option<GeminiProviderOptions> {
     if let Some(value) = req.provider_options_map.get("gemini") {
         let normalized = normalize_gemini_provider_options_json(value);
-        if let Ok(opts) = serde_json::from_value::<GeminiOptions>(normalized) {
+        if let Ok(opts) = serde_json::from_value::<GeminiProviderOptions>(normalized) {
             return Some(opts);
         }
     }
@@ -271,12 +352,15 @@ impl RequestTransformer for GeminiRequestTransformer {
                                     && let Some(cfg) = &search.dynamic_retrieval_config
                                 {
                                     let mode = match cfg.mode {
-                                        crate::provider_options::gemini::DynamicRetrievalMode::ModeDynamic => "MODE_DYNAMIC",
-                                        crate::provider_options::gemini::DynamicRetrievalMode::ModeUnspecified => "MODE_UNSPECIFIED",
+                                        LegacyDynamicRetrievalMode::ModeDynamic => "MODE_DYNAMIC",
+                                        LegacyDynamicRetrievalMode::ModeUnspecified => {
+                                            "MODE_UNSPECIFIED"
+                                        }
                                     };
                                     let mut drc = serde_json::json!({ "mode": mode });
-                                    if let Some(th) = cfg.dynamic_threshold {
-                                        drc["dynamicThreshold"] = serde_json::json!(th);
+                                    if let Some(th) = &cfg.dynamic_threshold {
+                                        drc["dynamicThreshold"] =
+                                            serde_json::Value::Number(th.clone());
                                     }
                                     entry["googleSearchRetrieval"]["dynamicRetrievalConfig"] = drc;
                                 }
@@ -529,7 +613,6 @@ impl RequestTransformer for GeminiRequestTransformer {
 #[cfg(test)]
 mod tests_gemini_rules {
     use super::*;
-    use crate::providers::gemini::ext::request_options::GeminiChatRequestExt;
 
     #[test]
     fn move_common_params_into_generation_config() {
@@ -567,9 +650,11 @@ mod tests_gemini_rules {
 
         let mut req = ChatRequest::new(vec![]);
         req.common_params.model = "gemini-1.5-flash".to_string();
-        let req = req.with_gemini_options(
-            crate::provider_options::gemini::GeminiOptions::new()
-                .with_cached_content("cachedContents/test-123"),
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "cachedContent": "cachedContents/test-123"
+            }),
         );
 
         let body = tx.transform_chat(&req).expect("transform");
@@ -581,8 +666,6 @@ mod tests_gemini_rules {
 
     #[test]
     fn provider_options_generation_config_fields_are_mapped() {
-        use crate::provider_options::gemini::{GeminiResponseModality, GeminiThinkingConfig};
-
         let cfg = GeminiConfig::default()
             .with_model("gemini-3-flash-preview".into())
             .with_base_url("https://example".into());
@@ -590,11 +673,13 @@ mod tests_gemini_rules {
 
         let mut req = ChatRequest::new(vec![]);
         req.common_params.model = "gemini-3-flash-preview".to_string();
-        let req = req.with_gemini_options(
-            crate::provider_options::gemini::GeminiOptions::new()
-                .with_response_modalities(vec![GeminiResponseModality::Text])
-                .with_thinking_config(GeminiThinkingConfig::new().with_thinking_budget(-1))
-                .with_audio_timestamp(true),
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "responseModalities": ["TEXT"],
+                "thinkingConfig": { "thinkingBudget": -1 },
+                "audioTimestamp": true
+            }),
         );
 
         let body = tx.transform_chat(&req).expect("transform");
@@ -614,11 +699,6 @@ mod tests_gemini_rules {
 
     #[test]
     fn provider_options_safety_settings_and_labels_are_mapped() {
-        use crate::provider_options::gemini::{
-            GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiSafetySetting,
-        };
-        use std::collections::HashMap;
-
         let cfg = GeminiConfig::default()
             .with_model("gemini-1.5-flash".into())
             .with_base_url("https://example".into());
@@ -626,17 +706,17 @@ mod tests_gemini_rules {
 
         let mut req = ChatRequest::new(vec![]);
         req.common_params.model = "gemini-1.5-flash".to_string();
-
-        let mut labels = HashMap::new();
-        labels.insert("env".to_string(), "dev".to_string());
-
-        let req = req.with_gemini_options(
-            crate::provider_options::gemini::GeminiOptions::new()
-                .with_safety_settings(vec![GeminiSafetySetting {
-                    category: GeminiHarmCategory::DangerousContent,
-                    threshold: GeminiHarmBlockThreshold::BlockMediumAndAbove,
-                }])
-                .with_labels(labels),
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "safetySettings": [
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    }
+                ],
+                "labels": { "env": "dev" }
+            }),
         );
 
         let body = tx.transform_chat(&req).expect("transform");
@@ -660,9 +740,11 @@ mod tests_gemini_rules {
 
         let mut req = ChatRequest::new(vec![]);
         req.common_params.model = "gemini-2.0-flash".to_string();
-        let req = req.with_gemini_options(
-            crate::provider_options::gemini::GeminiOptions::new()
-                .with_response_mime_type("application/json"),
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "responseMimeType": "application/json"
+            }),
         );
 
         let body = tx.transform_chat(&req).expect("transform");
@@ -674,12 +756,6 @@ mod tests_gemini_rules {
 
     #[test]
     fn provider_options_serialization_locations_and_casing_are_stable() {
-        use crate::provider_options::gemini::{
-            GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiSafetySetting,
-        };
-        use crate::provider_options::gemini::{GeminiResponseModality, GeminiThinkingConfig};
-        use std::collections::HashMap;
-
         let cfg = GeminiConfig::default()
             .with_model("gemini-3-flash-preview".into())
             .with_base_url("https://example".into());
@@ -691,22 +767,22 @@ mod tests_gemini_rules {
         req.common_params.top_p = Some(0.9);
         req.common_params.max_tokens = Some(256);
         req.common_params.stop_sequences = Some(vec!["END".into()]);
-
-        let mut labels = HashMap::new();
-        labels.insert("env".to_string(), "dev".to_string());
-
-        let req = req.with_gemini_options(
-            crate::provider_options::gemini::GeminiOptions::new()
-                .with_response_mime_type("application/json")
-                .with_cached_content("cachedContents/test-123")
-                .with_response_modalities(vec![GeminiResponseModality::Text])
-                .with_thinking_config(GeminiThinkingConfig::new().with_thinking_budget(-1))
-                .with_audio_timestamp(true)
-                .with_safety_settings(vec![GeminiSafetySetting {
-                    category: GeminiHarmCategory::DangerousContent,
-                    threshold: GeminiHarmBlockThreshold::BlockMediumAndAbove,
-                }])
-                .with_labels(labels),
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "responseMimeType": "application/json",
+                "cachedContent": "cachedContents/test-123",
+                "responseModalities": ["TEXT"],
+                "thinkingConfig": { "thinkingBudget": -1 },
+                "audioTimestamp": true,
+                "safetySettings": [
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    }
+                ],
+                "labels": { "env": "dev" }
+            }),
         );
 
         let body = tx.transform_chat(&req).expect("transform");
@@ -763,7 +839,6 @@ mod tests_gemini_rules {
 #[cfg(test)]
 mod tests_gemini_metadata {
     use super::*;
-    use crate::provider_metadata::gemini::GeminiChatResponseExt;
 
     #[test]
     fn gemini_response_populates_provider_metadata_for_grounding_and_url_context() {
@@ -800,22 +875,32 @@ mod tests_gemini_metadata {
         });
 
         let resp = tx.transform_chat_response(&raw).expect("transform");
-        let meta = resp.gemini_metadata().expect("gemini metadata");
+        let meta = resp
+            .provider_metadata
+            .as_ref()
+            .and_then(|m| m.get("gemini"))
+            .expect("gemini provider metadata");
 
-        assert!(meta.grounding_metadata.is_some());
-        assert!(meta.url_context_metadata.is_some());
-        assert!(meta.safety_ratings.is_some());
-        assert!(meta.sources.is_some());
+        assert!(meta.get("grounding_metadata").is_some());
+        assert!(meta.get("url_context_metadata").is_some());
+        assert!(meta.get("safety_ratings").is_some());
+        assert!(meta.get("sources").is_some());
 
-        let sources = meta.sources.unwrap();
+        let sources = meta
+            .get("sources")
+            .and_then(|v| v.as_array())
+            .expect("sources array");
         assert_eq!(sources.len(), 5);
-        assert!(
-            sources.iter().any(|s| s.source_type == "url"
-                && s.url.as_deref() == Some("https://www.rust-lang.org/"))
-        );
-        assert!(sources.iter().any(|s| s.source_type == "document"
-            && s.media_type.as_deref() == Some("application/pdf")
-            && s.filename.as_deref() == Some("a.pdf")));
+
+        assert!(sources.iter().any(|s| {
+            s.get("source_type").and_then(|v| v.as_str()) == Some("url")
+                && s.get("url").and_then(|v| v.as_str()) == Some("https://www.rust-lang.org/")
+        }));
+        assert!(sources.iter().any(|s| {
+            s.get("source_type").and_then(|v| v.as_str()) == Some("document")
+                && s.get("media_type").and_then(|v| v.as_str()) == Some("application/pdf")
+                && s.get("filename").and_then(|v| v.as_str()) == Some("a.pdf")
+        }));
     }
 }
 
