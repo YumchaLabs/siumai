@@ -32,6 +32,7 @@ Provider id: `gemini`
 - [x] Negative prompt precedence (`request` > `extra_params` > `providerOptions`)
 - [x] Vercel-style warning for unsupported `size` (ignored by Vertex Imagen)
 - [x] Vercel-style response envelope (`timestamp`, `modelId`, response headers)
+- [x] Broaden response extraction variants (`bytesBase64Encoded` vs nested `image.bytesBase64Encoded`)
 
 ### In progress
 
@@ -39,4 +40,4 @@ Provider id: `gemini`
 
 ### Next
 
-- [ ] Broaden response extraction variants (`bytesBase64Encoded` vs nested `image.bytesBase64Encoded`)
+- [ ] Add fixture coverage for future response metadata fields

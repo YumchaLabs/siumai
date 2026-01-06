@@ -1,0 +1,12 @@
+{
+  "predictions": [
+    {
+      "image": {
+        "bytesBase64Encoded": "AAA",
+        "mimeType": "image/jpeg"
+      },
+      "prompt": "revised nested prompt"
+    }
+  ],
+  "deployedModelId": "d"
+}

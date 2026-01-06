@@ -1,0 +1,10 @@
+{
+  "instances": [
+    {
+      "prompt": "snake case response test"
+    }
+  ],
+  "parameters": {
+    "sampleCount": 1
+  }
+}
