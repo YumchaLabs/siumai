@@ -40,6 +40,20 @@ impl RequestTransformer for AnthropicRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
+        fn default_max_tokens_for_model(model: &str) -> u32 {
+            // Vercel-aligned defaults (heuristic).
+            // - Most Claude 3.x models default to 4096.
+            // - Claude 4.5 family defaults to 64000 in the AI SDK fixtures.
+            if model.starts_with("claude-sonnet-4-5")
+                || model.starts_with("claude-opus-4-5")
+                || model.starts_with("claude-haiku-4-5")
+            {
+                return 64000;
+            }
+
+            4096
+        }
+
         // Minimal stable validation
         if req.common_params.model.is_empty() {
             return Err(LlmError::InvalidParameter(
@@ -61,7 +75,10 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     "model": req.common_params.model,
                     "messages": messages,
                     // require max_tokens; default when not provided
-                    "max_tokens": req.common_params.max_tokens.unwrap_or(4096),
+                    "max_tokens": req
+                        .common_params
+                        .max_tokens
+                        .unwrap_or_else(|| default_max_tokens_for_model(&req.common_params.model)),
                 });
                 if let Some(sys) = system {
                     body["system"] = serde_json::json!(sys);

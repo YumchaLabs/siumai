@@ -125,6 +125,8 @@ Provider id: `anthropic`
 - [x] `anthropic-web-fetch-tool.1` (provider tool + streaming tool-call/result)
 - [x] `anthropic-web-fetch-tool.2` (provider tool; no title in results)
 - [x] `anthropic-web-fetch-tool.error` (provider tool error mapping, `error_code: "unavailable"`)
+- [x] `anthropic-tool-search-regex.1` (server tool use + result -> `tool_search` tool events; supports `defer_loading`)
+- [x] `anthropic-tool-search-bm25.1` (server tool use + result -> `tool_search` tool events; supports `defer_loading`)
 - [x] `anthropic-tool-no-args` (streaming tool_use start + no-args tool call)
 - [x] `anthropic-json-tool.1` (responseFormat json schema -> json tool + response mapped to JSON text)
 - [x] `anthropic-json-tool.1` streaming: treat `json` tool_use as final JSON text + `stop` (AI SDK semantics)

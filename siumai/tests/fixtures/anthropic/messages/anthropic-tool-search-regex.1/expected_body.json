@@ -1,0 +1,33 @@
+{
+  "max_tokens": 64000,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Find out weather data in SF",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "tools": [
+    {
+      "name": "tool_search_tool_regex",
+      "type": "tool_search_tool_regex_20251119"
+    },
+    {
+      "defer_loading": true,
+      "description": "For a location",
+      "input_schema": {
+        "properties": {
+          "location": { "type": "string" },
+          "unit": { "enum": ["celsius", "fahrenheit"], "type": "string" }
+        },
+        "type": "object"
+      },
+      "name": "get_temp_data"
+    }
+  ]
+}

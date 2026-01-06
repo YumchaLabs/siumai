@@ -254,6 +254,7 @@ impl Tool {
                 name: name.into(),
                 description: description.into(),
                 parameters,
+                provider_options_map: crate::types::ProviderOptionsMap::default(),
             },
         }
     }
@@ -298,6 +299,17 @@ pub struct ToolFunction {
     pub description: String,
     /// JSON schema for function parameters
     pub parameters: serde_json::Value,
+
+    /// Tool-level provider options (Vercel-aligned).
+    ///
+    /// This is useful for provider-specific tool configuration knobs such as
+    /// Anthropic's `defer_loading` for function tools.
+    #[serde(
+        default,
+        rename = "providerOptions",
+        skip_serializing_if = "crate::types::ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options_map: crate::types::ProviderOptionsMap,
 }
 
 /// Tool type enumeration

@@ -116,6 +116,22 @@ fn anthropic_stream_web_fetch_emits_tool_call_and_result() {
 }
 
 #[test]
+fn anthropic_stream_tool_search_emits_tool_call_and_result() {
+    let path = fixtures_dir().join("anthropic-tool-search-regex.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter(lines);
+
+    let calls = tool_events(&events, "tool-call", "tool_search");
+    let results = tool_events(&events, "tool-result", "tool_search");
+
+    assert!(!calls.is_empty(), "expected tool-call for tool_search");
+    assert!(!results.is_empty(), "expected tool-result for tool_search");
+}
+
+#[test]
 fn anthropic_stream_tool_no_args_emits_tool_call_delta() {
     let path = fixtures_dir().join("anthropic-tool-no-args.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);

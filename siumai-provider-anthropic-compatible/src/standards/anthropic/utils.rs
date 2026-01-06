@@ -1415,11 +1415,25 @@ pub fn convert_tools_to_anthropic_format(
     for tool in tools {
         match tool {
             crate::types::Tool::Function { function } => {
-                let anthropic_tool = serde_json::json!({
+                let mut anthropic_tool = serde_json::json!({
                     "name": function.name,
                     "description": function.description,
                     "input_schema": function.parameters
                 });
+
+                // Vercel-aligned: tool-level provider options for Anthropic.
+                // Example: `{ providerOptions: { anthropic: { deferLoading: true } } }`
+                if let Some(opts) = function.provider_options_map.get("anthropic")
+                    && let Some(obj) = opts.as_object()
+                    && let Some(v) = obj
+                        .get("deferLoading")
+                        .or_else(|| obj.get("defer_loading"))
+                        .and_then(|v| v.as_bool())
+                    && let Some(map) = anthropic_tool.as_object_mut()
+                {
+                    map.insert("defer_loading".to_string(), serde_json::json!(v));
+                }
+
                 anthropic_tools.push(anthropic_tool);
             }
             crate::types::Tool::ProviderDefined(provider_tool) => {

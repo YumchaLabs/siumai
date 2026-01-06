@@ -6,6 +6,7 @@ use crate::provider_options::anthropic::{
 use crate::standards::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
+use crate::types::Tool;
 use reqwest::header::HeaderMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -108,14 +109,66 @@ impl ProviderSpec for AnthropicSpec {
     ) -> HashMap<String, String> {
         let mut out: HashMap<String, String> = HashMap::new();
 
+        fn required_beta_features(req: &ChatRequest) -> Vec<&'static str> {
+            let mut out: Vec<&'static str> = Vec::new();
+
+            // Provider-hosted tools -> required betas.
+            if let Some(tools) = &req.tools {
+                for tool in tools {
+                    let Tool::ProviderDefined(t) = tool else {
+                        continue;
+                    };
+                    if t.provider() != Some("anthropic") {
+                        continue;
+                    }
+                    match t.tool_type() {
+                        Some("web_fetch_20250910") => out.push("web-fetch-2025-09-10"),
+                        Some("code_execution_20250522") => out.push("code-execution-2025-05-22"),
+                        Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
+                            out.push("advanced-tool-use-2025-11-20")
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // PDF documents -> required beta (Vercel-aligned).
+            let uses_pdf = req.messages.iter().any(|m| match &m.content {
+                crate::types::MessageContent::MultiModal(parts) => parts.iter().any(|p| {
+                    matches!(
+                        p,
+                        crate::types::ContentPart::File { media_type, .. }
+                            if media_type == "application/pdf"
+                    )
+                }),
+                _ => false,
+            });
+            if uses_pdf {
+                out.push("pdfs-2024-09-25");
+            }
+
+            out.sort();
+            out.dedup();
+            out
+        }
+
+        let mut tokens: Vec<String> = Vec::new();
+
         if self
             .anthropic_mcp_servers_from_provider_options_map(req)
             .is_some()
         {
-            out.insert(
-                "anthropic-beta".to_string(),
-                "mcp-client-2025-04-04".to_string(),
-            );
+            tokens.push("mcp-client-2025-04-04".to_string());
+        }
+
+        for t in required_beta_features(req) {
+            tokens.push(t.to_string());
+        }
+
+        tokens.sort();
+        tokens.dedup();
+        if !tokens.is_empty() {
+            out.insert("anthropic-beta".to_string(), tokens.join(","));
         }
 
         out

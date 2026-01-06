@@ -169,3 +169,34 @@ fn anthropic_mcp_servers_enable_beta_header() {
         "missing mcp-client beta token: {beta}"
     );
 }
+
+#[test]
+fn anthropic_tool_search_enables_beta_header() {
+    let req: siumai::prelude::unified::ChatRequest = read_json(
+        fixtures_dir()
+            .join("anthropic-tool-search-regex.1")
+            .join("request.json"),
+    );
+
+    let spec = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new();
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let base = spec.build_headers(&ctx).expect("base headers");
+    let extra = spec.chat_request_headers(false, &req, &ctx);
+    let merged = spec.merge_request_headers(base, &extra);
+    let beta = merged
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    assert!(
+        beta.split(',')
+            .any(|t| t.trim() == "advanced-tool-use-2025-11-20"),
+        "missing advanced-tool-use beta token: {beta}"
+    );
+}
