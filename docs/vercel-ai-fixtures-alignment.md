@@ -43,6 +43,23 @@ Provider id: `vertex`
 
 - [ ] Add fixture coverage for future response metadata fields
 
+## Google Generative AI (Gemini)
+
+Provider id: `gemini` (tools use `google.*` ids)
+
+### Done
+
+- [x] `google-code-execution.1` (provider tool -> `tools: [{ codeExecution: {} }]`; response + streaming emit `tool-call`/`tool-result`)
+- [x] `google-google-search.1` (Gemini 2.x -> `tools: [{ googleSearch: {} }]`)
+- [x] `google-url-context.1` (Gemini 2.x -> `tools: [{ urlContext: {} }]`)
+
+### Next
+
+- [ ] Add `gemini-1.x` search retrieval fixtures (`googleSearchRetrieval`, dynamic retrieval config)
+- [ ] Add `google.file_search` fixtures (Gemini 2.5+ only)
+- [ ] Add `google.google_maps` fixtures (Gemini 2+ only)
+- [ ] Add `google.vertex_rag_store` fixtures + Vertex-only warning parity
+
 ## OpenAI Responses Web Search
 
 Provider id: `openai` (Responses API)

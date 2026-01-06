@@ -836,6 +836,8 @@ impl ResponseTransformer for GeminiResponseTransformer {
         let mut content_parts = Vec::new();
         // Track if any non-text parts are present (kept for future heuristics)
         let mut _has_multimodal_content = false;
+        // Pair executableCode -> codeExecutionResult (Vercel-aligned tool events).
+        let mut pending_code_execution_id: Option<String> = None;
 
         for part in &content.parts {
             match part {
@@ -920,6 +922,52 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         arguments,
                         None,
                     ));
+                }
+                Part::ExecutableCode { executable_code } => {
+                    let id = format!("call_{}", uuid::Uuid::new_v4());
+                    pending_code_execution_id = Some(id.clone());
+
+                    let language = match &executable_code.language {
+                        super::types::CodeLanguage::Python => "PYTHON",
+                        super::types::CodeLanguage::Unspecified => "LANGUAGE_UNSPECIFIED",
+                    };
+
+                    content_parts.push(ContentPart::tool_call(
+                        id,
+                        "code_execution".to_string(),
+                        serde_json::json!({
+                            "language": language,
+                            "code": executable_code.code.clone()
+                        }),
+                        Some(true),
+                    ));
+                }
+                Part::CodeExecutionResult {
+                    code_execution_result,
+                } => {
+                    let id = pending_code_execution_id
+                        .take()
+                        .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4()));
+
+                    let outcome = match &code_execution_result.outcome {
+                        super::types::CodeExecutionOutcome::Ok => "OUTCOME_OK",
+                        super::types::CodeExecutionOutcome::Failed => "OUTCOME_FAILED",
+                        super::types::CodeExecutionOutcome::DeadlineExceeded => {
+                            "OUTCOME_DEADLINE_EXCEEDED"
+                        }
+                        super::types::CodeExecutionOutcome::Unspecified => "OUTCOME_UNSPECIFIED",
+                    };
+
+                    content_parts.push(ContentPart::ToolResult {
+                        tool_call_id: id,
+                        tool_name: "code_execution".to_string(),
+                        output: crate::types::ToolResultOutput::json(serde_json::json!({
+                            "outcome": outcome,
+                            "output": code_execution_result.output.clone()
+                        })),
+                        provider_executed: Some(true),
+                        provider_metadata: None,
+                    });
                 }
                 _ => {}
             }

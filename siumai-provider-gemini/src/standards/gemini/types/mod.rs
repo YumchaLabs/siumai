@@ -15,6 +15,7 @@ pub use content::{
     CitationMetadata,
     CitationSource,
     CodeExecution,
+    CodeExecutionOutcome,
     CodeExecutionResult,
     CodeLanguage,
     Content,

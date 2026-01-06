@@ -49,6 +49,25 @@ struct GeminiPart {
     /// Optional. Whether this is a thought summary (for thinking models)
     #[serde(skip_serializing_if = "Option::is_none")]
     thought: Option<bool>,
+    #[serde(rename = "executableCode", skip_serializing_if = "Option::is_none")]
+    executable_code: Option<GeminiExecutableCode>,
+    #[serde(
+        rename = "codeExecutionResult",
+        skip_serializing_if = "Option::is_none"
+    )]
+    code_execution_result: Option<GeminiCodeExecutionResult>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeminiExecutableCode {
+    language: Option<String>,
+    code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeminiCodeExecutionResult {
+    outcome: Option<String>,
+    output: Option<String>,
 }
 
 /// Gemini usage metadata
@@ -75,6 +94,8 @@ pub struct GeminiEventConverter {
     seen_source_keys: Arc<Mutex<std::collections::HashSet<String>>>,
     /// Monotonic id counter for emitted `gemini:source` events
     next_source_id: Arc<AtomicU64>,
+    /// Pair executableCode -> codeExecutionResult across chunks
+    pending_code_execution_id: Arc<Mutex<Option<String>>>,
 }
 
 impl GeminiEventConverter {
@@ -84,6 +105,7 @@ impl GeminiEventConverter {
             state_tracker: StreamStateTracker::new(),
             seen_source_keys: Arc::new(Mutex::new(std::collections::HashSet::new())),
             next_source_id: Arc::new(AtomicU64::new(0)),
+            pending_code_execution_id: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -112,6 +134,11 @@ impl GeminiEventConverter {
         // Process thinking content (if supported)
         if let Some(thinking) = self.extract_thinking(&response) {
             builder = builder.add_thinking_delta(thinking);
+        }
+
+        // Process provider-executed tool parts (Vercel-aligned tool-call/tool-result events).
+        for data in self.extract_code_execution_events(&response) {
+            builder = builder.add_custom_event("gemini:tool".to_string(), data);
         }
 
         // Process usage update if available
@@ -175,6 +202,73 @@ impl GeminiEventConverter {
                 }
             }
         }
+        out
+    }
+
+    fn extract_code_execution_events(
+        &self,
+        response: &GeminiStreamResponse,
+    ) -> Vec<serde_json::Value> {
+        let mut out: Vec<serde_json::Value> = Vec::new();
+
+        let Some(candidates) = response.candidates.as_ref() else {
+            return out;
+        };
+
+        for candidate in candidates {
+            let Some(content) = candidate.content.as_ref() else {
+                continue;
+            };
+            let Some(parts) = content.parts.as_ref() else {
+                continue;
+            };
+
+            for part in parts {
+                if let Some(exec) = part.executable_code.as_ref() {
+                    let id = {
+                        let id = format!("call_{}", uuid::Uuid::new_v4());
+                        if let Ok(mut lock) = self.pending_code_execution_id.lock() {
+                            *lock = Some(id.clone());
+                        }
+                        id
+                    };
+
+                    let input = serde_json::json!({
+                        "language": exec.language.clone().unwrap_or_else(|| "PYTHON".to_string()),
+                        "code": exec.code.clone().unwrap_or_default()
+                    });
+
+                    out.push(serde_json::json!({
+                        "type": "tool-call",
+                        "toolCallId": id,
+                        "toolName": "code_execution",
+                        "providerExecuted": true,
+                        "input": input
+                    }));
+                }
+
+                if let Some(res) = part.code_execution_result.as_ref() {
+                    let id = if let Ok(mut lock) = self.pending_code_execution_id.lock() {
+                        lock.take()
+                            .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4()))
+                    } else {
+                        format!("call_{}", uuid::Uuid::new_v4())
+                    };
+
+                    out.push(serde_json::json!({
+                        "type": "tool-result",
+                        "toolCallId": id,
+                        "toolName": "code_execution",
+                        "providerExecuted": true,
+                        "result": {
+                            "outcome": res.outcome.clone().unwrap_or_else(|| "OUTCOME_OK".to_string()),
+                            "output": res.output.clone().unwrap_or_default()
+                        }
+                    }));
+                }
+            }
+        }
+
         out
     }
 

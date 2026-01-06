@@ -1,0 +1,3 @@
+{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(\\\"hello\\\")"}}]}}]}
+{"candidates":[{"content":{"parts":[{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"hello\\n"}}]},"finishReason":"STOP"}]}
+
