@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 ///         "searchContextSize": "high"
 ///     }));
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProviderDefinedTool {
     /// Tool ID in format "provider.tool_name"
     ///
@@ -44,9 +44,66 @@ pub struct ProviderDefinedTool {
     /// Examples: "web_search", "file_search", "code_execution"
     pub name: String,
 
-    /// Provider-specific configuration arguments
-    #[serde(flatten)]
+    /// Provider-specific configuration arguments.
+    ///
+    /// This is aligned with Vercel AI SDK's `{ type: "provider", id, name, args }` shape.
     pub args: serde_json::Value,
+}
+
+impl serde::Serialize for ProviderDefinedTool {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut st = serializer.serialize_struct("ProviderDefinedTool", 3)?;
+        st.serialize_field("id", &self.id)?;
+        st.serialize_field("name", &self.name)?;
+        st.serialize_field("args", &self.args)?;
+        st.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::Deserialize;
+        use std::collections::HashMap;
+
+        #[derive(Deserialize)]
+        struct De {
+            id: String,
+            name: String,
+            #[serde(default)]
+            args: Option<serde_json::Value>,
+            #[serde(flatten)]
+            extra: HashMap<String, serde_json::Value>,
+        }
+
+        let mut de = De::deserialize(deserializer)?;
+
+        // Prefer explicit `args` (Vercel shape). If missing, fall back to the legacy flatten
+        // format where config keys live at the top-level alongside `id` and `name`.
+        let mut args = de
+            .args
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+
+        if !de.extra.is_empty() {
+            if let serde_json::Value::Object(ref mut map) = args {
+                for (k, v) in de.extra.drain() {
+                    map.entry(k).or_insert(v);
+                }
+            }
+        }
+
+        Ok(Self {
+            id: de.id,
+            name: de.name,
+            args,
+        })
+    }
 }
 
 impl ProviderDefinedTool {
@@ -164,7 +221,7 @@ pub enum Tool {
     },
 
     /// Provider-defined tool (web search, file search, code execution, etc.)
-    #[serde(rename = "provider-defined")]
+    #[serde(rename = "provider-defined", alias = "provider")]
     ProviderDefined(ProviderDefinedTool),
 }
 
@@ -983,6 +1040,64 @@ mod tests {
         assert_eq!(
             json.get("name").and_then(|v| v.as_str()),
             Some("web_search")
+        );
+        assert_eq!(json.get("args"), Some(&serde_json::json!({})));
+    }
+
+    #[test]
+    fn provider_defined_tool_deserializes_vercel_shape() {
+        let v = serde_json::json!({
+            "type": "provider",
+            "id": "openai.web_search_preview",
+            "name": "web_search_preview",
+            "args": {
+                "search_context_size": "low"
+            }
+        });
+
+        let tool: Tool = serde_json::from_value(v).expect("deserialize provider tool");
+        let Tool::ProviderDefined(tool) = tool else {
+            panic!("expected ProviderDefined");
+        };
+        assert_eq!(tool.id, "openai.web_search_preview");
+        assert_eq!(tool.name, "web_search_preview");
+        assert_eq!(
+            tool.args
+                .get("search_context_size")
+                .and_then(|v| v.as_str()),
+            Some("low")
+        );
+    }
+
+    #[test]
+    fn provider_defined_tool_deserializes_legacy_flatten_shape() {
+        let v = serde_json::json!({
+            "type": "provider-defined",
+            "id": "openai.web_search",
+            "name": "web_search",
+            "searchContextSize": "high",
+            "userLocation": {
+                "type": "approximate",
+                "country": "US"
+            }
+        });
+
+        let tool: Tool = serde_json::from_value(v).expect("deserialize legacy provider tool");
+        let Tool::ProviderDefined(tool) = tool else {
+            panic!("expected ProviderDefined");
+        };
+        assert_eq!(tool.id, "openai.web_search");
+        assert_eq!(tool.name, "web_search");
+        assert_eq!(
+            tool.args.get("searchContextSize").and_then(|v| v.as_str()),
+            Some("high")
+        );
+        assert_eq!(
+            tool.args
+                .get("userLocation")
+                .and_then(|v| v.get("country"))
+                .and_then(|v| v.as_str()),
+            Some("US")
         );
     }
 

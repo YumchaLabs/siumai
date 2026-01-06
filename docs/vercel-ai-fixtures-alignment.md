@@ -14,6 +14,7 @@ plus a test that validates Siumai’s request/response mapping.
   - `expected_url.txt` (final URL produced by ProviderSpec)
   - `response.json` (provider wire response)
   - `expected_response.json` (unified response produced by transformers)
+- Provider-defined tools follow Vercel JSON shape: `{ "type": "provider", "id", "name", "args": { ... } }`
 - Tests live in `siumai/tests/*_fixtures_alignment_test.rs` and are feature-gated.
 
 ## Google Vertex Imagen (via Vertex provider)
