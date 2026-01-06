@@ -136,12 +136,25 @@ impl RequestTransformer for GeminiRequestTransformer {
                 req: &ChatRequest,
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                // Add tool_choice if specified
+                // Add tool_choice if specified (Gemini toolConfig).
+                //
+                // Vercel AI SDK alignment:
+                // - If provider-defined tools are present, toolChoice does not produce toolConfig.
+                // - toolConfig only applies to function calling.
                 if req.tools.is_some()
                     && req.tool_choice.is_some()
                     && let Some(choice) = &req.tool_choice
                 {
-                    body["toolConfig"] = super::convert::convert_tool_choice(choice);
+                    let has_provider_tools = req
+                        .tools
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|t| matches!(t, crate::types::Tool::ProviderDefined(_)));
+
+                    if !has_provider_tools && body.get("tools").is_some() {
+                        body["toolConfig"] = super::convert::convert_tool_choice(choice);
+                    }
                 }
 
                 // Provider-specific features:
