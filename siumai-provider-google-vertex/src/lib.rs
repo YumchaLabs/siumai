@@ -6,8 +6,7 @@
 //! - Vertex AI provider implementation (clients + specs)
 //! - provider-owned typed options and extension traits
 //!
-//! Protocol mapping modules (e.g. Imagen via `:predict`) live in `siumai-protocol-vertex` and are
-//! re-exported from this crate under `crate::standards` for compatibility.
+//! Vertex protocol mapping modules (e.g. Imagen via `:predict`) live in `crate::standards`.
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the provider implementation.
@@ -24,4 +23,4 @@ pub mod builder {
 
 pub mod provider_options;
 pub mod providers;
-pub use siumai_protocol_vertex::standards;
+pub mod standards;

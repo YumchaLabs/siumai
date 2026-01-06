@@ -34,7 +34,6 @@ Workspace members:
 - `siumai-provider-gemini` — Gemini provider implementation
 - `siumai-protocol-gemini` — Gemini protocol standard (mapping + streaming)
 - `siumai-provider-google-vertex` — Vertex provider implementation (Imagen-focused)
-- `siumai-protocol-vertex` — Vertex protocol standard(s) (Imagen `:predict` mapping)
 - `siumai-provider-groq` — Groq provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
 - `siumai-provider-xai` — xAI provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
 - `siumai-provider-minimaxi` — MiniMaxi provider (Anthropic chat + OpenAI-like media endpoints)
@@ -57,7 +56,6 @@ siumai-registry (optional)
   ├─ siumai-provider-anthropic-compatible (Anthropic Messages protocol crate; legacy name) ← shared implementation layer (family crate)
   ├─ siumai-protocol-gemini (Gemini protocol crate)                           ← shared implementation layer (protocol crate)
   ├─ siumai-provider-gemini (Gemini provider)
-  ├─ siumai-protocol-vertex (Vertex protocol crate)                           ← shared implementation layer (protocol crate)
   ├─ siumai-provider-google-vertex (Vertex provider)
   ├─ siumai-provider-groq (Groq provider)
   ├─ siumai-provider-xai (xAI provider)
@@ -212,7 +210,7 @@ Provider-specific protocol mapping is protocol-crate-owned (provider crates re-e
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
 - Anthropic Messages (shared): `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
 - Gemini standard: `siumai-protocol-gemini/src/standards/gemini/*`
-- Vertex Imagen standard: `siumai-protocol-vertex/src/standards/vertex_imagen.rs`
+- Vertex Imagen standard: `siumai-provider-google-vertex/src/standards/vertex_imagen.rs`
 
 `siumai-core` may still contain **protocol-level shared building blocks** under `siumai-core/src/standards/*`
 (e.g. OpenAI-compatible adapters / streaming converters / wire helpers). These are not part of the stable facade;

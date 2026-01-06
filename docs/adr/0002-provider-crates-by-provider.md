@@ -11,7 +11,7 @@ The `siumai` facade and `siumai-registry` wire provider crates directly.
 
 Protocol mapping is being moved out of provider crates into protocol crates to reduce coupling:
 
-- New protocol crates: `siumai-protocol-gemini`, `siumai-protocol-vertex`
+- New protocol crates: `siumai-protocol-gemini`
 - Legacy protocol/family crates (kept for compatibility): `siumai-provider-openai-compatible`, `siumai-provider-anthropic-compatible`
 
 ## Context
@@ -30,7 +30,6 @@ Siumai is in a fearless refactor phase and is already split into:
 - `siumai-provider-gemini` (Gemini provider implementation)
 - `siumai-protocol-gemini` (Gemini protocol standard)
 - `siumai-provider-google-vertex` (Vertex provider implementation)
-- `siumai-protocol-vertex` (Vertex protocol standard)
 - `siumai-provider-groq` (Groq provider; OpenAI-like)
 - `siumai-provider-xai` (xAI provider; OpenAI-like)
 - `siumai-provider-minimaxi` (MiniMaxi provider; Anthropic chat + OpenAI-like media endpoints)

@@ -24,7 +24,7 @@ This document proposes a split that matches Vercel’s granularity while keeping
 - Make Vertex AI a separate provider package/crate.
 - Keep `siumai-core` provider-agnostic.
 - Reduce cross-module coupling by enforcing ownership:
-  - Vertex Imagen request/response mapping lives in a Vertex protocol crate.
+  - Vertex Imagen request/response mapping lives in the Vertex provider crate.
   - Gemini API mapping lives in a Gemini protocol crate.
 - Keep fixtures and tests provider-scoped and reusable.
 
@@ -45,7 +45,7 @@ Owns:
 
 Protocol mapping lives in:
 
-- `siumai-protocol-vertex/src/standards/vertex_imagen.rs`
+- `siumai-provider-google-vertex/src/standards/vertex_imagen.rs`
 
 Public surface (facade exports):
 
@@ -60,7 +60,7 @@ Owns:
 
 Stops owning:
 
-- Vertex Imagen mapping and routing heuristics (moved to `siumai-provider-google-vertex` + `siumai-protocol-vertex`).
+- Vertex Imagen mapping and routing heuristics (moved to `siumai-provider-google-vertex`).
 
 ## Provider identity & providerOptions key
 
@@ -78,7 +78,7 @@ Registry aliases can map:
 
 ## Migration plan (incremental)
 
-1. Introduce `siumai-provider-google-vertex` + `siumai-protocol-vertex` for Vertex Imagen (`:predict`) + a minimal image client.
+1. Introduce `siumai-provider-google-vertex` for Vertex Imagen (`:predict`) + a minimal image client.
 2. Update fixtures/tests to be routed through the Vertex provider (instead of Gemini).
 3. Update examples/docs:
    - Move `vertex_imagen_edit` example under a Vertex feature flag.

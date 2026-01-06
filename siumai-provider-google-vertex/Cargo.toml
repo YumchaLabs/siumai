@@ -17,7 +17,6 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-protocol-vertex = { version = "0.11.0-beta.5", path = "../siumai-protocol-vertex", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
@@ -47,8 +46,7 @@ default = []
 
 structured-messages = [
     "siumai-core/structured-messages",
-    "siumai-protocol-vertex/structured-messages",
 ]
 
 # Enables Google-related shared types in `siumai-core`.
-google-vertex = ["siumai-core/google", "siumai-protocol-vertex/google-vertex"]
+google-vertex = ["siumai-core/google"]

@@ -10,7 +10,7 @@ Provider-specific protocol mapping is **protocol-crate-owned** (provider crates 
 - OpenAI-like standard: `siumai-provider-openai-compatible/src/standards/openai/*`
 - Anthropic Messages standard: `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
 - Gemini standard: `siumai-protocol-gemini/src/standards/gemini/*`
-- Vertex Imagen standard: `siumai-protocol-vertex/src/standards/vertex_imagen.rs`
+- Vertex Imagen standard: `siumai-provider-google-vertex/src/standards/vertex_imagen.rs`
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
 
 Providers that reuse another provider’s standard may not have a `src/standards/*` directory.
