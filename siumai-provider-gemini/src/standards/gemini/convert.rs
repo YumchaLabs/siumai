@@ -278,11 +278,13 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
                 if matches!(provider_tool.provider(), Some("google" | "gemini")) {
                     match provider_tool.tool_type() {
                         Some("code_execution") => {
-                            // Enable code execution tool
-                            function_declarations.shrink_to_fit();
-                            gemini_tools.push(GeminiTool::CodeExecution {
-                                code_execution: super::types::CodeExecution {},
-                            });
+                            // Vercel AI SDK: Code Execution is only supported on Gemini 2.0+.
+                            if is_gemini_2_or_newer(model) {
+                                function_declarations.shrink_to_fit();
+                                gemini_tools.push(GeminiTool::CodeExecution {
+                                    code_execution: super::types::CodeExecution {},
+                                });
+                            }
                         }
                         Some("google_search") => {
                             if is_gemini_2_or_newer(model) {

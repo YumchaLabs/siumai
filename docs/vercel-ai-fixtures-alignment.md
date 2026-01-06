@@ -61,6 +61,9 @@ Provider id: `gemini` (tools use `google.*` ids)
 - [x] `google-file-search.1` (Gemini 2.5 -> `tools: [{ fileSearch: { ... } }]`)
 - [x] `google-mixed-tools.1` (mixed tools -> provider tools only; emits warnings)
 - [x] `google-url-context-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
+- [x] `google-file-search-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
+- [x] `google-code-execution-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
+- [x] `google-unknown-tool.1` (unknown provider tool -> omitted from request; emits warnings)
 
 ### Next
 
