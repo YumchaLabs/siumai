@@ -151,7 +151,7 @@ fn anthropic_stream_json_tool_emits_tool_call_delta_and_args_delta() {
 
     let events = run_converter(lines);
 
-    let has_start = events.iter().any(|e| {
+    let has_json_tool_call_delta = events.iter().any(|e| {
         matches!(
             e,
             ChatStreamEvent::ToolCallDelta {
@@ -160,19 +160,24 @@ fn anthropic_stream_json_tool_emits_tool_call_delta_and_args_delta() {
             } if name == "json"
         )
     });
-    assert!(has_start, "expected ToolCallDelta start for json tool");
+    assert!(
+        !has_json_tool_call_delta,
+        "did not expect ToolCallDelta for reserved json tool"
+    );
 
-    let has_args = events.iter().any(|e| {
+    let has_json_text = events.iter().any(|e| {
         matches!(
             e,
-            ChatStreamEvent::ToolCallDelta {
-                arguments_delta: Some(delta),
-                ..
-            } if delta.contains("\"elements\"")
+            ChatStreamEvent::ContentDelta { delta, .. } if delta.contains("\"elements\"")
         )
     });
-    assert!(
-        has_args,
-        "expected ToolCallDelta arguments delta for json tool"
-    );
+    assert!(has_json_text, "expected ContentDelta containing elements");
+
+    let has_stop = events.iter().any(|e| {
+        matches!(
+            e,
+            ChatStreamEvent::StreamEnd { response } if response.finish_reason == Some(FinishReason::Stop)
+        )
+    });
+    assert!(has_stop, "expected StreamEnd with finish_reason=stop");
 }

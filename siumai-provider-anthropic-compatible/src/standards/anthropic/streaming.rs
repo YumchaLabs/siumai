@@ -14,6 +14,7 @@ use serde::Deserialize;
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Citation document metadata extracted from the prompt (Vercel-aligned).
@@ -129,6 +130,7 @@ pub struct AnthropicEventConverter {
     sources_by_id: Arc<Mutex<std::collections::HashMap<String, AnthropicSource>>>,
     tool_names_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     mcp_server_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    json_tool_seen: Arc<AtomicBool>,
 }
 
 impl AnthropicEventConverter {
@@ -144,6 +146,7 @@ impl AnthropicEventConverter {
             sources_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             tool_names_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             mcp_server_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            json_tool_seen: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -280,11 +283,20 @@ impl AnthropicEventConverter {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
 
+                let effective_block_type = if block_type == "tool_use"
+                    && content_block.get("name").and_then(|v| v.as_str()) == Some("json")
+                {
+                    self.json_tool_seen.store(true, Ordering::Relaxed);
+                    "json_tool_use"
+                } else {
+                    block_type
+                };
+
                 if let Some(idx) = event.index {
-                    self.record_content_block_type(idx, block_type.to_string());
+                    self.record_content_block_type(idx, effective_block_type.to_string());
                 }
 
-                match block_type {
+                match effective_block_type {
                     "thinking" => {
                         if let Some(idx) = event.index {
                             vec![ChatStreamEvent::Custom {
@@ -349,6 +361,27 @@ impl AnthropicEventConverter {
                             arguments_delta: None,
                             index: event.index,
                         }]
+                    }
+                    "json_tool_use" => {
+                        let tool_call_id = content_block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        if tool_call_id.is_empty() {
+                            return vec![];
+                        }
+
+                        if let Some(idx) = event.index
+                            && let Ok(mut map) = self.tool_use_ids_by_index.lock()
+                        {
+                            map.insert(idx, tool_call_id);
+                        }
+
+                        // Vercel-aligned: do not emit tool-call deltas for the reserved `json` tool.
+                        // The corresponding `input_json_delta` chunks are emitted as ContentDelta.
+                        vec![]
                     }
                     "server_tool_use" => {
                         let tool_call_id = content_block
@@ -927,15 +960,21 @@ impl AnthropicEventConverter {
                             if let Some(partial_json) = delta.partial_json
                                 && !partial_json.is_empty()
                                 && let Some(idx) = event.index
-                                && let Ok(map) = self.tool_use_ids_by_index.lock()
-                                && let Some(tool_call_id) = map.get(&idx)
                             {
-                                builder = builder.add_tool_call_delta(
-                                    tool_call_id.clone(),
-                                    None,
-                                    Some(partial_json),
-                                    Some(idx),
-                                );
+                                if self.get_content_block_type(idx).as_deref()
+                                    == Some("json_tool_use")
+                                {
+                                    builder = builder.add_content_delta(partial_json, None);
+                                } else if let Ok(map) = self.tool_use_ids_by_index.lock()
+                                    && let Some(tool_call_id) = map.get(&idx)
+                                {
+                                    builder = builder.add_tool_call_delta(
+                                        tool_call_id.clone(),
+                                        None,
+                                        Some(partial_json),
+                                        Some(idx),
+                                    );
+                                }
                             }
                         }
                         _ => {
@@ -948,15 +987,21 @@ impl AnthropicEventConverter {
                             if let Some(partial_json) = delta.partial_json
                                 && !partial_json.is_empty()
                                 && let Some(idx) = event.index
-                                && let Ok(map) = self.tool_use_ids_by_index.lock()
-                                && let Some(tool_call_id) = map.get(&idx)
                             {
-                                builder = builder.add_tool_call_delta(
-                                    tool_call_id.clone(),
-                                    None,
-                                    Some(partial_json),
-                                    Some(idx),
-                                );
+                                if self.get_content_block_type(idx).as_deref()
+                                    == Some("json_tool_use")
+                                {
+                                    builder = builder.add_content_delta(partial_json, None);
+                                } else if let Ok(map) = self.tool_use_ids_by_index.lock()
+                                    && let Some(tool_call_id) = map.get(&idx)
+                                {
+                                    builder = builder.add_tool_call_delta(
+                                        tool_call_id.clone(),
+                                        None,
+                                        Some(partial_json),
+                                        Some(idx),
+                                    );
+                                }
                             }
                         }
                     };
@@ -999,7 +1044,13 @@ impl AnthropicEventConverter {
                         "end_turn" => FinishReason::Stop,
                         "max_tokens" => FinishReason::Length,
                         "stop_sequence" => FinishReason::Stop,
-                        "tool_use" => FinishReason::ToolCalls,
+                        "tool_use" => {
+                            if self.json_tool_seen.load(Ordering::Relaxed) {
+                                FinishReason::Stop
+                            } else {
+                                FinishReason::ToolCalls
+                            }
+                        }
                         "refusal" => FinishReason::ContentFilter,
                         _ => FinishReason::Stop,
                     };
