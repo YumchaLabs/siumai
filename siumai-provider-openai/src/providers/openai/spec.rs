@@ -86,6 +86,24 @@ impl OpenAiSpec {
         &self,
         value: &serde_json::Value,
     ) -> serde_json::Value {
+        fn is_responses_api_field(k: &str) -> bool {
+            matches!(
+                k,
+                "previous_response_id"
+                    | "prompt_cache_key"
+                    | "response_format"
+                    | "background"
+                    | "include"
+                    | "instructions"
+                    | "max_tool_calls"
+                    | "store"
+                    | "truncation"
+                    | "text_verbosity"
+                    | "metadata"
+                    | "parallel_tool_calls"
+            )
+        }
+
         fn normalize_key(k: &str) -> Option<&'static str> {
             Some(match k {
                 // OpenAiOptions
@@ -98,9 +116,15 @@ impl OpenAiSpec {
                 "previousResponseId" => "previous_response_id",
                 "promptCacheKey" => "prompt_cache_key",
                 "responseFormat" => "response_format",
+                "background" => "background",
+                "include" => "include",
+                "instructions" => "instructions",
                 "maxToolCalls" => "max_tool_calls",
+                "store" => "store",
+                "truncation" => "truncation",
                 "parallelToolCalls" => "parallel_tool_calls",
                 "textVerbosity" => "text_verbosity",
+                "metadata" => "metadata",
                 _ => return None,
             })
         }
@@ -108,10 +132,41 @@ impl OpenAiSpec {
         fn inner(value: &serde_json::Value, parent_key: Option<&str>) -> serde_json::Value {
             match value {
                 serde_json::Value::Object(map) => {
+                    let is_top = parent_key.is_none();
                     let mut out = serde_json::Map::new();
+                    let mut responses_overlay = serde_json::Map::new();
                     for (k, v) in map {
                         let nk = normalize_key(k).unwrap_or(k);
-                        out.insert(nk.to_string(), inner(v, Some(nk)));
+                        let nv = inner(v, Some(nk));
+                        if is_top && nk != "responses_api" && is_responses_api_field(nk) {
+                            responses_overlay.insert(nk.to_string(), nv);
+                        } else {
+                            out.insert(nk.to_string(), nv);
+                        }
+                    }
+
+                    if is_top && !responses_overlay.is_empty() {
+                        let mut responses_api = match out.remove("responses_api") {
+                            Some(serde_json::Value::Object(obj)) => obj,
+                            Some(other) => {
+                                out.insert("responses_api".to_string(), other);
+                                serde_json::Map::new()
+                            }
+                            None => serde_json::Map::new(),
+                        };
+
+                        for (k, v) in responses_overlay {
+                            responses_api.entry(k).or_insert(v);
+                        }
+
+                        if !responses_api.contains_key("enabled") {
+                            responses_api
+                                .insert("enabled".to_string(), serde_json::Value::Bool(true));
+                        }
+                        out.insert(
+                            "responses_api".to_string(),
+                            serde_json::Value::Object(responses_api),
+                        );
                     }
                     if parent_key == Some("responses_api") && !out.contains_key("enabled") {
                         out.insert("enabled".to_string(), serde_json::Value::Bool(true));
@@ -207,7 +262,8 @@ impl ProviderSpec for OpenAiSpec {
             let resp_tx =
                 crate::providers::openai::transformers::OpenAiResponsesResponseTransformer;
             let converter =
-                crate::providers::openai::responses::OpenAiResponsesEventConverter::new();
+                crate::providers::openai::responses::OpenAiResponsesEventConverter::new()
+                    .with_request_tools(req.tools.as_deref().unwrap_or(&[]));
             let stream_tx =
                 crate::providers::openai::transformers::OpenAiResponsesStreamChunkTransformer {
                     provider_id: "openai_responses".to_string(),

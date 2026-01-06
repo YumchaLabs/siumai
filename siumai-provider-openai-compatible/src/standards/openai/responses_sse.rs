@@ -31,6 +31,54 @@ impl OpenAiResponsesEventConverter {
         Self::default()
     }
 
+    pub fn with_request_tools(self, tools: &[crate::types::Tool]) -> Self {
+        self.seed_provider_tool_names_from_request_tools(tools);
+        self
+    }
+
+    fn seed_provider_tool_names_from_request_tools(&self, tools: &[crate::types::Tool]) {
+        use crate::types::Tool;
+
+        let mut map = match self.provider_tool_name_by_item_type.lock() {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+
+        for tool in tools {
+            let Tool::ProviderDefined(t) = tool else {
+                continue;
+            };
+
+            let tool_type = t.id.rsplit('.').next().unwrap_or("");
+            if tool_type.is_empty() || t.name.is_empty() {
+                continue;
+            }
+
+            match tool_type {
+                // Responses built-ins (provider-defined tools)
+                "web_search_preview" => {
+                    map.insert("web_search_call".to_string(), t.name.clone());
+                }
+                "web_search" => {
+                    map.entry("web_search_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                "file_search" => {
+                    map.entry("file_search_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                "computer_use_preview" => {
+                    map.insert("computer_call".to_string(), t.name.clone());
+                }
+                "computer_use" => {
+                    map.entry("computer_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn update_provider_tool_names(&self, json: &serde_json::Value) {
         let Some(tools) = json
             .get("response")
@@ -51,12 +99,11 @@ impl OpenAiResponsesEventConverter {
             };
 
             match tool_type {
-                // Vercel alignment: use the configured tool type as `toolName`.
+                // Fallback mapping: if request-level tool names were not provided,
+                // use the configured tool type as `toolName`.
                 "web_search_preview" => {
-                    map.insert(
-                        "web_search_call".to_string(),
-                        "web_search_preview".to_string(),
-                    );
+                    map.entry("web_search_call".to_string())
+                        .or_insert_with(|| "web_search_preview".to_string());
                 }
                 "web_search" => {
                     map.entry("web_search_call".to_string())
@@ -67,10 +114,8 @@ impl OpenAiResponsesEventConverter {
                         .or_insert_with(|| "file_search".to_string());
                 }
                 "computer_use_preview" => {
-                    map.insert(
-                        "computer_call".to_string(),
-                        "computer_use_preview".to_string(),
-                    );
+                    map.entry("computer_call".to_string())
+                        .or_insert_with(|| "computer_use_preview".to_string());
                 }
                 "computer_use" => {
                     map.entry("computer_call".to_string())

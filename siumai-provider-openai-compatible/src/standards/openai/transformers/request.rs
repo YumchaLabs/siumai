@@ -604,8 +604,11 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                 // Build base body
                 let mut body = serde_json::json!({
                     "model": req.common_params.model,
-                    "stream": req.stream,
                 });
+
+                if req.stream {
+                    body["stream"] = serde_json::Value::Bool(true);
+                }
 
                 // input
                 let mut input_items: Vec<serde_json::Value> = Vec::new();

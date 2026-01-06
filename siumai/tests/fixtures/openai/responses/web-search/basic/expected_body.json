@@ -1,6 +1,5 @@
 {
   "model": "gpt-4.1-mini",
-  "stream": false,
   "input": [
     {
       "role": "user",
@@ -26,4 +25,3 @@
     }
   ]
 }
-

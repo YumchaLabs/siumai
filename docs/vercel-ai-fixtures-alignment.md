@@ -50,6 +50,17 @@ Provider id: `openai` (Responses API)
 ### Done
 
 - [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `web_search`
+- [x] Omit `stream` when not streaming (Vercel-aligned wire body)
+
+## OpenAI Responses File Search
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `file_search`
+- [x] `providerOptions.openai.include = ["file_search_call.results"]` injects Responses `include[]`
+- [x] Streaming SSE converter emits `toolName: "fileSearch"` when request tool name is `fileSearch`
 
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
@@ -58,3 +69,23 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 ### Done
 
 - [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
+
+## Anthropic Messages (Streaming)
+
+Provider id: `anthropic`
+
+### Next
+
+- [ ] `anthropic-json-tool.1` (tool call + tool result)
+- [ ] `anthropic-tool-no-args` (tool call without args)
+- [ ] `anthropic-web-search-tool.1` (provider tool)
+- [ ] `anthropic-web-fetch-tool.1` (provider tool)
+- [ ] `anthropic-mcp.1` (MCP tool calling)
+
+## XAI Responses (Streaming)
+
+Provider id: `xai`
+
+### Next
+
+- [ ] `xai-web-search-tool.1` (provider tool)
