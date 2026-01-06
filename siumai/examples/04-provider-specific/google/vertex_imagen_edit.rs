@@ -2,7 +2,7 @@
 //!
 //! Run:
 //! ```bash
-//! cargo run --example vertex_imagen_edit --features "google gcp"
+//! cargo run --example vertex_imagen_edit --features "google-vertex gcp"
 //! ```
 //!
 //! Environment:
@@ -12,18 +12,18 @@
 //! - `MASK_IMAGE_PATH` (optional)
 //! - `REFERENCE_IMAGE_PATH` (optional)
 
-#[cfg(all(feature = "google", feature = "gcp"))]
+#[cfg(all(feature = "google-vertex", feature = "gcp"))]
 use siumai::prelude::*;
 
-#[cfg(all(feature = "google", feature = "gcp"))]
+#[cfg(all(feature = "google-vertex", feature = "gcp"))]
 use siumai::prelude::extensions::ImageExtras;
 
-#[cfg(all(feature = "google", feature = "gcp"))]
-use siumai::provider_ext::gemini::options::{
+#[cfg(all(feature = "google-vertex", feature = "gcp"))]
+use siumai::provider_ext::google_vertex::options::{
     VertexImagenOptions, VertexImagenReferenceImage, VertexImagenRequestExt,
 };
 
-#[cfg(all(feature = "google", feature = "gcp"))]
+#[cfg(all(feature = "google-vertex", feature = "gcp"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project = std::env::var("GOOGLE_CLOUD_PROJECT")
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Note: Imagen is accessed via Vertex AI and requires Bearer auth.
     let client = Siumai::builder()
-        .gemini()
+        .google_vertex()
         .base_url_for_vertex(&project, &location, "google")
         .with_gemini_adc()
         // Choose an Imagen edit model as the default.
@@ -81,10 +81,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(all(feature = "google", feature = "gcp")))]
+#[cfg(not(all(feature = "google-vertex", feature = "gcp")))]
 fn main() {
     eprintln!(
-        "This example requires features: google + gcp.\\n\
-Run: cargo run --example vertex_imagen_edit --features \"google gcp\""
+        "This example requires features: google-vertex + gcp.\\n\
+Run: cargo run --example vertex_imagen_edit --features \"google-vertex gcp\""
     );
 }

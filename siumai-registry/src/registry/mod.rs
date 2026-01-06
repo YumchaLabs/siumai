@@ -140,6 +140,12 @@ mod builtins {
             {
                 self.add_alias("gemini", "google");
             }
+
+            // Google Vertex alias (package naming consistency with `@ai-sdk/google-vertex`).
+            #[cfg(feature = "google-vertex")]
+            {
+                self.add_alias("vertex", "google-vertex");
+            }
         }
 
         /// Register all OpenAI-compatible providers from config.

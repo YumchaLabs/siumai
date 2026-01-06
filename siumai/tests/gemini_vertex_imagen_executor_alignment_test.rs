@@ -1,4 +1,4 @@
-#![cfg(feature = "google")]
+#![cfg(feature = "google-vertex")]
 
 use serde_json::json;
 use siumai::experimental::core::ProviderContext;
@@ -40,11 +40,12 @@ async fn vertex_imagen_executor_returns_response_envelope_and_size_warning() {
 
     let mut extra_headers = std::collections::HashMap::new();
     extra_headers.insert("Authorization".to_string(), "Bearer ok".to_string());
-    let ctx = ProviderContext::new("gemini", base_url, None, extra_headers);
+    let ctx = ProviderContext::new("vertex", base_url, None, extra_headers);
 
-    let spec =
-        Arc::new(siumai::experimental::providers::gemini::providers::gemini::spec::GeminiSpec);
-    let exec = ImageExecutorBuilder::new("gemini", reqwest::Client::new())
+    let spec = Arc::new(
+        siumai::experimental::providers::google_vertex::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
+    );
+    let exec = ImageExecutorBuilder::new("vertex", reqwest::Client::new())
         .with_spec(spec)
         .with_context(ctx)
         .build_for_request(&ImageGenerationRequest {

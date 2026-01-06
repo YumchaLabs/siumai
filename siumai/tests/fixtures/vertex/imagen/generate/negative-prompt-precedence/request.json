@@ -5,10 +5,8 @@
   "negative_prompt": "req negative",
   "extra_params": {},
   "providerOptions": {
-    "gemini": {
-      "vertex": {
-        "negativePrompt": "provider negative"
-      }
+    "vertex": {
+      "negativePrompt": "provider negative"
     }
   }
 }

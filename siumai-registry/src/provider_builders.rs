@@ -8,6 +8,7 @@ use crate::provider::SiumaiBuilder;
     feature = "openai",
     feature = "anthropic",
     feature = "google",
+    feature = "google-vertex",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -77,6 +78,20 @@ impl SiumaiBuilder {
         self.provider_type = Some(ProviderType::Gemini);
         self.provider_id = Some("gemini".to_string());
         self
+    }
+
+    /// Create a Google Vertex provider (convenience method)
+    #[cfg(feature = "google-vertex")]
+    pub fn google_vertex(mut self) -> Self {
+        self.provider_type = Some(ProviderType::Custom("vertex".to_string()));
+        self.provider_id = Some("vertex".to_string());
+        self
+    }
+
+    /// Alias for `google_vertex` (canonical provider id).
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex(self) -> Self {
+        self.google_vertex()
     }
 
     /// Create an Ollama provider (convenience method)

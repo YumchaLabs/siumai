@@ -7,11 +7,9 @@
   "response_format": "b64_json",
   "extra_params": {},
   "providerOptions": {
-    "gemini": {
-      "vertex": {
-        "edit": {
-          "mode": "EDIT_MODE_CONTROLLED_EDITING"
-        }
+    "vertex": {
+      "edit": {
+        "mode": "EDIT_MODE_CONTROLLED_EDITING"
       }
     }
   }

@@ -137,6 +137,8 @@ pub mod experimental {
         pub use siumai_provider_anthropic as anthropic;
         #[cfg(feature = "google")]
         pub use siumai_provider_gemini as gemini;
+        #[cfg(feature = "google-vertex")]
+        pub use siumai_provider_google_vertex as google_vertex;
         #[cfg(feature = "groq")]
         pub use siumai_provider_groq as groq;
         #[cfg(feature = "minimaxi")]
@@ -286,11 +288,9 @@ pub mod provider_ext {
             pub use siumai_provider_gemini::provider_options::gemini::{
                 GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions,
                 GeminiResponseModality, GeminiSafetySetting, GeminiThinkingConfig,
-                GeminiThinkingLevel, VertexImagenInlineImage, VertexImagenOptions,
-                VertexImagenReferenceImage,
+                GeminiThinkingLevel,
             };
             pub use siumai_provider_gemini::providers::gemini::ext::GeminiChatRequestExt;
-            pub use siumai_provider_gemini::providers::gemini::ext::VertexImagenRequestExt;
             pub use siumai_provider_gemini::providers::gemini::types::{
                 GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
             };
@@ -301,8 +301,6 @@ pub mod provider_ext {
             GeminiChatRequestExt, GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
             GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions, GeminiResponseModality,
             GeminiSafetySetting, GeminiThinkingConfig, GeminiThinkingLevel,
-            VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage,
-            VertexImagenRequestExt,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["google"]`).
@@ -331,6 +329,26 @@ pub mod provider_ext {
         pub use siumai_provider_gemini::params::gemini::{
             GeminiParams, GeminiParamsBuilder, GenerationConfig, SafetyCategory, SafetySetting,
             SafetyThreshold,
+        };
+    }
+
+    #[cfg(feature = "google-vertex")]
+    pub mod google_vertex {
+        pub use siumai_provider_google_vertex::providers::vertex::{
+            GoogleVertexClient, GoogleVertexConfig,
+        };
+
+        /// Typed provider options (`provider_options_map["vertex"]`).
+        pub mod options {
+            pub use siumai_provider_google_vertex::provider_options::vertex::{
+                VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage,
+            };
+            pub use siumai_provider_google_vertex::providers::vertex::VertexImagenRequestExt;
+        }
+
+        pub use options::{
+            VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage,
+            VertexImagenRequestExt,
         };
     }
 

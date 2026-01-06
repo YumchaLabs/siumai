@@ -16,9 +16,9 @@ plus a test that validates Siumai’s request/response mapping.
   - `expected_response.json` (unified response produced by transformers)
 - Tests live in `siumai/tests/*_fixtures_alignment_test.rs` and are feature-gated.
 
-## Google Vertex Imagen (via Gemini provider)
+## Google Vertex Imagen (via Vertex provider)
 
-Provider id: `gemini`
+Provider id: `vertex`
 
 ### Done
 
@@ -36,7 +36,7 @@ Provider id: `gemini`
 
 ### In progress
 
-- [x] Fixture-driven alignment tests under `siumai/tests/fixtures/gemini/vertex-imagen/*`
+- [x] Fixture-driven alignment tests under `siumai/tests/fixtures/vertex/imagen/*`
 
 ### Next
 

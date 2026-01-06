@@ -4,6 +4,7 @@ use crate::error::LlmError;
     feature = "openai",
     feature = "anthropic",
     feature = "google",
+    feature = "google-vertex",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -16,6 +17,7 @@ use crate::types::ProviderType;
     feature = "openai",
     feature = "anthropic",
     feature = "google",
+    feature = "google-vertex",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -48,6 +50,17 @@ fn infer_provider_from_model(model: &str) -> Option<ProviderType> {
         }
     }
 
+    #[cfg(feature = "google-vertex")]
+    {
+        if model.starts_with("imagen")
+            || model.contains("/models/imagen")
+            || model.contains("models/imagen")
+            || model.contains("publishers/google/models/imagen")
+        {
+            return Some(ProviderType::Custom("vertex".to_string()));
+        }
+    }
+
     None
 }
 
@@ -56,6 +69,7 @@ fn infer_provider_from_model(model: &str) -> Option<ProviderType> {
     feature = "openai",
     feature = "anthropic",
     feature = "google",
+    feature = "google-vertex",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -114,6 +128,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 true
             }
         }
+        #[cfg(feature = "google-vertex")]
+        ProviderType::Custom(ref id) if id == "vertex" => false,
         ProviderType::Gemini => {
             let has_auth_header = builder
                 .http_config
@@ -121,11 +137,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 .keys()
                 .any(|k| k.eq_ignore_ascii_case("authorization"));
             let has_token_provider = {
-                #[cfg(feature = "google")]
+                #[cfg(any(feature = "google", feature = "google-vertex"))]
                 {
                     builder.gemini_token_provider.is_some()
                 }
-                #[cfg(not(feature = "google"))]
+                #[cfg(not(any(feature = "google", feature = "google-vertex")))]
                 {
                     false
                 }
@@ -134,6 +150,34 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         _ => true,
     };
+
+    // Vertex uses Bearer auth, not API keys.
+    #[cfg(feature = "google-vertex")]
+    {
+        if matches!(provider_type, ProviderType::Custom(ref id) if id == "vertex") {
+            let has_auth_header = builder
+                .http_config
+                .headers
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case("authorization"));
+            let has_token_provider = {
+                #[cfg(any(feature = "google", feature = "google-vertex"))]
+                {
+                    builder.gemini_token_provider.is_some()
+                }
+                #[cfg(not(any(feature = "google", feature = "google-vertex")))]
+                {
+                    false
+                }
+            };
+            if !(has_auth_header || has_token_provider) {
+                return Err(LlmError::ConfigurationError(
+                    "Google Vertex requires Bearer auth (set Authorization header or configure a TokenProvider via with_gemini_token_provider / with_gemini_adc)"
+                        .to_string(),
+                ));
+            }
+        }
+    }
 
     let api_key = if requires_api_key {
         // Try to get API key from builder first, then from environment variable
@@ -250,6 +294,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             ProviderType::Anthropic => siumai_provider_anthropic::providers::anthropic::model_constants::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022.to_string(),
             #[cfg(feature = "google")]
             ProviderType::Gemini => siumai_provider_gemini::providers::gemini::model_constants::gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
+            #[cfg(feature = "google-vertex")]
+            ProviderType::Custom(ref provider_id) if provider_id == "vertex" => {
+                "imagen-3.0-generate-002".to_string()
+            }
             #[cfg(feature = "ollama")]
             ProviderType::Ollama => "llama3.2".to_string(),
             #[cfg(feature = "xai")]
@@ -466,7 +514,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 model_middlewares: user_model_middlewares.clone(),
                 retry_options: builder.retry_options.clone(),
                 common_params: Some(common_params.clone()),
-                #[cfg(feature = "google")]
+                #[cfg(any(feature = "google", feature = "google-vertex"))]
                 gemini_token_provider: builder.gemini_token_provider.clone(),
                 ..Default::default()
             };
@@ -541,6 +589,34 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             };
 
             let factory = crate::registry::factories::GroqProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
+        }
+        #[cfg(feature = "google-vertex")]
+        ProviderType::Custom(name) if name == "vertex" => {
+            let Some(resolved_base) = base_url.clone() else {
+                return Err(LlmError::ConfigurationError(
+                    "Google Vertex requires `base_url` (use SiumaiBuilder::base_url_for_vertex(...) or .base_url(...))"
+                        .to_string(),
+                ));
+            };
+
+            let ctx = BuildContext {
+                http_client: Some(built_http_client.clone()),
+                http_config: Some(http_config.clone()),
+                base_url: Some(resolved_base),
+                tracing_config: builder.tracing_config.clone(),
+                http_interceptors: interceptors.clone(),
+                model_middlewares: user_model_middlewares.clone(),
+                retry_options: builder.retry_options.clone(),
+                common_params: Some(common_params.clone()),
+                #[cfg(any(feature = "google", feature = "google-vertex"))]
+                gemini_token_provider: builder.gemini_token_provider.clone(),
+                ..Default::default()
+            };
+
+            let factory = crate::registry::factories::GoogleVertexProviderFactory;
             factory
                 .language_model_with_ctx(&common_params.model, &ctx)
                 .await?

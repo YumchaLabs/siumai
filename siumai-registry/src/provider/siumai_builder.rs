@@ -52,8 +52,8 @@ pub struct SiumaiBuilder {
     /// Custom HTTP client (takes precedence over all other HTTP settings)
     pub(crate) http_client: Option<reqwest::Client>,
     /// Advanced HTTP features are not handled here anymore; use HttpConfig only
-    #[cfg(feature = "google")]
-    /// Optional Bearer token provider for Gemini (e.g., Vertex AI).
+    #[cfg(any(feature = "google", feature = "google-vertex"))]
+    /// Optional Bearer token provider for Google auth (Gemini and/or Vertex AI).
     pub(crate) gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
     /// Optional model-level middlewares applied before provider mapping
     pub(crate) model_middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
@@ -80,7 +80,7 @@ impl SiumaiBuilder {
             http_debug: false,
             http_client: None,
 
-            #[cfg(feature = "google")]
+            #[cfg(any(feature = "google", feature = "google-vertex"))]
             gemini_token_provider: None,
             model_middlewares: Vec::new(),
         }
@@ -95,7 +95,14 @@ impl SiumaiBuilder {
     /// Set the provider by canonical id (dynamic dispatch)
     /// Recommended to use canonical ids like "openai", "anthropic", "gemini".
     pub fn provider_id<S: Into<String>>(mut self, id: S) -> Self {
-        let name = id.into();
+        let raw = id.into();
+        let name = match raw.as_str() {
+            "google" => "gemini",
+            "google-vertex" => "vertex",
+            other => other,
+        }
+        .to_string();
+
         self.provider_id = Some(name.clone());
 
         // Map provider name to type
@@ -106,6 +113,7 @@ impl SiumaiBuilder {
             "anthropic" => ProviderType::Anthropic,
             "anthropic-vertex" => ProviderType::Anthropic,
             "gemini" => ProviderType::Gemini,
+            "vertex" => ProviderType::Custom("vertex".to_string()),
             "ollama" => ProviderType::Ollama,
             "xai" => ProviderType::XAI,
             "groq" => ProviderType::Groq,
@@ -335,7 +343,7 @@ impl SiumaiBuilder {
         self.base_url = Some(base);
         self
     }
-    #[cfg(feature = "google")]
+    #[cfg(any(feature = "google", feature = "google-vertex"))]
     pub fn with_gemini_token_provider(
         mut self,
         provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
@@ -343,7 +351,7 @@ impl SiumaiBuilder {
         self.gemini_token_provider = Some(provider);
         self
     }
-    #[cfg(all(feature = "google", feature = "gcp"))]
+    #[cfg(all(any(feature = "google", feature = "google-vertex"), feature = "gcp"))]
     pub fn with_gemini_adc(mut self) -> Self {
         let adc = crate::auth::adc::AdcTokenProvider::default_client();
         self.gemini_token_provider = Some(std::sync::Arc::new(adc));

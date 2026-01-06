@@ -337,6 +337,39 @@ pub async fn build_anthropic_vertex_client(
     Ok(Arc::new(client))
 }
 
+/// Build Google Vertex client (Imagen via Vertex AI).
+#[cfg(feature = "google-vertex")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_google_vertex_client(
+    base_url: String,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    http_config: HttpConfig,
+    token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+    _tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    _middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
+    let cfg = siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig {
+        base_url,
+        model: common_params.model.clone(),
+        http_config,
+        token_provider,
+    };
+
+    let mut client =
+        siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::new(cfg, http_client);
+    if let Some(opts) = retry_options {
+        client = client.with_retry_options(opts);
+    }
+    if !interceptors.is_empty() {
+        client = client.with_interceptors(interceptors);
+    }
+
+    Ok(Arc::new(client))
+}
+
 #[cfg(feature = "ollama")]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_ollama_client(

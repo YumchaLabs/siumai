@@ -6,9 +6,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub mod vertex_imagen;
-pub use vertex_imagen::{VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage};
-
 /// Gemini response modalities for `generationConfig.responseModalities`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GeminiResponseModality {

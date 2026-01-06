@@ -7,11 +7,9 @@
     "aspectRatio": "1:1"
   },
   "providerOptions": {
-    "gemini": {
-      "vertex": {
-        "addWatermark": false,
-        "negativePrompt": "negative prompt"
-      }
+    "vertex": {
+      "addWatermark": false,
+      "negativePrompt": "negative prompt"
     }
   }
 }

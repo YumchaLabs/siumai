@@ -104,6 +104,17 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_custom_feature("thinking", true),
     });
 
+    // Google Vertex AI (Imagen via Vertex).
+    #[cfg(feature = "google-vertex")]
+    out.push(NativeProviderMetadata {
+        id: "vertex",
+        name: "Google Vertex AI",
+        description: "Google Vertex AI models (e.g., Imagen) served via Vertex endpoints",
+        // Requires project/location; use `base_url_for_vertex` or explicit `base_url`.
+        default_base_url: None,
+        capabilities: ProviderCapabilities::new().with_image_generation(),
+    });
+
     // Groq
     #[cfg(feature = "groq")]
     out.push(NativeProviderMetadata {

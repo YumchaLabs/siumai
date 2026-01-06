@@ -63,6 +63,21 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         );
     }
 
+    #[cfg(feature = "google-vertex")]
+    {
+        providers.insert(
+            "vertex".to_string(),
+            Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+        // Alias for package naming consistency (Vercel-style `@ai-sdk/google-vertex`).
+        providers.insert(
+            "google-vertex".to_string(),
+            Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
     #[cfg(feature = "groq")]
     {
         providers.insert(

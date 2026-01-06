@@ -100,8 +100,8 @@ impl ImageExtras for GeminiClient {
     }
 
     fn supports_image_editing(&self) -> bool {
-        // Vertex Imagen supports editing via :predict; Gemini generateContent does not.
-        self.config.base_url.contains("aiplatform.googleapis.com")
+        // Gemini generateContent does not support image editing.
+        false
     }
     fn supports_image_variations(&self) -> bool {
         false

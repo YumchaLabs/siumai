@@ -42,6 +42,7 @@ siumai-provider-openai = { version = "0.11.0-beta.5", path = "../siumai-provider
 siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
 siumai-provider-anthropic = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic", default-features = false, optional = true }
 siumai-provider-gemini = { version = "0.11.0-beta.5", path = "../siumai-provider-gemini", default-features = false, optional = true }
+siumai-provider-google-vertex = { version = "0.11.0-beta.5", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
 siumai-provider-ollama = { version = "0.11.0-beta.5", path = "../siumai-provider-ollama", default-features = false, optional = true }
 siumai-provider-groq = { version = "0.11.0-beta.5", path = "../siumai-provider-groq", default-features = false, optional = true }
 siumai-provider-xai = { version = "0.11.0-beta.5", path = "../siumai-provider-xai", default-features = false, optional = true }
@@ -111,6 +112,7 @@ structured-messages = [
     "siumai-provider-openai/structured-messages",
     "siumai-provider-anthropic/structured-messages",
     "siumai-provider-gemini/structured-messages",
+    "siumai-provider-google-vertex/structured-messages",
     "siumai-provider-ollama/structured-messages",
     "siumai-provider-groq/structured-messages",
     "siumai-provider-xai/structured-messages",
@@ -133,13 +135,19 @@ anthropic = [
     "siumai-provider-anthropic/anthropic",
 ]
 google = ["siumai-core/google", "siumai-registry/google", "dep:siumai-provider-gemini", "siumai-provider-gemini/google"]
+google-vertex = [
+    "siumai-core/google",
+    "siumai-registry/google-vertex",
+    "dep:siumai-provider-google-vertex",
+    "siumai-provider-google-vertex/google-vertex",
+]
 ollama = ["siumai-core/ollama", "siumai-registry/ollama", "dep:siumai-provider-ollama", "siumai-provider-ollama/ollama"]
 xai = ["siumai-core/xai", "siumai-registry/xai", "dep:siumai-provider-xai", "siumai-provider-xai/xai"]
 groq = ["siumai-core/groq", "siumai-registry/groq", "dep:siumai-provider-groq", "siumai-provider-groq/groq"]
 minimaxi = ["siumai-core/minimaxi", "siumai-registry/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
-gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google"]
+gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex"]
 
 # JSON repair support for handling malformed LLM outputs
 json-repair = [

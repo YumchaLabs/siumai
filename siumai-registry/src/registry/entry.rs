@@ -241,8 +241,8 @@ pub struct BuildContext {
     pub project: Option<String>,
     /// Optional tracing configuration for providers that support it.
     pub tracing_config: Option<crate::observability::tracing::TracingConfig>,
-    /// Optional Gemini token provider (e.g., for Vertex AI auth).
-    #[cfg(feature = "google")]
+    /// Optional Google token provider (e.g., for Vertex AI auth).
+    #[cfg(any(feature = "google", feature = "google-vertex"))]
     pub gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
     /// Optional common parameters (model id, temperature, max_tokens, etc.).
     /// When `None`, factories may construct minimal defaults based on `model_id`.

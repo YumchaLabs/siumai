@@ -8,7 +8,5 @@ pub mod file_search_stores;
 pub mod hosted_tools;
 pub mod request_options;
 pub mod tools;
-pub mod vertex_imagen;
 
 pub use request_options::GeminiChatRequestExt;
-pub use vertex_imagen::VertexImagenRequestExt;

@@ -1,4 +1,4 @@
-#![cfg(feature = "google")]
+#![cfg(feature = "google-vertex")]
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -9,8 +9,8 @@ fn fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
-        .join("gemini")
-        .join("vertex-imagen")
+        .join("vertex")
+        .join("imagen")
 }
 
 fn case_dirs(root: &Path) -> Vec<PathBuf> {
@@ -78,7 +78,7 @@ fn vertex_ctx() -> siumai::experimental::core::ProviderContext {
     let base_url = "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google";
     let mut extra = std::collections::HashMap::new();
     extra.insert("Authorization".to_string(), "Bearer token".to_string());
-    siumai::experimental::core::ProviderContext::new("gemini", base_url.to_string(), None, extra)
+    siumai::experimental::core::ProviderContext::new("vertex", base_url.to_string(), None, extra)
 }
 
 fn run_generate_case(root: &Path) {
@@ -90,7 +90,7 @@ fn run_generate_case(root: &Path) {
     let expected_response: Value = read_json(root.join("expected_response.json"));
 
     let ctx = vertex_ctx();
-    let spec = siumai::experimental::providers::gemini::providers::gemini::spec::GeminiSpec;
+    let spec = siumai::experimental::providers::google_vertex::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex");
 
     let url = spec.image_url(&req, &ctx);
     assert_eq!(url, expected_url);
@@ -131,7 +131,7 @@ fn run_edit_case(root: &Path) {
     let expected_response: Value = read_json(root.join("expected_response.json"));
 
     let ctx = vertex_ctx();
-    let spec = siumai::experimental::providers::gemini::providers::gemini::spec::GeminiSpec;
+    let spec = siumai::experimental::providers::google_vertex::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex");
 
     let url = spec.image_edit_url(&req, &ctx);
     assert_eq!(url, expected_url);

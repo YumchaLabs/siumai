@@ -6,12 +6,11 @@
 
 use crate::core::{ImageTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
+use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer};
 use crate::execution::transformers::response::ResponseTransformer;
-use crate::standards::gemini::headers::build_gemini_headers;
-use crate::types::{
-    ChatRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest, Warning,
-};
+use crate::types::Warning;
+use crate::types::{ChatRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest};
 use base64::Engine;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
@@ -35,6 +34,13 @@ fn looks_like_vertex_base_url(base_url: &str) -> bool {
     base_url.contains("aiplatform.googleapis.com")
 }
 
+fn build_vertex_headers(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
+    let builder = HttpHeaderBuilder::new()
+        .with_json_content_type()
+        .with_custom_headers(custom_headers)?;
+    Ok(builder.build())
+}
+
 fn bytes_to_inline_image(bytes: &[u8]) -> serde_json::Value {
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     serde_json::json!({
@@ -45,10 +51,14 @@ fn bytes_to_inline_image(bytes: &[u8]) -> serde_json::Value {
 fn extract_vertex_imagen_options(
     map: &crate::types::ProviderOptionsMap,
 ) -> Option<serde_json::Value> {
+    // Vercel-aligned key: providerOptions["vertex"]
+    if let Some(v) = map.get("vertex") {
+        return Some(v.clone());
+    }
+
+    // Backward compatibility: providerOptions["gemini"]["vertex"] (legacy nesting).
     let v = map.get("gemini")?;
     let obj = v.as_object()?;
-
-    // Accept both Vercel-style and snake_case keys.
     obj.get("vertex")
         .cloned()
         .or_else(|| obj.get("vertexImagen").cloned())
@@ -215,7 +225,6 @@ impl RequestTransformer for VertexImagenRequestTransformer {
             parameters.insert("negativePrompt".to_string(), serde_json::json!(neg));
         }
 
-        // Merge provider options (vertexImagen) and extra_params as loose parameters.
         if let Some(opts) = &provider_opts {
             merge_object_allowlist_skipping(
                 &mut parameters,
@@ -233,7 +242,6 @@ impl RequestTransformer for VertexImagenRequestTransformer {
             );
         }
         for (k, v) in &req.extra_params {
-            // Avoid clobbering instance-only keys we already handled.
             if matches!(
                 k.as_str(),
                 "edit"
@@ -260,7 +268,7 @@ impl RequestTransformer for VertexImagenRequestTransformer {
 
         let mut instance = serde_json::Map::new();
         instance.insert("prompt".to_string(), serde_json::json!(req.prompt));
-        // Vercel-aligned: encode source image and optional mask into referenceImages.
+
         let mut reference_images = Vec::new();
         reference_images.push(serde_json::json!({
             "referenceId": 1,
@@ -315,7 +323,6 @@ impl RequestTransformer for VertexImagenRequestTransformer {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
         }
 
-        // Default edit mode when a mask is present (Vercel-aligned).
         if req.mask.is_some() {
             parameters.insert(
                 "editMode".to_string(),
@@ -382,15 +389,6 @@ impl RequestTransformer for VertexImagenRequestTransformer {
             "parameters": serde_json::Value::Object(parameters),
         })))
     }
-
-    fn transform_image_variation(
-        &self,
-        _req: &ImageVariationRequest,
-    ) -> Result<ImageHttpBody, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "Vertex Imagen does not implement image variations in this SDK".to_string(),
-        ))
-    }
 }
 
 #[derive(Clone)]
@@ -413,11 +411,15 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
         &self,
         raw: &serde_json::Value,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
-        let mut images = Vec::new();
-        if let Some(predictions) = raw.get("predictions").and_then(|v| v.as_array()) {
-            for p in predictions {
-                let obj = p.as_object().cloned().unwrap_or_default();
+        let preds = raw
+            .get("predictions")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
 
+        let mut images = Vec::with_capacity(preds.len());
+        for pred in preds {
+            if let Some(obj) = pred.as_object() {
                 let bytes = obj
                     .get("bytesBase64Encoded")
                     .cloned()
@@ -458,7 +460,7 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
                     {
                         continue;
                     }
-                    meta.insert(k, v);
+                    meta.insert(k.clone(), v.clone());
                 }
 
                 images.push(crate::types::GeneratedImage {
@@ -529,8 +531,7 @@ impl ProviderSpec for VertexImagenSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx.api_key.as_deref().unwrap_or("");
-        build_gemini_headers(api_key, &ctx.http_extra_headers)
+        build_vertex_headers(&ctx.http_extra_headers)
     }
 
     fn image_url(&self, req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
@@ -602,159 +603,11 @@ impl ProviderSpec for VertexImagenSpec {
     }
 }
 
-/// Heuristic used by the Gemini provider to route image requests to Imagen.
+/// Heuristic used by clients/registry to detect Imagen models.
 pub fn is_vertex_imagen_model(model: &str, base_url: &str) -> bool {
     if !looks_like_vertex_base_url(base_url) {
         return false;
     }
     let m = normalize_vertex_model_id(model).to_lowercase();
     m.starts_with("imagen")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn model_normalization_accepts_resource_style() {
-        assert_eq!(
-            normalize_vertex_model_id("publishers/google/models/imagen-3.0-generate-001"),
-            "imagen-3.0-generate-001"
-        );
-        assert_eq!(
-            normalize_vertex_model_id(
-                "projects/x/locations/y/publishers/google/models/imagen-3.0-edit-001"
-            ),
-            "imagen-3.0-edit-001"
-        );
-    }
-
-    #[test]
-    fn url_is_predict() {
-        let spec = VertexImagenStandard::new().create_spec("gemini");
-        let ctx = ProviderContext::new(
-            "gemini",
-            "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google".to_string(),
-            Some("".to_string()),
-            Default::default(),
-        );
-        let req = ImageGenerationRequest {
-            model: Some("imagen-3.0-generate-001".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            spec.image_url(&req, &ctx),
-            "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/imagen-3.0-generate-001:predict"
-        );
-    }
-
-    #[test]
-    fn transformer_builds_instances_and_parameters() {
-        let tx = VertexImagenRequestTransformer::new("gemini");
-        let mut req = ImageGenerationRequest::default();
-        req.prompt = "a cat".into();
-        req.count = 2;
-        req.negative_prompt = Some("blurry".into());
-        req.extra_params
-            .insert("aspectRatio".into(), serde_json::json!("1:1"));
-        req.extra_params.insert("seed".into(), serde_json::json!(7));
-        let body = tx.transform_image(&req).unwrap();
-        assert_eq!(body["instances"][0]["prompt"], serde_json::json!("a cat"));
-        assert_eq!(
-            body["parameters"]["negativePrompt"],
-            serde_json::json!("blurry")
-        );
-        assert_eq!(body["parameters"]["sampleCount"], serde_json::json!(2));
-        assert_eq!(body["parameters"]["aspectRatio"], serde_json::json!("1:1"));
-        assert_eq!(body["parameters"]["seed"], serde_json::json!(7));
-    }
-
-    #[test]
-    fn spec_warns_when_size_is_provided() {
-        let spec = VertexImagenStandard::new().create_spec("gemini");
-        let ctx = ProviderContext::new(
-            "gemini",
-            "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google".to_string(),
-            Some("".to_string()),
-            Default::default(),
-        );
-        let req = ImageGenerationRequest {
-            prompt: "p".to_string(),
-            model: Some("imagen-3.0-generate-001".to_string()),
-            size: Some("1024x1024".to_string()),
-            ..Default::default()
-        };
-        let warnings = spec.image_warnings(&req, &ctx).expect("warnings");
-        assert_eq!(
-            warnings[0],
-            Warning::unsupported_setting(
-                "size",
-                Some("This model does not support the `size` option. Use `aspectRatio` instead.")
-            )
-        );
-    }
-
-    #[test]
-    fn edit_supports_mask_and_reference_images_passthrough() {
-        let tx = VertexImagenRequestTransformer::new("gemini");
-        let mut req = ImageEditRequest {
-            image: vec![137, 80, 78, 71],
-            mask: Some(vec![137, 80, 78, 71]),
-            prompt: "edit".into(),
-            model: Some("imagen-3.0-edit-001".into()),
-            count: Some(1),
-            size: Some("1024x1024".into()),
-            response_format: None,
-            extra_params: Default::default(),
-            provider_options_map: Default::default(),
-            http_config: None,
-        };
-        req.extra_params.insert(
-            "referenceImages".into(),
-            serde_json::json!([{"referenceType":"SUBJECT"}]),
-        );
-
-        let ImageHttpBody::Json(body) = tx.transform_image_edit(&req).unwrap() else {
-            panic!("expected json body");
-        };
-
-        let refs = body["instances"][0]["referenceImages"].as_array().unwrap();
-        assert_eq!(refs.len(), 3);
-        assert_eq!(
-            refs[0]["referenceType"],
-            serde_json::json!("REFERENCE_TYPE_RAW")
-        );
-        assert_eq!(refs[0]["referenceId"], serde_json::json!(1));
-        assert_eq!(
-            refs[1]["referenceType"],
-            serde_json::json!("REFERENCE_TYPE_MASK")
-        );
-        assert_eq!(refs[1]["referenceId"], serde_json::json!(2));
-        assert_eq!(
-            refs[1]["maskImageConfig"]["maskMode"],
-            serde_json::json!("MASK_MODE_USER_PROVIDED")
-        );
-        assert_eq!(refs[2]["referenceType"], serde_json::json!("SUBJECT"));
-        assert_eq!(
-            body["parameters"]["editMode"],
-            serde_json::json!("EDIT_MODE_INPAINT_INSERTION")
-        );
-    }
-
-    #[test]
-    fn response_extracts_base64_images() {
-        let tx = VertexImagenResponseTransformer::new("gemini");
-        let raw = serde_json::json!({
-            "predictions": [
-                {"bytesBase64Encoded": "AAA", "mimeType":"image/png"},
-                {"image": {"bytesBase64Encoded": "BBB", "mimeType":"image/jpeg"}}
-            ],
-            "deployedModelId": "d"
-        });
-        let out = tx.transform_image_response(&raw).unwrap();
-        assert_eq!(out.images.len(), 2);
-        assert_eq!(out.images[0].b64_json.as_deref(), Some("AAA"));
-        assert_eq!(out.images[1].b64_json.as_deref(), Some("BBB"));
-        assert_eq!(out.metadata.get("deployedModelId").unwrap(), "d");
-    }
 }

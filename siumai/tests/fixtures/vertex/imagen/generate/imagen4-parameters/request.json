@@ -7,11 +7,9 @@
     "aspectRatio": "1:1"
   },
   "providerOptions": {
-    "gemini": {
-      "vertex": {
-        "personGeneration": "allow_adult",
-        "safetySetting": "block_medium_and_above"
-      }
+    "vertex": {
+      "personGeneration": "allow_adult",
+      "safetySetting": "block_medium_and_above"
     }
   }
 }

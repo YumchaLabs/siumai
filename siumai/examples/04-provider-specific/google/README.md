@@ -1,7 +1,7 @@
 # Google (Gemini) provider-specific examples
 
-This folder contains **Gemini (Google AI / Vertex AI)** examples that align with the Vercel AI SDK
-model and tool boundaries.
+This folder contains **Gemini (Google AI / Vertex AI)** examples (and a separate **Google Vertex** Imagen example)
+that align with the Vercel AI SDK model and tool boundaries.
 
 ## Official docs
 
@@ -18,8 +18,8 @@ model and tool boundaries.
 - **Vertex AI** (recommended base URL: `https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google`)
   - Set base URL via `SiumaiBuilder::base_url_for_vertex(project, location, "google")`
   - Auth: `Authorization: Bearer <token>` via:
-    - `.with_gemini_token_provider(Arc<dyn TokenProvider>)` (`feature = "google"`)
-    - `.with_gemini_adc()` (`feature = "google" + "gcp"`)
+    - `.with_gemini_token_provider(Arc<dyn TokenProvider>)` (`feature = "google"` or `feature = "google-vertex"`)
+    - `.with_gemini_adc()` (`feature = "gcp"` + (`google` or `google-vertex`))
   - ADC env vars (current implementation): `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, `ADC_METADATA_URL` (test override)
   - Model id: prefer bare ids (e.g. `gemini-2.0-flash`), but resource-style ids are accepted (e.g. `models/gemini-2.0-flash`, `publishers/google/models/gemini-2.0-flash`)
 
@@ -46,10 +46,10 @@ silently omitted to keep the unified surface stable.
 - `file_search.rs`: File search tool usage (query-time retrieval).
 - `file_search-ext.rs`: File Search Stores (resource management; provider extension API).
 - `vertex_chat.rs`: Minimal Vertex AI chat via ADC (`--features "google gcp"`).
-- `vertex_imagen_edit.rs`: Vertex AI Imagen edit/inpaint with mask + reference images (`--features "google gcp"`).
+- `vertex_imagen_edit.rs`: Vertex AI Imagen edit/inpaint with mask + reference images (`--features "google-vertex gcp"`).
 
 ## Vertex Imagen notes
 
 - Vertex Imagen uses the Vertex `:predict` endpoint and requires Bearer auth (ADC/service account).
 - For editing/inpainting, set `ImageEditRequest.model` to an Imagen edit model (e.g. `imagen-3.0-edit-001`).
-- Reference images and negative prompts can be passed via `providerOptions["gemini"]["vertex"]` or `extra_params`.
+- Reference images and negative prompts can be passed via `providerOptions["vertex"]` (preferred) or `extra_params`.

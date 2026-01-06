@@ -9,14 +9,12 @@
     "guidanceScale": 7.5
   },
   "providerOptions": {
-    "gemini": {
-      "vertex": {
-        "edit": {
-          "mode": "EDIT_MODE_INPAINT_REMOVAL",
-          "baseSteps": 50,
-          "maskMode": "MASK_MODE_USER_PROVIDED",
-          "maskDilation": 0.01
-        }
+    "vertex": {
+      "edit": {
+        "mode": "EDIT_MODE_INPAINT_REMOVAL",
+        "baseSteps": 50,
+        "maskMode": "MASK_MODE_USER_PROVIDED",
+        "maskDilation": 0.01
       }
     }
   }
