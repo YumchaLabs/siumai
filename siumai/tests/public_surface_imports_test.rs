@@ -46,6 +46,16 @@ fn public_surface_openai_provider_ext_compiles() {
     let _ = siumai::hosted_tools::openai::web_search().build();
 }
 
+#[cfg(feature = "protocol-openai")]
+#[test]
+fn public_surface_protocol_openai_compiles() {
+    use siumai::prelude::unified::*;
+    use siumai::protocol::openai::*;
+
+    let _ = size_of::<OpenAiChatStandard>();
+    let _ = size_of::<ChatRequest>();
+}
+
 #[cfg(feature = "anthropic")]
 #[test]
 fn public_surface_anthropic_provider_ext_compiles() {
@@ -63,6 +73,16 @@ fn public_surface_anthropic_provider_ext_compiles() {
     let _ = siumai::hosted_tools::anthropic::web_search_20250305().build();
 }
 
+#[cfg(feature = "protocol-anthropic")]
+#[test]
+fn public_surface_protocol_anthropic_compiles() {
+    use siumai::prelude::unified::*;
+    use siumai::protocol::anthropic::*;
+
+    let _ = size_of::<AnthropicChatStandard>();
+    let _ = size_of::<ChatRequest>();
+}
+
 #[cfg(feature = "google")]
 #[test]
 fn public_surface_gemini_provider_ext_compiles() {
@@ -78,6 +98,16 @@ fn public_surface_gemini_provider_ext_compiles() {
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::google::google_search().build();
+}
+
+#[cfg(feature = "protocol-gemini")]
+#[test]
+fn public_surface_protocol_gemini_compiles() {
+    use siumai::prelude::unified::*;
+    use siumai::protocol::gemini::*;
+
+    let _ = size_of::<GeminiChatStandard>();
+    let _ = size_of::<ChatRequest>();
 }
 
 #[cfg(feature = "groq")]

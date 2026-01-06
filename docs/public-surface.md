@@ -48,6 +48,19 @@ For navigation/discoverability, each provider extension module may also expose s
 - `siumai::provider_ext::<provider>::metadata::*`
 - `siumai::provider_ext::<provider>::ext::*`
 
+### 2.1) Protocol mapping (stable facade)
+
+If you need access to protocol-level mapping modules (e.g. for building adapters, fixtures, or
+custom providers), use the protocol facade:
+
+```rust
+use siumai::protocol::openai::*;
+use siumai::protocol::anthropic::*;
+use siumai::protocol::gemini::*;
+```
+
+These paths should remain stable even if internal protocol crates are renamed during the refactor.
+
 ### 3) Provider-hosted tools (provider-executed tools)
 
 Use hosted tools via the stable module path:

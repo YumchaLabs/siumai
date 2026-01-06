@@ -93,6 +93,37 @@ pub mod __private {
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
 pub use siumai_core::hosted_tools;
 
+/// Protocol mapping facade (stable imports for protocol standards).
+///
+/// This module exists to decouple downstream code from internal crate names.
+/// Over time we may rename protocol crates (e.g. move away from `*-compatible` naming),
+/// but `siumai::protocol::*` should remain stable.
+pub mod protocol {
+    /// OpenAI-like protocol standard mapping (Chat/Embedding/Image/Rerank).
+    ///
+    /// Backed by `siumai-provider-openai-compatible` (legacy crate name).
+    #[cfg(any(feature = "openai", feature = "protocol-openai"))]
+    pub mod openai {
+        pub use siumai_provider_openai_compatible::standards::openai::*;
+    }
+
+    /// Anthropic Messages protocol standard mapping (Chat + streaming).
+    ///
+    /// Backed by `siumai-provider-anthropic-compatible` (legacy crate name).
+    #[cfg(any(feature = "anthropic", feature = "protocol-anthropic"))]
+    pub mod anthropic {
+        pub use siumai_provider_anthropic_compatible::standards::anthropic::*;
+    }
+
+    /// Google Gemini protocol standard mapping (GenerateContent + streaming).
+    ///
+    /// Backed by `siumai-protocol-gemini`.
+    #[cfg(any(feature = "google", feature = "protocol-gemini"))]
+    pub mod gemini {
+        pub use siumai_protocol_gemini::standards::gemini::*;
+    }
+}
+
 // Unified retry facade (siumai-core re-export + provider-aware defaults)
 pub mod retry_api;
 
