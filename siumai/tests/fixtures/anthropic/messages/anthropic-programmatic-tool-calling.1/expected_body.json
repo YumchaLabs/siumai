@@ -1,0 +1,17 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [{ "text": "Hello", "type": "text" }],
+      "role": "user"
+    }
+  ],
+  "model": "claude-3-haiku-20240307",
+  "tools": [
+    { "name": "code_execution", "type": "code_execution_20250825" },
+    {
+      "input_schema": { "properties": { "player": { "type": "string" } }, "type": "object" },
+      "name": "rollDie"
+    }
+  ]
+}

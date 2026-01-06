@@ -109,35 +109,52 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 }
 
                 // Vercel-aligned: request-level `responseFormat: { type: "json", schema }`
-                // is implemented via a reserved `json` tool + tool_choice.
+                // uses `output_format` for supported models, otherwise falls back to a reserved
+                // `json` tool + tool_choice.
                 if let Some(crate::types::chat::ResponseFormat::Json { schema }) =
                     &req.response_format
                 {
-                    let json_tool = serde_json::json!({
-                        "name": "json",
-                        "description": "Respond with a JSON object.",
-                        "input_schema": schema,
-                    });
-
-                    let tools = body.get_mut("tools").and_then(|v| v.as_array_mut());
-                    match tools {
-                        Some(arr) => {
-                            let has_json = arr
-                                .iter()
-                                .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("json"));
-                            if !has_json {
-                                arr.push(json_tool);
-                            }
-                        }
-                        None => {
-                            body["tools"] = serde_json::Value::Array(vec![json_tool]);
-                        }
+                    fn supports_output_format(model: &str) -> bool {
+                        model.starts_with("claude-sonnet-4-5")
+                            || model.starts_with("claude-opus-4-5")
+                            || model.starts_with("claude-haiku-4-5")
                     }
 
-                    body["tool_choice"] = serde_json::json!({
-                        "type": "any",
-                        "disable_parallel_tool_use": true,
-                    });
+                    let use_output_format = supports_output_format(&req.common_params.model)
+                        && req.tools.as_ref().map(|t| t.is_empty()).unwrap_or(true);
+
+                    if use_output_format {
+                        body["output_format"] = serde_json::json!({
+                            "type": "json_schema",
+                            "schema": schema
+                        });
+                    } else {
+                        let json_tool = serde_json::json!({
+                            "name": "json",
+                            "description": "Respond with a JSON object.",
+                            "input_schema": schema,
+                        });
+
+                        let tools = body.get_mut("tools").and_then(|v| v.as_array_mut());
+                        match tools {
+                            Some(arr) => {
+                                let has_json = arr.iter().any(|t| {
+                                    t.get("name").and_then(|v| v.as_str()) == Some("json")
+                                });
+                                if !has_json {
+                                    arr.push(json_tool);
+                                }
+                            }
+                            None => {
+                                body["tools"] = serde_json::Value::Array(vec![json_tool]);
+                            }
+                        }
+
+                        body["tool_choice"] = serde_json::json!({
+                            "type": "any",
+                            "disable_parallel_tool_use": true,
+                        });
+                    }
                 }
                 if let Some(spec) = self.specific {
                     if let Some(thinking) = &spec.thinking_config {
@@ -263,6 +280,17 @@ impl ResponseTransformer for AnthropicResponseTransformer {
         let provider_metadata = {
             let mut anthropic_meta: std::collections::HashMap<String, serde_json::Value> =
                 std::collections::HashMap::new();
+
+            // Raw envelope metadata (Vercel alignment): expose container/context management when present.
+            if let Some(v) = raw.get("container") {
+                anthropic_meta.insert("container".to_string(), v.clone());
+            }
+            if let Some(v) = raw.get("context_management") {
+                anthropic_meta.insert("context_management".to_string(), v.clone());
+            }
+            if let Some(seq) = &response.stop_sequence {
+                anthropic_meta.insert("stop_sequence".to_string(), serde_json::json!(seq));
+            }
 
             // Usage-derived metadata
             if let Some(u) = &response.usage {

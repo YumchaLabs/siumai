@@ -1,0 +1,29 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "responseFormat": {
+    "type": "json",
+    "schema": {
+      "type": "object",
+      "properties": { "name": { "type": "string" } },
+      "required": ["name"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  "common_params": {
+    "model": "claude-sonnet-4-5",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

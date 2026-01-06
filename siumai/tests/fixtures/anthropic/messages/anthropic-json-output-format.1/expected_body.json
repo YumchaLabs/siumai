@@ -1,0 +1,20 @@
+{
+  "max_tokens": 64000,
+  "messages": [
+    {
+      "content": [{ "text": "Hello", "type": "text" }],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "output_format": {
+    "type": "json_schema",
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": { "name": { "type": "string" } },
+      "required": ["name"],
+      "type": "object"
+    }
+  }
+}

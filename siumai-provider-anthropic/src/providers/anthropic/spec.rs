@@ -124,11 +124,28 @@ impl ProviderSpec for AnthropicSpec {
                     match t.tool_type() {
                         Some("web_fetch_20250910") => out.push("web-fetch-2025-09-10"),
                         Some("code_execution_20250522") => out.push("code-execution-2025-05-22"),
+                        Some("code_execution_20250825") => out.push("code-execution-2025-08-25"),
                         Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
                             out.push("advanced-tool-use-2025-11-20")
                         }
+                        Some("memory_20250818") => out.push("context-management-2025-06-27"),
                         _ => {}
                     }
+                }
+            }
+
+            // Structured output format -> beta header (Vercel-aligned).
+            if matches!(
+                req.response_format,
+                Some(crate::types::chat::ResponseFormat::Json { .. })
+            ) {
+                let model = req.common_params.model.as_str();
+                let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
+                    || model.starts_with("claude-opus-4-5")
+                    || model.starts_with("claude-haiku-4-5");
+
+                if supports_structured_outputs {
+                    out.push("structured-outputs-2025-11-13");
                 }
             }
 

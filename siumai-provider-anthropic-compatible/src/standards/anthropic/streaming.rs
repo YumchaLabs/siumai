@@ -406,9 +406,40 @@ impl AnthropicEventConverter {
                         // Vercel-aligned: map provider tool names back to stable custom names.
                         let tool_name = match tool_name_raw.as_str() {
                             "tool_search_tool_regex" | "tool_search_tool_bm25" => "tool_search",
+                            "text_editor_code_execution"
+                            | "bash_code_execution"
+                            | "code_execution" => "code_execution",
                             other => other,
                         }
                         .to_string();
+
+                        fn wrap_code_execution_input(
+                            name: &str,
+                            input: serde_json::Value,
+                        ) -> serde_json::Value {
+                            let mut obj = serde_json::Map::new();
+                            let kind = if name == "code_execution" {
+                                "programmatic-tool-call"
+                            } else {
+                                name
+                            };
+                            obj.insert("type".to_string(), serde_json::json!(kind));
+
+                            if let serde_json::Value::Object(m) = input {
+                                for (k, v) in m {
+                                    obj.insert(k, v);
+                                }
+                            }
+
+                            serde_json::Value::Object(obj)
+                        }
+
+                        let input = match tool_name_raw.as_str() {
+                            "text_editor_code_execution"
+                            | "bash_code_execution"
+                            | "code_execution" => wrap_code_execution_input(&tool_name_raw, input),
+                            _ => input,
+                        };
 
                         vec![ChatStreamEvent::Custom {
                             event_type: "anthropic:tool-call".to_string(),
@@ -498,6 +529,8 @@ impl AnthropicEventConverter {
                         } else {
                             match t {
                                 "tool_search_tool_result" => "tool_search".to_string(),
+                                "text_editor_code_execution_tool_result"
+                                | "bash_code_execution_tool_result" => "code_execution".to_string(),
                                 _ => t.strip_suffix("_tool_result").unwrap_or(t).to_string(),
                             }
                         };
@@ -661,15 +694,16 @@ impl AnthropicEventConverter {
                                 let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
                                 if tpe == "code_execution_result" {
-                                    (
-                                        serde_json::json!({
+                                    let mut out = serde_json::json!({
                                             "type": "code_execution_result",
                                             "stdout": obj.get("stdout").cloned().unwrap_or(serde_json::Value::Null),
                                             "stderr": obj.get("stderr").cloned().unwrap_or(serde_json::Value::Null),
                                             "return_code": obj.get("return_code").cloned().unwrap_or(serde_json::Value::Null),
-                                        }),
-                                        false,
-                                    )
+                                    });
+                                    if let Some(v) = obj.get("content") {
+                                        out["content"] = v.clone();
+                                    }
+                                    (out, false)
                                 } else if tpe == "code_execution_tool_result_error" {
                                     let error_code = obj
                                         .get("error_code")

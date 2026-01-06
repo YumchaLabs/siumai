@@ -31,7 +31,8 @@
         "type": "tool-call",
         "toolCallId": "toolu_01PFQG18bVLaXcEaCxTZtX4G",
         "toolName": "get_weather",
-        "input": { "location": "San Francisco, CA" }
+        "input": { "location": "San Francisco, CA" },
+        "providerMetadata": { "anthropic": { "caller": { "type": "direct" } } }
       }
     ]
   },

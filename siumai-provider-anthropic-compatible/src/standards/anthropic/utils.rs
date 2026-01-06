@@ -1136,12 +1136,25 @@ pub fn parse_response_content_and_tools(
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
                     tool_names_by_id.insert(id.clone(), name.clone());
-                    parts.push(ContentPart::tool_call(
-                        id.clone(),
-                        name.clone(),
-                        input.clone(),
-                        None,
-                    ));
+                    let provider_metadata = content_block.caller.as_ref().map(|caller| {
+                        let mut anthropic = serde_json::Map::new();
+                        anthropic.insert("caller".to_string(), caller.clone());
+
+                        let mut all = HashMap::new();
+                        all.insert(
+                            "anthropic".to_string(),
+                            serde_json::Value::Object(anthropic),
+                        );
+                        all
+                    });
+
+                    parts.push(ContentPart::ToolCall {
+                        tool_call_id: id.clone(),
+                        tool_name: name.clone(),
+                        arguments: input.clone(),
+                        provider_executed: None,
+                        provider_metadata,
+                    });
                 }
             }
             "server_tool_use" => {
@@ -1155,16 +1168,47 @@ pub fn parse_response_content_and_tools(
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
+                    fn wrap_code_execution_input(
+                        name: &str,
+                        input: &serde_json::Value,
+                    ) -> serde_json::Value {
+                        let mut obj = serde_json::Map::new();
+                        let kind = if name == "code_execution" {
+                            "programmatic-tool-call"
+                        } else {
+                            name
+                        };
+                        obj.insert("type".to_string(), serde_json::json!(kind));
+
+                        if let serde_json::Value::Object(m) = input {
+                            for (k, v) in m {
+                                obj.insert(k.clone(), v.clone());
+                            }
+                        }
+
+                        serde_json::Value::Object(obj)
+                    }
+
                     let tool_name = match name.as_str() {
                         "tool_search_tool_regex" | "tool_search_tool_bm25" => "tool_search",
+                        "text_editor_code_execution" | "bash_code_execution" | "code_execution" => {
+                            "code_execution"
+                        }
                         other => other,
                     }
                     .to_string();
+
+                    let input = match name.as_str() {
+                        "text_editor_code_execution" | "bash_code_execution" | "code_execution" => {
+                            wrap_code_execution_input(name, input)
+                        }
+                        _ => input.clone(),
+                    };
                     tool_names_by_id.insert(id.clone(), tool_name.clone());
                     parts.push(ContentPart::tool_call(
                         id.clone(),
                         tool_name,
-                        input.clone(),
+                        input,
                         Some(true),
                     ));
                 }
@@ -1212,6 +1256,8 @@ pub fn parse_response_content_and_tools(
                 } else {
                     match block_type {
                         "tool_search_tool_result" => "tool_search".to_string(),
+                        "text_editor_code_execution_tool_result"
+                        | "bash_code_execution_tool_result" => "code_execution".to_string(),
                         _ => block_type
                             .strip_suffix("_tool_result")
                             .unwrap_or(block_type)
@@ -1278,12 +1324,16 @@ pub fn parse_response_content_and_tools(
                     if let Some(obj) = content.as_object() {
                         let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
                         if tpe == "code_execution_result" {
-                            ToolResultOutput::json(serde_json::json!({
+                            let mut out = serde_json::json!({
                                 "type": "code_execution_result",
                                 "stdout": obj.get("stdout").cloned().unwrap_or(serde_json::Value::Null),
                                 "stderr": obj.get("stderr").cloned().unwrap_or(serde_json::Value::Null),
                                 "return_code": obj.get("return_code").cloned().unwrap_or(serde_json::Value::Null),
-                            }))
+                            });
+                            if let Some(v) = obj.get("content") {
+                                out["content"] = v.clone();
+                            }
+                            ToolResultOutput::json(out)
                         } else if tpe == "code_execution_tool_result_error" {
                             let error_code = obj
                                 .get("error_code")
@@ -1318,6 +1368,7 @@ pub fn parse_response_content_and_tools(
                     tool_name,
                     output,
                     provider_executed: Some(true),
+                    provider_metadata: None,
                 });
             }
             _ => {}
@@ -1415,11 +1466,20 @@ pub fn convert_tools_to_anthropic_format(
     for tool in tools {
         match tool {
             crate::types::Tool::Function { function } => {
-                let mut anthropic_tool = serde_json::json!({
-                    "name": function.name,
-                    "description": function.description,
-                    "input_schema": function.parameters
-                });
+                let mut tool_map = serde_json::Map::new();
+                tool_map.insert("name".to_string(), serde_json::json!(function.name));
+                if !function.description.is_empty() {
+                    tool_map.insert(
+                        "description".to_string(),
+                        serde_json::json!(function.description),
+                    );
+                }
+                tool_map.insert(
+                    "input_schema".to_string(),
+                    serde_json::json!(function.parameters),
+                );
+
+                let mut anthropic_tool = serde_json::Value::Object(tool_map);
 
                 // Vercel-aligned: tool-level provider options for Anthropic.
                 // Example: `{ providerOptions: { anthropic: { deferLoading: true } } }`

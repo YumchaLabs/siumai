@@ -1,6 +1,7 @@
 //! Content types for chat messages
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use super::metadata::{ToolCallInfo, ToolResultInfo};
 
@@ -323,6 +324,14 @@ pub enum ContentPart {
             skip_serializing_if = "Option::is_none"
         )]
         provider_executed: Option<bool>,
+
+        /// Provider-specific metadata (Vercel-aligned).
+        #[serde(
+            rename = "providerMetadata",
+            alias = "provider_metadata",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_metadata: Option<HashMap<String, serde_json::Value>>,
     },
 
     /// Tool approval response (for MCP approval workflows)
@@ -384,6 +393,14 @@ pub enum ContentPart {
             skip_serializing_if = "Option::is_none"
         )]
         provider_executed: Option<bool>,
+
+        /// Provider-specific metadata (Vercel-aligned).
+        #[serde(
+            rename = "providerMetadata",
+            alias = "provider_metadata",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_metadata: Option<HashMap<String, serde_json::Value>>,
     },
 
     /// Reasoning/thinking content
@@ -704,6 +721,7 @@ impl ContentPart {
             tool_name: tool_name.into(),
             arguments,
             provider_executed,
+            provider_metadata: None,
         }
     }
 
@@ -738,6 +756,7 @@ impl ContentPart {
             tool_name: tool_name.into(),
             output: ToolResultOutput::text(result),
             provider_executed: None,
+            provider_metadata: None,
         }
     }
 
@@ -765,6 +784,7 @@ impl ContentPart {
             tool_name: tool_name.into(),
             output: ToolResultOutput::json(result),
             provider_executed: None,
+            provider_metadata: None,
         }
     }
 
@@ -791,6 +811,7 @@ impl ContentPart {
             tool_name: tool_name.into(),
             output: ToolResultOutput::error_text(error),
             provider_executed: None,
+            provider_metadata: None,
         }
     }
 
@@ -818,6 +839,7 @@ impl ContentPart {
             tool_name: tool_name.into(),
             output: ToolResultOutput::error_json(error),
             provider_executed: None,
+            provider_metadata: None,
         }
     }
 
@@ -844,6 +866,7 @@ impl ContentPart {
             tool_name: tool_name.into(),
             output: ToolResultOutput::execution_denied(reason),
             provider_executed: None,
+            provider_metadata: None,
         }
     }
 
@@ -873,6 +896,7 @@ impl ContentPart {
             tool_name: tool_name.into(),
             output: ToolResultOutput::content(content),
             provider_executed: None,
+            provider_metadata: None,
         }
     }
 
@@ -978,6 +1002,7 @@ impl ContentPart {
                 tool_name,
                 arguments,
                 provider_executed,
+                ..
             } => Some(ToolCallInfo {
                 tool_call_id,
                 tool_name,
@@ -1012,6 +1037,7 @@ impl ContentPart {
                 tool_name,
                 output,
                 provider_executed,
+                ..
             } => Some(ToolResultInfo {
                 tool_call_id,
                 tool_name,

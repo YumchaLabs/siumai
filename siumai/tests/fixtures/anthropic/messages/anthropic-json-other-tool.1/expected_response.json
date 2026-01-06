@@ -1,0 +1,31 @@
+{
+  "id": "msg_01T8acYgh1ugip1ifUmT4MCU",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "toolu_01PQjhxo3eirCdKNvCJrKc8f",
+        "toolName": "weather",
+        "input": { "location": "San Francisco" }
+      }
+    ]
+  },
+  "model": "claude-haiku-4-5-20251001",
+  "usage": {
+    "prompt_tokens": 843,
+    "completion_tokens": 28,
+    "total_tokens": 871,
+    "cached_tokens": 0,
+    "prompt_tokens_details": { "cached_tokens": 0 }
+  },
+  "finish_reason": "tool_calls",
+  "service_tier": "standard",
+  "provider_metadata": {
+    "anthropic": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "service_tier": "standard"
+    }
+  },
+  "audio": null
+}

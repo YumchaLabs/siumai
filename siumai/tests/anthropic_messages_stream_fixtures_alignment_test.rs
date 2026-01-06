@@ -132,6 +132,44 @@ fn anthropic_stream_tool_search_emits_tool_call_and_result() {
 }
 
 #[test]
+fn anthropic_stream_code_execution_emits_tool_call_and_result() {
+    let path = fixtures_dir().join("anthropic-code-execution-20250825.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter(lines);
+
+    let calls = tool_events(&events, "tool-call", "code_execution");
+    let results = tool_events(&events, "tool-result", "code_execution");
+
+    assert!(!calls.is_empty(), "expected tool-call for code_execution");
+    assert!(
+        !results.is_empty(),
+        "expected tool-result for code_execution"
+    );
+}
+
+#[test]
+fn anthropic_stream_programmatic_tool_calling_emits_code_execution_events() {
+    let path = fixtures_dir().join("anthropic-programmatic-tool-calling.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter(lines);
+
+    let calls = tool_events(&events, "tool-call", "code_execution");
+    let results = tool_events(&events, "tool-result", "code_execution");
+
+    assert!(!calls.is_empty(), "expected tool-call for code_execution");
+    assert!(
+        !results.is_empty(),
+        "expected tool-result for code_execution"
+    );
+}
+
+#[test]
 fn anthropic_stream_tool_no_args_emits_tool_call_delta() {
     let path = fixtures_dir().join("anthropic-tool-no-args.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);

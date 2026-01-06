@@ -30,7 +30,8 @@
         "type": "tool-call",
         "toolCallId": "toolu_01X4r989CAhzqnFqDJn1gVvp",
         "toolName": "get_temp_data",
-        "input": { "location": "San Francisco, CA", "unit": "fahrenheit" }
+        "input": { "location": "San Francisco, CA", "unit": "fahrenheit" },
+        "providerMetadata": { "anthropic": { "caller": { "type": "direct" } } }
       }
     ]
   },

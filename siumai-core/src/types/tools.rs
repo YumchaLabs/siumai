@@ -296,6 +296,7 @@ pub struct ToolFunction {
     /// Function name
     pub name: String,
     /// Function description
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     /// JSON schema for function parameters
     pub parameters: serde_json::Value,

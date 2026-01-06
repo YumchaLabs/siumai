@@ -353,6 +353,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     tool_name: tool_name.to_string(),
                     output: crate::types::ToolResultOutput::json(result),
                     provider_executed: Some(true),
+                    provider_metadata: None,
                 });
             }
         }

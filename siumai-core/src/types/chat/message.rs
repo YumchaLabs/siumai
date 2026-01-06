@@ -465,6 +465,7 @@ impl ChatMessageBuilder {
                 tool_name: String::new(), // Unknown in old API
                 output: ToolResultOutput::text(content),
                 provider_executed: None,
+                provider_metadata: None,
             }])),
             metadata: MessageMetadata::default(),
         }
