@@ -124,11 +124,11 @@ Provider id: `anthropic`
 - [x] `anthropic-web-search-tool.1` (provider tool + streaming tool-call/result)
 - [x] `anthropic-web-fetch-tool.1` (provider tool + streaming tool-call/result)
 - [x] `anthropic-tool-no-args` (streaming tool_use start + no-args tool call)
+- [x] `anthropic-json-tool.1` (responseFormat json schema -> json tool + response mapped to JSON text)
 
 ### Next
 
-- [ ] `anthropic-json-tool.1` (tool call + tool result)
-  - Note: streaming ToolCallDelta is covered; request-level responseFormat alignment TBD.
+- [ ] `anthropic-json-tool.1` streaming: treat `json` tool_use as final JSON text + `stop` (AI SDK semantics)
 
 ## XAI Responses (Streaming)
 

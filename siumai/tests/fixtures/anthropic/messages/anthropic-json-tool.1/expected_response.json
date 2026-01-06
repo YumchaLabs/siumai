@@ -1,0 +1,26 @@
+{
+  "id": "msg_0191iYfpERYfS27xLsdW2nbb",
+  "content": {
+    "Text": "{\"elements\":[{\"condition\":\"snowy\",\"location\":\"San Francisco\",\"temperature\":-5},{\"condition\":\"snowy\",\"location\":\"London\",\"temperature\":0},{\"condition\":\"cloudy\",\"location\":\"Paris\",\"temperature\":23},{\"condition\":\"snowy\",\"location\":\"Berlin\",\"temperature\":-9}]}"
+  },
+  "model": "claude-haiku-4-5-20251001",
+  "usage": {
+    "cached_tokens": 0,
+    "prompt_tokens": 1151,
+    "completion_tokens": 87,
+    "total_tokens": 1238,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "finish_reason": "stop",
+  "service_tier": "standard",
+  "provider_metadata": {
+    "anthropic": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "service_tier": "standard"
+    }
+  },
+  "audio": null
+}

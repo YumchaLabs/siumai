@@ -536,8 +536,9 @@ pub mod prelude {
             GeneratedImage, HttpConfig, ImageDetail, ImageGenerationRequest,
             ImageGenerationResponse, MediaSource, MessageContent, MessageMetadata, MessageRole,
             ModelInfo, OutputSchema, PromptTokensDetails, ProviderDefinedTool, ProviderOptionsMap,
-            ProviderType, RerankRequest, RerankResponse, ResponseMetadata, SchemaValidator,
-            SttRequest, SttResponse, Tool, ToolChoice, TtsRequest, TtsResponse, Usage, Warning,
+            ProviderType, RerankRequest, RerankResponse, ResponseFormat, ResponseMetadata,
+            SchemaValidator, SttRequest, SttResponse, Tool, ToolChoice, TtsRequest, TtsResponse,
+            Usage, Warning,
         };
 
         pub mod registry {

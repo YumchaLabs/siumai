@@ -90,6 +90,38 @@ impl RequestTransformer for AnthropicRequestTransformer {
                         // If None is returned, tools should be removed (handled by caller if needed)
                     }
                 }
+
+                // Vercel-aligned: request-level `responseFormat: { type: "json", schema }`
+                // is implemented via a reserved `json` tool + tool_choice.
+                if let Some(crate::types::chat::ResponseFormat::Json { schema }) =
+                    &req.response_format
+                {
+                    let json_tool = serde_json::json!({
+                        "name": "json",
+                        "description": "Respond with a JSON object.",
+                        "input_schema": schema,
+                    });
+
+                    let tools = body.get_mut("tools").and_then(|v| v.as_array_mut());
+                    match tools {
+                        Some(arr) => {
+                            let has_json = arr
+                                .iter()
+                                .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("json"));
+                            if !has_json {
+                                arr.push(json_tool);
+                            }
+                        }
+                        None => {
+                            body["tools"] = serde_json::Value::Array(vec![json_tool]);
+                        }
+                    }
+
+                    body["tool_choice"] = serde_json::json!({
+                        "type": "any",
+                        "disable_parallel_tool_use": true,
+                    });
+                }
                 if let Some(spec) = self.specific {
                     if let Some(thinking) = &spec.thinking_config {
                         body["thinking"] = thinking.to_request_params();
@@ -164,7 +196,28 @@ impl ResponseTransformer for AnthropicResponseTransformer {
         let response: AnthropicChatResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Anthropic response: {e}")))?;
 
-        let mut content = parse_response_content_and_tools(&response.content);
+        // Vercel-aligned: when using `responseFormat: { type: "json" }`, Anthropic returns a
+        // reserved `json` tool call with the structured object in `input`. Treat it as the final
+        // text content instead of a tool call.
+        let json_tool_input = response
+            .content
+            .first()
+            .and_then(|b| {
+                if b.r#type == "tool_use" && b.name.as_deref() == Some("json") {
+                    b.input.clone()
+                } else {
+                    None
+                }
+            })
+            .filter(|_| response.content.len() == 1);
+        let is_json_tool_response = json_tool_input.is_some();
+
+        let mut content = if let Some(input) = json_tool_input {
+            let text = serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
+            MessageContent::Text(text)
+        } else {
+            parse_response_content_and_tools(&response.content)
+        };
 
         // Add thinking/reasoning if present (preserve signature/redacted data via provider_metadata).
         let thinking_block = ThinkingResponseParser::extract_thinking(raw);
@@ -183,8 +236,11 @@ impl ResponseTransformer for AnthropicResponseTransformer {
         }
 
         let usage: Option<Usage> = create_usage_from_response(response.usage.clone());
-        let finish_reason: Option<FinishReason> =
-            parse_finish_reason(response.stop_reason.as_deref());
+        let finish_reason: Option<FinishReason> = if is_json_tool_response {
+            Some(FinishReason::Stop)
+        } else {
+            parse_finish_reason(response.stop_reason.as_deref())
+        };
 
         // Provider metadata (Vercel alignment): expose citations + server tool usage counters.
         let provider_metadata = {

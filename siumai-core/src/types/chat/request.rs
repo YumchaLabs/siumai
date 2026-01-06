@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::message::ChatMessage;
+use crate::types::chat::ResponseFormat;
 use crate::types::tools::Tool;
 use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap};
 
@@ -36,6 +37,14 @@ pub struct ChatRequest {
     /// Common parameters (for backward compatibility)
     pub common_params: CommonParams,
 
+    /// Request-level response format hints (Vercel-aligned).
+    #[serde(
+        default,
+        rename = "responseFormat",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub response_format: Option<ResponseFormat>,
+
     /// Open provider options map (Vercel-aligned).
     ///
     /// Provider implementations should prefer this open map over the closed enum
@@ -65,6 +74,7 @@ impl ChatRequest {
             tools: None,
             tool_choice: None,
             common_params: CommonParams::default(),
+            response_format: None,
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
             stream: false,
@@ -92,6 +102,12 @@ impl ChatRequest {
     /// Add tools to the request
     pub fn with_tools(mut self, tools: Vec<Tool>) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    /// Set response format hint.
+    pub fn with_response_format(mut self, fmt: ResponseFormat) -> Self {
+        self.response_format = Some(fmt);
         self
     }
 
@@ -178,6 +194,7 @@ pub struct ChatRequestBuilder {
     tools: Option<Vec<Tool>>,
     tool_choice: Option<crate::types::ToolChoice>,
     common_params: CommonParams,
+    response_format: Option<ResponseFormat>,
     provider_options_map: ProviderOptionsMap,
     http_config: Option<HttpConfig>,
     stream: bool,
@@ -191,6 +208,7 @@ impl ChatRequestBuilder {
             tools: None,
             tool_choice: None,
             common_params: CommonParams::default(),
+            response_format: None,
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
             stream: false,
@@ -240,6 +258,12 @@ impl ChatRequestBuilder {
     /// Set common parameters
     pub fn common_params(mut self, params: CommonParams) -> Self {
         self.common_params = params;
+        self
+    }
+
+    /// Set response format hint.
+    pub fn response_format(mut self, fmt: ResponseFormat) -> Self {
+        self.response_format = Some(fmt);
         self
     }
 
@@ -316,6 +340,7 @@ impl ChatRequestBuilder {
             tools: self.tools,
             tool_choice: self.tool_choice,
             common_params: self.common_params,
+            response_format: self.response_format,
             provider_options_map: self.provider_options_map,
             http_config: self.http_config,
             stream: self.stream,

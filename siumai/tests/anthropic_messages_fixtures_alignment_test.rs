@@ -103,6 +103,35 @@ fn run_case(root: &Path) {
     normalize_json(&mut got_value);
     normalize_json(&mut expected_value);
     assert_eq!(got_value, expected_value);
+
+    let resp_path = root.join("response.json");
+    let expected_resp_path = root.join("expected_response.json");
+    if resp_path.exists() && expected_resp_path.exists() {
+        let raw: Value = read_json(resp_path);
+        let expected_resp: Value = read_json(expected_resp_path);
+
+        let transformers =
+            siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new()
+                .choose_chat_transformers(
+                    &req,
+                    &ProviderContext::new(
+                        "anthropic",
+                        "https://api.anthropic.com/v1",
+                        Some("test-api-key".to_string()),
+                        HashMap::new(),
+                    ),
+                );
+        let got = transformers
+            .response
+            .transform_chat_response(&raw)
+            .expect("transform response");
+
+        let mut got_resp_value = serde_json::to_value(got).unwrap();
+        let mut expected_resp_value = expected_resp;
+        normalize_json(&mut got_resp_value);
+        normalize_json(&mut expected_resp_value);
+        assert_eq!(got_resp_value, expected_resp_value);
+    }
 }
 
 #[test]
