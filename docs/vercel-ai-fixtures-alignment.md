@@ -123,11 +123,12 @@ Provider id: `anthropic`
 - [x] `anthropic-mcp.1` (MCP servers request + streaming tool-call/result)
 - [x] `anthropic-web-search-tool.1` (provider tool + streaming tool-call/result)
 - [x] `anthropic-web-fetch-tool.1` (provider tool + streaming tool-call/result)
+- [x] `anthropic-tool-no-args` (streaming tool_use start + no-args tool call)
 
 ### Next
 
 - [ ] `anthropic-json-tool.1` (tool call + tool result)
-- [ ] `anthropic-tool-no-args` (tool call without args)
+  - Note: streaming ToolCallDelta is covered; request-level responseFormat alignment TBD.
 
 ## XAI Responses (Streaming)
 

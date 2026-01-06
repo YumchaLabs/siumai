@@ -114,3 +114,65 @@ fn anthropic_stream_web_fetch_emits_tool_call_and_result() {
     assert!(!calls.is_empty(), "expected tool-call for web_fetch");
     assert!(!results.is_empty(), "expected tool-result for web_fetch");
 }
+
+#[test]
+fn anthropic_stream_tool_no_args_emits_tool_call_delta() {
+    let path = fixtures_dir().join("anthropic-tool-no-args.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter(lines);
+
+    let calls: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::ToolCallDelta {
+                id,
+                function_name: Some(name),
+                ..
+            } => Some((id.clone(), name.clone())),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        calls.iter().any(|(_, name)| name == "updateIssueList"),
+        "expected ToolCallDelta for updateIssueList"
+    );
+}
+
+#[test]
+fn anthropic_stream_json_tool_emits_tool_call_delta_and_args_delta() {
+    let path = fixtures_dir().join("anthropic-json-tool.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter(lines);
+
+    let has_start = events.iter().any(|e| {
+        matches!(
+            e,
+            ChatStreamEvent::ToolCallDelta {
+                function_name: Some(name),
+                ..
+            } if name == "json"
+        )
+    });
+    assert!(has_start, "expected ToolCallDelta start for json tool");
+
+    let has_args = events.iter().any(|e| {
+        matches!(
+            e,
+            ChatStreamEvent::ToolCallDelta {
+                arguments_delta: Some(delta),
+                ..
+            } if delta.contains("\"elements\"")
+        )
+    });
+    assert!(
+        has_args,
+        "expected ToolCallDelta arguments delta for json tool"
+    );
+}
