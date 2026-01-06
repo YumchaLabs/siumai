@@ -1,0 +1,11 @@
+{
+  "instances": [
+    {
+      "prompt": "test prompt"
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "sampleCount": 1
+  }
+}

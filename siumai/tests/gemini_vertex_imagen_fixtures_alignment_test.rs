@@ -13,6 +13,24 @@ fn fixtures_dir() -> PathBuf {
         .join("vertex-imagen")
 }
 
+fn case_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root)
+        .expect("read fixture root dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.path())
+        .collect();
+
+    dirs.sort_by(|a, b| {
+        a.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .cmp(&b.file_name().unwrap_or_default().to_string_lossy())
+    });
+
+    dirs
+}
+
 fn read_text(path: impl AsRef<Path>) -> String {
     std::fs::read_to_string(path).expect("read fixture text")
 }
@@ -63,9 +81,7 @@ fn vertex_ctx() -> siumai::experimental::core::ProviderContext {
     siumai::experimental::core::ProviderContext::new("gemini", base_url.to_string(), None, extra)
 }
 
-#[test]
-fn vertex_imagen_generate_fixture_matches() {
-    let root = fixtures_dir().join("generate");
+fn run_generate_case(root: &Path) {
     let req: siumai::prelude::unified::ImageGenerationRequest =
         read_json(root.join("request.json"));
     let expected_body: Value = read_json(root.join("expected_body.json"));
@@ -96,10 +112,17 @@ fn vertex_imagen_generate_fixture_matches() {
 }
 
 #[test]
-fn vertex_imagen_edit_fixture_matches() {
+fn vertex_imagen_generate_fixtures_match() {
+    let roots = case_dirs(&fixtures_dir().join("generate"));
+    assert!(!roots.is_empty(), "no generate fixture cases found");
+    for root in roots {
+        run_generate_case(&root);
+    }
+}
+
+fn run_edit_case(root: &Path) {
     use siumai::experimental::execution::transformers::request::ImageHttpBody;
 
-    let root = fixtures_dir().join("edit");
     let req: siumai::prelude::extensions::types::ImageEditRequest =
         read_json(root.join("request.json"));
     let expected_body: Value = read_json(root.join("expected_body.json"));
@@ -134,4 +157,13 @@ fn vertex_imagen_edit_fixture_matches() {
     normalize_json(&mut got_value);
     normalize_json(&mut expected_value);
     assert_eq!(got_value, expected_value);
+}
+
+#[test]
+fn vertex_imagen_edit_fixtures_match() {
+    let roots = case_dirs(&fixtures_dir().join("edit"));
+    assert!(!roots.is_empty(), "no edit fixture cases found");
+    for root in roots {
+        run_edit_case(&root);
+    }
 }

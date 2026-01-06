@@ -8,12 +8,6 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
-fn guess_mime(bytes: &[u8]) -> &'static str {
-    infer::get(bytes)
-        .map(|t| t.mime_type())
-        .unwrap_or("image/png")
-}
-
 /// Vertex AI inline image value used by Imagen requests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VertexImagenInlineImage {
@@ -26,14 +20,23 @@ pub struct VertexImagenInlineImage {
 }
 
 impl VertexImagenInlineImage {
-    /// Build from raw image bytes (MIME type is best-effort detected).
+    /// Build from raw image bytes.
+    ///
+    /// Note: we intentionally omit `mimeType` by default to match the Vercel AI SDK
+    /// request shape for Vertex Imagen.
     pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Self {
         let bytes = bytes.as_ref();
         let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
         Self {
             bytes_base64_encoded: b64,
-            mime_type: Some(guess_mime(bytes).to_string()),
+            mime_type: None,
         }
+    }
+
+    /// Set `mimeType` explicitly.
+    pub fn with_mime_type(mut self, mime_type: impl Into<String>) -> Self {
+        self.mime_type = Some(mime_type.into());
+        self
     }
 }
 

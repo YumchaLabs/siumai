@@ -33,17 +33,10 @@ fn looks_like_vertex_base_url(base_url: &str) -> bool {
     base_url.contains("aiplatform.googleapis.com")
 }
 
-fn guess_mime(bytes: &[u8]) -> &'static str {
-    infer::get(bytes)
-        .map(|t| t.mime_type())
-        .unwrap_or("image/png")
-}
-
 fn bytes_to_inline_image(bytes: &[u8]) -> serde_json::Value {
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     serde_json::json!({
         "bytesBase64Encoded": b64,
-        "mimeType": guess_mime(bytes),
     })
 }
 
@@ -79,14 +72,27 @@ fn extract_vertex_imagen_options(
         .or_else(|| obj.get("vertex_imagen").cloned())
 }
 
-fn merge_object_skipping(
+const VERTEX_IMAGEN_PROVIDER_OPTIONS_ALLOWLIST: &[&str] = &[
+    "negativePrompt",
+    "personGeneration",
+    "safetySetting",
+    "addWatermark",
+    "storageUri",
+    "sampleImageSize",
+];
+
+fn merge_object_allowlist_skipping(
     into: &mut serde_json::Map<String, serde_json::Value>,
     value: &serde_json::Value,
+    allowlist: &[&str],
     skip: &[&str],
 ) {
     if let Some(obj) = value.as_object() {
         for (k, v) in obj {
             if skip.iter().any(|s| *s == k) {
+                continue;
+            }
+            if !allowlist.iter().any(|a| *a == k) {
                 continue;
             }
             into.insert(k.clone(), v.clone());
@@ -236,9 +242,10 @@ impl RequestTransformer for VertexImagenRequestTransformer {
 
         // Merge provider options (vertexImagen) and extra_params as loose parameters.
         if let Some(opts) = &provider_opts {
-            merge_object_skipping(
+            merge_object_allowlist_skipping(
                 &mut parameters,
                 opts,
+                VERTEX_IMAGEN_PROVIDER_OPTIONS_ALLOWLIST,
                 &[
                     "edit",
                     "referenceImages",
@@ -366,9 +373,10 @@ impl RequestTransformer for VertexImagenRequestTransformer {
         }
 
         if let Some(opts) = &provider_opts {
-            merge_object_skipping(
+            merge_object_allowlist_skipping(
                 &mut parameters,
                 opts,
+                VERTEX_IMAGEN_PROVIDER_OPTIONS_ALLOWLIST,
                 &[
                     "edit",
                     "referenceImages",

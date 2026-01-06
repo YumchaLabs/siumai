@@ -7,6 +7,7 @@ plus a test that validates Siumai’s request/response mapping.
 ## Conventions
 
 - Fixture root: `siumai/tests/fixtures/<provider>/<suite>/...`
+- Suites are case-based: `siumai/tests/fixtures/<provider>/<suite>/<case>/...`
 - Each suite should include:
   - `request.json` (unified request shape used by the test)
   - `expected_body.json` (provider wire body produced by transformers)
@@ -24,14 +25,18 @@ Provider id: `gemini`
 - [x] `imagen-3.x` `:predict` URL routing for `ImageGenerationRequest`
 - [x] `ImageEditRequest` support (mask/inpaint) with `model` in URL
 - [x] `referenceImages` pass-through (via `extra_params` and typed options)
+- [x] Vercel-aligned `referenceImages` shape for editing (no `mimeType`)
+- [x] Vercel-aligned provider options allowlist (drops unknown keys)
+- [x] Edit without mask (`EDIT_MODE_CONTROLLED_EDITING`)
+- [x] Imagen 4 request parameter mapping (preview/fast/ultra family)
+- [x] Negative prompt precedence (`request` > `extra_params` > `providerOptions`)
 
 ### In progress
 
-- [x] Fixture-driven alignment tests (generate + edit) under `siumai/tests/fixtures/gemini/vertex-imagen/*`
+- [x] Fixture-driven alignment tests under `siumai/tests/fixtures/gemini/vertex-imagen/*`
 
 ### Next
 
-- [ ] Expand fixture matrix:
-  - [ ] `negativePrompt` precedence rules
-  - [ ] `aspectRatio` derivation from `size`
-  - [ ] Response extraction variants (`bytesBase64Encoded` vs nested `image.bytesBase64Encoded`)
+- [ ] Add Vercel-style warnings for unsupported `size` (currently treated as `aspectRatio` derivation)
+- [ ] Add Vercel-style response envelope (`timestamp`, `modelId`, response headers)
+- [ ] Broaden response extraction variants (`bytesBase64Encoded` vs nested `image.bytesBase64Encoded`)

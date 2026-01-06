@@ -1,0 +1,14 @@
+{
+  "instances": [
+    {
+      "prompt": "test imagen 4 prompt"
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "1:1",
+    "personGeneration": "allow_adult",
+    "safetySetting": "block_medium_and_above",
+    "sampleCount": 2,
+    "seed": 123
+  }
+}

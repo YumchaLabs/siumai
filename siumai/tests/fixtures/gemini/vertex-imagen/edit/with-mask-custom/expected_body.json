@@ -7,16 +7,14 @@
           "referenceId": 1,
           "referenceType": "REFERENCE_TYPE_RAW",
           "referenceImage": {
-            "bytesBase64Encoded": "AQIDBA==",
-            "mimeType": "image/png"
+            "bytesBase64Encoded": "AQIDBA=="
           }
         },
         {
           "referenceId": 2,
           "referenceType": "REFERENCE_TYPE_MASK",
           "referenceImage": {
-            "bytesBase64Encoded": "CQkJ",
-            "mimeType": "image/png"
+            "bytesBase64Encoded": "CQkJ"
           },
           "maskImageConfig": {
             "maskMode": "MASK_MODE_USER_PROVIDED",

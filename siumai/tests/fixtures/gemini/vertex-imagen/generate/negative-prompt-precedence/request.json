@@ -1,0 +1,14 @@
+{
+  "prompt": "a cat",
+  "count": 1,
+  "model": "imagen-3.0-generate-002",
+  "negative_prompt": "req negative",
+  "extra_params": {},
+  "providerOptions": {
+    "gemini": {
+      "vertex": {
+        "negativePrompt": "provider negative"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "instances": [
+    {
+      "prompt": "A cute baby sea otter"
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "sampleCount": 2,
+    "negativePrompt": "negative prompt",
+    "personGeneration": "allow_all",
+    "sampleImageSize": "2K",
+    "addWatermark": false
+  }
+}

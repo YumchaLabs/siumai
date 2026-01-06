@@ -5,10 +5,10 @@
     }
   ],
   "parameters": {
-    "addWatermark": false,
-    "aspectRatio": "1:1",
     "sampleCount": 2,
     "seed": 42,
-    "negativePrompt": "negative prompt"
+    "aspectRatio": "1:1",
+    "negativePrompt": "negative prompt",
+    "addWatermark": false
   }
 }

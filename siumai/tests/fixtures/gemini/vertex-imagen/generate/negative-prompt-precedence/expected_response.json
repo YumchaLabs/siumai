@@ -1,0 +1,9 @@
+{
+  "images": [
+    {
+      "b64_json": "base64-image-1",
+      "format": "image/png",
+      "revised_prompt": "revised prompt 1"
+    }
+  ]
+}

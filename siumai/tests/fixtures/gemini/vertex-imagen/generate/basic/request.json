@@ -1,0 +1,8 @@
+{
+  "prompt": "test prompt",
+  "count": 1,
+  "model": "imagen-3.0-generate-002",
+  "extra_params": {
+    "aspectRatio": "16:9"
+  }
+}
