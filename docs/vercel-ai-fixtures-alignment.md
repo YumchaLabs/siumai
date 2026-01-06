@@ -42,3 +42,11 @@ Provider id: `vertex`
 ### Next
 
 - [ ] Add fixture coverage for future response metadata fields
+
+## OpenAI Responses Web Search
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `web_search`
