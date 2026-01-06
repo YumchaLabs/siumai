@@ -68,6 +68,8 @@ impl ResponseTransformer for TestRespTx {
         Ok(ImageGenerationResponse {
             images,
             metadata: Default::default(),
+            warnings: None,
+            response: None,
         })
     }
 }
@@ -224,6 +226,8 @@ async fn image_executor_retries_on_401() {
             Ok(ImageGenerationResponse {
                 images,
                 metadata: Default::default(),
+                warnings: None,
+                response: None,
             })
         }
     }

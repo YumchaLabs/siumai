@@ -30,6 +30,8 @@ Provider id: `gemini`
 - [x] Edit without mask (`EDIT_MODE_CONTROLLED_EDITING`)
 - [x] Imagen 4 request parameter mapping (preview/fast/ultra family)
 - [x] Negative prompt precedence (`request` > `extra_params` > `providerOptions`)
+- [x] Vercel-style warning for unsupported `size` (ignored by Vertex Imagen)
+- [x] Vercel-style response envelope (`timestamp`, `modelId`, response headers)
 
 ### In progress
 
@@ -37,6 +39,4 @@ Provider id: `gemini`
 
 ### Next
 
-- [ ] Add Vercel-style warnings for unsupported `size` (currently treated as `aspectRatio` derivation)
-- [ ] Add Vercel-style response envelope (`timestamp`, `modelId`, response headers)
 - [ ] Broaden response extraction variants (`bytesBase64Encoded` vs nested `image.bytesBase64Encoded`)

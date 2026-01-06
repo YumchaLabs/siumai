@@ -89,6 +89,21 @@ impl ProviderSpec for GeminiSpec {
         spec.image_url(req, ctx)
     }
 
+    fn image_warnings(
+        &self,
+        req: &crate::types::ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Option<Vec<crate::types::Warning>> {
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            return spec.image_warnings(req, ctx);
+        }
+        None
+    }
+
     fn choose_image_transformers(
         &self,
         req: &crate::types::ImageGenerationRequest,
@@ -121,6 +136,21 @@ impl ProviderSpec for GeminiSpec {
         format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
     }
 
+    fn image_edit_warnings(
+        &self,
+        req: &crate::types::ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Option<Vec<crate::types::Warning>> {
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            return spec.image_edit_warnings(req, ctx);
+        }
+        None
+    }
+
     fn image_variation_url(
         &self,
         req: &crate::types::ImageVariationRequest,
@@ -134,6 +164,21 @@ impl ProviderSpec for GeminiSpec {
             return spec.image_variation_url(req, ctx);
         }
         format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
+    }
+
+    fn image_variation_warnings(
+        &self,
+        req: &crate::types::ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Option<Vec<crate::types::Warning>> {
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            return spec.image_variation_warnings(req, ctx);
+        }
+        None
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {
@@ -289,6 +334,14 @@ impl ProviderSpec for GeminiSpecWithConfig {
         GeminiSpec.image_url(req, ctx)
     }
 
+    fn image_warnings(
+        &self,
+        req: &crate::types::ImageGenerationRequest,
+        ctx: &ProviderContext,
+    ) -> Option<Vec<crate::types::Warning>> {
+        GeminiSpec.image_warnings(req, ctx)
+    }
+
     fn choose_image_transformers(
         &self,
         req: &crate::types::ImageGenerationRequest,
@@ -341,6 +394,14 @@ impl ProviderSpec for GeminiSpecWithConfig {
         format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
     }
 
+    fn image_edit_warnings(
+        &self,
+        req: &crate::types::ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> Option<Vec<crate::types::Warning>> {
+        GeminiSpec.image_edit_warnings(req, ctx)
+    }
+
     fn image_variation_url(
         &self,
         req: &crate::types::ImageVariationRequest,
@@ -365,6 +426,14 @@ impl ProviderSpec for GeminiSpecWithConfig {
             return spec.image_variation_url(&effective, ctx);
         }
         format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
+    }
+
+    fn image_variation_warnings(
+        &self,
+        req: &crate::types::ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> Option<Vec<crate::types::Warning>> {
+        GeminiSpec.image_variation_warnings(req, ctx)
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {

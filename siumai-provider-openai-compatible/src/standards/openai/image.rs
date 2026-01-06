@@ -440,6 +440,8 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
         Ok(ImageGenerationResponse {
             images,
             metadata: std::collections::HashMap::new(),
+            warnings: None,
+            response: None,
         })
     }
 }

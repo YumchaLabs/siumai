@@ -9,7 +9,9 @@ use crate::error::LlmError;
 use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer};
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::standards::gemini::headers::build_gemini_headers;
-use crate::types::{ChatRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest};
+use crate::types::{
+    ChatRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest, Warning,
+};
 use base64::Engine;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
@@ -38,25 +40,6 @@ fn bytes_to_inline_image(bytes: &[u8]) -> serde_json::Value {
     serde_json::json!({
         "bytesBase64Encoded": b64,
     })
-}
-
-fn size_to_aspect_ratio(size: &str) -> Option<String> {
-    let (w, h) = size.split_once('x')?;
-    let w: u32 = w.trim().parse().ok()?;
-    let h: u32 = h.trim().parse().ok()?;
-    if w == 0 || h == 0 {
-        return None;
-    }
-    fn gcd(mut a: u32, mut b: u32) -> u32 {
-        while b != 0 {
-            let t = a % b;
-            a = b;
-            b = t;
-        }
-        a
-    }
-    let g = gcd(w, h);
-    Some(format!("{}:{}", w / g, h / g))
 }
 
 fn extract_vertex_imagen_options(
@@ -159,7 +142,6 @@ fn vertex_imagen_edit_options(
 }
 
 fn vertex_imagen_aspect_ratio(
-    req_size: Option<&String>,
     extra_params: &HashMap<String, serde_json::Value>,
     provider_opts: Option<&serde_json::Value>,
 ) -> Option<String> {
@@ -178,11 +160,6 @@ fn vertex_imagen_aspect_ratio(
         if let Some(v) = obj.get("aspect_ratio").and_then(|v| v.as_str()) {
             return Some(v.to_string());
         }
-    }
-    if let Some(size) = req_size
-        && let Some(ar) = size_to_aspect_ratio(size)
-    {
-        return Some(ar);
     }
     None
 }
@@ -227,9 +204,7 @@ impl RequestTransformer for VertexImagenRequestTransformer {
         if let Some(seed) = req.seed {
             parameters.insert("seed".to_string(), serde_json::json!(seed));
         }
-        if let Some(ar) =
-            vertex_imagen_aspect_ratio(req.size.as_ref(), &req.extra_params, provider_opts.as_ref())
-        {
+        if let Some(ar) = vertex_imagen_aspect_ratio(&req.extra_params, provider_opts.as_ref()) {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
         }
         if let Some(neg) = vertex_imagen_negative_prompt(
@@ -336,9 +311,7 @@ impl RequestTransformer for VertexImagenRequestTransformer {
         if let Some(n) = req.count {
             parameters.insert("sampleCount".to_string(), serde_json::json!(n));
         }
-        if let Some(ar) =
-            vertex_imagen_aspect_ratio(req.size.as_ref(), &req.extra_params, provider_opts.as_ref())
-        {
+        if let Some(ar) = vertex_imagen_aspect_ratio(&req.extra_params, provider_opts.as_ref()) {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
         }
 
@@ -507,7 +480,12 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
             }
         }
 
-        Ok(crate::types::ImageGenerationResponse { images, metadata })
+        Ok(crate::types::ImageGenerationResponse {
+            images,
+            metadata,
+            warnings: None,
+            response: None,
+        })
     }
 }
 
@@ -561,16 +539,58 @@ impl ProviderSpec for VertexImagenSpec {
         format!("{}/models/{}:predict", base, model)
     }
 
+    fn image_warnings(
+        &self,
+        req: &ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        if req.size.is_some() {
+            return Some(vec![Warning::unsupported_setting(
+                "size",
+                Some("This model does not support the `size` option. Use `aspectRatio` instead."),
+            )]);
+        }
+        None
+    }
+
     fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
         format!("{}/models/{}:predict", base, model)
     }
 
+    fn image_edit_warnings(
+        &self,
+        req: &ImageEditRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        if req.size.is_some() {
+            return Some(vec![Warning::unsupported_setting(
+                "size",
+                Some("This model does not support the `size` option. Use `aspectRatio` instead."),
+            )]);
+        }
+        None
+    }
+
     fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
         format!("{}/models/{}:predict", base, model)
+    }
+
+    fn image_variation_warnings(
+        &self,
+        req: &ImageVariationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        if req.size.is_some() {
+            return Some(vec![Warning::unsupported_setting(
+                "size",
+                Some("This model does not support the `size` option. Use `aspectRatio` instead."),
+            )]);
+        }
+        None
     }
 
     fn choose_image_transformers(
@@ -634,8 +654,9 @@ mod tests {
         let mut req = ImageGenerationRequest::default();
         req.prompt = "a cat".into();
         req.count = 2;
-        req.size = Some("1024x1024".into());
         req.negative_prompt = Some("blurry".into());
+        req.extra_params
+            .insert("aspectRatio".into(), serde_json::json!("1:1"));
         req.extra_params.insert("seed".into(), serde_json::json!(7));
         let body = tx.transform_image(&req).unwrap();
         assert_eq!(body["instances"][0]["prompt"], serde_json::json!("a cat"));
@@ -646,6 +667,31 @@ mod tests {
         assert_eq!(body["parameters"]["sampleCount"], serde_json::json!(2));
         assert_eq!(body["parameters"]["aspectRatio"], serde_json::json!("1:1"));
         assert_eq!(body["parameters"]["seed"], serde_json::json!(7));
+    }
+
+    #[test]
+    fn spec_warns_when_size_is_provided() {
+        let spec = VertexImagenStandard::new().create_spec("gemini");
+        let ctx = ProviderContext::new(
+            "gemini",
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google".to_string(),
+            Some("".to_string()),
+            Default::default(),
+        );
+        let req = ImageGenerationRequest {
+            prompt: "p".to_string(),
+            model: Some("imagen-3.0-generate-001".to_string()),
+            size: Some("1024x1024".to_string()),
+            ..Default::default()
+        };
+        let warnings = spec.image_warnings(&req, &ctx).expect("warnings");
+        assert_eq!(
+            warnings[0],
+            Warning::unsupported_setting(
+                "size",
+                Some("This model does not support the `size` option. Use `aspectRatio` instead.")
+            )
+        );
     }
 
     #[test]

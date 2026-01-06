@@ -1108,6 +1108,8 @@ impl ResponseTransformer for GeminiResponseTransformer {
         Ok(crate::types::ImageGenerationResponse {
             images,
             metadata: std::collections::HashMap::new(),
+            warnings: None,
+            response: None,
         })
     }
 }

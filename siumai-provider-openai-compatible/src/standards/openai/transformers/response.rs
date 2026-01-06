@@ -109,7 +109,12 @@ impl ResponseTransformer for OpenAiResponseTransformer {
             .collect();
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("created".to_string(), serde_json::json!(r.created));
-        Ok(ImageGenerationResponse { images, metadata })
+        Ok(ImageGenerationResponse {
+            images,
+            metadata,
+            warnings: None,
+            response: None,
+        })
     }
 
     fn transform_moderation_response(

@@ -5,9 +5,12 @@ use crate::execution::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
 };
+use crate::types::{HttpResponseInfo, Warning};
 use crate::types::{
     ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
 };
+use reqwest::header::HeaderMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[async_trait::async_trait]
@@ -153,6 +156,9 @@ impl ImageExecutor for HttpImageExecutor {
         let run_once = move || {
             let req = req.clone();
             async move {
+                let warnings = self
+                    .provider_spec
+                    .image_warnings(&req, &self.provider_context);
                 // 1. Transform request to JSON
                 let mut body = self.request_transformer.transform_image(&req)?;
 
@@ -186,8 +192,18 @@ impl ImageExecutor for HttpImageExecutor {
                 .await?;
 
                 // 6. Transform response
-                self.response_transformer
-                    .transform_image_response(&result.json)
+                let mut out = self
+                    .response_transformer
+                    .transform_image_response(&result.json)?;
+
+                out.warnings = merge_warnings(out.warnings, warnings);
+                out.response = Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: req.model.clone().filter(|m| !m.is_empty()),
+                    headers: headers_to_map(&result.headers),
+                });
+
+                Ok(out)
             }
         };
 
@@ -226,6 +242,9 @@ impl ImageExecutor for HttpImageExecutor {
         // 3. Transform request and execute based on body type
         let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
         let body = self.request_transformer.transform_image_edit(&req)?;
+        let warnings = self
+            .provider_spec
+            .image_edit_warnings(&req, &self.provider_context);
         let result = match body {
             ImageHttpBody::Json(json) => {
                 // Use JSON request path
@@ -261,8 +280,16 @@ impl ImageExecutor for HttpImageExecutor {
         };
 
         // 4. Transform response
-        self.response_transformer
-            .transform_image_response(&result.json)
+        let mut out = self
+            .response_transformer
+            .transform_image_response(&result.json)?;
+        out.warnings = merge_warnings(out.warnings, warnings);
+        out.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: req.model.clone().filter(|m| !m.is_empty()),
+            headers: headers_to_map(&result.headers),
+        });
+        Ok(out)
     }
 
     async fn execute_variation(
@@ -293,6 +320,9 @@ impl ImageExecutor for HttpImageExecutor {
         // 3. Transform request and execute based on body type
         let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
         let body = self.request_transformer.transform_image_variation(&req)?;
+        let warnings = self
+            .provider_spec
+            .image_variation_warnings(&req, &self.provider_context);
         let result = match body {
             ImageHttpBody::Json(json) => {
                 // Use JSON request path
@@ -328,8 +358,37 @@ impl ImageExecutor for HttpImageExecutor {
         };
 
         // 4. Transform response
-        self.response_transformer
-            .transform_image_response(&result.json)
+        let mut out = self
+            .response_transformer
+            .transform_image_response(&result.json)?;
+        out.warnings = merge_warnings(out.warnings, warnings);
+        out.response = Some(HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: req.model.clone().filter(|m| !m.is_empty()),
+            headers: headers_to_map(&result.headers),
+        });
+        Ok(out)
+    }
+}
+
+fn headers_to_map(headers: &HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(k, v)| Some((k.as_str().to_string(), v.to_str().ok()?.to_string())))
+        .collect()
+}
+
+fn merge_warnings(
+    existing: Option<Vec<Warning>>,
+    extra: Option<Vec<Warning>>,
+) -> Option<Vec<Warning>> {
+    match (existing, extra) {
+        (None, None) => None,
+        (Some(w), None) | (None, Some(w)) => Some(w),
+        (Some(mut a), Some(b)) => {
+            a.extend(b);
+            Some(a)
+        }
     }
 }
 
@@ -422,6 +481,24 @@ mod tests {
         }
     }
 
+    struct OkImgResp;
+    impl crate::execution::transformers::response::ResponseTransformer for OkImgResp {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+        fn transform_image_response(
+            &self,
+            _raw: &serde_json::Value,
+        ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
+            Ok(crate::types::ImageGenerationResponse {
+                images: vec![],
+                metadata: HashMap::new(),
+                warnings: None,
+                response: None,
+            })
+        }
+    }
+
     // Interceptor to capture
     struct CaptureHeaders {
         seen: Arc<Mutex<Option<HeaderMap>>>,
@@ -501,6 +578,102 @@ mod tests {
         assert_eq!(
             headers.get("x-req").unwrap(),
             &HeaderValue::from_static("R")
+        );
+    }
+
+    #[tokio::test]
+    async fn image_executor_populates_response_and_warnings() {
+        let mut server = mockito::Server::new_async().await;
+        let _m = server
+            .mock("POST", "/images/generations")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_header("request-id", "test-request-id")
+            .with_header("x-goog-quota-remaining", "123")
+            .with_body("{\"ok\":true}")
+            .create_async()
+            .await;
+
+        #[derive(Clone, Copy)]
+        struct WarningSpec;
+        impl crate::core::ProviderSpec for WarningSpec {
+            fn id(&self) -> &'static str {
+                "test"
+            }
+            fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+                crate::traits::ProviderCapabilities::new().with_image_generation()
+            }
+            fn build_headers(
+                &self,
+                _ctx: &crate::core::ProviderContext,
+            ) -> Result<HeaderMap, LlmError> {
+                Ok(HeaderMap::new())
+            }
+            fn image_warnings(
+                &self,
+                req: &crate::types::ImageGenerationRequest,
+                _ctx: &crate::core::ProviderContext,
+            ) -> Option<Vec<Warning>> {
+                if req.size.is_some() {
+                    return Some(vec![Warning::unsupported_setting(
+                        "size",
+                        Some(
+                            "This model does not support the `size` option. Use `aspectRatio` instead.",
+                        ),
+                    )]);
+                }
+                None
+            }
+        }
+
+        let http = reqwest::Client::new();
+        let ctx = crate::core::ProviderContext::new(
+            "test",
+            server.url(),
+            None,
+            std::collections::HashMap::new(),
+        );
+        let exec = HttpImageExecutor {
+            provider_id: "test".into(),
+            http_client: http,
+            request_transformer: Arc::new(ImgReq),
+            response_transformer: Arc::new(OkImgResp),
+            provider_spec: Arc::new(WarningSpec),
+            provider_context: ctx,
+            policy: crate::execution::ExecutionPolicy::new(),
+        };
+
+        let before = chrono::Utc::now();
+        let req = crate::types::ImageGenerationRequest {
+            prompt: "hello".into(),
+            model: Some("imagen-3.0-generate-002".into()),
+            size: Some("1024x1024".into()),
+            ..Default::default()
+        };
+        let out = exec.execute(req).await.expect("execute ok");
+        let after = chrono::Utc::now();
+
+        let resp = out.response.expect("response envelope");
+        assert!(resp.timestamp >= before && resp.timestamp <= after);
+        assert_eq!(resp.model_id.as_deref(), Some("imagen-3.0-generate-002"));
+        assert_eq!(
+            resp.headers.get("request-id").map(|s| s.as_str()),
+            Some("test-request-id")
+        );
+        assert_eq!(
+            resp.headers
+                .get("x-goog-quota-remaining")
+                .map(|s| s.as_str()),
+            Some("123")
+        );
+
+        let warnings = out.warnings.expect("warnings");
+        assert_eq!(
+            warnings[0],
+            Warning::unsupported_setting(
+                "size",
+                Some("This model does not support the `size` option. Use `aspectRatio` instead.")
+            )
         );
     }
 }

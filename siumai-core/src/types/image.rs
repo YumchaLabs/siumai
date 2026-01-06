@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{HttpConfig, ProviderOptionsMap};
+use super::{HttpConfig, HttpResponseInfo, ProviderOptionsMap, Warning};
 
 /// Image generation request
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -116,6 +116,12 @@ pub struct ImageGenerationResponse {
     pub images: Vec<GeneratedImage>,
     /// Request metadata
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Warnings from the provider (e.g., unsupported settings).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<Warning>>,
+    /// HTTP response envelope (timestamp, model id, headers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<HttpResponseInfo>,
 }
 
 /// A single generated image

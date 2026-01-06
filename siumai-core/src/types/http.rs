@@ -7,6 +7,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// HTTP response metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpResponseInfo {
+    /// Timestamp when the response was received.
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Model id used for the request (if known).
+    #[serde(rename = "modelId", skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// Response headers (lowercased keys).
+    pub headers: HashMap<String, String>,
+}
+
 /// HTTP configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpConfig {

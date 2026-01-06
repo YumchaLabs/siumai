@@ -45,7 +45,10 @@ use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::traits::ProviderCapabilities;
-use crate::types::{ChatRequest, EmbeddingRequest, ImageGenerationRequest, RerankRequest};
+use crate::types::{
+    ChatRequest, EmbeddingRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
+    RerankRequest, Warning,
+};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -412,22 +415,41 @@ pub trait ProviderSpec: Send + Sync {
         format!("{}/images/generations", ctx.base_url.trim_end_matches('/'))
     }
 
-    /// Compute image edit route URL (default OpenAI-compatible)
-    fn image_edit_url(
+    /// Optional: warnings for image generation requests.
+    fn image_warnings(
         &self,
-        _req: &crate::types::ImageEditRequest,
-        ctx: &ProviderContext,
-    ) -> String {
+        _req: &ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        None
+    }
+
+    /// Compute image edit route URL (default OpenAI-compatible)
+    fn image_edit_url(&self, _req: &ImageEditRequest, ctx: &ProviderContext) -> String {
         format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
     }
 
-    /// Compute image variation route URL (default OpenAI-compatible)
-    fn image_variation_url(
+    /// Optional: warnings for image edit requests.
+    fn image_edit_warnings(
         &self,
-        _req: &crate::types::ImageVariationRequest,
-        ctx: &ProviderContext,
-    ) -> String {
+        _req: &ImageEditRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        None
+    }
+
+    /// Compute image variation route URL (default OpenAI-compatible)
+    fn image_variation_url(&self, _req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
         format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
+    }
+
+    /// Optional: warnings for image variation requests.
+    fn image_variation_warnings(
+        &self,
+        _req: &ImageVariationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        None
     }
 
     /// Choose image transformers (default: unimplemented; implement per provider)
