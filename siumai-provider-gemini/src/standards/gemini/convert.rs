@@ -212,8 +212,12 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
     let mut function_declarations = Vec::new();
 
     fn is_gemini_2_or_newer(model: &str) -> bool {
-        // Follow Vercel AI SDK heuristics (best-effort; model IDs are strings).
-        model.contains("gemini-2") || model.contains("gemini-3") || model.ends_with("-latest")
+        // Vercel AI SDK: treat explicit "latest" aliases as Gemini 2+ for provider tools.
+        let is_latest = matches!(
+            model,
+            "gemini-flash-latest" | "gemini-flash-lite-latest" | "gemini-pro-latest"
+        );
+        model.contains("gemini-2") || model.contains("gemini-3") || is_latest
     }
 
     fn supports_dynamic_retrieval(model: &str) -> bool {
@@ -252,9 +256,15 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
         })
     }
 
+    let has_provider_tools = tools.iter().any(|t| matches!(t, Tool::ProviderDefined(_)));
+
     for tool in tools {
         match tool {
             Tool::Function { function } => {
+                if has_provider_tools {
+                    // Vercel AI SDK: when provider-defined tools are present, function tools are ignored.
+                    continue;
+                }
                 let parameters = function.parameters.clone();
                 function_declarations.push(FunctionDeclaration {
                     name: function.name.clone(),
@@ -391,7 +401,7 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
         }
     }
 
-    if !function_declarations.is_empty() {
+    if !has_provider_tools && !function_declarations.is_empty() {
         gemini_tools.push(GeminiTool::FunctionDeclarations {
             function_declarations,
         });
@@ -629,10 +639,15 @@ pub fn build_request_body(
     }
 
     let gemini_tools = if let Some(ts) = tools {
-        if !ts.is_empty() {
-            Some(convert_tools_to_gemini(&model, ts)?)
-        } else {
+        if ts.is_empty() {
             None
+        } else {
+            let mapped = convert_tools_to_gemini(&model, ts)?;
+            if mapped.is_empty() {
+                None
+            } else {
+                Some(mapped)
+            }
         }
     } else {
         None

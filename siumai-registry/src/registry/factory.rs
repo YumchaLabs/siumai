@@ -288,6 +288,9 @@ pub async fn build_gemini_client(
     // Auto + user middlewares
     let mut auto_mws =
         crate::execution::middleware::build_auto_middlewares_vec("gemini", &common_params.model);
+    auto_mws.push(std::sync::Arc::new(
+        siumai_provider_gemini::providers::gemini::middleware::GeminiToolWarningsMiddleware::new(),
+    ));
     auto_mws.extend(middlewares);
     if !auto_mws.is_empty() {
         client = client.with_model_middlewares(auto_mws);

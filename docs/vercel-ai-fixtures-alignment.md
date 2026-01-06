@@ -59,10 +59,12 @@ Provider id: `gemini` (tools use `google.*` ids)
 - [x] `google-google-maps.1` (Gemini 2.x -> `tools: [{ googleMaps: {} }]`)
 - [x] `google-vertex-rag-store.1` (Gemini 2.x -> `tools: [{ retrieval: { vertex_rag_store: ... } }]`)
 - [x] `google-file-search.1` (Gemini 2.5 -> `tools: [{ fileSearch: { ... } }]`)
+- [x] `google-mixed-tools.1` (mixed tools -> provider tools only; emits warnings)
+- [x] `google-url-context-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
 
 ### Next
 
-- [ ] Add tool warning parity (unsupported tools, mixed tool types)
+- [ ] Add tool warning parity for additional unsupported tools
 
 ## OpenAI Responses Web Search
 

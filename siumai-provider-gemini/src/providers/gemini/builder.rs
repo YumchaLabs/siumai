@@ -2,6 +2,7 @@ use crate::LlmError;
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::retry_api::RetryOptions;
 use crate::types::CommonParams;
+use std::sync::Arc;
 
 /// Gemini-specific builder for configuring Gemini clients.
 ///
@@ -461,10 +462,11 @@ impl GeminiBuilder {
         }
 
         // Step 8: Install automatic middlewares
-        let middlewares = self.core.get_auto_middlewares("gemini", &model_id);
-        if !middlewares.is_empty() {
-            client = client.with_model_middlewares(middlewares);
-        }
+        let mut middlewares = self.core.get_auto_middlewares("gemini", &model_id);
+        middlewares.push(Arc::new(
+            crate::providers::gemini::middleware::GeminiToolWarningsMiddleware::new(),
+        ));
+        client = client.with_model_middlewares(middlewares);
 
         Ok(client)
     }
