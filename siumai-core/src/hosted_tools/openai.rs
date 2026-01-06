@@ -347,7 +347,7 @@ impl CodeInterpreterConfig {
         }
 
         Tool::ProviderDefined(
-            ProviderDefinedTool::new("openai.code_interpreter", "code_interpreter").with_args(args),
+            ProviderDefinedTool::new("openai.code_interpreter", "codeExecution").with_args(args),
         )
     }
 }
@@ -492,7 +492,7 @@ impl ImageGenerationConfig {
         }
 
         Tool::ProviderDefined(
-            ProviderDefinedTool::new("openai.image_generation", "image_generation").with_args(args),
+            ProviderDefinedTool::new("openai.image_generation", "generateImage").with_args(args),
         )
     }
 }

@@ -67,6 +67,14 @@ impl OpenAiResponsesEventConverter {
                     map.entry("file_search_call".to_string())
                         .or_insert_with(|| t.name.clone());
                 }
+                "code_interpreter" => {
+                    map.entry("code_interpreter_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                "image_generation" => {
+                    map.entry("image_generation_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
                 "computer_use_preview" => {
                     map.insert("computer_call".to_string(), t.name.clone());
                 }
@@ -112,6 +120,14 @@ impl OpenAiResponsesEventConverter {
                 "file_search" => {
                     map.entry("file_search_call".to_string())
                         .or_insert_with(|| "file_search".to_string());
+                }
+                "code_interpreter" => {
+                    map.entry("code_interpreter_call".to_string())
+                        .or_insert_with(|| "code_interpreter".to_string());
+                }
+                "image_generation" => {
+                    map.entry("image_generation_call".to_string())
+                        .or_insert_with(|| "image_generation".to_string());
                 }
                 "computer_use_preview" => {
                     map.entry("computer_call".to_string())
@@ -400,6 +416,17 @@ impl OpenAiResponsesEventConverter {
             "web_search_call" => ("web_search", serde_json::json!("{}")),
             "file_search_call" => ("file_search", serde_json::json!("{}")),
             "computer_call" => ("computer_use", serde_json::json!("")),
+            "code_interpreter_call" => {
+                let container_id = item.get("container_id").and_then(|v| v.as_str());
+                let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("");
+                let json_str = serde_json::json!({
+                    "containerId": container_id,
+                    "code": code,
+                })
+                .to_string();
+                ("code_interpreter", serde_json::Value::String(json_str))
+            }
+            "image_generation_call" => ("image_generation", serde_json::json!("{}")),
             _ => return None,
         };
 
@@ -482,6 +509,18 @@ impl OpenAiResponsesEventConverter {
                 serde_json::json!({
                     "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
                     "status": item.get("status").cloned().unwrap_or_else(|| serde_json::json!("completed")),
+                }),
+            ),
+            "code_interpreter_call" => (
+                "code_interpreter",
+                serde_json::json!({
+                    "outputs": item.get("outputs").cloned().unwrap_or_else(|| serde_json::json!([])),
+                }),
+            ),
+            "image_generation_call" => (
+                "image_generation",
+                serde_json::json!({
+                    "result": item.get("result").cloned().unwrap_or(serde_json::Value::Null),
                 }),
             ),
             "computer_call" => (

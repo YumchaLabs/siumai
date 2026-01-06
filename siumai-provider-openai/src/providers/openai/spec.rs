@@ -202,6 +202,37 @@ impl OpenAiSpec {
         let responses_api = obj.get("responses_api")?;
         serde_json::from_value(responses_api.clone()).ok()
     }
+
+    fn auto_responses_api_include_from_tools(&self, req: &ChatRequest) -> Vec<String> {
+        use crate::types::Tool;
+
+        let mut has_code_interpreter = false;
+        let mut has_web_search = false;
+
+        if let Some(tools) = &req.tools {
+            for tool in tools {
+                let Tool::ProviderDefined(t) = tool else {
+                    continue;
+                };
+
+                let typ = t.id.rsplit('.').next().unwrap_or("");
+                match typ {
+                    "code_interpreter" => has_code_interpreter = true,
+                    "web_search" | "web_search_preview" => has_web_search = true,
+                    _ => {}
+                }
+            }
+        }
+
+        let mut include: Vec<String> = Vec::new();
+        if has_code_interpreter {
+            include.push("code_interpreter_call.outputs".to_string());
+        }
+        if has_web_search {
+            include.push("web_search_call.action.sources".to_string());
+        }
+        include
+    }
 }
 
 impl ProviderSpec for OpenAiSpec {
@@ -365,7 +396,7 @@ impl ProviderSpec for OpenAiSpec {
             .as_ref()
             .and_then(|cfg| cfg.response_format.clone());
         let background = responses_api_config.as_ref().and_then(|cfg| cfg.background);
-        let include = responses_api_config
+        let mut include = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.include.clone());
         let instructions = responses_api_config
@@ -385,6 +416,24 @@ impl ProviderSpec for OpenAiSpec {
         let parallel_tool_calls = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.parallel_tool_calls);
+
+        if use_responses_api {
+            let auto_include = self.auto_responses_api_include_from_tools(req);
+            if !auto_include.is_empty() {
+                match include.as_mut() {
+                    Some(v) => {
+                        for item in auto_include {
+                            if !v.contains(&item) {
+                                v.push(item);
+                            }
+                        }
+                    }
+                    None => {
+                        include = Some(auto_include);
+                    }
+                }
+            }
+        }
 
         // Check if we need to inject anything
         let has_builtins = matches!(&builtins, serde_json::Value::Array(arr) if !arr.is_empty());

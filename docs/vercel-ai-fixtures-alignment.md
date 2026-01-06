@@ -52,6 +52,7 @@ Provider id: `openai` (Responses API)
 - [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `web_search`
 - [x] Omit `stream` when not streaming (Vercel-aligned wire body)
 - [x] Streaming SSE converter emits `toolName: "webSearch"` when request tool name is `webSearch`
+- [x] Built-in web search auto-adds `include: ["web_search_call.action.sources"]` (Vercel-aligned)
 
 ## OpenAI Responses File Search
 
@@ -62,6 +63,26 @@ Provider id: `openai` (Responses API)
 - [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `file_search`
 - [x] `providerOptions.openai.include = ["file_search_call.results"]` injects Responses `include[]`
 - [x] Streaming SSE converter emits `toolName: "fileSearch"` when request tool name is `fileSearch`
+
+## OpenAI Responses Code Interpreter
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `code_interpreter`
+- [x] Built-in code interpreter auto-adds `include: ["code_interpreter_call.outputs"]` (Vercel-aligned)
+- [x] Streaming SSE converter emits `toolName: "codeExecution"` when request tool name is `codeExecution`
+- [x] Streaming emits document sources from `container_file_citation` annotations
+
+## OpenAI Responses Image Generation
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `image_generation`
+- [x] Streaming SSE converter emits `toolName: "generateImage"` when request tool name is `generateImage`
 
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 

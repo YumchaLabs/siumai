@@ -14,7 +14,7 @@ fn fixtures_dir() -> PathBuf {
         .join("fixtures")
         .join("openai")
         .join("responses")
-        .join("web-search")
+        .join("code-interpreter")
 }
 
 fn case_dirs(root: &Path) -> Vec<PathBuf> {
@@ -98,9 +98,7 @@ fn run_case(root: &Path) {
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
     let expected_body: Value = read_json(root.join("expected_body.json"));
 
-    let got_body = build_body(&req);
-
-    let mut got_value = got_body;
+    let mut got_value = build_body(&req);
     let mut expected_value = expected_body;
     normalize_json(&mut got_value);
     normalize_json(&mut expected_value);
@@ -108,7 +106,7 @@ fn run_case(root: &Path) {
 }
 
 #[test]
-fn openai_responses_web_search_fixtures_match() {
+fn openai_responses_code_interpreter_fixtures_match() {
     let roots = case_dirs(&fixtures_dir());
     assert!(!roots.is_empty(), "no fixture cases found");
     for root in roots {

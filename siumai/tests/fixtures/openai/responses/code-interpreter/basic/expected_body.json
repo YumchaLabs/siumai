@@ -1,0 +1,26 @@
+{
+  "model": "gpt-5-nano",
+  "include": [
+    "code_interpreter_call.outputs"
+  ],
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "code_interpreter",
+      "container": {
+        "type": "auto"
+      }
+    }
+  ]
+}
+
