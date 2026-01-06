@@ -2,26 +2,21 @@
   "image": [1, 2, 3, 4],
   "mask": [9, 9, 9],
   "prompt": "fill the masked area",
-  "model": "imagen-3.0-edit-001",
+  "model": "imagen-3.0-generate-002",
   "count": 1,
-  "size": "1024x1024",
   "response_format": "b64_json",
   "extra_params": {
     "guidanceScale": 7.5
   },
   "providerOptions": {
     "gemini": {
-      "vertexImagen": {
-        "negativePrompt": "low quality",
-        "referenceImages": [
-          {
-            "referenceType": "SUBJECT",
-            "referenceImage": {
-              "bytesBase64Encoded": "AQIDBA==",
-              "mimeType": "image/png"
-            }
-          }
-        ]
+      "vertex": {
+        "edit": {
+          "mode": "EDIT_MODE_INPAINT_REMOVAL",
+          "baseSteps": 50,
+          "maskMode": "MASK_MODE_USER_PROVIDED",
+          "maskDilation": 0.01
+        }
       }
     }
   }

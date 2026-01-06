@@ -1,11 +1,8 @@
 {
   "images": [
     {
-      "b64_json": "BBB",
-      "format": "image/jpeg"
-    },
-    {
-      "b64_json": "CCC"
+      "b64_json": "edited-base64-image",
+      "format": "image/png"
     }
   ],
   "metadata": {

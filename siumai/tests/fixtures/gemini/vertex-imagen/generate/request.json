@@ -1,21 +1,17 @@
 {
   "prompt": "a cat",
-  "negative_prompt": "blurry",
-  "size": "1024x1024",
   "count": 2,
-  "model": "imagen-3.0-generate-001",
-  "seed": 7,
+  "model": "imagen-3.0-generate-002",
+  "seed": 42,
   "extra_params": {
-    "addWatermark": false,
-    "referenceImages": [
-      {
-        "referenceType": "SUBJECT",
-        "referenceImage": {
-          "bytesBase64Encoded": "AA==",
-          "mimeType": "image/png"
-        }
-      }
-    ]
+    "aspectRatio": "1:1"
   },
-  "providerOptions": {}
+  "providerOptions": {
+    "gemini": {
+      "vertex": {
+        "addWatermark": false,
+        "negativePrompt": "negative prompt"
+      }
+    }
+  }
 }

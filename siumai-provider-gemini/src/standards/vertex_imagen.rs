@@ -73,8 +73,9 @@ fn extract_vertex_imagen_options(
     let obj = v.as_object()?;
 
     // Accept both Vercel-style and snake_case keys.
-    obj.get("vertexImagen")
+    obj.get("vertex")
         .cloned()
+        .or_else(|| obj.get("vertexImagen").cloned())
         .or_else(|| obj.get("vertex_imagen").cloned())
 }
 
@@ -143,6 +144,43 @@ fn vertex_imagen_negative_prompt(
     None
 }
 
+fn vertex_imagen_edit_options(
+    provider_opts: Option<&serde_json::Value>,
+) -> Option<&serde_json::Value> {
+    let opts = provider_opts?;
+    let obj = opts.as_object()?;
+    obj.get("edit")
+}
+
+fn vertex_imagen_aspect_ratio(
+    req_size: Option<&String>,
+    extra_params: &HashMap<String, serde_json::Value>,
+    provider_opts: Option<&serde_json::Value>,
+) -> Option<String> {
+    if let Some(v) = extra_params.get("aspectRatio").and_then(|v| v.as_str()) {
+        return Some(v.to_string());
+    }
+    if let Some(v) = extra_params.get("aspect_ratio").and_then(|v| v.as_str()) {
+        return Some(v.to_string());
+    }
+    if let Some(opts) = provider_opts
+        && let Some(obj) = opts.as_object()
+    {
+        if let Some(v) = obj.get("aspectRatio").and_then(|v| v.as_str()) {
+            return Some(v.to_string());
+        }
+        if let Some(v) = obj.get("aspect_ratio").and_then(|v| v.as_str()) {
+            return Some(v.to_string());
+        }
+    }
+    if let Some(size) = req_size
+        && let Some(ar) = size_to_aspect_ratio(size)
+    {
+        return Some(ar);
+    }
+    None
+}
+
 #[derive(Clone)]
 pub struct VertexImagenRequestTransformer {
     provider_id: &'static str,
@@ -170,13 +208,6 @@ impl RequestTransformer for VertexImagenRequestTransformer {
 
         let mut instance = serde_json::Map::new();
         instance.insert("prompt".to_string(), serde_json::json!(req.prompt));
-        if let Some(neg) = vertex_imagen_negative_prompt(
-            req.negative_prompt.as_ref(),
-            &req.extra_params,
-            provider_opts.as_ref(),
-        ) {
-            instance.insert("negativePrompt".to_string(), serde_json::json!(neg));
-        }
         if let Some(reference_images) =
             vertex_imagen_reference_images(&req.extra_params, provider_opts.as_ref())
         {
@@ -190,10 +221,17 @@ impl RequestTransformer for VertexImagenRequestTransformer {
         if let Some(seed) = req.seed {
             parameters.insert("seed".to_string(), serde_json::json!(seed));
         }
-        if let Some(size) = &req.size
-            && let Some(ar) = size_to_aspect_ratio(size)
+        if let Some(ar) =
+            vertex_imagen_aspect_ratio(req.size.as_ref(), &req.extra_params, provider_opts.as_ref())
         {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
+        }
+        if let Some(neg) = vertex_imagen_negative_prompt(
+            req.negative_prompt.as_ref(),
+            &req.extra_params,
+            provider_opts.as_ref(),
+        ) {
+            parameters.insert("negativePrompt".to_string(), serde_json::json!(neg));
         }
 
         // Merge provider options (vertexImagen) and extra_params as loose parameters.
@@ -202,10 +240,13 @@ impl RequestTransformer for VertexImagenRequestTransformer {
                 &mut parameters,
                 opts,
                 &[
+                    "edit",
                     "referenceImages",
                     "reference_images",
                     "negativePrompt",
                     "negative_prompt",
+                    "aspectRatio",
+                    "aspect_ratio",
                 ],
             );
         }
@@ -213,7 +254,13 @@ impl RequestTransformer for VertexImagenRequestTransformer {
             // Avoid clobbering instance-only keys we already handled.
             if matches!(
                 k.as_str(),
-                "referenceImages" | "reference_images" | "negativePrompt" | "negative_prompt"
+                "edit"
+                    | "referenceImages"
+                    | "reference_images"
+                    | "negativePrompt"
+                    | "negative_prompt"
+                    | "aspectRatio"
+                    | "aspect_ratio"
             ) {
                 continue;
             }
@@ -231,29 +278,91 @@ impl RequestTransformer for VertexImagenRequestTransformer {
 
         let mut instance = serde_json::Map::new();
         instance.insert("prompt".to_string(), serde_json::json!(req.prompt));
-        instance.insert("image".to_string(), bytes_to_inline_image(&req.image));
+        // Vercel-aligned: encode source image and optional mask into referenceImages.
+        let mut reference_images = Vec::new();
+        reference_images.push(serde_json::json!({
+            "referenceId": 1,
+            "referenceType": "REFERENCE_TYPE_RAW",
+            "referenceImage": bytes_to_inline_image(&req.image),
+        }));
+
         if let Some(mask) = &req.mask {
-            instance.insert("mask".to_string(), bytes_to_inline_image(mask));
+            let mut mask_obj = serde_json::json!({
+                "referenceId": 2,
+                "referenceType": "REFERENCE_TYPE_MASK",
+                "referenceImage": bytes_to_inline_image(mask),
+                "maskImageConfig": { "maskMode": "MASK_MODE_USER_PROVIDED" }
+            });
+
+            if let Some(edit) = vertex_imagen_edit_options(provider_opts.as_ref())
+                && let Some(edit_obj) = edit.as_object()
+            {
+                if let Some(mode) = edit_obj.get("maskMode").and_then(|v| v.as_str()) {
+                    mask_obj["maskImageConfig"]["maskMode"] = serde_json::json!(mode);
+                }
+                if let Some(dilation) = edit_obj.get("maskDilation").and_then(|v| v.as_f64()) {
+                    mask_obj["maskImageConfig"]["dilation"] = serde_json::json!(dilation);
+                }
+            }
+
+            reference_images.push(mask_obj);
         }
-        if let Some(reference_images) =
+
+        if let Some(extra_ref) =
             vertex_imagen_reference_images(&req.extra_params, provider_opts.as_ref())
         {
-            instance.insert("referenceImages".to_string(), reference_images);
+            if let Some(arr) = extra_ref.as_array() {
+                reference_images.extend(arr.iter().cloned());
+            } else {
+                reference_images.push(extra_ref);
+            }
         }
-        if let Some(neg) =
-            vertex_imagen_negative_prompt(None, &req.extra_params, provider_opts.as_ref())
-        {
-            instance.insert("negativePrompt".to_string(), serde_json::json!(neg));
+
+        if !reference_images.is_empty() {
+            instance.insert(
+                "referenceImages".to_string(),
+                serde_json::Value::Array(reference_images),
+            );
         }
 
         let mut parameters = serde_json::Map::new();
         if let Some(n) = req.count {
             parameters.insert("sampleCount".to_string(), serde_json::json!(n));
         }
-        if let Some(size) = &req.size
-            && let Some(ar) = size_to_aspect_ratio(size)
+        if let Some(ar) =
+            vertex_imagen_aspect_ratio(req.size.as_ref(), &req.extra_params, provider_opts.as_ref())
         {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
+        }
+
+        // Default edit mode when a mask is present (Vercel-aligned).
+        if req.mask.is_some() {
+            parameters.insert(
+                "editMode".to_string(),
+                serde_json::json!("EDIT_MODE_INPAINT_INSERTION"),
+            );
+        }
+
+        if let Some(edit) = vertex_imagen_edit_options(provider_opts.as_ref())
+            && let Some(edit_obj) = edit.as_object()
+        {
+            if let Some(mode) = edit_obj.get("mode").and_then(|v| v.as_str()) {
+                parameters.insert("editMode".to_string(), serde_json::json!(mode));
+            }
+            if let Some(base_steps) = edit_obj.get("baseSteps").and_then(|v| v.as_i64()) {
+                parameters
+                    .entry("editConfig".to_string())
+                    .or_insert_with(|| serde_json::json!({}))
+                    .as_object_mut()
+                    .expect("object inserted above")
+                    .insert("baseSteps".to_string(), serde_json::json!(base_steps));
+            }
+        }
+
+        if let Some(neg) =
+            vertex_imagen_negative_prompt(None, &req.extra_params, provider_opts.as_ref())
+        {
+            parameters.insert("negativePrompt".to_string(), serde_json::json!(neg));
         }
 
         if let Some(opts) = &provider_opts {
@@ -261,17 +370,26 @@ impl RequestTransformer for VertexImagenRequestTransformer {
                 &mut parameters,
                 opts,
                 &[
+                    "edit",
                     "referenceImages",
                     "reference_images",
                     "negativePrompt",
                     "negative_prompt",
+                    "aspectRatio",
+                    "aspect_ratio",
                 ],
             );
         }
         for (k, v) in &req.extra_params {
             if matches!(
                 k.as_str(),
-                "referenceImages" | "reference_images" | "negativePrompt" | "negative_prompt"
+                "edit"
+                    | "referenceImages"
+                    | "reference_images"
+                    | "negativePrompt"
+                    | "negative_prompt"
+                    | "aspectRatio"
+                    | "aspect_ratio"
             ) {
                 continue;
             }
@@ -333,11 +451,20 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .or_else(|| {
+                        obj.get("mime_type")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .or_else(|| {
                         obj.get("image")
                             .and_then(|v| v.get("mimeType"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string())
                     });
+                let revised_prompt = obj
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
 
                 let mut meta = HashMap::new();
                 for (k, v) in obj {
@@ -346,6 +473,7 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
                         || k == "image"
                         || k == "mimeType"
                         || k == "mime_type"
+                        || k == "prompt"
                     {
                         continue;
                     }
@@ -358,7 +486,7 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
                     format: mime,
                     width: None,
                     height: None,
-                    revised_prompt: None,
+                    revised_prompt,
                     metadata: meta,
                 });
             }
@@ -504,7 +632,7 @@ mod tests {
         let body = tx.transform_image(&req).unwrap();
         assert_eq!(body["instances"][0]["prompt"], serde_json::json!("a cat"));
         assert_eq!(
-            body["instances"][0]["negativePrompt"],
+            body["parameters"]["negativePrompt"],
             serde_json::json!("blurry")
         );
         assert_eq!(body["parameters"]["sampleCount"], serde_json::json!(2));
@@ -536,11 +664,26 @@ mod tests {
             panic!("expected json body");
         };
 
-        assert!(body["instances"][0].get("image").is_some());
-        assert!(body["instances"][0].get("mask").is_some());
+        let refs = body["instances"][0]["referenceImages"].as_array().unwrap();
+        assert_eq!(refs.len(), 3);
         assert_eq!(
-            body["instances"][0]["referenceImages"],
-            serde_json::json!([{"referenceType":"SUBJECT"}])
+            refs[0]["referenceType"],
+            serde_json::json!("REFERENCE_TYPE_RAW")
+        );
+        assert_eq!(refs[0]["referenceId"], serde_json::json!(1));
+        assert_eq!(
+            refs[1]["referenceType"],
+            serde_json::json!("REFERENCE_TYPE_MASK")
+        );
+        assert_eq!(refs[1]["referenceId"], serde_json::json!(2));
+        assert_eq!(
+            refs[1]["maskImageConfig"]["maskMode"],
+            serde_json::json!("MASK_MODE_USER_PROVIDED")
+        );
+        assert_eq!(refs[2]["referenceType"], serde_json::json!("SUBJECT"));
+        assert_eq!(
+            body["parameters"]["editMode"],
+            serde_json::json!("EDIT_MODE_INPAINT_INSERTION")
         );
     }
 

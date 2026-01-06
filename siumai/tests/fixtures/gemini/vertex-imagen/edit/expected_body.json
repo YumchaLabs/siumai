@@ -2,29 +2,36 @@
   "instances": [
     {
       "prompt": "fill the masked area",
-      "image": {
-        "bytesBase64Encoded": "AQIDBA==",
-        "mimeType": "image/png"
-      },
-      "mask": {
-        "bytesBase64Encoded": "CQkJ",
-        "mimeType": "image/png"
-      },
-      "negativePrompt": "low quality",
       "referenceImages": [
         {
-          "referenceType": "SUBJECT",
+          "referenceId": 1,
+          "referenceType": "REFERENCE_TYPE_RAW",
           "referenceImage": {
             "bytesBase64Encoded": "AQIDBA==",
             "mimeType": "image/png"
+          }
+        },
+        {
+          "referenceId": 2,
+          "referenceType": "REFERENCE_TYPE_MASK",
+          "referenceImage": {
+            "bytesBase64Encoded": "CQkJ",
+            "mimeType": "image/png"
+          },
+          "maskImageConfig": {
+            "maskMode": "MASK_MODE_USER_PROVIDED",
+            "dilation": 0.01
           }
         }
       ]
     }
   ],
   "parameters": {
-    "aspectRatio": "1:1",
     "guidanceScale": 7.5,
-    "sampleCount": 1
+    "sampleCount": 1,
+    "editMode": "EDIT_MODE_INPAINT_REMOVAL",
+    "editConfig": {
+      "baseSteps": 50
+    }
   }
 }

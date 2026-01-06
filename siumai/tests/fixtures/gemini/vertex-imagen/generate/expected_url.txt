@@ -1,1 +1,1 @@
-https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/imagen-3.0-generate-001:predict
+https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/imagen-3.0-generate-002:predict

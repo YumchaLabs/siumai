@@ -1,9 +1,15 @@
 {
   "predictions": [
     {
-      "bytesBase64Encoded": "AAA",
-      "mimeType": "image/png"
+      "mimeType": "image/png",
+      "prompt": "revised prompt 1",
+      "bytesBase64Encoded": "base64-image-1"
+    },
+    {
+      "mimeType": "image/png",
+      "prompt": "revised prompt 2",
+      "bytesBase64Encoded": "base64-image-2",
+      "someFutureField": "some future value"
     }
-  ],
-  "deployedModelId": "d"
+  ]
 }
