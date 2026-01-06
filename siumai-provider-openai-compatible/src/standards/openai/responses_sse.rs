@@ -14,12 +14,14 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 pub struct OpenAiResponsesEventConverter {
     function_call_ids_by_output_index: Arc<Mutex<HashMap<u64, String>>>,
+    provider_tool_name_by_item_type: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Default for OpenAiResponsesEventConverter {
     fn default() -> Self {
         Self {
             function_call_ids_by_output_index: Arc::new(Mutex::new(HashMap::new())),
+            provider_tool_name_by_item_type: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -27,6 +29,61 @@ impl Default for OpenAiResponsesEventConverter {
 impl OpenAiResponsesEventConverter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn update_provider_tool_names(&self, json: &serde_json::Value) {
+        let Some(tools) = json
+            .get("response")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())
+        else {
+            return;
+        };
+
+        let mut map = match self.provider_tool_name_by_item_type.lock() {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+
+        for tool in tools {
+            let Some(tool_type) = tool.get("type").and_then(|v| v.as_str()) else {
+                continue;
+            };
+
+            match tool_type {
+                // Vercel alignment: use the configured tool type as `toolName`.
+                "web_search_preview" => {
+                    map.insert(
+                        "web_search_call".to_string(),
+                        "web_search_preview".to_string(),
+                    );
+                }
+                "web_search" => {
+                    map.entry("web_search_call".to_string())
+                        .or_insert_with(|| "web_search".to_string());
+                }
+                "file_search" => {
+                    map.entry("file_search_call".to_string())
+                        .or_insert_with(|| "file_search".to_string());
+                }
+                "computer_use_preview" => {
+                    map.insert(
+                        "computer_call".to_string(),
+                        "computer_use_preview".to_string(),
+                    );
+                }
+                "computer_use" => {
+                    map.entry("computer_call".to_string())
+                        .or_insert_with(|| "computer_use".to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn provider_tool_name_for_item_type(&self, item_type: &str) -> Option<String> {
+        let map = self.provider_tool_name_by_item_type.lock().ok()?;
+        map.get(item_type).cloned()
     }
 
     fn convert_responses_event(
@@ -294,12 +351,16 @@ impl OpenAiResponsesEventConverter {
         let item_type = item.get("type")?.as_str()?;
         let output_index = json.get("output_index").and_then(|v| v.as_u64());
 
-        let (tool_name, input) = match item_type {
+        let (default_tool_name, input) = match item_type {
             "web_search_call" => ("web_search", serde_json::json!("{}")),
             "file_search_call" => ("file_search", serde_json::json!("{}")),
             "computer_call" => ("computer_use", serde_json::json!("")),
             _ => return None,
         };
+
+        let tool_name = self
+            .provider_tool_name_for_item_type(item_type)
+            .unwrap_or_else(|| default_tool_name.to_string());
 
         let tool_call_id = item.get("id")?.as_str()?;
 
@@ -329,7 +390,7 @@ impl OpenAiResponsesEventConverter {
 
         let mut extra_events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
 
-        let (tool_name, result) = match item_type {
+        let (default_tool_name, result) = match item_type {
             "web_search_call" => {
                 // Include results if present (align with non-streaming transformer).
                 let results = item
@@ -388,6 +449,10 @@ impl OpenAiResponsesEventConverter {
             _ => return None,
         };
 
+        let tool_name = self
+            .provider_tool_name_for_item_type(item_type)
+            .unwrap_or_else(|| default_tool_name.to_string());
+
         let mut events = vec![crate::streaming::ChatStreamEvent::Custom {
             event_type: "openai:tool-result".to_string(),
             data: serde_json::json!({
@@ -441,6 +506,8 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     )))];
                 }
             };
+
+            self.update_provider_tool_names(&json);
 
             let chunk_type = if !event_name.is_empty() {
                 event_name
@@ -751,6 +818,54 @@ mod tests {
                 assert_eq!(data["sourceType"], serde_json::json!("url"));
             }
             other => panic!("expected Custom source, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn responses_provider_tool_name_uses_configured_web_search_preview() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let ev_created = eventsource_stream::Event {
+            event: "".to_string(),
+            data: r#"{"type":"response.created","response":{"tools":[{"type":"web_search_preview","search_context_size":"low","user_location":{"type":"approximate"}}]}}"#
+                .to_string(),
+            id: "1".to_string(),
+            retry: None,
+        };
+        let _ = futures::executor::block_on(conv.convert_event(ev_created));
+
+        let ev_added = eventsource_stream::Event {
+            event: "".to_string(),
+            data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"ws_1","type":"web_search_call","status":"in_progress"}}"#
+                .to_string(),
+            id: "2".to_string(),
+            retry: None,
+        };
+        let out_added = futures::executor::block_on(conv.convert_event(ev_added));
+        assert_eq!(out_added.len(), 1);
+        match out_added[0].as_ref().unwrap() {
+            crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+                assert_eq!(event_type, "openai:tool-call");
+                assert_eq!(data["toolName"], serde_json::json!("web_search_preview"));
+            }
+            other => panic!("expected Custom tool-call, got {other:?}"),
+        }
+
+        let ev_done = eventsource_stream::Event {
+            event: "".to_string(),
+            data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","query":"rust"}}}"#
+                .to_string(),
+            id: "3".to_string(),
+            retry: None,
+        };
+        let out_done = futures::executor::block_on(conv.convert_event(ev_done));
+        assert_eq!(out_done.len(), 1);
+        match out_done[0].as_ref().unwrap() {
+            crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+                assert_eq!(event_type, "openai:tool-result");
+                assert_eq!(data["toolName"], serde_json::json!("web_search_preview"));
+            }
+            other => panic!("expected Custom tool-result, got {other:?}"),
         }
     }
 

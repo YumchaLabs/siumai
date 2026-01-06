@@ -50,3 +50,11 @@ Provider id: `openai` (Responses API)
 ### Done
 
 - [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `web_search`
+
+## Azure OpenAI Responses Web Search Preview (Streaming)
+
+Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE stream)
+
+### Done
+
+- [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
