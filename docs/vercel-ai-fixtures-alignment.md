@@ -84,6 +84,16 @@ Provider id: `openai` (Responses API)
 - [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `image_generation`
 - [x] Streaming SSE converter emits `toolName: "generateImage"` when request tool name is `generateImage`
 
+## OpenAI Responses Local Shell / Shell / Apply Patch
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Request body tool mapping for `local_shell` / `shell` / `apply_patch`
+- [x] Streaming SSE converter emits `toolName: "shell"` for `local_shell_call` / `shell_call`
+- [x] Streaming SSE converter emits `toolName: "apply_patch"` for `apply_patch_call`
+
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
 Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE stream)

@@ -501,3 +501,25 @@ impl ImageGenerationConfig {
 pub fn image_generation() -> ImageGenerationConfig {
     ImageGenerationConfig::new()
 }
+
+/// Create an OpenAI local shell tool (Responses API).
+///
+/// This mirrors Vercel AI SDK's `openai.local_shell` tool, which uses `toolName: "shell"`.
+pub fn local_shell() -> Tool {
+    Tool::ProviderDefined(ProviderDefinedTool::new("openai.local_shell", "shell"))
+}
+
+/// Create an OpenAI shell tool (Responses API).
+///
+/// This mirrors Vercel AI SDK's `openai.shell` tool.
+pub fn shell() -> Tool {
+    Tool::ProviderDefined(ProviderDefinedTool::new("openai.shell", "shell"))
+}
+
+/// Create an OpenAI apply patch tool (Responses API).
+pub fn apply_patch() -> Tool {
+    Tool::ProviderDefined(ProviderDefinedTool::new(
+        "openai.apply_patch",
+        "apply_patch",
+    ))
+}

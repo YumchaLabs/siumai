@@ -75,6 +75,18 @@ impl OpenAiResponsesEventConverter {
                     map.entry("image_generation_call".to_string())
                         .or_insert_with(|| t.name.clone());
                 }
+                "local_shell" => {
+                    map.entry("local_shell_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                "shell" => {
+                    map.entry("shell_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                "apply_patch" => {
+                    map.entry("apply_patch_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
                 "computer_use_preview" => {
                     map.insert("computer_call".to_string(), t.name.clone());
                 }
@@ -128,6 +140,18 @@ impl OpenAiResponsesEventConverter {
                 "image_generation" => {
                     map.entry("image_generation_call".to_string())
                         .or_insert_with(|| "image_generation".to_string());
+                }
+                "local_shell" => {
+                    map.entry("local_shell_call".to_string())
+                        .or_insert_with(|| "shell".to_string());
+                }
+                "shell" => {
+                    map.entry("shell_call".to_string())
+                        .or_insert_with(|| "shell".to_string());
+                }
+                "apply_patch" => {
+                    map.entry("apply_patch_call".to_string())
+                        .or_insert_with(|| "apply_patch".to_string());
                 }
                 "computer_use_preview" => {
                     map.entry("computer_call".to_string())
@@ -523,6 +547,96 @@ impl OpenAiResponsesEventConverter {
                     "result": item.get("result").cloned().unwrap_or(serde_json::Value::Null),
                 }),
             ),
+            "local_shell_call" => {
+                let call_id = item.get("call_id").and_then(|v| v.as_str())?;
+                let action = item
+                    .get("action")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "shell".to_string());
+
+                let input = serde_json::json!({ "action": action }).to_string();
+
+                return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-call".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-call",
+                        "toolCallId": call_id,
+                        "toolName": tool_name,
+                        "input": input,
+                        "providerExecuted": false,
+                        "outputIndex": output_index,
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                }]);
+            }
+            "shell_call" => {
+                let call_id = item.get("call_id").and_then(|v| v.as_str())?;
+                let action = item
+                    .get("action")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "shell".to_string());
+
+                // Vercel alignment: only expose the commands list to the shell executor.
+                let commands = action
+                    .as_object()
+                    .and_then(|m| m.get("commands"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let input = serde_json::json!({
+                    "action": {
+                        "commands": commands,
+                    }
+                })
+                .to_string();
+
+                return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-call".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-call",
+                        "toolCallId": call_id,
+                        "toolName": tool_name,
+                        "input": input,
+                        "providerExecuted": false,
+                        "outputIndex": output_index,
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                }]);
+            }
+            "apply_patch_call" => {
+                let call_id = item.get("call_id").and_then(|v| v.as_str())?;
+                let operation = item
+                    .get("operation")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "apply_patch".to_string());
+
+                let input = serde_json::json!({
+                    "callId": call_id,
+                    "operation": operation,
+                })
+                .to_string();
+
+                return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-call".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-call",
+                        "toolCallId": call_id,
+                        "toolName": tool_name,
+                        "input": input,
+                        "providerExecuted": false,
+                        "outputIndex": output_index,
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                }]);
+            }
             "computer_call" => (
                 "computer_use",
                 serde_json::json!({
