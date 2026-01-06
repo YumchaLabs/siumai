@@ -245,3 +245,139 @@ async fn gemini_warns_on_unknown_provider_tool() {
         "expected unknown tool warning, got: {warnings:?}"
     );
 }
+
+#[tokio::test]
+#[cfg(feature = "google")]
+async fn gemini_warns_on_unsupported_enterprise_web_search_tool_for_non_gemini2_models() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"/models/.*:generateContent"))
+        .and(header("x-goog-api-key", "test-api-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(create_simple_response()))
+        .mount(&mock_server)
+        .await;
+
+    let client = Siumai::builder()
+        .gemini()
+        .api_key("test-api-key")
+        .base_url(mock_server.uri())
+        .model("gemini-1.5-pro")
+        .build()
+        .await
+        .unwrap();
+
+    let response = client
+        .chat_with_tools(
+            vec![ChatMessage::user("hi").build()],
+            Some(vec![Tool::provider_defined(
+                "google.enterprise_web_search",
+                "enterprise_web_search",
+            )]),
+        )
+        .await
+        .unwrap();
+
+    let warnings = response.warnings.unwrap_or_default();
+    assert!(
+        warnings.iter().any(|w| matches!(
+            w,
+            Warning::UnsupportedTool { tool_name, details: Some(d) }
+                if tool_name == "google.enterprise_web_search"
+                    && d == "Enterprise Web Search requires Gemini 2.0 or newer."
+        )),
+        "expected enterprise_web_search unsupported warning, got: {warnings:?}"
+    );
+}
+
+#[tokio::test]
+#[cfg(feature = "google")]
+async fn gemini_warns_on_unsupported_vertex_rag_store_tool_for_non_gemini2_models() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"/models/.*:generateContent"))
+        .and(header("x-goog-api-key", "test-api-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(create_simple_response()))
+        .mount(&mock_server)
+        .await;
+
+    let client = Siumai::builder()
+        .gemini()
+        .api_key("test-api-key")
+        .base_url(mock_server.uri())
+        .model("gemini-1.5-pro")
+        .build()
+        .await
+        .unwrap();
+
+    let response = client
+        .chat_with_tools(
+            vec![ChatMessage::user("hi").build()],
+            Some(vec![Tool::provider_defined(
+                "google.vertex_rag_store",
+                "vertex_rag_store",
+            )
+            .with_args(json!({
+                "ragCorpus": "projects/my-project/locations/us-central1/ragCorpora/my-rag-corpus",
+                "topK": 5
+            }))]),
+        )
+        .await
+        .unwrap();
+
+    let warnings = response.warnings.unwrap_or_default();
+    assert!(
+        warnings.iter().any(|w| matches!(
+            w,
+            Warning::UnsupportedTool { tool_name, details: Some(d) }
+                if tool_name == "google.vertex_rag_store"
+                    && d == "The RAG store tool is not supported with other Gemini models than Gemini 2."
+        )),
+        "expected vertex_rag_store unsupported warning, got: {warnings:?}"
+    );
+}
+
+#[tokio::test]
+#[cfg(feature = "google")]
+async fn gemini_warns_on_unsupported_google_maps_tool_for_non_gemini2_models() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"/models/.*:generateContent"))
+        .and(header("x-goog-api-key", "test-api-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(create_simple_response()))
+        .mount(&mock_server)
+        .await;
+
+    let client = Siumai::builder()
+        .gemini()
+        .api_key("test-api-key")
+        .base_url(mock_server.uri())
+        .model("gemini-1.5-pro")
+        .build()
+        .await
+        .unwrap();
+
+    let response = client
+        .chat_with_tools(
+            vec![ChatMessage::user("hi").build()],
+            Some(vec![Tool::provider_defined(
+                "google.google_maps",
+                "google_maps",
+            )]),
+        )
+        .await
+        .unwrap();
+
+    let warnings = response.warnings.unwrap_or_default();
+    assert!(
+        warnings.iter().any(|w| matches!(
+            w,
+            Warning::UnsupportedTool { tool_name, details: Some(d) }
+                if tool_name == "google.google_maps"
+                    && d == "The Google Maps grounding tool is not supported with Gemini models other than Gemini 2 or newer."
+        )),
+        "expected google_maps unsupported warning, got: {warnings:?}"
+    );
+}

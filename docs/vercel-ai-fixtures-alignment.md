@@ -64,6 +64,9 @@ Provider id: `gemini` (tools use `google.*` ids)
 - [x] `google-file-search-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
 - [x] `google-code-execution-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
 - [x] `google-unknown-tool.1` (unknown provider tool -> omitted from request; emits warnings)
+- [x] `google-enterprise-web-search-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
+- [x] `google-vertex-rag-store-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
+- [x] `google-google-maps-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
 
 ### Next
 
