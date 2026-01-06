@@ -29,6 +29,7 @@ Provider id: `vertex`
 - [x] Vercel-aligned `referenceImages` shape for editing (no `mimeType`)
 - [x] Vercel-aligned provider options allowlist (drops unknown keys)
 - [x] Edit without mask (`EDIT_MODE_CONTROLLED_EDITING`)
+- [x] Edit without mask defaults to `EDIT_MODE_INPAINT_INSERTION`
 - [x] Imagen 4 request parameter mapping (preview/fast/ultra family)
 - [x] Negative prompt precedence (`request` > `extra_params` > `providerOptions`)
 - [x] Vercel-style warning for unsupported `size` (ignored by Vertex Imagen)

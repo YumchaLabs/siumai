@@ -323,12 +323,11 @@ impl RequestTransformer for VertexImagenRequestTransformer {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
         }
 
-        if req.mask.is_some() {
-            parameters.insert(
-                "editMode".to_string(),
-                serde_json::json!("EDIT_MODE_INPAINT_INSERTION"),
-            );
-        }
+        // Match Vercel AI SDK: editing always sends an editMode, defaulting to insertion.
+        parameters.insert(
+            "editMode".to_string(),
+            serde_json::json!("EDIT_MODE_INPAINT_INSERTION"),
+        );
 
         if let Some(edit) = vertex_imagen_edit_options(provider_opts.as_ref())
             && let Some(edit_obj) = edit.as_object()
