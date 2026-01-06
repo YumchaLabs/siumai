@@ -1,0 +1,14 @@
+{
+  "predictions": [
+    {
+      "image": {
+        "bytesBase64Encoded": "BBB",
+        "mimeType": "image/jpeg"
+      }
+    },
+    {
+      "bytesBase64Encoded": "CCC"
+    }
+  ],
+  "deployedModelId": "d"
+}

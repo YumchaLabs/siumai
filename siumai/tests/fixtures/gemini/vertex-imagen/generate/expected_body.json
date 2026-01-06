@@ -1,0 +1,23 @@
+{
+  "instances": [
+    {
+      "prompt": "a cat",
+      "negativePrompt": "blurry",
+      "referenceImages": [
+        {
+          "referenceType": "SUBJECT",
+          "referenceImage": {
+            "bytesBase64Encoded": "AA==",
+            "mimeType": "image/png"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "addWatermark": false,
+    "aspectRatio": "1:1",
+    "sampleCount": 2,
+    "seed": 7
+  }
+}

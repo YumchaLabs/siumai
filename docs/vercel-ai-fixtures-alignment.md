@@ -1,0 +1,37 @@
+# Vercel AI SDK Fixtures Alignment
+
+This document tracks fixture-driven semantic alignment work against the Vercel AI SDK.
+It is intended to be a pragmatic checklist: each item should correspond to a fixture set
+plus a test that validates Siumai’s request/response mapping.
+
+## Conventions
+
+- Fixture root: `siumai/tests/fixtures/<provider>/<suite>/...`
+- Each suite should include:
+  - `request.json` (unified request shape used by the test)
+  - `expected_body.json` (provider wire body produced by transformers)
+  - `expected_url.txt` (final URL produced by ProviderSpec)
+  - `response.json` (provider wire response)
+  - `expected_response.json` (unified response produced by transformers)
+- Tests live in `siumai/tests/*_fixtures_alignment_test.rs` and are feature-gated.
+
+## Google Vertex Imagen (via Gemini provider)
+
+Provider id: `gemini`
+
+### Done
+
+- [x] `imagen-3.x` `:predict` URL routing for `ImageGenerationRequest`
+- [x] `ImageEditRequest` support (mask/inpaint) with `model` in URL
+- [x] `referenceImages` pass-through (via `extra_params` and typed options)
+
+### In progress
+
+- [x] Fixture-driven alignment tests (generate + edit) under `siumai/tests/fixtures/gemini/vertex-imagen/*`
+
+### Next
+
+- [ ] Expand fixture matrix:
+  - [ ] `negativePrompt` precedence rules
+  - [ ] `aspectRatio` derivation from `size`
+  - [ ] Response extraction variants (`bytesBase64Encoded` vs nested `image.bytesBase64Encoded`)

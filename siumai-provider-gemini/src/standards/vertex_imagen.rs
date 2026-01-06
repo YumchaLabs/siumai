@@ -341,7 +341,12 @@ impl ResponseTransformer for VertexImagenResponseTransformer {
 
                 let mut meta = HashMap::new();
                 for (k, v) in obj {
-                    if k == "bytesBase64Encoded" || k == "bytes_base64_encoded" || k == "image" {
+                    if k == "bytesBase64Encoded"
+                        || k == "bytes_base64_encoded"
+                        || k == "image"
+                        || k == "mimeType"
+                        || k == "mime_type"
+                    {
                         continue;
                     }
                     meta.insert(k, v);

@@ -1,0 +1,14 @@
+{
+  "images": [
+    {
+      "b64_json": "BBB",
+      "format": "image/jpeg"
+    },
+    {
+      "b64_json": "CCC"
+    }
+  ],
+  "metadata": {
+    "deployedModelId": "d"
+  }
+}

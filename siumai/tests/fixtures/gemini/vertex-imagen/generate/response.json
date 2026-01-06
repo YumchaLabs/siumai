@@ -1,0 +1,9 @@
+{
+  "predictions": [
+    {
+      "bytesBase64Encoded": "AAA",
+      "mimeType": "image/png"
+    }
+  ],
+  "deployedModelId": "d"
+}

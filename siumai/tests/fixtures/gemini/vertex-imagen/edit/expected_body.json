@@ -1,0 +1,30 @@
+{
+  "instances": [
+    {
+      "prompt": "fill the masked area",
+      "image": {
+        "bytesBase64Encoded": "AQIDBA==",
+        "mimeType": "image/png"
+      },
+      "mask": {
+        "bytesBase64Encoded": "CQkJ",
+        "mimeType": "image/png"
+      },
+      "negativePrompt": "low quality",
+      "referenceImages": [
+        {
+          "referenceType": "SUBJECT",
+          "referenceImage": {
+            "bytesBase64Encoded": "AQIDBA==",
+            "mimeType": "image/png"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "1:1",
+    "guidanceScale": 7.5,
+    "sampleCount": 1
+  }
+}
