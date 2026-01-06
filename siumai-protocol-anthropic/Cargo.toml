@@ -1,0 +1,26 @@
+[package]
+name = "siumai-protocol-anthropic"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Anthropic Messages protocol standard mapping for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-protocol-anthropic"
+readme = "../README.md"
+keywords = ["llm", "ai", "anthropic", "protocol"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-provider-anthropic-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic-compatible", default-features = false }
+
+[features]
+default = []
+
+structured-messages = ["siumai-provider-anthropic-compatible/structured-messages"]
+anthropic-standard = ["siumai-provider-anthropic-compatible/anthropic-standard"]
+anthropic = ["siumai-provider-anthropic-compatible/anthropic"]

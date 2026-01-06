@@ -27,15 +27,17 @@ Workspace members:
 - `siumai-registry` — registry + factories + handles (optional built-ins via feature)
 - `siumai-extras` — orchestrator + telemetry + server + MCP
 - `siumai-provider-openai` — OpenAI provider implementation (native) + OpenAI-compatible vendor wiring
-- `siumai-provider-openai-compatible` — OpenAI-like protocol standard (shared mapping + streaming/tool-call helpers; legacy name)
+- `siumai-protocol-openai` — OpenAI-like protocol standard (shared mapping + streaming/tool-call helpers; preferred name)
+- `siumai-provider-openai-compatible` — OpenAI-like protocol standard (legacy crate name; compatibility alias)
 - `siumai-provider-ollama` — Ollama provider + Ollama protocol standard
 - `siumai-provider-anthropic` — Anthropic provider implementation (native)
-- `siumai-provider-anthropic-compatible` — Anthropic Messages protocol standard (shared mapping + streaming; legacy name)
+- `siumai-protocol-anthropic` — Anthropic Messages protocol standard (shared mapping + streaming; preferred name)
+- `siumai-provider-anthropic-compatible` — Anthropic Messages protocol standard (legacy crate name; compatibility alias)
 - `siumai-provider-gemini` — Gemini provider implementation
 - `siumai-protocol-gemini` — Gemini protocol standard (mapping + streaming)
 - `siumai-provider-google-vertex` — Vertex provider implementation (Imagen-focused)
-- `siumai-provider-groq` — Groq provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
-- `siumai-provider-xai` — xAI provider (OpenAI-like protocol via `siumai-provider-openai-compatible`)
+- `siumai-provider-groq` — Groq provider (OpenAI-like protocol via `siumai-protocol-openai`)
+- `siumai-provider-xai` — xAI provider (OpenAI-like protocol via `siumai-protocol-openai`)
 - `siumai-provider-minimaxi` — MiniMaxi provider (Anthropic chat + OpenAI-like media endpoints)
 
 ## Target layering (dependency direction)
@@ -50,10 +52,12 @@ siumai (facade)
 siumai-registry (optional)
   ↓
   ├─ siumai-provider-openai (OpenAI provider)
-  ├─ siumai-provider-openai-compatible (OpenAI-like protocol crate; legacy name)  ← shared implementation layer (family crate)
+  ├─ siumai-protocol-openai (OpenAI-like protocol crate)  ← shared implementation layer (family crate)
+  ├─ siumai-provider-openai-compatible (legacy alias)     ← compatibility only
   ├─ siumai-provider-ollama (Ollama provider + Ollama standard)
   ├─ siumai-provider-anthropic (Anthropic provider)
-  ├─ siumai-provider-anthropic-compatible (Anthropic Messages protocol crate; legacy name) ← shared implementation layer (family crate)
+  ├─ siumai-protocol-anthropic (Anthropic Messages protocol crate) ← shared implementation layer (family crate)
+  ├─ siumai-provider-anthropic-compatible (legacy alias)           ← compatibility only
   ├─ siumai-protocol-gemini (Gemini protocol crate)                           ← shared implementation layer (protocol crate)
   ├─ siumai-provider-gemini (Gemini provider)
   ├─ siumai-provider-google-vertex (Vertex provider)
@@ -67,9 +71,9 @@ siumai-core (provider-agnostic runtime + shared types)
 
 Notes:
 
-- We keep a single shared *family* crate for the OpenAI-like protocol (`siumai-provider-openai-compatible`)
+- We keep a single shared *family* crate for the OpenAI-like protocol (`siumai-protocol-openai`)
   because multiple providers reuse the OpenAI-like mapping logic (Groq/xAI/OpenAI-compatible vendors, and parts of MiniMaxi).
-- We keep a shared *family* crate for the Anthropic Messages protocol (`siumai-provider-anthropic-compatible`)
+- We keep a shared *family* crate for the Anthropic Messages protocol (`siumai-protocol-anthropic`)
   because multiple providers reuse the Messages mapping (Anthropic native, and providers like MiniMaxi).
 - New protocol crates follow the `siumai-protocol-*` naming convention. Existing `*-compatible` crates are
   treated as protocol crates but keep their names for compatibility.
@@ -197,7 +201,7 @@ siumai-provider-openai/
 
 Then:
 
-- OpenAI-like providers reuse `siumai-provider-openai` for protocol mapping and streaming/tool-call helpers.
+- OpenAI-like providers reuse `siumai-protocol-openai` for protocol mapping and streaming/tool-call helpers.
 - OpenAI-compatible vendors are treated as configuration (base URL / headers / error structure), not as separate crates.
 
 This mirrors Vercel’s *concept* (shared adapter + vendor providers), while keeping crate count minimal.
@@ -206,9 +210,9 @@ This mirrors Vercel’s *concept* (shared adapter + vendor providers), while kee
 
 Provider-specific protocol mapping is protocol-crate-owned (provider crates re-export for compatibility):
 
-- OpenAI-like (shared): `siumai-provider-openai-compatible/src/standards/openai/*`
+- OpenAI-like (shared): `siumai-protocol-openai` (current impl: `siumai-provider-openai-compatible/src/standards/openai/*`)
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
-- Anthropic Messages (shared): `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
+- Anthropic Messages (shared): `siumai-protocol-anthropic` (current impl: `siumai-provider-anthropic-compatible/src/standards/anthropic/*`)
 - Gemini standard: `siumai-protocol-gemini/src/standards/gemini/*`
 - Vertex Imagen standard: `siumai-provider-google-vertex/src/standards/vertex_imagen.rs`
 
@@ -221,8 +225,8 @@ they are surfaced through `siumai::experimental::standards::*` via provider re-e
 Some provider crates expose a **standard-only** feature to allow other providers to reuse protocol
 mapping logic without pulling the provider implementation modules:
 
-- `siumai-provider-openai-compatible/openai-standard`: OpenAI-like protocol mapping only (chat/embeddings/images/audio/rerank).
-- `siumai-provider-anthropic-compatible/anthropic-standard`: Anthropic Messages protocol mapping only (chat + streaming helpers).
+- `siumai-protocol-openai/openai-standard`: OpenAI-like protocol mapping only (chat/embeddings/images/audio/rerank).
+- `siumai-protocol-anthropic/anthropic-standard`: Anthropic Messages protocol mapping only (chat + streaming helpers).
 
 ## Capability composition (TanStack-inspired, Rust-friendly)
 

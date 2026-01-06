@@ -101,18 +101,18 @@ pub use siumai_core::hosted_tools;
 pub mod protocol {
     /// OpenAI-like protocol standard mapping (Chat/Embedding/Image/Rerank).
     ///
-    /// Backed by `siumai-provider-openai-compatible` (legacy crate name).
+    /// Backed by `siumai-protocol-openai` (preferred; wraps the legacy `*-compatible` crate name).
     #[cfg(any(feature = "openai", feature = "protocol-openai"))]
     pub mod openai {
-        pub use siumai_provider_openai_compatible::standards::openai::*;
+        pub use siumai_protocol_openai::standards::openai::*;
     }
 
     /// Anthropic Messages protocol standard mapping (Chat + streaming).
     ///
-    /// Backed by `siumai-provider-anthropic-compatible` (legacy crate name).
+    /// Backed by `siumai-protocol-anthropic` (preferred; wraps the legacy `*-compatible` crate name).
     #[cfg(any(feature = "anthropic", feature = "protocol-anthropic"))]
     pub mod anthropic {
-        pub use siumai_provider_anthropic_compatible::standards::anthropic::*;
+        pub use siumai_protocol_anthropic::standards::anthropic::*;
     }
 
     /// Google Gemini protocol standard mapping (GenerateContent + streaming).

@@ -1,0 +1,26 @@
+[package]
+name = "siumai-protocol-openai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "OpenAI(-like) protocol standard mapping for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-protocol-openai"
+readme = "../README.md"
+keywords = ["llm", "ai", "openai", "protocol"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false }
+
+[features]
+default = []
+
+structured-messages = ["siumai-provider-openai-compatible/structured-messages"]
+openai-standard = ["siumai-provider-openai-compatible/openai-standard"]
+openai-responses = ["siumai-provider-openai-compatible/openai-responses"]

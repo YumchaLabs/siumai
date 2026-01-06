@@ -34,9 +34,9 @@ Notes:
 - `siumai-registry` owns the registry abstractions and optional built-in provider wiring.
 - Some protocols are already factored into protocol crates:
   - Gemini: `siumai-protocol-gemini`
-- Some protocols are factored as “family crates” (protocol crates with legacy names):
-  - OpenAI-like: `siumai-provider-openai-compatible`
-  - Anthropic Messages: `siumai-provider-anthropic-compatible`
+- Some protocols are factored as protocol family crates:
+  - OpenAI-like: `siumai-protocol-openai` (legacy crate name: `siumai-provider-openai-compatible`)
+  - Anthropic Messages: `siumai-protocol-anthropic` (legacy crate name: `siumai-provider-anthropic-compatible`)
 
 ## Target split: provider vs protocol
 
@@ -76,8 +76,8 @@ Start with the highest-coupling provider first:
 
 1. `siumai-protocol-gemini` (done)
 2. `siumai-protocol-ollama` (if/when Ollama standard grows beyond the provider implementation)
-3. OpenAI-like and Anthropic Messages are already split as family crates; we can optionally rename
-   them later, but renaming is a breaking/coordination cost and is not required for the refactor.
+3. OpenAI-like and Anthropic Messages are split into `siumai-protocol-openai` / `siumai-protocol-anthropic`
+   (legacy `*-compatible` crate names remain as compatibility aliases).
 
 ## Migration checklist (for each provider)
 

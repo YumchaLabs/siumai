@@ -17,8 +17,8 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false }
-siumai-provider-anthropic-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic-compatible", default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
@@ -50,13 +50,13 @@ default = []
 
 structured-messages = [
     "siumai-core/structured-messages",
-    "siumai-provider-openai-compatible/structured-messages",
-    "siumai-provider-anthropic-compatible/structured-messages",
+    "siumai-protocol-openai/structured-messages",
+    "siumai-protocol-anthropic/structured-messages",
 ]
 
 minimaxi = [
     "dep:hex",
     "siumai-core/minimaxi",
-    "siumai-provider-openai-compatible/openai-standard",
-    "siumai-provider-anthropic-compatible/anthropic-standard",
+    "siumai-protocol-openai/openai-standard",
+    "siumai-protocol-anthropic/anthropic-standard",
 ]

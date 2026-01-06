@@ -120,12 +120,13 @@ pub async fn build_openai_compatible_client(
     };
 
     // Build config
-    let mut config = siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
-        &resolved_id,
-        &api_key,
-        &resolved_base,
-        adapter,
-    )
+    let mut config =
+        siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleConfig::new(
+            &resolved_id,
+            &api_key,
+            &resolved_base,
+            adapter,
+        )
         .with_model(&{
             // Normalize model id for provider-specific aliasing (e.g., OpenRouter, DeepSeek)
             crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
@@ -141,7 +142,7 @@ pub async fn build_openai_compatible_client(
     }
 
     // Create client via provided HTTP client
-    let mut client = siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+    let mut client = siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
         config,
         http_client,
     )

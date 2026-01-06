@@ -656,17 +656,17 @@ impl ProviderFactory for GroqProviderFactory {
 
         // OpenAI-compatible Groq client (configuration-driven).
         let provider_config =
-            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
-                "groq",
-            )
-            .ok_or_else(|| {
-                LlmError::ConfigurationError("Unknown OpenAI-compatible provider id: groq".into())
-            })?;
+            siumai_protocol_openai::providers::openai_compatible::get_provider_config("groq")
+                .ok_or_else(|| {
+                    LlmError::ConfigurationError(
+                        "Unknown OpenAI-compatible provider id: groq".into(),
+                    )
+                })?;
 
         let adapter: Arc<
-            dyn siumai_provider_openai_compatible::providers::openai_compatible::ProviderAdapter,
+            dyn siumai_protocol_openai::providers::openai_compatible::ProviderAdapter,
         > = Arc::new(
-            siumai_provider_openai_compatible::providers::openai_compatible::ConfigurableAdapter::new(
+            siumai_protocol_openai::providers::openai_compatible::ConfigurableAdapter::new(
                 provider_config,
             ),
         );
@@ -684,7 +684,7 @@ impl ProviderFactory for GroqProviderFactory {
         };
 
         let mut config =
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
+            siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleConfig::new(
                 "groq", &api_key, &base_url, adapter,
             );
 
@@ -695,7 +695,7 @@ impl ProviderFactory for GroqProviderFactory {
         config = config.with_http_config(http_config.clone());
 
         let mut client =
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+            siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
                 config,
                 http_client,
             )
@@ -814,17 +814,17 @@ impl ProviderFactory for XAIProviderFactory {
         );
 
         let provider_config =
-            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
-                "xai",
-            )
-            .ok_or_else(|| {
-                LlmError::ConfigurationError("Unknown OpenAI-compatible provider id: xai".into())
-            })?;
+            siumai_protocol_openai::providers::openai_compatible::get_provider_config("xai")
+                .ok_or_else(|| {
+                    LlmError::ConfigurationError(
+                        "Unknown OpenAI-compatible provider id: xai".into(),
+                    )
+                })?;
 
         let adapter: Arc<
-            dyn siumai_provider_openai_compatible::providers::openai_compatible::ProviderAdapter,
+            dyn siumai_protocol_openai::providers::openai_compatible::ProviderAdapter,
         > = Arc::new(
-            siumai_provider_openai_compatible::providers::openai_compatible::ConfigurableAdapter::new(
+            siumai_protocol_openai::providers::openai_compatible::ConfigurableAdapter::new(
                 provider_config,
             ),
         );
@@ -835,7 +835,7 @@ impl ProviderFactory for XAIProviderFactory {
         );
 
         let mut config =
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
+            siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleConfig::new(
                 "xai", &api_key, &base_url, adapter,
             );
 
@@ -846,7 +846,7 @@ impl ProviderFactory for XAIProviderFactory {
         config = config.with_http_config(http_config.clone());
 
         let mut client =
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+            siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
                 config,
                 http_client,
             )
@@ -1336,11 +1336,9 @@ impl OpenAICompatibleProviderFactory {
 impl ProviderFactory for OpenAICompatibleProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
         let mut caps = ProviderCapabilities::new().with_chat().with_streaming();
-        let Some(cfg) =
-            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
-                &self.provider_id,
-            )
-        else {
+        let Some(cfg) = siumai_protocol_openai::providers::openai_compatible::get_provider_config(
+            &self.provider_id,
+        ) else {
             return caps;
         };
 
@@ -1388,7 +1386,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
 
         // Resolve API key using shared helper (context override + configured envs + fallback).
         let provider_config =
-            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
+            siumai_protocol_openai::providers::openai_compatible::get_provider_config(
                 &self.provider_id,
             );
         let api_key = if let Some(cfg) = &provider_config {

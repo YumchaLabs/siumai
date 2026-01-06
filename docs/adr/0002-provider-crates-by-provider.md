@@ -11,8 +11,8 @@ The `siumai` facade and `siumai-registry` wire provider crates directly.
 
 Protocol mapping is being moved out of provider crates into protocol crates to reduce coupling:
 
-- New protocol crates: `siumai-protocol-gemini`
-- Legacy protocol/family crates (kept for compatibility): `siumai-provider-openai-compatible`, `siumai-provider-anthropic-compatible`
+- New protocol crates: `siumai-protocol-gemini`, `siumai-protocol-openai`, `siumai-protocol-anthropic`
+- Legacy protocol crate names (kept for compatibility): `siumai-provider-openai-compatible`, `siumai-provider-anthropic-compatible`
 
 ## Context
 
@@ -23,10 +23,12 @@ Siumai is in a fearless refactor phase and is already split into:
 - `siumai-registry` (registry + factories)
 - `siumai-extras` (orchestrator/telemetry/server/mcp utilities)
 - `siumai-provider-openai` (OpenAI provider implementation; depends on the OpenAI-like protocol family crate)
-- `siumai-provider-openai-compatible` (OpenAI-like protocol family crate; reused by multiple providers)
+- `siumai-protocol-openai` (OpenAI-like protocol family crate; reused by multiple providers; preferred name)
+- `siumai-provider-openai-compatible` (legacy crate name; kept for compatibility)
 - `siumai-provider-ollama` (Ollama provider + Ollama standard)
 - `siumai-provider-anthropic` (Anthropic provider implementation; depends on the Anthropic Messages protocol family crate)
-- `siumai-provider-anthropic-compatible` (Anthropic Messages protocol family crate)
+- `siumai-protocol-anthropic` (Anthropic Messages protocol family crate; preferred name)
+- `siumai-provider-anthropic-compatible` (legacy crate name; kept for compatibility)
 - `siumai-provider-gemini` (Gemini provider implementation)
 - `siumai-protocol-gemini` (Gemini protocol standard)
 - `siumai-provider-google-vertex` (Vertex provider implementation)
@@ -67,7 +69,8 @@ Adopt a **provider-first crate split**:
 OpenAI and OpenAI-compatible vendors share substantial protocol behavior.
 To avoid duplicated mapping/stream parsing logic:
 
-- The OpenAI-like protocol adapter layer lives in `siumai-provider-openai-compatible` (family/protocol crate).
+- The OpenAI-like protocol adapter layer lives in `siumai-protocol-openai` (family/protocol crate).
+- `siumai-provider-openai-compatible` is the legacy crate name and remains as a compatibility alias.
 - OpenAI-compatible vendors remain “presets” (base URL / headers / quirks) rather than separate crates.
 
 This keeps naming aligned with “provider crates” while still enabling reuse.

@@ -34,8 +34,7 @@ pub mod models;
 
 pub use builder::XaiBuilder;
 
-pub type XaiClient =
-    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
+pub type XaiClient = siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleClient;
 
 // Provider-owned typed options live at the crate root; re-export them under the provider path.
 pub use crate::provider_options::{

@@ -2637,16 +2637,16 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
+ "siumai-protocol-anthropic",
  "siumai-protocol-gemini",
+ "siumai-protocol-openai",
  "siumai-provider-anthropic",
- "siumai-provider-anthropic-compatible",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",
  "siumai-provider-minimaxi",
  "siumai-provider-ollama",
  "siumai-provider-openai",
- "siumai-provider-openai-compatible",
  "siumai-provider-xai",
  "siumai-registry",
  "thiserror",
@@ -2725,6 +2725,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "siumai-protocol-anthropic"
+version = "0.11.0-beta.5"
+dependencies = [
+ "siumai-provider-anthropic-compatible",
+]
+
+[[package]]
 name = "siumai-protocol-gemini"
 version = "0.11.0-beta.5"
 dependencies = [
@@ -2753,6 +2760,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "siumai-protocol-openai"
+version = "0.11.0-beta.5"
+dependencies = [
+ "siumai-provider-openai-compatible",
+]
+
+[[package]]
 name = "siumai-provider-anthropic"
 version = "0.11.0-beta.5"
 dependencies = [
@@ -2773,7 +2787,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
- "siumai-provider-anthropic-compatible",
+ "siumai-protocol-anthropic",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -2895,7 +2909,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
- "siumai-provider-openai-compatible",
+ "siumai-protocol-openai",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -2926,8 +2940,8 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
- "siumai-provider-anthropic-compatible",
- "siumai-provider-openai-compatible",
+ "siumai-protocol-anthropic",
+ "siumai-protocol-openai",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -2987,7 +3001,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
- "siumai-provider-openai-compatible",
+ "siumai-protocol-openai",
  "tempfile",
  "thiserror",
  "tokio",
@@ -3056,7 +3070,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
- "siumai-provider-openai-compatible",
+ "siumai-protocol-openai",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -3078,6 +3092,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
+ "siumai-protocol-openai",
  "siumai-provider-anthropic",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
@@ -3085,7 +3100,6 @@ dependencies = [
  "siumai-provider-minimaxi",
  "siumai-provider-ollama",
  "siumai-provider-openai",
- "siumai-provider-openai-compatible",
  "siumai-provider-xai",
  "tempfile",
  "thiserror",

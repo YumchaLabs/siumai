@@ -7,8 +7,8 @@ focused on **where protocol standards live** and **how provider-specific extensi
 
 Provider-specific protocol mapping is **protocol-crate-owned** (provider crates re-export for compatibility):
 
-- OpenAI-like standard: `siumai-provider-openai-compatible/src/standards/openai/*`
-- Anthropic Messages standard: `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
+- OpenAI-like standard: `siumai-protocol-openai` (current impl: `siumai-provider-openai-compatible/src/standards/openai/*`)
+- Anthropic Messages standard: `siumai-protocol-anthropic` (current impl: `siumai-provider-anthropic-compatible/src/standards/anthropic/*`)
 - Gemini standard: `siumai-protocol-gemini/src/standards/gemini/*`
 - Vertex Imagen standard: `siumai-provider-google-vertex/src/standards/vertex_imagen.rs`
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
@@ -29,9 +29,9 @@ Guiding rule (Vercel-aligned): `siumai-core` is provider-agnostic.
 Current state:
 
 - OpenAI typed options: `siumai-provider-openai/src/provider_options/openai/*`
-- OpenAI typed metadata: `siumai-provider-openai-compatible/src/provider_metadata/openai.rs` (re-exported by `siumai-provider-openai`)
+- OpenAI typed metadata: `siumai-protocol-openai` (current impl: `siumai-provider-openai-compatible/src/provider_metadata/openai.rs`; re-exported by `siumai-provider-openai`)
 - Anthropic typed options: `siumai-provider-anthropic/src/provider_options/anthropic/*`
-- Anthropic typed metadata: `siumai-provider-anthropic-compatible/src/provider_metadata/anthropic.rs` (re-exported by `siumai-provider-anthropic`)
+- Anthropic typed metadata: `siumai-protocol-anthropic` (current impl: `siumai-provider-anthropic-compatible/src/provider_metadata/anthropic.rs`; re-exported by `siumai-provider-anthropic`)
 - Gemini typed options: `siumai-provider-gemini/src/provider_options/gemini/*`
 - Gemini typed metadata: `siumai-provider-gemini/src/provider_metadata/gemini.rs`
 - Vertex typed options: `siumai-provider-google-vertex/src/provider_options/vertex/*`

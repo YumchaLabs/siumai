@@ -40,7 +40,7 @@ mod builtins {
     use crate::error::LlmError;
 
     #[cfg(feature = "openai")]
-    use siumai_provider_openai_compatible::providers::openai_compatible::{
+    use siumai_protocol_openai::providers::openai_compatible::{
         ConfigurableAdapter, ProviderAdapter, ProviderConfig,
     };
 
@@ -152,7 +152,7 @@ mod builtins {
         #[cfg(feature = "openai")]
         fn register_openai_compatible_providers(&mut self) {
             let builtin_providers =
-                siumai_provider_openai_compatible::providers::openai_compatible::get_builtin_providers();
+                siumai_protocol_openai::providers::openai_compatible::get_builtin_providers();
 
             for (_id, config) in builtin_providers {
                 let _ = self.register_openai_compatible_from_config(config);
@@ -195,10 +195,9 @@ mod builtins {
 
         #[cfg(feature = "openai")]
         pub fn register_openai_compatible(&mut self, provider_id: &str) -> Result<(), LlmError> {
-            let config =
-                siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
-                    provider_id,
-                )
+            let config = siumai_protocol_openai::providers::openai_compatible::get_provider_config(
+                provider_id,
+            )
             .ok_or_else(|| {
                 LlmError::ConfigurationError(format!(
                     "Unknown OpenAI-compatible provider: {}",

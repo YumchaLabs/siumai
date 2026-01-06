@@ -2,4 +2,4 @@
 #![deny(unsafe_code)]
 
 #[cfg(any(feature = "openai-standard", feature = "openai"))]
-pub use siumai_provider_openai_compatible::standards::openai;
+pub use siumai_protocol_openai::standards::openai;

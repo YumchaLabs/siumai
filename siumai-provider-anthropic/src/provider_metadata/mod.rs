@@ -4,5 +4,5 @@
 //! provider crate to avoid coupling `siumai-core` to provider-specific response shapes.
 
 pub mod anthropic {
-    pub use siumai_provider_anthropic_compatible::provider_metadata::anthropic::*;
+    pub use siumai_protocol_anthropic::provider_metadata::anthropic::*;
 }

@@ -65,10 +65,10 @@ Typed response metadata helpers are still imported from the stable facade paths:
 
 However, internally the ownership now follows the **protocol-family rule**:
 
-- OpenAI-like metadata types/extensions are protocol-owned in `siumai-provider-openai-compatible`
-  and re-exported by `siumai-provider-openai`.
-- Anthropic Messages metadata types/extensions are protocol-owned in `siumai-provider-anthropic-compatible`
-  and re-exported by `siumai-provider-anthropic`.
+- OpenAI-like metadata types/extensions are protocol-owned in `siumai-protocol-openai`
+  (legacy alias: `siumai-provider-openai-compatible`) and re-exported by `siumai-provider-openai`.
+- Anthropic Messages metadata types/extensions are protocol-owned in `siumai-protocol-anthropic`
+  (legacy alias: `siumai-provider-anthropic-compatible`) and re-exported by `siumai-provider-anthropic`.
 - Provider-specific (non-shared) metadata stays provider-owned (e.g. Gemini).
 
 This change is mostly internal. If you were depending on file-level paths or internal modules,
@@ -80,7 +80,7 @@ The historical `siumai::providers::*` module path is removed to prevent cross-la
 
 - Unified surface: `use siumai::prelude::unified::*;`
 - Provider-specific surface: `use siumai::provider_ext::<provider>::*;`
-- Protocol-layer/helpers: `use siumai::experimental::*;` (advanced) or depend on the relevant protocol/provider crate directly (e.g. `siumai-provider-openai-compatible` for OpenAI-like mapping, `siumai-provider-anthropic-compatible` for Anthropic Messages mapping).
+- Protocol-layer/helpers: `use siumai::experimental::*;` (advanced) or depend on the relevant protocol/provider crate directly (e.g. `siumai-protocol-openai` for OpenAI-like mapping, `siumai-protocol-anthropic` for Anthropic Messages mapping).
 
 ### 5) Groq/xAI internal chat capability modules removed
 
