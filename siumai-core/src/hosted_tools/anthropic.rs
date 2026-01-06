@@ -253,3 +253,23 @@ pub fn code_execution_20250522() -> Tool {
         "code_execution",
     ))
 }
+
+/// Create a code execution tool (2025-08-25 version).
+///
+/// Requires the `code-execution-2025-08-25` beta header.
+pub fn code_execution_20250825() -> Tool {
+    Tool::ProviderDefined(ProviderDefinedTool::new(
+        "anthropic.code_execution_20250825",
+        "code_execution",
+    ))
+}
+
+/// Create a memory tool (2025-08-18 version).
+///
+/// Requires the `context-management-2025-06-27` beta header.
+pub fn memory_20250818() -> Tool {
+    Tool::ProviderDefined(ProviderDefinedTool::new(
+        "anthropic.memory_20250818",
+        "memory",
+    ))
+}

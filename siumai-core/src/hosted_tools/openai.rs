@@ -32,6 +32,68 @@
 
 use crate::types::{ProviderDefinedTool, Tool};
 
+/// MCP server configuration builder (OpenAI Responses `mcp` tool).
+///
+/// Vercel AI SDK tool id: `openai.mcp`, tool name commonly `MCP`.
+#[derive(Debug, Clone)]
+pub struct McpConfig {
+    server_label: String,
+    server_url: String,
+    server_description: Option<String>,
+    require_approval: Option<String>,
+}
+
+impl McpConfig {
+    /// Create a new MCP tool configuration.
+    pub fn new(server_label: impl Into<String>, server_url: impl Into<String>) -> Self {
+        Self {
+            server_label: server_label.into(),
+            server_url: server_url.into(),
+            server_description: None,
+            require_approval: None,
+        }
+    }
+
+    /// Set the server description (human readable).
+    pub fn with_server_description(mut self, desc: impl Into<String>) -> Self {
+        self.server_description = Some(desc.into());
+        self
+    }
+
+    /// Set the OpenAI tool approval policy.
+    ///
+    /// Vercel-aligned values include: `"never"`, `"always"`, `"auto"`.
+    pub fn with_require_approval(mut self, policy: impl Into<String>) -> Self {
+        self.require_approval = Some(policy.into());
+        self
+    }
+
+    /// Build the Tool.
+    pub fn build(self) -> Tool {
+        let mut args = serde_json::json!({
+            "serverLabel": self.server_label,
+            "serverUrl": self.server_url,
+        });
+
+        if let Some(v) = self.server_description {
+            args["serverDescription"] = serde_json::json!(v);
+        }
+        if let Some(v) = self.require_approval {
+            args["requireApproval"] = serde_json::json!(v);
+        }
+
+        Tool::ProviderDefined(ProviderDefinedTool::new("openai.mcp", "MCP").with_args(args))
+    }
+}
+
+/// Create an OpenAI MCP tool configuration (Responses API).
+///
+/// This tool allows OpenAI to call tools exposed by an MCP server. The model will emit
+/// MCP tool calls via the Responses API protocol.
+pub fn mcp(server_label: impl Into<String>, server_url: impl Into<String>) -> McpConfig {
+    McpConfig::new(server_label, server_url)
+}
+
 /// Web search configuration builder
 #[derive(Debug, Clone, Default)]
 pub struct WebSearchConfig {
