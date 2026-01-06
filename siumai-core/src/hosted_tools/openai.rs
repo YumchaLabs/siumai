@@ -111,7 +111,7 @@ impl WebSearchConfig {
         Tool::ProviderDefined(
             ProviderDefinedTool::new(
                 self.tool_id.unwrap_or("openai.web_search"),
-                self.tool_name.unwrap_or("web_search"),
+                self.tool_name.unwrap_or("webSearch"),
             )
             .with_args(args),
         )
@@ -238,7 +238,7 @@ impl FileSearchConfig {
         }
 
         Tool::ProviderDefined(
-            ProviderDefinedTool::new("openai.file_search", "file_search").with_args(args),
+            ProviderDefinedTool::new("openai.file_search", "fileSearch").with_args(args),
         )
     }
 }

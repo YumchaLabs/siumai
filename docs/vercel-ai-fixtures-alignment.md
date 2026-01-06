@@ -51,6 +51,7 @@ Provider id: `openai` (Responses API)
 
 - [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `web_search`
 - [x] Omit `stream` when not streaming (Vercel-aligned wire body)
+- [x] Streaming SSE converter emits `toolName: "webSearch"` when request tool name is `webSearch`
 
 ## OpenAI Responses File Search
 
