@@ -1,0 +1,51 @@
+{
+  "model": "gpt-5-mini",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "shorten ai-sdk.dev"
+        }
+      ]
+    },
+    {
+      "type": "item_reference",
+      "id": "mcpr_04f6b17429cf2b02006949a6712b1081968b3c7a72dec695d8"
+    },
+    {
+      "type": "mcp_approval_response",
+      "approval_request_id": "mcpr_04f6b17429cf2b02006949a6712b1081968b3c7a72dec695d8",
+      "approve": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "The tool was not approved."
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "try again"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "mcp",
+      "server_label": "zip1",
+      "server_url": "https://zip1.io/mcp",
+      "server_description": "Link shortener",
+      "require_approval": "always"
+    }
+  ]
+}
+

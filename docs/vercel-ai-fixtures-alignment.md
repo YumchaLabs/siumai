@@ -104,6 +104,7 @@ Provider id: `openai` (Responses API)
 - [x] Streaming SSE converter emits `toolName: "mcp.<tool>"` for `mcp_call` + `tool-result`
 - [x] Streaming SSE converter emits `tool-approval-request` for `mcp_approval_request` (Vercel `toolCallId: "id-0"` style)
 - [x] Streaming SSE `response.completed` backfills missing MCP tool-call/results (fixture contains 2 `mcp_call` items)
+- [x] Prompt tool approval response input mapping (`tool-approval-response` -> `mcp_approval_response` + `item_reference` by default)
 
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 

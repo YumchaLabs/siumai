@@ -373,63 +373,117 @@ pub struct OpenAiResponsesRequestTransformer;
 
 #[cfg(feature = "openai-responses")]
 impl OpenAiResponsesRequestTransformer {
+    fn should_include_item_reference(req: &ChatRequest) -> bool {
+        // Vercel alignment:
+        // - `convertToOpenAIResponsesInput` takes `store` as a parameter.
+        // - In Siumai, `store` lives in `providerOptions.openai` (Responses API config).
+        // - Default to true when unspecified (matches Vercel fixtures expectations).
+        let openai = req.provider_options_map.get_object("openai");
+
+        let store = openai
+            .and_then(|m| m.get("store"))
+            .and_then(|v| v.as_bool())
+            .or_else(|| {
+                openai
+                    .and_then(|m| m.get("responsesApi").or_else(|| m.get("responses_api")))
+                    .and_then(|v| v.as_object())
+                    .and_then(|m| m.get("store"))
+                    .and_then(|v| v.as_bool())
+            });
+
+        store != Some(false)
+    }
+
     fn convert_message(
+        req: &ChatRequest,
         msg: &crate::types::ChatMessage,
     ) -> Result<Vec<serde_json::Value>, LlmError> {
         use crate::types::{ContentPart, MessageContent, MessageRole};
 
         // Tool role message becomes one or many `function_call_output` items (one per tool result).
         if matches!(msg.role, MessageRole::Tool) {
-            let tool_results = msg.tool_results();
-            if tool_results.is_empty() {
+            let store = Self::should_include_item_reference(req);
+            let mut items: Vec<serde_json::Value> = Vec::new();
+            let mut processed_approval_ids: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+
+            if let MessageContent::MultiModal(parts) = &msg.content {
+                for part in parts {
+                    match part {
+                        ContentPart::ToolApprovalResponse {
+                            approval_id,
+                            approved,
+                        } => {
+                            if !processed_approval_ids.insert(approval_id.clone()) {
+                                continue;
+                            }
+
+                            if store {
+                                items.push(serde_json::json!({
+                                    "type": "item_reference",
+                                    "id": approval_id,
+                                }));
+                            }
+
+                            items.push(serde_json::json!({
+                                "type": "mcp_approval_response",
+                                "approval_request_id": approval_id,
+                                "approve": approved,
+                            }));
+                        }
+                        ContentPart::ToolResult {
+                            tool_call_id,
+                            output,
+                            ..
+                        } => {
+                            // OpenAI Responses expects `output` (string or output content list). Keep it stable by
+                            // sending a string form for all outputs.
+                            let output_text = match output {
+                                crate::types::ToolResultOutput::Text { value } => value.clone(),
+                                crate::types::ToolResultOutput::Json { value } => {
+                                    serde_json::to_string(value).unwrap_or_default()
+                                }
+                                crate::types::ToolResultOutput::ErrorText { value } => {
+                                    value.clone()
+                                }
+                                crate::types::ToolResultOutput::ErrorJson { value } => {
+                                    serde_json::to_string(value).unwrap_or_default()
+                                }
+                                crate::types::ToolResultOutput::ExecutionDenied { reason } => {
+                                    reason
+                                        .clone()
+                                        .unwrap_or_else(|| "Execution denied".to_string())
+                                }
+                                crate::types::ToolResultOutput::Content { value } => value
+                                    .iter()
+                                    .filter_map(|part| {
+                                        if let crate::types::ToolResultContentPart::Text { text } =
+                                            part
+                                        {
+                                            Some(text.as_str())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                            };
+
+                            items.push(serde_json::json!({
+                                "type": "function_call_output",
+                                "call_id": tool_call_id,
+                                "output": output_text,
+                            }));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if items.is_empty() {
                 return Err(LlmError::InvalidInput(
                     "Tool message missing tool result".into(),
                 ));
-            }
-
-            let mut items: Vec<serde_json::Value> = Vec::with_capacity(tool_results.len());
-            for tr in tool_results {
-                let ContentPart::ToolResult {
-                    tool_call_id,
-                    output,
-                    ..
-                } = tr
-                else {
-                    continue;
-                };
-
-                // OpenAI Responses expects `output` (string or output content list). Keep it stable by
-                // sending a string form for all outputs.
-                let output_text = match output {
-                    crate::types::ToolResultOutput::Text { value } => value.clone(),
-                    crate::types::ToolResultOutput::Json { value } => {
-                        serde_json::to_string(value).unwrap_or_default()
-                    }
-                    crate::types::ToolResultOutput::ErrorText { value } => value.clone(),
-                    crate::types::ToolResultOutput::ErrorJson { value } => {
-                        serde_json::to_string(value).unwrap_or_default()
-                    }
-                    crate::types::ToolResultOutput::ExecutionDenied { reason } => reason
-                        .clone()
-                        .unwrap_or_else(|| "Execution denied".to_string()),
-                    crate::types::ToolResultOutput::Content { value } => value
-                        .iter()
-                        .filter_map(|part| {
-                            if let crate::types::ToolResultContentPart::Text { text } = part {
-                                Some(text.as_str())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                };
-
-                items.push(serde_json::json!({
-                    "type": "function_call_output",
-                    "call_id": tool_call_id,
-                    "output": output_text,
-                }));
             }
 
             return Ok(items);
@@ -545,6 +599,14 @@ impl OpenAiResponsesRequestTransformer {
                             }
                         }
                         ContentPart::ToolCall { .. } => {
+                            if let ContentPart::ToolCall {
+                                provider_executed, ..
+                            } = part
+                                && provider_executed == &Some(true)
+                            {
+                                continue;
+                            }
+
                             // Assistant tool calls are represented as `tool_use` content parts with
                             // structured `input` (aligned with the official Responses API semantics).
                             if let ContentPart::ToolCall {
@@ -570,8 +632,16 @@ impl OpenAiResponsesRequestTransformer {
                                 "text": format!("<thinking>{}</thinking>", text)
                             }));
                         }
+                        ContentPart::ToolApprovalResponse { .. } => {}
                     }
                 }
+
+                // Vercel alignment: if a message only contained provider-executed tool calls
+                // (or other skipped parts), omit the message entirely.
+                if content_parts.is_empty() {
+                    return Ok(vec![]);
+                }
+
                 api_message["content"] = serde_json::Value::Array(content_parts);
             }
             #[cfg(feature = "structured-messages")]
@@ -613,7 +683,7 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                 // input
                 let mut input_items: Vec<serde_json::Value> = Vec::new();
                 for m in &req.messages {
-                    input_items.extend(OpenAiResponsesRequestTransformer::convert_message(m)?);
+                    input_items.extend(OpenAiResponsesRequestTransformer::convert_message(req, m)?);
                 }
                 body["input"] = serde_json::Value::Array(input_items);
 

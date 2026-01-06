@@ -285,6 +285,10 @@ impl ChatMessage {
                         .unwrap_or(0),
                     ContentPart::ToolResult { output, .. } => output.to_string_lossy().len(),
                     ContentPart::Reasoning { text } => text.len(),
+                    ContentPart::ToolApprovalResponse {
+                        approval_id,
+                        approved,
+                    } => approval_id.len() + if *approved { 4 } else { 5 },
                 })
                 .sum(),
             #[cfg(feature = "structured-messages")]
