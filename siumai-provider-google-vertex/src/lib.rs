@@ -1,10 +1,13 @@
 //! siumai-provider-google-vertex
 //!
-//! Google Vertex AI provider implementation + shared Vertex protocol standard(s).
+//! Google Vertex AI provider implementation.
 //!
 //! This crate owns:
 //! - Vertex AI provider implementation (clients + specs)
-//! - Vertex protocol mapping modules (e.g., Imagen via `:predict`)
+//! - provider-owned typed options and extension traits
+//!
+//! Protocol mapping modules (e.g. Imagen via `:predict`) live in `siumai-protocol-vertex` and are
+//! re-exported from this crate under `crate::standards` for compatibility.
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the provider implementation.
@@ -21,4 +24,4 @@ pub mod builder {
 
 pub mod provider_options;
 pub mod providers;
-pub mod standards;
+pub use siumai_protocol_vertex::standards;

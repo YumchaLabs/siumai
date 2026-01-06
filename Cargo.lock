@@ -2751,6 +2751,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "siumai-protocol-vertex"
+version = "0.11.0-beta.5"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "backoff",
+ "base64",
+ "chrono",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "infer",
+ "lru",
+ "rand 0.8.5",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
 name = "siumai-provider-anthropic"
 version = "0.11.0-beta.5"
 dependencies = [
@@ -2864,6 +2892,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
+ "siumai-protocol-vertex",
  "thiserror",
  "tokio",
  "tokio-util",
