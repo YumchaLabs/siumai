@@ -420,6 +420,11 @@ path = "examples/04-provider-specific/google/vertex_chat.rs"
 required-features = ["google", "gcp"]
 
 [[example]]
+name = "vertex_imagen_edit"
+path = "examples/04-provider-specific/google/vertex_imagen_edit.rs"
+required-features = ["google", "gcp"]
+
+[[example]]
 name = "file_search"
 path = "examples/04-provider-specific/google/file_search.rs"
 required-features = ["google"]

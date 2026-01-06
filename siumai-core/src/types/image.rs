@@ -55,6 +55,11 @@ pub struct ImageEditRequest {
     pub mask: Option<Vec<u8>>,
     /// Text prompt for editing
     pub prompt: String,
+    /// Model to use for editing (provider-specific; optional).
+    ///
+    /// This is required by some providers (e.g., Vertex AI Imagen) where the model
+    /// is part of the request URL.
+    pub model: Option<String>,
     /// Number of images to generate
     pub count: Option<u32>,
     /// Image size
@@ -80,6 +85,10 @@ pub struct ImageEditRequest {
 pub struct ImageVariationRequest {
     /// Original image data
     pub image: Vec<u8>,
+    /// Model to use for variations (provider-specific; optional).
+    ///
+    /// This is required by some providers where the model is part of the request URL.
+    pub model: Option<String>,
     /// Number of variations to generate
     pub count: Option<u32>,
     /// Image size

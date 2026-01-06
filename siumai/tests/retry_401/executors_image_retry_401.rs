@@ -255,6 +255,7 @@ async fn image_executor_retries_on_401() {
             image: vec![],
             mask: None,
             prompt: "p".into(),
+            model: None,
             count: None,
             size: None,
             response_format: None,
@@ -270,6 +271,7 @@ async fn image_executor_retries_on_401() {
     let out = exec
         .execute_variation(ImageVariationRequest {
             image: vec![],
+            model: None,
             count: None,
             size: None,
             response_format: None,

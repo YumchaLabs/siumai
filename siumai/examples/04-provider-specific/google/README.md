@@ -46,3 +46,10 @@ silently omitted to keep the unified surface stable.
 - `file_search.rs`: File search tool usage (query-time retrieval).
 - `file_search-ext.rs`: File Search Stores (resource management; provider extension API).
 - `vertex_chat.rs`: Minimal Vertex AI chat via ADC (`--features "google gcp"`).
+- `vertex_imagen_edit.rs`: Vertex AI Imagen edit/inpaint with mask + reference images (`--features "google gcp"`).
+
+## Vertex Imagen notes
+
+- Vertex Imagen uses the Vertex `:predict` endpoint and requires Bearer auth (ADC/service account).
+- For editing/inpainting, set `ImageEditRequest.model` to an Imagen edit model (e.g. `imagen-3.0-edit-001`).
+- Reference images and negative prompts can be passed via `providerOptions["gemini"]["vertexImagen"]` or `extra_params`.

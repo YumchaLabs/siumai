@@ -1,6 +1,7 @@
 use super::GeminiClient;
 use crate::error::LlmError;
 use crate::traits::{ImageExtras, ImageGenerationCapability};
+use crate::types::{ImageEditRequest, ImageVariationRequest};
 use crate::types::{ImageGenerationRequest, ImageGenerationResponse};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -38,7 +39,54 @@ impl ImageGenerationCapability for GeminiClient {
     }
 }
 
+#[async_trait]
 impl ImageExtras for GeminiClient {
+    async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        use crate::execution::executors::image::{ImageExecutor, ImageExecutorBuilder};
+
+        let mut request = request;
+        if request.model.is_none() {
+            request.model = Some(self.config.model.clone());
+        }
+
+        let ctx = super::super::context::build_context(&self.config).await;
+        let spec = Arc::new(crate::providers::gemini::spec::GeminiSpecWithConfig::new(
+            self.config.clone(),
+        ));
+
+        let builder = ImageExecutorBuilder::new("gemini", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_interceptors(self.http_interceptors.clone());
+
+        let selector = ImageGenerationRequest {
+            model: request.model.clone(),
+            ..Default::default()
+        };
+
+        let exec = if let Some(retry) = self.retry_options.clone() {
+            builder
+                .with_retry_options(retry)
+                .build_for_request(&selector)
+        } else {
+            builder.build_for_request(&selector)
+        };
+
+        ImageExecutor::execute_edit(&*exec, request).await
+    }
+
+    async fn create_variation(
+        &self,
+        _request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Gemini provider does not support image variations".to_string(),
+        ))
+    }
+
     fn get_supported_sizes(&self) -> Vec<String> {
         vec![
             "1024x1024".to_string(),
@@ -52,7 +100,8 @@ impl ImageExtras for GeminiClient {
     }
 
     fn supports_image_editing(&self) -> bool {
-        false
+        // Vertex Imagen supports editing via :predict; Gemini generateContent does not.
+        self.config.base_url.contains("aiplatform.googleapis.com")
     }
     fn supports_image_variations(&self) -> bool {
         false

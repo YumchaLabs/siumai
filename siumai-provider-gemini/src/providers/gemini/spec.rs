@@ -77,6 +77,14 @@ impl ProviderSpec for GeminiSpec {
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
     ) -> String {
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            return spec.image_url(req, ctx);
+        }
+
         let spec = crate::standards::gemini::GeminiImageStandard::new().create_spec("gemini");
         spec.image_url(req, ctx)
     }
@@ -86,9 +94,46 @@ impl ProviderSpec for GeminiSpec {
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
     ) -> ImageTransformers {
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            return crate::standards::vertex_imagen::VertexImagenStandard::new()
+                .create_transformers("gemini");
+        }
+
         crate::standards::gemini::GeminiImageStandard::new()
             .create_spec("gemini")
             .choose_image_transformers(req, ctx)
+    }
+
+    fn image_edit_url(
+        &self,
+        req: &crate::types::ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            return spec.image_edit_url(req, ctx);
+        }
+        format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
+    }
+
+    fn image_variation_url(
+        &self,
+        req: &crate::types::ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            return spec.image_variation_url(req, ctx);
+        }
+        format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {
@@ -247,8 +292,16 @@ impl ProviderSpec for GeminiSpecWithConfig {
     fn choose_image_transformers(
         &self,
         req: &crate::types::ImageGenerationRequest,
-        _ctx: &ProviderContext,
+        ctx: &ProviderContext,
     ) -> ImageTransformers {
+        // Route Imagen models to the Vertex Imagen transformers.
+        if let Some(model) = req.model.as_deref()
+            && crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url)
+        {
+            return crate::standards::vertex_imagen::VertexImagenStandard::new()
+                .create_transformers("gemini");
+        }
+
         let cfg = self.config_with_request_model(req.model.as_deref());
         ImageTransformers {
             request: Arc::new(
@@ -260,6 +313,58 @@ impl ProviderSpec for GeminiSpecWithConfig {
                 crate::providers::gemini::transformers::GeminiResponseTransformer { config: cfg },
             ),
         }
+    }
+
+    fn image_edit_url(
+        &self,
+        req: &crate::types::ImageEditRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        let model = req
+            .model
+            .as_deref()
+            .filter(|m| !m.is_empty())
+            .unwrap_or(self.config.model.as_str());
+        if crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url) {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            let mut effective = req.clone();
+            let needs_model = match effective.model.as_deref() {
+                None => true,
+                Some(m) => m.is_empty(),
+            };
+            if needs_model {
+                effective.model = Some(model.to_string());
+            }
+            return spec.image_edit_url(&effective, ctx);
+        }
+        format!("{}/images/edits", ctx.base_url.trim_end_matches('/'))
+    }
+
+    fn image_variation_url(
+        &self,
+        req: &crate::types::ImageVariationRequest,
+        ctx: &ProviderContext,
+    ) -> String {
+        let model = req
+            .model
+            .as_deref()
+            .filter(|m| !m.is_empty())
+            .unwrap_or(self.config.model.as_str());
+        if crate::standards::vertex_imagen::is_vertex_imagen_model(model, &ctx.base_url) {
+            let spec =
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("gemini");
+            let mut effective = req.clone();
+            let needs_model = match effective.model.as_deref() {
+                None => true,
+                Some(m) => m.is_empty(),
+            };
+            if needs_model {
+                effective.model = Some(model.to_string());
+            }
+            return spec.image_variation_url(&effective, ctx);
+        }
+        format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
     }
 
     fn files_base_url(&self, ctx: &ProviderContext) -> String {

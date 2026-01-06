@@ -5,4 +5,3 @@
 //! `siumai::provider_ext::openai::*` for convenience.
 
 pub mod openai;
-

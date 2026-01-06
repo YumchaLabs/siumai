@@ -523,9 +523,18 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .map(|s| s.to_string());
 
                         let mut src = serde_json::Map::new();
-                        src.insert("id".to_string(), serde_json::Value::String(format!("{tool_call_id}:{i}")));
-                        src.insert("source_type".to_string(), serde_json::Value::String("url".to_string()));
-                        src.insert("url".to_string(), serde_json::Value::String(url.to_string()));
+                        src.insert(
+                            "id".to_string(),
+                            serde_json::Value::String(format!("{tool_call_id}:{i}")),
+                        );
+                        src.insert(
+                            "source_type".to_string(),
+                            serde_json::Value::String("url".to_string()),
+                        );
+                        src.insert(
+                            "url".to_string(),
+                            serde_json::Value::String(url.to_string()),
+                        );
                         if let Some(t) = title {
                             src.insert("title".to_string(), serde_json::Value::String(t));
                         }
@@ -571,9 +580,18 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
                                 let mut src = serde_json::Map::new();
-                                src.insert("id".to_string(), serde_json::Value::String(format!("ann:{ann_idx}")));
-                                src.insert("source_type".to_string(), serde_json::Value::String("url".to_string()));
-                                src.insert("url".to_string(), serde_json::Value::String(url.to_string()));
+                                src.insert(
+                                    "id".to_string(),
+                                    serde_json::Value::String(format!("ann:{ann_idx}")),
+                                );
+                                src.insert(
+                                    "source_type".to_string(),
+                                    serde_json::Value::String("url".to_string()),
+                                );
+                                src.insert(
+                                    "url".to_string(),
+                                    serde_json::Value::String(url.to_string()),
+                                );
                                 if let Some(t) = title {
                                     src.insert("title".to_string(), serde_json::Value::String(t));
                                 }
@@ -642,17 +660,29 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                 };
 
                                 let mut src = serde_json::Map::new();
-                                src.insert("id".to_string(), serde_json::Value::String(format!("ann:{ann_idx}")));
-                                src.insert("source_type".to_string(), serde_json::Value::String("document".to_string()));
+                                src.insert(
+                                    "id".to_string(),
+                                    serde_json::Value::String(format!("ann:{ann_idx}")),
+                                );
+                                src.insert(
+                                    "source_type".to_string(),
+                                    serde_json::Value::String("document".to_string()),
+                                );
                                 src.insert("url".to_string(), serde_json::Value::String(file_id));
                                 if let Some(t) = title {
                                     src.insert("title".to_string(), serde_json::Value::String(t));
                                 }
                                 if let Some(mt) = media_type {
-                                    src.insert("media_type".to_string(), serde_json::Value::String(mt));
+                                    src.insert(
+                                        "media_type".to_string(),
+                                        serde_json::Value::String(mt),
+                                    );
                                 }
                                 if let Some(fn_) = filename {
-                                    src.insert("filename".to_string(), serde_json::Value::String(fn_));
+                                    src.insert(
+                                        "filename".to_string(),
+                                        serde_json::Value::String(fn_),
+                                    );
                                 }
                                 if let Some(pm) = provider_metadata {
                                     src.insert("provider_metadata".to_string(), pm);

@@ -3,9 +3,9 @@
 //! Provides SSE event conversion for Anthropic streaming responses.
 //! The legacy AnthropicStreaming client has been removed in favor of the unified HttpChatExecutor.
 
-use crate::error::LlmError;
 use super::params::AnthropicParams;
 use super::provider_metadata::AnthropicSource;
+use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{ChatStreamEvent, StreamStateTracker};
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
@@ -1058,8 +1058,8 @@ impl SseEventConverter for AnthropicEventConverter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::params::AnthropicParams;
+    use super::*;
     use eventsource_stream::Event;
 
     fn create_test_config() -> AnthropicParams {

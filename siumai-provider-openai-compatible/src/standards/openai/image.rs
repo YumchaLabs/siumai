@@ -535,6 +535,7 @@ mod tests {
             image: vec![1, 2, 3, 4],
             mask: Some(vec![5, 6, 7, 8]),
             prompt: "Add a rainbow".to_string(),
+            model: None,
             count: Some(1),
             size: Some("512x512".to_string()),
             response_format: Some("url".to_string()),
@@ -562,6 +563,7 @@ mod tests {
 
         let request = ImageVariationRequest {
             image: vec![1, 2, 3, 4],
+            model: None,
             count: Some(2),
             size: Some("1024x1024".to_string()),
             response_format: Some("b64_json".to_string()),

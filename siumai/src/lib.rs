@@ -286,9 +286,11 @@ pub mod provider_ext {
             pub use siumai_provider_gemini::provider_options::gemini::{
                 GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions,
                 GeminiResponseModality, GeminiSafetySetting, GeminiThinkingConfig,
-                GeminiThinkingLevel,
+                GeminiThinkingLevel, VertexImagenInlineImage, VertexImagenOptions,
+                VertexImagenReferenceImage,
             };
             pub use siumai_provider_gemini::providers::gemini::ext::GeminiChatRequestExt;
+            pub use siumai_provider_gemini::providers::gemini::ext::VertexImagenRequestExt;
             pub use siumai_provider_gemini::providers::gemini::types::{
                 GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
             };
@@ -299,6 +301,8 @@ pub mod provider_ext {
             GeminiChatRequestExt, GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
             GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions, GeminiResponseModality,
             GeminiSafetySetting, GeminiThinkingConfig, GeminiThinkingLevel,
+            VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage,
+            VertexImagenRequestExt,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["google"]`).
