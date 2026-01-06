@@ -52,4 +52,4 @@ silently omitted to keep the unified surface stable.
 
 - Vertex Imagen uses the Vertex `:predict` endpoint and requires Bearer auth (ADC/service account).
 - For editing/inpainting, set `ImageEditRequest.model` to an Imagen edit model (e.g. `imagen-3.0-edit-001`).
-- Reference images and negative prompts can be passed via `providerOptions["gemini"]["vertexImagen"]` or `extra_params`.
+- Reference images and negative prompts can be passed via `providerOptions["gemini"]["vertex"]` or `extra_params`.

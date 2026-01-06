@@ -1,7 +1,7 @@
 //! Vertex AI Imagen provider options (Gemini provider id).
 //!
 //! These options are serialized under:
-//! - `providerOptions["gemini"]["vertexImagen"]`
+//! - `providerOptions["gemini"]["vertex"]`
 //!
 //! The actual wire format is passed through to the Vertex AI `:predict` endpoint.
 

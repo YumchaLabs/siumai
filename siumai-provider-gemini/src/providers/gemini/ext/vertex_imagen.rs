@@ -15,13 +15,15 @@ fn upsert_vertex_imagen(
     }
 
     if let Some(obj) = entry.as_object_mut() {
-        obj.insert("vertexImagen".to_string(), value);
+        // Vercel alignment: use `providerOptions.gemini.vertex` for Vertex AI knobs.
+        // Keep a legacy-compatible key reader (`vertexImagen`) on the transformer side.
+        obj.insert("vertex".to_string(), value);
     }
 }
 
 /// Vertex AI Imagen request option helpers.
 ///
-/// These helpers attach typed options under `providerOptions["gemini"]["vertexImagen"]`.
+/// These helpers attach typed options under `providerOptions["gemini"]["vertex"]`.
 pub trait VertexImagenRequestExt {
     /// Attach Vertex Imagen options to the request.
     fn with_vertex_imagen_options(self, options: VertexImagenOptions) -> Self;
