@@ -52,14 +52,17 @@ Provider id: `gemini` (tools use `google.*` ids)
 
 - [x] `google-code-execution.1` (provider tool -> `tools: [{ codeExecution: {} }]`; response + streaming emit `tool-call`/`tool-result`)
 - [x] `google-google-search.1` (Gemini 2.x -> `tools: [{ googleSearch: {} }]`)
+- [x] `google-search-retrieval.1` (Gemini 1.x -> `tools: [{ googleSearchRetrieval: {} }]`)
+- [x] `google-search-retrieval-dynamic.1` (Gemini 1.5 Flash -> `dynamicRetrievalConfig`)
 - [x] `google-url-context.1` (Gemini 2.x -> `tools: [{ urlContext: {} }]`)
+- [x] `google-enterprise-web-search.1` (Gemini 2.x -> `tools: [{ enterpriseWebSearch: {} }]`)
+- [x] `google-google-maps.1` (Gemini 2.x -> `tools: [{ googleMaps: {} }]`)
+- [x] `google-vertex-rag-store.1` (Gemini 2.x -> `tools: [{ retrieval: { vertex_rag_store: ... } }]`)
+- [x] `google-file-search.1` (Gemini 2.5 -> `tools: [{ fileSearch: { ... } }]`)
 
 ### Next
 
-- [ ] Add `gemini-1.x` search retrieval fixtures (`googleSearchRetrieval`, dynamic retrieval config)
-- [ ] Add `google.file_search` fixtures (Gemini 2.5+ only)
-- [ ] Add `google.google_maps` fixtures (Gemini 2+ only)
-- [ ] Add `google.vertex_rag_store` fixtures + Vertex-only warning parity
+- [ ] Add tool warning parity (unsupported tools, mixed tool types)
 
 ## OpenAI Responses Web Search
 

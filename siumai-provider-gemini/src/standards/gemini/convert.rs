@@ -231,7 +231,10 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
     ) -> Option<super::types::DynamicRetrievalConfig> {
         let obj = args.as_object()?;
         let mode = obj.get("mode").and_then(|v| v.as_str());
-        let dynamic_threshold = obj.get("dynamicThreshold").and_then(|v| v.as_f64());
+        let dynamic_threshold = match obj.get("dynamicThreshold") {
+            Some(serde_json::Value::Number(n)) => Some(n.clone()),
+            _ => None,
+        };
 
         if mode.is_none() && dynamic_threshold.is_none() {
             return None;
@@ -245,7 +248,7 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
 
         Some(super::types::DynamicRetrievalConfig {
             mode,
-            dynamic_threshold: dynamic_threshold.map(|v| v as f32),
+            dynamic_threshold,
         })
     }
 

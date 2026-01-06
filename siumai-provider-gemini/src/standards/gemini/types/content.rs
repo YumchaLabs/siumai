@@ -366,7 +366,7 @@ pub struct DynamicRetrievalConfig {
     /// Dynamic threshold (0.0 to 1.0)
     /// Only search if confidence > threshold
     #[serde(skip_serializing_if = "Option::is_none", rename = "dynamicThreshold")]
-    pub dynamic_threshold: Option<f32>,
+    pub dynamic_threshold: Option<serde_json::Number>,
 }
 
 /// Dynamic retrieval mode

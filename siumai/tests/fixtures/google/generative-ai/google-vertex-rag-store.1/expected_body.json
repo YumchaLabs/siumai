@@ -1,0 +1,26 @@
+{
+  "model": "gemini-2.0-pro",
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "retrieval": {
+        "vertex_rag_store": {
+          "rag_resources": {
+            "rag_corpus": "projects/my-project/locations/us-central1/ragCorpora/my-rag-corpus"
+          },
+          "similarity_top_k": 5
+        }
+      }
+    }
+  ]
+}
+

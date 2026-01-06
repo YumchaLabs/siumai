@@ -59,7 +59,7 @@ async fn test_google_search_retrieval_tool_serialization() {
         google_search_retrieval: GoogleSearchRetrieval {
             dynamic_retrieval_config: Some(DynamicRetrievalConfig {
                 mode: DynamicRetrievalMode::Dynamic,
-                dynamic_threshold: Some(0.7),
+                dynamic_threshold: serde_json::Number::from_f64(0.7),
             }),
         },
     };
