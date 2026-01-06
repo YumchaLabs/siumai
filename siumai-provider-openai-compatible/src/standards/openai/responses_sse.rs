@@ -7,7 +7,7 @@
 //! Note: Providers may re-export this converter under historical module paths
 //! (e.g. `providers::openai::responses::OpenAiResponsesEventConverter`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 /// OpenAI Responses SSE event converter using unified streaming utilities
@@ -15,6 +15,13 @@ use std::sync::{Arc, Mutex};
 pub struct OpenAiResponsesEventConverter {
     function_call_ids_by_output_index: Arc<Mutex<HashMap<u64, String>>>,
     provider_tool_name_by_item_type: Arc<Mutex<HashMap<String, String>>>,
+    mcp_calls_by_item_id: Arc<Mutex<HashMap<String, (String, String)>>>,
+    mcp_call_args_by_item_id: Arc<Mutex<HashMap<String, String>>>,
+    emitted_mcp_call_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_mcp_result_ids: Arc<Mutex<HashSet<String>>>,
+    mcp_approval_tool_call_id_by_approval_id: Arc<Mutex<HashMap<String, String>>>,
+    next_mcp_approval_tool_call_index: Arc<Mutex<u64>>,
+    emitted_mcp_approval_request_ids: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Default for OpenAiResponsesEventConverter {
@@ -22,6 +29,13 @@ impl Default for OpenAiResponsesEventConverter {
         Self {
             function_call_ids_by_output_index: Arc::new(Mutex::new(HashMap::new())),
             provider_tool_name_by_item_type: Arc::new(Mutex::new(HashMap::new())),
+            mcp_calls_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            mcp_call_args_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            emitted_mcp_call_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_mcp_result_ids: Arc::new(Mutex::new(HashSet::new())),
+            mcp_approval_tool_call_id_by_approval_id: Arc::new(Mutex::new(HashMap::new())),
+            next_mcp_approval_tool_call_index: Arc::new(Mutex::new(0)),
+            emitted_mcp_approval_request_ids: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -169,6 +183,100 @@ impl OpenAiResponsesEventConverter {
     fn provider_tool_name_for_item_type(&self, item_type: &str) -> Option<String> {
         let map = self.provider_tool_name_by_item_type.lock().ok()?;
         map.get(item_type).cloned()
+    }
+
+    fn record_mcp_call_added(&self, item_id: &str, name: &str, server_label: &str) {
+        let Ok(mut map) = self.mcp_calls_by_item_id.lock() else {
+            return;
+        };
+        map.insert(
+            item_id.to_string(),
+            (name.to_string(), server_label.to_string()),
+        );
+    }
+
+    fn record_mcp_call_args(&self, item_id: &str, args: &str) {
+        let Ok(mut map) = self.mcp_call_args_by_item_id.lock() else {
+            return;
+        };
+        map.insert(item_id.to_string(), args.to_string());
+    }
+
+    fn mcp_call_meta(&self, item_id: &str) -> Option<(String, String)> {
+        let map = self.mcp_calls_by_item_id.lock().ok()?;
+        map.get(item_id).cloned()
+    }
+
+    fn mcp_call_args(&self, item_id: &str) -> Option<String> {
+        let map = self.mcp_call_args_by_item_id.lock().ok()?;
+        map.get(item_id).cloned()
+    }
+
+    fn mark_mcp_call_emitted(&self, item_id: &str) {
+        if let Ok(mut set) = self.emitted_mcp_call_ids.lock() {
+            set.insert(item_id.to_string());
+        }
+    }
+
+    fn mark_mcp_result_emitted(&self, item_id: &str) {
+        if let Ok(mut set) = self.emitted_mcp_result_ids.lock() {
+            set.insert(item_id.to_string());
+        }
+    }
+
+    fn has_emitted_mcp_call(&self, item_id: &str) -> bool {
+        self.emitted_mcp_call_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(item_id))
+    }
+
+    fn has_emitted_mcp_result(&self, item_id: &str) -> bool {
+        self.emitted_mcp_result_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(item_id))
+    }
+
+    fn mcp_approval_tool_call_id(&self, approval_id: &str) -> String {
+        if approval_id.is_empty() {
+            return "id-0".to_string();
+        }
+
+        if let Ok(mut map) = self.mcp_approval_tool_call_id_by_approval_id.lock() {
+            if let Some(id) = map.get(approval_id) {
+                return id.clone();
+            }
+
+            let idx = self
+                .next_mcp_approval_tool_call_index
+                .lock()
+                .ok()
+                .map(|v| *v)
+                .unwrap_or(0);
+            if let Ok(mut next) = self.next_mcp_approval_tool_call_index.lock() {
+                *next = idx.saturating_add(1);
+            }
+
+            let id = format!("id-{idx}");
+            map.insert(approval_id.to_string(), id.clone());
+            return id;
+        }
+
+        "id-0".to_string()
+    }
+
+    fn mark_mcp_approval_request_emitted(&self, approval_id: &str) {
+        if let Ok(mut set) = self.emitted_mcp_approval_request_ids.lock() {
+            set.insert(approval_id.to_string());
+        }
+    }
+
+    fn has_emitted_mcp_approval_request(&self, approval_id: &str) -> bool {
+        self.emitted_mcp_approval_request_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(approval_id))
     }
 
     fn convert_responses_event(
@@ -437,6 +545,44 @@ impl OpenAiResponsesEventConverter {
         let output_index = json.get("output_index").and_then(|v| v.as_u64());
 
         let (default_tool_name, input) = match item_type {
+            "mcp_call" => {
+                // MCP tool calls stream arguments separately. Record metadata here,
+                // emit tool-call when arguments are available.
+                let item_id = item.get("id")?.as_str()?;
+                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let server_label = item
+                    .get("server_label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                self.record_mcp_call_added(item_id, name, server_label);
+                return None;
+            }
+            "mcp_approval_request" => {
+                // Vercel alignment: represent approval request as a dynamic tool-call
+                // followed by a tool-approval-request (emitted on output_item.done).
+                let approval_id = item.get("id")?.as_str()?;
+                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let args = item
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{}");
+                let tool_call_id = self.mcp_approval_tool_call_id(approval_id);
+                let tool_name = format!("mcp.{name}");
+
+                return Some(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-call".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-call",
+                        "dynamic": true,
+                        "toolCallId": tool_call_id,
+                        "toolName": tool_name,
+                        "input": args,
+                        "providerExecuted": true,
+                        "outputIndex": output_index,
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                });
+            }
             "web_search_call" => ("web_search", serde_json::json!("{}")),
             "file_search_call" => ("file_search", serde_json::json!("{}")),
             "computer_call" => ("computer_use", serde_json::json!("")),
@@ -487,6 +633,90 @@ impl OpenAiResponsesEventConverter {
         let mut extra_events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
 
         let (default_tool_name, result) = match item_type {
+            "mcp_approval_request" => {
+                let approval_id = item.get("id")?.as_str()?;
+                if self.has_emitted_mcp_approval_request(approval_id) {
+                    return None;
+                }
+
+                let tool_call_id = self.mcp_approval_tool_call_id(approval_id);
+                extra_events.push(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-approval-request".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-approval-request",
+                        "approvalId": approval_id,
+                        "toolCallId": tool_call_id,
+                        "outputIndex": output_index,
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                });
+
+                self.mark_mcp_approval_request_emitted(approval_id);
+                return Some(extra_events);
+            }
+            "mcp_call" => {
+                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let server_label = item
+                    .get("server_label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let args = item
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| self.mcp_call_args(tool_call_id))
+                    .unwrap_or_else(|| "{}".to_string());
+                let output = item
+                    .get("output")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+
+                let tool_name = format!("mcp.{name}");
+                let tool_name_for_result = tool_name.clone();
+                let args_for_result = args.clone();
+
+                if !self.has_emitted_mcp_call(tool_call_id) {
+                    extra_events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:tool-call".to_string(),
+                        data: serde_json::json!({
+                            "type": "tool-call",
+                            "dynamic": true,
+                            "toolCallId": tool_call_id,
+                            "toolName": tool_name,
+                            "input": args,
+                            "providerExecuted": true,
+                            "outputIndex": output_index,
+                            "rawItem": serde_json::Value::Object(item.clone()),
+                        }),
+                    });
+                    self.mark_mcp_call_emitted(tool_call_id);
+                }
+
+                if self.has_emitted_mcp_result(tool_call_id) {
+                    return Some(extra_events);
+                }
+                self.mark_mcp_result_emitted(tool_call_id);
+
+                return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-result".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-result",
+                        "toolCallId": tool_call_id,
+                        "toolName": tool_name_for_result,
+                        "result": {
+                            "type": "call",
+                            "serverLabel": server_label,
+                            "name": name,
+                            "arguments": args_for_result,
+                            "output": output,
+                        },
+                        "providerExecuted": true,
+                        "outputIndex": output_index,
+                        "providerMetadata": { "openai": { "itemId": tool_call_id } },
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                }]);
+            }
             "web_search_call" => {
                 // Include results if present (align with non-streaming transformer).
                 let results = item
@@ -667,6 +897,161 @@ impl OpenAiResponsesEventConverter {
         events.extend(extra_events);
         Some(events)
     }
+
+    fn convert_mcp_call_arguments_done(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str())?;
+        let args = json.get("arguments").and_then(|v| v.as_str())?;
+        self.record_mcp_call_args(item_id, args);
+
+        if self.has_emitted_mcp_call(item_id) {
+            return None;
+        }
+
+        let (name, _server_label) = self.mcp_call_meta(item_id)?;
+        self.mark_mcp_call_emitted(item_id);
+
+        let tool_name = format!("mcp.{name}");
+        let output_index = json.get("output_index").and_then(|v| v.as_u64());
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "dynamic": true,
+                "toolCallId": item_id,
+                "toolName": tool_name,
+                "input": args,
+                "providerExecuted": true,
+                "outputIndex": output_index,
+            }),
+        })
+    }
+
+    fn convert_mcp_items_from_completed(
+        &self,
+        json: &serde_json::Value,
+    ) -> Vec<crate::streaming::ChatStreamEvent> {
+        let Some(output) = json
+            .get("response")
+            .and_then(|r| r.get("output"))
+            .and_then(|v| v.as_array())
+        else {
+            return Vec::new();
+        };
+
+        let mut events = Vec::new();
+
+        for item in output {
+            let Some(item_type) = item.get("type").and_then(|v| v.as_str()) else {
+                continue;
+            };
+
+            match item_type {
+                "mcp_call" => {
+                    let Some(tool_call_id) = item.get("id").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    if self.has_emitted_mcp_result(tool_call_id) {
+                        continue;
+                    }
+
+                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let server_label = item
+                        .get("server_label")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let args = item
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}");
+                    let output = item
+                        .get("output")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let tool_name = format!("mcp.{name}");
+                    let tool_name_for_result = tool_name.clone();
+
+                    if !self.has_emitted_mcp_call(tool_call_id) {
+                        events.push(crate::streaming::ChatStreamEvent::Custom {
+                            event_type: "openai:tool-call".to_string(),
+                            data: serde_json::json!({
+                                "type": "tool-call",
+                                "dynamic": true,
+                                "toolCallId": tool_call_id,
+                                "toolName": tool_name,
+                                "input": args,
+                                "providerExecuted": true,
+                            }),
+                        });
+                        self.mark_mcp_call_emitted(tool_call_id);
+                    }
+
+                    events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:tool-result".to_string(),
+                        data: serde_json::json!({
+                            "type": "tool-result",
+                            "toolCallId": tool_call_id,
+                            "toolName": tool_name_for_result,
+                            "result": {
+                                "type": "call",
+                                "serverLabel": server_label,
+                                "name": name,
+                                "arguments": args,
+                                "output": output,
+                            },
+                            "providerExecuted": true,
+                            "providerMetadata": { "openai": { "itemId": tool_call_id } },
+                        }),
+                    });
+                    self.mark_mcp_result_emitted(tool_call_id);
+                }
+                "mcp_approval_request" => {
+                    let Some(approval_id) = item.get("id").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    if self.has_emitted_mcp_approval_request(approval_id) {
+                        continue;
+                    }
+                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let args = item
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}");
+                    let tool_call_id = self.mcp_approval_tool_call_id(approval_id);
+                    let tool_call_id_for_approval = tool_call_id.clone();
+                    let tool_name = format!("mcp.{name}");
+
+                    events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:tool-call".to_string(),
+                        data: serde_json::json!({
+                            "type": "tool-call",
+                            "dynamic": true,
+                            "toolCallId": tool_call_id,
+                            "toolName": tool_name,
+                            "input": args,
+                            "providerExecuted": true,
+                        }),
+                    });
+                    events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:tool-approval-request".to_string(),
+                        data: serde_json::json!({
+                            "type": "tool-approval-request",
+                            "approvalId": approval_id,
+                            "toolCallId": tool_call_id_for_approval,
+                        }),
+                    });
+
+                    self.mark_mcp_approval_request_emitted(approval_id);
+                }
+                _ => {}
+            }
+        }
+
+        events
+    }
 }
 
 impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
@@ -714,6 +1099,8 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
             };
 
             if chunk_type == "response.completed" {
+                let mut extra_events = self.convert_mcp_items_from_completed(&json);
+
                 // The completed event often contains the full response payload.
                 // Delegate to centralized ResponseTransformer for final ChatResponse.
                 let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
@@ -721,9 +1108,8 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     &resp_tx, &json,
                 ) {
                     Ok(response) => {
-                        return vec![Ok(crate::streaming::ChatStreamEvent::StreamEnd {
-                            response,
-                        })];
+                        extra_events.push(crate::streaming::ChatStreamEvent::StreamEnd { response });
+                        return extra_events.into_iter().map(Ok).collect();
                     }
                     Err(err) => return vec![Err(err)],
                 }
@@ -756,6 +1142,18 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 }
                 "response.function_call_arguments.delta" => {
                     if let Some(evt) = self.convert_function_call_arguments_delta(json) {
+                        return vec![Ok(evt)];
+                    }
+                }
+                "response.mcp_call_arguments.delta" => {
+                    if let Some(item_id) = json.get("item_id").and_then(|v| v.as_str())
+                        && let Some(delta) = json.get("delta").and_then(|v| v.as_str())
+                    {
+                        self.record_mcp_call_args(item_id, delta);
+                    }
+                }
+                "response.mcp_call_arguments.done" => {
+                    if let Some(evt) = self.convert_mcp_call_arguments_done(&json) {
                         return vec![Ok(evt)];
                     }
                 }

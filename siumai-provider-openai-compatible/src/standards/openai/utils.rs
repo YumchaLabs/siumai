@@ -88,6 +88,48 @@ pub fn convert_tools_to_responses_format(
                 };
 
                 match raw {
+                    "mcp" => {
+                        // Vercel alignment (OpenAI Responses MCP tool):
+                        // - Tool args are SDK-shaped camelCase, Responses expects snake_case.
+                        // - Default require_approval to "never" when omitted.
+                        if let Some(v) = args_obj
+                            .get("serverLabel")
+                            .or_else(|| args_obj.get("server_label"))
+                        {
+                            openai_tool["server_label"] = v.clone();
+                        }
+                        if let Some(v) = args_obj
+                            .get("serverUrl")
+                            .or_else(|| args_obj.get("server_url"))
+                        {
+                            openai_tool["server_url"] = v.clone();
+                        }
+                        if let Some(v) = args_obj
+                            .get("serverDescription")
+                            .or_else(|| args_obj.get("server_description"))
+                        {
+                            openai_tool["server_description"] = v.clone();
+                        }
+
+                        if let Some(v) = args_obj
+                            .get("requireApproval")
+                            .or_else(|| args_obj.get("require_approval"))
+                        {
+                            openai_tool["require_approval"] = v.clone();
+                        } else {
+                            openai_tool["require_approval"] = serde_json::json!("never");
+                        }
+
+                        if let Some(v) = args_obj
+                            .get("allowedTools")
+                            .or_else(|| args_obj.get("allowed_tools"))
+                        {
+                            openai_tool["allowed_tools"] = v.clone();
+                        }
+                        if let Some(v) = args_obj.get("headers") {
+                            openai_tool["headers"] = v.clone();
+                        }
+                    }
                     "web_search" | "web_search_preview" => {
                         if let Some(v) = args_obj
                             .get("searchContextSize")

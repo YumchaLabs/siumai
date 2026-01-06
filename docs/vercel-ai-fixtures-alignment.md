@@ -94,6 +94,17 @@ Provider id: `openai` (Responses API)
 - [x] Streaming SSE converter emits `toolName: "shell"` for `local_shell_call` / `shell_call`
 - [x] Streaming SSE converter emits `toolName: "apply_patch"` for `apply_patch_call`
 
+## OpenAI Responses MCP Tool Calling
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Request body tool mapping for `openai.mcp` (snake_case keys, default `require_approval: "never"`)
+- [x] Streaming SSE converter emits `toolName: "mcp.<tool>"` for `mcp_call` + `tool-result`
+- [x] Streaming SSE converter emits `tool-approval-request` for `mcp_approval_request` (Vercel `toolCallId: "id-0"` style)
+- [x] Streaming SSE `response.completed` backfills missing MCP tool-call/results (fixture contains 2 `mcp_call` items)
+
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
 Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE stream)
