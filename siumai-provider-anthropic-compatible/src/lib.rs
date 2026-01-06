@@ -1,6 +1,6 @@
 //! siumai-provider-anthropic-compatible
 //!
-//! Anthropic-compatible protocol standard (Vercel-aligned):
+//! Anthropic Messages protocol standard (Vercel-aligned; legacy crate name):
 //! - Anthropic Messages API mapping (Chat + streaming)
 //! - Prompt caching + thinking helpers (protocol-level)
 //!

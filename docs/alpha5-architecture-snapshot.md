@@ -5,11 +5,12 @@ focused on **where protocol standards live** and **how provider-specific extensi
 
 ## Where `standards/*` lives now
 
-Provider-specific protocol mapping is provider-owned:
+Provider-specific protocol mapping is **protocol-crate-owned** (provider crates re-export for compatibility):
 
 - OpenAI-like standard: `siumai-provider-openai-compatible/src/standards/openai/*`
 - Anthropic Messages standard: `siumai-provider-anthropic-compatible/src/standards/anthropic/*`
-- Gemini standard: `siumai-provider-gemini/src/standards/gemini/*`
+- Gemini standard: `siumai-protocol-gemini/src/standards/gemini/*`
+- Vertex Imagen standard: `siumai-protocol-vertex/src/standards/vertex_imagen.rs`
 - Ollama standard: `siumai-provider-ollama/src/standards/ollama/*`
 
 Providers that reuse another provider’s standard may not have a `src/standards/*` directory.
@@ -33,6 +34,7 @@ Current state:
 - Anthropic typed metadata: `siumai-provider-anthropic-compatible/src/provider_metadata/anthropic.rs` (re-exported by `siumai-provider-anthropic`)
 - Gemini typed options: `siumai-provider-gemini/src/provider_options/gemini/*`
 - Gemini typed metadata: `siumai-provider-gemini/src/provider_metadata/gemini.rs`
+- Vertex typed options: `siumai-provider-google-vertex/src/provider_options/vertex/*`
 - Groq typed options: `siumai-provider-groq/src/provider_options/*`
 - xAI typed options: `siumai-provider-xai/src/provider_options/*`
 - Ollama typed options: `siumai-provider-ollama/src/provider_options/*`

@@ -1,6 +1,6 @@
 //! siumai-provider-openai-compatible
 //!
-//! OpenAI-compatible provider foundation (Vercel-aligned):
+//! OpenAI-like protocol standard (Vercel-aligned; legacy crate name):
 //! - OpenAI-like protocol standard mapping (Chat/Embedding/Image/Rerank)
 //! - Vendor presets + adapter wiring for OpenAI-compatible endpoints
 //!

@@ -32,7 +32,10 @@ Notes:
 
 - `siumai` is the facade crate (feature aggregation + stable preludes).
 - `siumai-registry` owns the registry abstractions and optional built-in provider wiring.
-- Some protocols are already factored as “family crates”:
+- Some protocols are already factored into protocol crates:
+  - Gemini: `siumai-protocol-gemini`
+  - Vertex (Imagen): `siumai-protocol-vertex`
+- Some protocols are factored as “family crates” (protocol crates with legacy names):
   - OpenAI-like: `siumai-provider-openai-compatible`
   - Anthropic Messages: `siumai-provider-anthropic-compatible`
 
@@ -72,9 +75,10 @@ existing paths (e.g. keep `siumai_provider_gemini::standards::gemini::*` working
 
 Start with the highest-coupling provider first:
 
-1. `siumai-protocol-gemini` (extract `siumai-provider-gemini/src/standards/gemini/*`)
-2. `siumai-protocol-ollama` (if/when Ollama standard grows beyond the provider implementation)
-3. OpenAI-like and Anthropic Messages are already split as family crates; we can optionally rename
+1. `siumai-protocol-gemini` (done)
+2. `siumai-protocol-vertex` (done)
+3. `siumai-protocol-ollama` (if/when Ollama standard grows beyond the provider implementation)
+4. OpenAI-like and Anthropic Messages are already split as family crates; we can optionally rename
    them later, but renaming is a breaking/coordination cost and is not required for the refactor.
 
 ## Migration checklist (for each provider)
@@ -84,4 +88,3 @@ Start with the highest-coupling provider first:
 - [ ] Keep provider-owned extension traits (typed helpers) in the provider crate.
 - [ ] Re-export protocol modules from the provider crate to preserve paths.
 - [ ] Run `cargo fmt` and `cargo nextest run` for the relevant feature set.
-

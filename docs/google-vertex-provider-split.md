@@ -24,8 +24,8 @@ This document proposes a split that matches Vercel’s granularity while keeping
 - Make Vertex AI a separate provider package/crate.
 - Keep `siumai-core` provider-agnostic.
 - Reduce cross-module coupling by enforcing ownership:
-  - Vertex Imagen request/response mapping lives in the Vertex provider crate.
-  - Gemini API mapping lives in the Gemini provider crate.
+  - Vertex Imagen request/response mapping lives in a Vertex protocol crate.
+  - Gemini API mapping lives in a Gemini protocol crate.
 - Keep fixtures and tests provider-scoped and reusable.
 
 ## Non-goals
@@ -40,8 +40,12 @@ This document proposes a split that matches Vercel’s granularity while keeping
 Owns:
 
 - Vertex AI routing/spec for `:predict` family endpoints.
-- Vertex Imagen mapping (`models/{imagen-...}:predict`).
+- Vertex Imagen provider implementation that wires the protocol mapping into executors/specs.
 - Vertex-specific typed provider options / helpers (future).
+
+Protocol mapping lives in:
+
+- `siumai-protocol-vertex/src/standards/vertex_imagen.rs`
 
 Public surface (facade exports):
 
@@ -52,12 +56,11 @@ Public surface (facade exports):
 
 Owns:
 
-- Gemini API mapping (`generativelanguage.googleapis.com`).
 - Gemini provider-specific options/metadata and hosted tools.
 
 Stops owning:
 
-- Vertex Imagen mapping and routing heuristics (moved to the Vertex crate).
+- Vertex Imagen mapping and routing heuristics (moved to `siumai-provider-google-vertex` + `siumai-protocol-vertex`).
 
 ## Provider identity & providerOptions key
 
@@ -75,7 +78,7 @@ Registry aliases can map:
 
 ## Migration plan (incremental)
 
-1. Introduce `siumai-provider-google-vertex` with the Vertex Imagen standard + a minimal image client.
+1. Introduce `siumai-provider-google-vertex` + `siumai-protocol-vertex` for Vertex Imagen (`:predict`) + a minimal image client.
 2. Update fixtures/tests to be routed through the Vertex provider (instead of Gemini).
 3. Update examples/docs:
    - Move `vertex_imagen_edit` example under a Vertex feature flag.
@@ -88,4 +91,3 @@ Registry aliases can map:
 - Add executor-level end-to-end tests to validate:
   - `warnings` for unsupported settings (e.g., `size`)
   - response envelope (`timestamp`, `modelId`, response headers)
-

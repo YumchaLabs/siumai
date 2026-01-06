@@ -9,6 +9,11 @@ Accepted (incremental rollout)
 The historical umbrella crate `siumai-providers` is now **legacy** and removed from the workspace.
 The `siumai` facade and `siumai-registry` wire provider crates directly.
 
+Protocol mapping is being moved out of provider crates into protocol crates to reduce coupling:
+
+- New protocol crates: `siumai-protocol-gemini`, `siumai-protocol-vertex`
+- Legacy protocol/family crates (kept for compatibility): `siumai-provider-openai-compatible`, `siumai-provider-anthropic-compatible`
+
 ## Context
 
 Siumai is in a fearless refactor phase and is already split into:
@@ -17,10 +22,15 @@ Siumai is in a fearless refactor phase and is already split into:
 - `siumai-core` (provider-agnostic runtime + types)
 - `siumai-registry` (registry + factories)
 - `siumai-extras` (orchestrator/telemetry/server/mcp utilities)
-- `siumai-provider-openai` (OpenAI provider + OpenAI-like protocol family)
+- `siumai-provider-openai` (OpenAI provider implementation; depends on the OpenAI-like protocol family crate)
+- `siumai-provider-openai-compatible` (OpenAI-like protocol family crate; reused by multiple providers)
 - `siumai-provider-ollama` (Ollama provider + Ollama standard)
-- `siumai-provider-anthropic` (Anthropic provider + Anthropic standard)
-- `siumai-provider-gemini` (Gemini provider + Gemini standard)
+- `siumai-provider-anthropic` (Anthropic provider implementation; depends on the Anthropic Messages protocol family crate)
+- `siumai-provider-anthropic-compatible` (Anthropic Messages protocol family crate)
+- `siumai-provider-gemini` (Gemini provider implementation)
+- `siumai-protocol-gemini` (Gemini protocol standard)
+- `siumai-provider-google-vertex` (Vertex provider implementation)
+- `siumai-protocol-vertex` (Vertex protocol standard)
 - `siumai-provider-groq` (Groq provider; OpenAI-like)
 - `siumai-provider-xai` (xAI provider; OpenAI-like)
 - `siumai-provider-minimaxi` (MiniMaxi provider; Anthropic chat + OpenAI-like media endpoints)
@@ -58,14 +68,14 @@ Adopt a **provider-first crate split**:
 OpenAI and OpenAI-compatible vendors share substantial protocol behavior.
 To avoid duplicated mapping/stream parsing logic:
 
-- The OpenAI provider crate also owns the OpenAI-like protocol adapter layer.
+- The OpenAI-like protocol adapter layer lives in `siumai-provider-openai-compatible` (family/protocol crate).
 - OpenAI-compatible vendors remain “presets” (base URL / headers / quirks) rather than separate crates.
 
 This keeps naming aligned with “provider crates” while still enabling reuse.
 
 ## Options considered
 
-### Option A — Keep a separate “openai-like family” crate forever
+### Option A — Keep a separate “openai-like family” crate (current)
 
 Pros:
 - other providers can depend on it without depending on OpenAI provider code
@@ -74,7 +84,7 @@ Cons:
 - naming ambiguity (`siumai-provider-openai` vs “OpenAI-like protocol”)
 - harder to explain ownership to users (“is this provider or protocol?”)
 
-### Option B — Make OpenAI provider crate also own the OpenAI-like protocol layer (chosen)
+### Option B — Make OpenAI provider crate also own the OpenAI-like protocol layer (not used in beta.5+)
 
 Pros:
 - naming stays provider-first (`siumai-provider-openai` is the OpenAI crate)

@@ -6,7 +6,8 @@
 //! - the OpenAI provider implementation (client + builder + extensions)
 //! - the OpenAI-compatible vendor provider implementation (configuration presets + adapter wiring)
 //!
-//! The reusable OpenAI-like protocol mapping lives in `siumai-provider-openai-compatible`.
+//! The reusable OpenAI-like protocol mapping lives in `siumai-provider-openai-compatible` and is
+//! re-exported under `crate::standards` for compatibility.
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the standard implementation.

@@ -1,12 +1,13 @@
 //! siumai-provider-anthropic
 //!
-//! Anthropic provider implementation + shared Anthropic Messages protocol standard.
+//! Anthropic provider implementation.
 //!
 //! This crate owns:
 //! - the Anthropic provider implementation (client + builder + extensions)
-//! - the Anthropic provider implementation (client + builder + extensions)
+//! - provider-owned typed options/metadata and extension traits
 //!
-//! The reusable Anthropic Messages protocol mapping lives in `siumai-provider-anthropic-compatible`.
+//! The reusable Anthropic Messages protocol mapping lives in `siumai-provider-anthropic-compatible`
+//! and is re-exported under `crate::standards` for compatibility.
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the provider implementation.
