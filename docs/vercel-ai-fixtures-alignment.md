@@ -135,6 +135,7 @@ Provider id: `anthropic`
 - [x] `anthropic-memory-20250818.1` (provider tool + `context-management-2025-06-27` beta)
 - [x] `anthropic-code-execution-20250825.1` (provider tool + `code-execution-2025-08-25` beta; stable `code_execution` toolName)
 - [x] `anthropic-code-execution-20250825.2` (code execution result preserves `file_id` outputs)
+- [x] `anthropic-code-execution-20250825.pptx-skill` (agent skills container in request body + `skills/files-api` betas + providerMetadata container.skills)
 - [x] `anthropic-programmatic-tool-calling.1` (caller metadata + stable `code_execution` toolName)
 
 ### Next

@@ -223,7 +223,7 @@ impl ResponseTransformer for AnthropicResponseTransformer {
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
         use super::provider_metadata::{
-            AnthropicCitation, AnthropicCitationsBlock, AnthropicServerToolUse, AnthropicSource,
+            AnthropicCitation, AnthropicCitationsBlock, AnthropicSource,
         };
         use crate::types::ContentPart;
 
@@ -276,48 +276,85 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             parse_finish_reason(response.stop_reason.as_deref())
         };
 
-        // Provider metadata (Vercel alignment): expose citations + server tool usage counters.
+        // Provider metadata (Vercel alignment): match AI SDK `providerMetadata.anthropic` shape.
         let provider_metadata = {
             let mut anthropic_meta: std::collections::HashMap<String, serde_json::Value> =
                 std::collections::HashMap::new();
 
-            // Raw envelope metadata (Vercel alignment): expose container/context management when present.
-            if let Some(v) = raw.get("container") {
-                anthropic_meta.insert("container".to_string(), v.clone());
+            fn map_container(v: &serde_json::Value) -> Option<serde_json::Value> {
+                let obj = v.as_object()?;
+                let mut out = serde_json::Map::new();
+
+                if let Some(id) = obj.get("id") {
+                    out.insert("id".to_string(), id.clone());
+                }
+
+                out.insert(
+                    "expiresAt".to_string(),
+                    obj.get("expires_at")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+
+                let skills = obj
+                    .get("skills")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let mapped_skills = match skills {
+                    serde_json::Value::Array(arr) => {
+                        let mut out_arr: Vec<serde_json::Value> = Vec::new();
+                        for item in arr {
+                            let Some(skill) = item.as_object() else {
+                                out_arr.push(item);
+                                continue;
+                            };
+                            let mut out_skill = serde_json::Map::new();
+                            if let Some(t) = skill.get("type") {
+                                out_skill.insert("type".to_string(), t.clone());
+                            }
+                            out_skill.insert(
+                                "skillId".to_string(),
+                                skill
+                                    .get("skill_id")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null),
+                            );
+                            if let Some(v) = skill.get("version") {
+                                out_skill.insert("version".to_string(), v.clone());
+                            }
+                            out_arr.push(serde_json::Value::Object(out_skill));
+                        }
+                        serde_json::Value::Array(out_arr)
+                    }
+                    other => other,
+                };
+                out.insert("skills".to_string(), mapped_skills);
+
+                Some(serde_json::Value::Object(out))
+            }
+
+            // Raw envelope metadata: include nulls when provided by the API.
+            if let Some(v) = raw.get("container")
+                && let Some(mapped) = map_container(v)
+            {
+                anthropic_meta.insert("container".to_string(), mapped);
             }
             if let Some(v) = raw.get("context_management") {
-                anthropic_meta.insert("context_management".to_string(), v.clone());
+                anthropic_meta.insert("contextManagement".to_string(), v.clone());
             }
-            if let Some(seq) = &response.stop_sequence {
-                anthropic_meta.insert("stop_sequence".to_string(), serde_json::json!(seq));
+            if let Some(v) = raw.get("stop_sequence") {
+                anthropic_meta.insert("stopSequence".to_string(), v.clone());
             }
 
-            // Usage-derived metadata
-            if let Some(u) = &response.usage {
-                if let Some(v) = u.cache_creation_input_tokens {
-                    anthropic_meta.insert(
-                        "cache_creation_input_tokens".to_string(),
-                        serde_json::json!(v),
-                    );
-                }
-                if let Some(v) = u.cache_read_input_tokens {
-                    anthropic_meta
-                        .insert("cache_read_input_tokens".to_string(), serde_json::json!(v));
-                }
+            // Usage: keep raw usage object (snake_case) and expose derived cache creation tokens.
+            if let Some(v) = raw.get("usage") {
+                anthropic_meta.insert("usage".to_string(), v.clone());
 
-                if let Some(tier) = &u.service_tier {
-                    anthropic_meta.insert("service_tier".to_string(), serde_json::json!(tier));
-                }
-
-                if let Some(stu) = &u.server_tool_use {
-                    let server_tool_use = AnthropicServerToolUse {
-                        web_search_requests: stu.web_search_requests,
-                        web_fetch_requests: stu.web_fetch_requests,
-                    };
-                    if let Ok(v) = serde_json::to_value(server_tool_use) {
-                        anthropic_meta.insert("server_tool_use".to_string(), v);
-                    }
-                }
+                let cache_creation = v
+                    .get("cache_creation_input_tokens")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                anthropic_meta.insert("cacheCreationInputTokens".to_string(), cache_creation);
             }
 
             // Content-block citations (best-effort; keep unknown fields)

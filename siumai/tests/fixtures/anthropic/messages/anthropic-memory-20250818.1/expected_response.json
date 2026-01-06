@@ -24,10 +24,19 @@
   "service_tier": "standard",
   "provider_metadata": {
     "anthropic": {
-      "cache_creation_input_tokens": 0,
-      "cache_read_input_tokens": 0,
-      "context_management": { "applied_edits": [] },
-      "service_tier": "standard"
+      "cacheCreationInputTokens": 0,
+      "contextManagement": { "applied_edits": [] },
+      "usage": {
+        "input_tokens": 1614,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 69,
+        "service_tier": "standard"
+      }
     }
   },
   "audio": null

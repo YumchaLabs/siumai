@@ -171,6 +171,36 @@ fn anthropic_mcp_servers_enable_beta_header() {
 }
 
 #[test]
+fn anthropic_agent_skills_enable_beta_headers() {
+    let req: siumai::prelude::unified::ChatRequest = read_json(
+        fixtures_dir()
+            .join("anthropic-code-execution-20250825.pptx-skill")
+            .join("request.json"),
+    );
+
+    let spec = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new();
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let base = spec.build_headers(&ctx).expect("base headers");
+    let extra = spec.chat_request_headers(false, &req, &ctx);
+    let merged = spec.merge_request_headers(base, &extra);
+    let beta = merged
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    assert_eq!(
+        beta,
+        "code-execution-2025-08-25,skills-2025-10-02,files-api-2025-04-14"
+    );
+}
+
+#[test]
 fn anthropic_tool_search_enables_beta_header() {
     let req: siumai::prelude::unified::ChatRequest = read_json(
         fixtures_dir()
@@ -385,6 +415,52 @@ fn anthropic_code_execution_response_maps_to_stable_tool_name_and_container_meta
             .iter()
             .any(|v| v.get("type").and_then(|t| t.as_str()) == Some("bash_code_execution_result")),
         "expected bash_code_execution_result in tool results"
+    );
+}
+
+#[test]
+fn anthropic_agent_skills_provider_metadata_maps_container_skills() {
+    let root = fixtures_dir().join("anthropic-code-execution-20250825.pptx-skill");
+    let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
+    let raw: Value = read_json(root.join("response.json"));
+
+    let transformers = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new()
+        .choose_chat_transformers(
+            &req,
+            &ProviderContext::new(
+                "anthropic",
+                "https://api.anthropic.com/v1",
+                Some("test-api-key".to_string()),
+                HashMap::new(),
+            ),
+        );
+    let resp = transformers
+        .response
+        .transform_chat_response(&raw)
+        .expect("transform response");
+
+    let Some(meta) = resp.provider_metadata.as_ref() else {
+        panic!("expected provider_metadata");
+    };
+    let anthropic = meta.get("anthropic").expect("anthropic metadata missing");
+    let container = anthropic.get("container").expect("container missing");
+
+    assert!(
+        container
+            .get("expiresAt")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "expected provider_metadata.anthropic.container.expiresAt"
+    );
+
+    let skills = container.get("skills").expect("skills missing");
+    let Some(arr) = skills.as_array() else {
+        panic!("expected container.skills array");
+    };
+    assert!(
+        arr.iter()
+            .any(|s| s.get("skillId").and_then(|v| v.as_str()) == Some("pptx")),
+        "expected container.skills to include pptx skillId"
     );
 }
 

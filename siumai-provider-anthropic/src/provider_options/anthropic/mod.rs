@@ -14,6 +14,8 @@ pub struct AnthropicOptions {
     pub thinking_mode: Option<ThinkingModeConfig>,
     /// Structured output configuration (JSON object or JSON schema)
     pub response_format: Option<AnthropicResponseFormat>,
+    /// Container configuration (agent skills, etc.)
+    pub container: Option<AnthropicContainerConfig>,
 }
 
 impl AnthropicOptions {
@@ -54,6 +56,37 @@ impl AnthropicOptions {
         });
         self
     }
+
+    /// Configure container features (e.g., agent skills).
+    pub fn with_container(mut self, container: AnthropicContainerConfig) -> Self {
+        self.container = Some(container);
+        self
+    }
+}
+
+/// Anthropic container configuration.
+///
+/// This is used for enabling agent skills and related features that are scoped to a container.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AnthropicContainerConfig {
+    /// Optional container id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Optional skills list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<AnthropicContainerSkill>>,
+}
+
+/// Container skill entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicContainerSkill {
+    /// Skill provider type (e.g., "anthropic", "custom").
+    #[serde(rename = "type")]
+    pub skill_type: String,
+    /// Skill id (snake_case for the HTTP API).
+    pub skill_id: String,
+    /// Skill version (e.g., "latest").
+    pub version: String,
 }
 
 /// Prompt caching configuration

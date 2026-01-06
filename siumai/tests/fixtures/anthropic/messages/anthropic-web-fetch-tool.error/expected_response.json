@@ -43,12 +43,23 @@
   "service_tier": "standard",
   "provider_metadata": {
     "anthropic": {
-      "cache_creation_input_tokens": 0,
-      "cache_read_input_tokens": 0,
-      "service_tier": "standard",
-      "server_tool_use": { "web_search_requests": 0, "web_fetch_requests": 1 }
+      "cacheCreationInputTokens": 0,
+      "usage": {
+        "input_tokens": 1902,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 214,
+        "service_tier": "standard",
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 1
+        }
+      }
     }
   },
   "audio": null
 }
-

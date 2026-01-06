@@ -164,26 +164,50 @@ impl ProviderSpec for AnthropicSpec {
                 out.push("pdfs-2024-09-25");
             }
 
-            out.sort();
-            out.dedup();
             out
         }
 
+        fn has_agent_skills(req: &ChatRequest) -> bool {
+            let Some(v) = req.provider_options_map.get("anthropic") else {
+                return false;
+            };
+            let Some(obj) = v.as_object() else {
+                return false;
+            };
+            let Some(container) = obj.get("container").and_then(|v| v.as_object()) else {
+                return false;
+            };
+            let Some(skills) = container.get("skills").and_then(|v| v.as_array()) else {
+                return false;
+            };
+            !skills.is_empty()
+        }
+
         let mut tokens: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+
+        let mut push_token = |t: &str| {
+            if seen.insert(t.to_string()) {
+                tokens.push(t.to_string());
+            }
+        };
 
         if self
             .anthropic_mcp_servers_from_provider_options_map(req)
             .is_some()
         {
-            tokens.push("mcp-client-2025-04-04".to_string());
+            push_token("mcp-client-2025-04-04");
         }
 
         for t in required_beta_features(req) {
-            tokens.push(t.to_string());
+            push_token(t);
         }
 
-        tokens.sort();
-        tokens.dedup();
+        if has_agent_skills(req) {
+            push_token("skills-2025-10-02");
+            push_token("files-api-2025-04-14");
+        }
+
         if !tokens.is_empty() {
             out.insert("anthropic-beta".to_string(), tokens.join(","));
         }
@@ -253,9 +277,14 @@ impl ProviderSpec for AnthropicSpec {
         let response_format: Option<AnthropicResponseFormat> = options.response_format.clone();
         let mcp_servers: Option<Vec<serde_json::Value>> =
             self.anthropic_mcp_servers_from_provider_options_map(req);
+        let container = options.container.clone();
 
         // If neither thinking nor response format configured, nothing to inject
-        if thinking_mode.is_none() && response_format.is_none() && mcp_servers.is_none() {
+        if thinking_mode.is_none()
+            && response_format.is_none()
+            && mcp_servers.is_none()
+            && container.is_none()
+        {
             return None;
         }
 
@@ -298,6 +327,22 @@ impl ProviderSpec for AnthropicSpec {
 
             if let Some(ref servers) = mcp_servers {
                 out["mcp_servers"] = serde_json::Value::Array(servers.clone());
+            }
+
+            if let Some(ref container) = container {
+                let is_empty = container.id.is_none()
+                    && container
+                        .skills
+                        .as_ref()
+                        .map(|s| s.is_empty())
+                        .unwrap_or(true);
+                if !is_empty {
+                    out["container"] = serde_json::to_value(container).map_err(|e| {
+                        LlmError::InvalidParameter(format!(
+                            "Failed to serialize Anthropic container options: {e}"
+                        ))
+                    })?;
+                }
             }
 
             Ok(out)
@@ -371,6 +416,7 @@ impl AnthropicSpec {
                 "promptCaching" => "prompt_caching",
                 "thinkingMode" => "thinking_mode",
                 "responseFormat" => "response_format",
+                "expiresAt" => "expires_at",
                 // PromptCachingConfig
                 "cacheControl" => "cache_control",
                 // AnthropicCacheControl
@@ -378,6 +424,8 @@ impl AnthropicSpec {
                 "messageIndex" => "message_index",
                 // ThinkingModeConfig
                 "thinkingBudget" => "thinking_budget",
+                // Agent skills container
+                "skillId" => "skill_id",
                 _ => return None,
             })
         }

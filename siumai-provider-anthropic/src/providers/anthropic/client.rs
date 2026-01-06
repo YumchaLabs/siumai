@@ -391,8 +391,21 @@ impl AnthropicAutoBetaHeadersMiddleware {
             out.push("pdfs-2024-09-25");
         }
 
-        out.sort();
-        out.dedup();
+        // Agent skills (Vercel-aligned): requires both `skills` and `files` betas.
+        let has_agent_skills = req
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|v| v.as_object())
+            .and_then(|o| o.get("container"))
+            .and_then(|v| v.as_object())
+            .and_then(|o| o.get("skills"))
+            .and_then(|v| v.as_array())
+            .is_some_and(|arr| !arr.is_empty());
+        if has_agent_skills {
+            out.push("skills-2025-10-02");
+            out.push("files-api-2025-04-14");
+        }
+
         out
     }
 
@@ -449,6 +462,54 @@ impl LanguageModelMiddleware for AnthropicAutoBetaHeadersMiddleware {
         http.headers.insert("anthropic-beta".to_string(), merged);
 
         req
+    }
+
+    fn post_generate(
+        &self,
+        req: &ChatRequest,
+        mut resp: ChatResponse,
+    ) -> Result<ChatResponse, LlmError> {
+        let has_agent_skills = req
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|v| v.as_object())
+            .and_then(|o| o.get("container"))
+            .and_then(|v| v.as_object())
+            .and_then(|o| o.get("skills"))
+            .and_then(|v| v.as_array())
+            .is_some_and(|arr| !arr.is_empty());
+
+        if !has_agent_skills {
+            return Ok(resp);
+        }
+
+        let has_code_execution_tool = req
+            .tools
+            .as_ref()
+            .map(|tools| {
+                tools.iter().any(|tool| {
+                    let Tool::ProviderDefined(t) = tool else {
+                        return false;
+                    };
+                    t.provider() == Some("anthropic")
+                        && t.tool_type().is_some_and(|ty| {
+                            ty == "code_execution_20250522" || ty == "code_execution_20250825"
+                        })
+                })
+            })
+            .unwrap_or(false);
+
+        if has_code_execution_tool {
+            return Ok(resp);
+        }
+
+        let warning = Warning::other("code execution tool is required when using skills");
+        match resp.warnings.as_mut() {
+            Some(warnings) => warnings.push(warning),
+            None => resp.warnings = Some(vec![warning]),
+        }
+
+        Ok(resp)
     }
 }
 
@@ -622,6 +683,67 @@ mod tests {
         assert_eq!(
             val,
             "web-fetch-2025-09-10,advanced-tool-use-2025-11-20,code-execution-2025-05-22"
+        );
+    }
+
+    #[test]
+    fn beta_middleware_injects_skills_and_files_betas_for_agent_skills() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_tools(vec![Tool::provider_defined(
+                "anthropic.code_execution_20250825",
+                "code_execution",
+            )])
+            .provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "container": {
+                        "skills": [
+                            { "type": "anthropic", "skillId": "pptx", "version": "latest" }
+                        ]
+                    }
+                }),
+            );
+
+        let out = mw.transform_params(req);
+        let val = out
+            .http_config
+            .as_ref()
+            .and_then(|hc| hc.headers.get("anthropic-beta"))
+            .cloned()
+            .unwrap_or_default();
+
+        assert_eq!(
+            val,
+            "code-execution-2025-08-25,skills-2025-10-02,files-api-2025-04-14"
+        );
+    }
+
+    #[test]
+    fn adds_warning_when_agent_skills_used_without_code_execution_tool() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).provider_option(
+            "anthropic",
+            serde_json::json!({
+                "container": {
+                    "skills": [
+                        { "type": "anthropic", "skillId": "pptx", "version": "latest" }
+                    ]
+                }
+            }),
+        );
+
+        let base = ChatResponse::new(crate::types::MessageContent::Text("ok".to_string()));
+        let out = mw.post_generate(&req, base).expect("post_generate");
+        let warnings = out.warnings.expect("warnings");
+
+        assert_eq!(
+            warnings,
+            vec![Warning::other(
+                "code execution tool is required when using skills"
+            )]
         );
     }
 
