@@ -13,7 +13,8 @@ use crate::types::{ChatRequest, ChatResponse};
 
 use super::ChatExecutor;
 use super::helpers::{
-    build_chat_body, create_json_stream_with_middlewares, create_sse_stream_with_middlewares,
+    build_chat_body, build_effective_chat_request_headers, create_json_stream_with_middlewares,
+    create_sse_stream_with_middlewares,
 };
 
 /// Generic HTTP-based ChatExecutor that wires transformers and HTTP
@@ -135,8 +136,13 @@ impl ChatExecutor for HttpChatExecutor {
                                 interceptors: interceptors.clone(),
                                 retry_options: retry_options.clone(),
                             };
-                            let per_request_headers =
-                                req_in.http_config.as_ref().map(|hc| &hc.headers);
+                            let owned_headers = build_effective_chat_request_headers(
+                                &provider_spec,
+                                &provider_context,
+                                false,
+                                &req_in,
+                            );
+                            let per_request_headers = owned_headers.as_ref();
                             let result = crate::execution::executors::common::execute_json_request(
                                 &config,
                                 &url,
@@ -297,6 +303,7 @@ impl ChatExecutor for HttpChatExecutor {
                     create_sse_stream_with_middlewares(
                         provider_id.clone(),
                         provider_spec.clone(),
+                        provider_context.clone(),
                         url.clone(),
                         http.clone(),
                         headers_base.clone(),
@@ -313,6 +320,7 @@ impl ChatExecutor for HttpChatExecutor {
                     create_json_stream_with_middlewares(
                         provider_id.clone(),
                         provider_spec.clone(),
+                        provider_context.clone(),
                         url.clone(),
                         http.clone(),
                         headers_base.clone(),

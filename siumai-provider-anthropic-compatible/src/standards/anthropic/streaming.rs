@@ -127,6 +127,8 @@ pub struct AnthropicEventConverter {
     redacted_thinking_data_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     citation_documents: Vec<AnthropicCitationDocument>,
     sources_by_id: Arc<Mutex<std::collections::HashMap<String, AnthropicSource>>>,
+    tool_names_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    mcp_server_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
 }
 
 impl AnthropicEventConverter {
@@ -140,6 +142,8 @@ impl AnthropicEventConverter {
             redacted_thinking_data_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             citation_documents: Vec::new(),
             sources_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            tool_names_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            mcp_server_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -386,6 +390,61 @@ impl AnthropicEventConverter {
                             }),
                         }]
                     }
+                    "mcp_tool_use" => {
+                        let tool_call_id = content_block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let tool_name = content_block
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let server_name = content_block
+                            .get("server_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let input = content_block
+                            .get("input")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({}));
+
+                        if tool_call_id.is_empty() || tool_name.is_empty() {
+                            return vec![];
+                        }
+
+                        if let Some(idx) = event.index
+                            && let Ok(mut map) = self.tool_use_ids_by_index.lock()
+                        {
+                            map.insert(idx, tool_call_id.clone());
+                        }
+
+                        if let Ok(mut map) = self.tool_names_by_id.lock() {
+                            map.insert(tool_call_id.clone(), tool_name.clone());
+                        }
+
+                        if !server_name.is_empty()
+                            && let Ok(mut map) = self.mcp_server_name_by_id.lock()
+                        {
+                            map.insert(tool_call_id.clone(), server_name.clone());
+                        }
+
+                        vec![ChatStreamEvent::Custom {
+                            event_type: "anthropic:tool-call".to_string(),
+                            data: serde_json::json!({
+                                "type": "tool-call",
+                                "toolCallId": tool_call_id,
+                                "toolName": tool_name,
+                                "input": input,
+                                "providerExecuted": true,
+                                "contentBlockIndex": event.index.map(|i| i as u64),
+                                "rawContentBlock": content_block,
+                                "serverName": if server_name.is_empty() { serde_json::Value::Null } else { serde_json::json!(server_name) },
+                            }),
+                        }]
+                    }
                     t if t.ends_with("_tool_result") => {
                         let tool_call_id = content_block
                             .get("tool_use_id")
@@ -397,9 +456,17 @@ impl AnthropicEventConverter {
                             return vec![];
                         }
 
-                        let tool_name = match t {
-                            "tool_search_tool_result" => "tool_search".to_string(),
-                            _ => t.strip_suffix("_tool_result").unwrap_or(t).to_string(),
+                        let tool_name = if t == "mcp_tool_result" {
+                            self.tool_names_by_id
+                                .lock()
+                                .ok()
+                                .and_then(|map| map.get(&tool_call_id).cloned())
+                                .unwrap_or_else(|| "mcp".to_string())
+                        } else {
+                            match t {
+                                "tool_search_tool_result" => "tool_search".to_string(),
+                                _ => t.strip_suffix("_tool_result").unwrap_or(t).to_string(),
+                            }
                         };
                         let raw_result = content_block
                             .get("content")
@@ -592,6 +659,15 @@ impl AnthropicEventConverter {
                             (raw_result.clone(), false)
                         };
 
+                        let server_name = if t == "mcp_tool_result" {
+                            self.mcp_server_name_by_id
+                                .lock()
+                                .ok()
+                                .and_then(|map| map.get(&tool_call_id).cloned())
+                        } else {
+                            None
+                        };
+
                         let mut events = vec![ChatStreamEvent::Custom {
                             event_type: "anthropic:tool-result".to_string(),
                             data: serde_json::json!({
@@ -603,6 +679,7 @@ impl AnthropicEventConverter {
                                 "isError": is_error,
                                 "contentBlockIndex": event.index.map(|i| i as u64),
                                 "rawContentBlock": content_block,
+                                "serverName": server_name,
                             }),
                         }];
 

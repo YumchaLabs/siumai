@@ -295,6 +295,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             "is_error": is_error
                         }));
                     }
+                    ContentPart::ToolApprovalResponse { .. } => {}
                     ContentPart::Reasoning { text } => {
                         // Emit as a thinking block (Anthropic format). If the caller does not provide
                         // a valid signature (required for replaying thinking blocks), we will
@@ -1107,9 +1108,11 @@ pub fn parse_response_content_and_tools(
 ) -> MessageContent {
     use crate::types::ContentPart;
     use crate::types::ToolResultOutput;
+    use std::collections::HashMap;
 
     let mut parts = Vec::new();
     let mut text_content = String::new();
+    let mut tool_names_by_id: HashMap<String, String> = HashMap::new();
 
     for content_block in content_blocks {
         match content_block.r#type.as_str() {
@@ -1132,6 +1135,7 @@ pub fn parse_response_content_and_tools(
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
+                    tool_names_by_id.insert(id.clone(), name.clone());
                     parts.push(ContentPart::tool_call(
                         id.clone(),
                         name.clone(),
@@ -1156,9 +1160,30 @@ pub fn parse_response_content_and_tools(
                         other => other,
                     }
                     .to_string();
+                    tool_names_by_id.insert(id.clone(), tool_name.clone());
                     parts.push(ContentPart::tool_call(
                         id.clone(),
                         tool_name,
+                        input.clone(),
+                        Some(true),
+                    ));
+                }
+            }
+            "mcp_tool_use" => {
+                // First, add accumulated text if any
+                if !text_content.is_empty() {
+                    parts.push(ContentPart::text(&text_content));
+                    text_content.clear();
+                }
+
+                // Provider-hosted MCP tool call
+                if let (Some(id), Some(name), Some(input)) =
+                    (&content_block.id, &content_block.name, &content_block.input)
+                {
+                    tool_names_by_id.insert(id.clone(), name.clone());
+                    parts.push(ContentPart::tool_call(
+                        id.clone(),
+                        name.clone(),
                         input.clone(),
                         Some(true),
                     ));
@@ -1178,15 +1203,46 @@ pub fn parse_response_content_and_tools(
                     continue;
                 };
 
-                let tool_name = match block_type {
-                    "tool_search_tool_result" => "tool_search".to_string(),
-                    _ => block_type
-                        .strip_suffix("_tool_result")
-                        .unwrap_or(block_type)
-                        .to_string(),
+                let tool_name = if block_type == "mcp_tool_result" {
+                    tool_names_by_id
+                        .get(tool_use_id)
+                        .cloned()
+                        .or_else(|| content_block.server_name.clone())
+                        .unwrap_or_else(|| "mcp".to_string())
+                } else {
+                    match block_type {
+                        "tool_search_tool_result" => "tool_search".to_string(),
+                        _ => block_type
+                            .strip_suffix("_tool_result")
+                            .unwrap_or(block_type)
+                            .to_string(),
+                    }
                 };
 
-                let output = if block_type == "tool_search_tool_result" {
+                let output = if block_type == "mcp_tool_result" {
+                    let mut out_parts: Vec<crate::types::ToolResultContentPart> = Vec::new();
+                    if let Some(arr) = content.as_array() {
+                        for item in arr {
+                            let Some(obj) = item.as_object() else {
+                                continue;
+                            };
+                            let t = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            if t == "text"
+                                && let Some(text) = obj.get("text").and_then(|v| v.as_str())
+                            {
+                                out_parts.push(crate::types::ToolResultContentPart::Text {
+                                    text: text.to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    if out_parts.is_empty() {
+                        ToolResultOutput::json(content.clone())
+                    } else {
+                        ToolResultOutput::content(out_parts)
+                    }
+                } else if block_type == "tool_search_tool_result" {
                     if let Some(obj) = content.as_object() {
                         let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
                         if tpe == "tool_search_tool_search_result" {

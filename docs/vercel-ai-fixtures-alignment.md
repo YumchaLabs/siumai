@@ -118,13 +118,16 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 
 Provider id: `anthropic`
 
+### Done
+
+- [x] `anthropic-mcp.1` (MCP servers request + streaming tool-call/result)
+- [x] `anthropic-web-search-tool.1` (provider tool + streaming tool-call/result)
+- [x] `anthropic-web-fetch-tool.1` (provider tool + streaming tool-call/result)
+
 ### Next
 
 - [ ] `anthropic-json-tool.1` (tool call + tool result)
 - [ ] `anthropic-tool-no-args` (tool call without args)
-- [ ] `anthropic-web-search-tool.1` (provider tool)
-- [ ] `anthropic-web-fetch-tool.1` (provider tool)
-- [ ] `anthropic-mcp.1` (MCP tool calling)
 
 ## XAI Responses (Streaming)
 

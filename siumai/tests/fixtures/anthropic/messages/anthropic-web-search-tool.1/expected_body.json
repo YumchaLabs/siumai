@@ -1,0 +1,27 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "What is the latest news?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-3-haiku-20240307",
+  "tools": [
+    {
+      "max_uses": 1,
+      "name": "web_search",
+      "type": "web_search_20250305",
+      "user_location": {
+        "country": "US",
+        "type": "approximate"
+      }
+    }
+  ]
+}
+

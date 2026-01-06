@@ -100,6 +100,27 @@ impl ProviderSpec for AnthropicSpec {
         base
     }
 
+    fn chat_request_headers(
+        &self,
+        _stream: bool,
+        req: &ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> HashMap<String, String> {
+        let mut out: HashMap<String, String> = HashMap::new();
+
+        if self
+            .anthropic_mcp_servers_from_provider_options_map(req)
+            .is_some()
+        {
+            out.insert(
+                "anthropic-beta".to_string(),
+                "mcp-client-2025-04-04".to_string(),
+            );
+        }
+
+        out
+    }
+
     fn classify_http_error(
         &self,
         status: u16,
@@ -160,9 +181,11 @@ impl ProviderSpec for AnthropicSpec {
 
         let thinking_mode: Option<ThinkingModeConfig> = options.thinking_mode.clone();
         let response_format: Option<AnthropicResponseFormat> = options.response_format.clone();
+        let mcp_servers: Option<Vec<serde_json::Value>> =
+            self.anthropic_mcp_servers_from_provider_options_map(req);
 
         // If neither thinking nor response format configured, nothing to inject
-        if thinking_mode.is_none() && response_format.is_none() {
+        if thinking_mode.is_none() && response_format.is_none() && mcp_servers.is_none() {
             return None;
         }
 
@@ -201,6 +224,10 @@ impl ProviderSpec for AnthropicSpec {
                         });
                     }
                 }
+            }
+
+            if let Some(ref servers) = mcp_servers {
+                out["mcp_servers"] = serde_json::Value::Array(servers.clone());
             }
 
             Ok(out)
@@ -303,5 +330,48 @@ impl AnthropicSpec {
         }
 
         inner(value)
+    }
+
+    fn anthropic_mcp_servers_from_provider_options_map(
+        &self,
+        req: &ChatRequest,
+    ) -> Option<Vec<serde_json::Value>> {
+        let value = req.provider_options_map.get("anthropic")?;
+        let obj = value.as_object()?;
+
+        let servers = obj
+            .get("mcpServers")
+            .or_else(|| obj.get("mcp_servers"))
+            .and_then(|v| v.as_array())
+            .cloned()?;
+
+        if servers.is_empty() {
+            return None;
+        }
+
+        let normalized: Vec<serde_json::Value> = servers
+            .into_iter()
+            .filter_map(|v| v.as_object().cloned())
+            .map(|map| {
+                let mut out = serde_json::Map::new();
+
+                for (k, v) in map {
+                    let nk = match k.as_str() {
+                        "serverName" => "name",
+                        "serverUrl" => "url",
+                        other => other,
+                    };
+                    out.insert(nk.to_string(), v);
+                }
+
+                serde_json::Value::Object(out)
+            })
+            .collect();
+
+        if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized)
+        }
     }
 }

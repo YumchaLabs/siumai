@@ -324,6 +324,22 @@ pub trait ProviderSpec: Send + Sync {
     /// Build JSON headers (auth + custom). Tracing headers are injected by caller.
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError>;
 
+    /// Optional: provider-derived per-request header overrides for chat.
+    ///
+    /// This hook is evaluated per request, before the HTTP layer merges headers.
+    /// It enables providers to conditionally enable beta flags (e.g. `anthropic-beta`)
+    /// based on request features such as MCP servers, without requiring global client config.
+    ///
+    /// Returned headers are merged *before* user-provided `ChatRequest.http_config.headers`.
+    fn chat_request_headers(
+        &self,
+        _stream: bool,
+        _req: &ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> HashMap<String, String> {
+        HashMap::new()
+    }
+
     /// Merge per-request headers into the base headers produced by `build_headers`.
     ///
     /// Default behavior is "last write wins" (per-request overrides base).

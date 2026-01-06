@@ -44,6 +44,8 @@ pub struct AnthropicContentBlock {
     pub id: Option<String>,
     pub name: Option<String>,
     pub input: Option<serde_json::Value>,
+    // MCP tool use fields
+    pub server_name: Option<String>,
     // Tool result fields
     pub tool_use_id: Option<String>,
     pub content: Option<serde_json::Value>,

@@ -6,15 +6,56 @@ use crate::execution::transformers::request::RequestTransformer;
 use crate::streaming::adapters::{
     InterceptingConverter, MiddlewareConverter, MiddlewareJsonConverter, TransformerConverter,
 };
+use std::collections::HashMap;
 
 // -----------------------------------------------------------------------------
 // Helper builders for SSE/JSON streaming sources (no behavior change)
 // -----------------------------------------------------------------------------
 
+pub(super) fn build_effective_chat_request_headers(
+    provider_spec: &Arc<dyn crate::core::ProviderSpec>,
+    provider_context: &crate::core::ProviderContext,
+    stream: bool,
+    req_in: &crate::types::ChatRequest,
+) -> Option<HashMap<String, String>> {
+    let provider_headers = provider_spec.chat_request_headers(stream, req_in, provider_context);
+    let user_headers = req_in.http_config.as_ref().map(|hc| &hc.headers);
+
+    let provider_empty = provider_headers.is_empty();
+    let user_empty = match user_headers {
+        None => true,
+        Some(h) => h.is_empty(),
+    };
+    if provider_empty && user_empty {
+        return None;
+    }
+
+    let mut merged = reqwest::header::HeaderMap::new();
+    if !provider_headers.is_empty() {
+        merged = provider_spec.merge_request_headers(merged, &provider_headers);
+    }
+    if let Some(user_headers) = user_headers
+        && !user_headers.is_empty()
+    {
+        merged = provider_spec.merge_request_headers(merged, user_headers);
+    }
+
+    let mut out: HashMap<String, String> = HashMap::new();
+    for (name, value) in merged.iter() {
+        let Ok(v) = value.to_str() else {
+            continue;
+        };
+        out.insert(name.as_str().to_string(), v.to_string());
+    }
+
+    if out.is_empty() { None } else { Some(out) }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn create_sse_stream_with_middlewares(
     provider_id: String,
     provider_spec: Arc<dyn crate::core::ProviderSpec>,
+    provider_context: crate::core::ProviderContext,
     url: String,
     http: reqwest::Client,
     headers_base: reqwest::header::HeaderMap,
@@ -54,7 +95,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
         transformed,
         &interceptors,
         retry_options,
-        req_in.http_config.as_ref().map(|hc| hc.headers.clone()),
+        build_effective_chat_request_headers(&provider_spec, &provider_context, true, &req_in),
         intercepting,
         disable_compression,
     )
@@ -65,6 +106,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
 pub(super) async fn create_json_stream_with_middlewares(
     provider_id: String,
     provider_spec: Arc<dyn crate::core::ProviderSpec>,
+    provider_context: crate::core::ProviderContext,
     url: String,
     http: reqwest::Client,
     headers_base: reqwest::header::HeaderMap,
@@ -80,7 +122,9 @@ pub(super) async fn create_json_stream_with_middlewares(
         req: req_in.clone(),
         convert: json_conv.clone(),
     };
-    let per_req_headers = req_in.http_config.as_ref().map(|hc| &hc.headers);
+    let owned =
+        build_effective_chat_request_headers(&provider_spec, &provider_context, true, &req_in);
+    let per_req_headers = owned.as_ref();
     crate::execution::executors::stream_json::execute_json_stream_request_with_headers(
         &http,
         &provider_id,
