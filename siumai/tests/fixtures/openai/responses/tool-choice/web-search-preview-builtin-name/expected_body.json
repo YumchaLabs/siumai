@@ -1,0 +1,31 @@
+{
+  "model": "gpt-5-nano",
+  "include": [
+    "web_search_call.action.sources"
+  ],
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "web_search_preview",
+      "search_context_size": "low",
+      "user_location": {
+        "type": "approximate",
+        "country": "US"
+      }
+    }
+  ],
+  "tool_choice": {
+    "type": "web_search_preview"
+  }
+}
+

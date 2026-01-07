@@ -1,0 +1,27 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "file_search",
+      "vector_store_ids": [
+        "vs_123"
+      ],
+      "max_num_results": 5
+    }
+  ],
+  "tool_choice": {
+    "type": "file_search"
+  }
+}
+
