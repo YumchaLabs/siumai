@@ -289,6 +289,9 @@ impl ChatMessage {
                         approval_id,
                         approved,
                     } => approval_id.len() + if *approved { 4 } else { 5 },
+                    ContentPart::Source { id, url, title, .. } => {
+                        id.len() + url.len() + title.len()
+                    }
                 })
                 .sum(),
             #[cfg(feature = "structured-messages")]

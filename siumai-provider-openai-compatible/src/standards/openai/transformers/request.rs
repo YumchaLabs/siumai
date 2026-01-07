@@ -861,7 +861,8 @@ impl OpenAiResponsesRequestTransformer {
                             ContentPart::ToolApprovalResponse { .. }
                             | ContentPart::Image { .. }
                             | ContentPart::Audio { .. }
-                            | ContentPart::File { .. } => {}
+                            | ContentPart::File { .. }
+                            | ContentPart::Source { .. } => {}
                         }
                     }
 
@@ -1090,6 +1091,7 @@ impl OpenAiResponsesRequestTransformer {
                             }));
                         }
                         ContentPart::ToolApprovalResponse { .. } => {}
+                        ContentPart::Source { .. } => {}
                     }
                 }
 

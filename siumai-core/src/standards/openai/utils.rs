@@ -107,6 +107,7 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
                     ContentPart::ToolResult { .. } => {}
                     ContentPart::Reasoning { .. } => {}
                     ContentPart::ToolApprovalResponse { .. } => {}
+                    ContentPart::Source { .. } => {}
                 }
             }
 

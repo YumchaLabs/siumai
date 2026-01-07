@@ -250,6 +250,18 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
         let root = raw.get("response").unwrap_or(raw);
 
+        let is_xai_response = root
+            .get("output")
+            .and_then(|v| v.as_array())
+            .is_some_and(|out| {
+                out.iter().any(|item| {
+                    matches!(
+                        item.get("type").and_then(|v| v.as_str()),
+                        Some("web_search_call" | "x_search_call")
+                    ) && item.get("arguments").and_then(|v| v.as_str()).is_some()
+                })
+            });
+
         // Build content parts (tool calls/results + text).
         //
         // Vercel alignment: represent provider-executed tools as ToolCall + ToolResult parts
@@ -338,95 +350,115 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 let mut emit_tool_result = true;
                 let (tool_name, args, result) = match item_type {
                     "web_search_call" => {
-                        // Vercel alignment: provider-executed web search tool call uses empty input (`{}`),
-                        // while the tool result contains an `action` object and optional `sources`.
-                        let args = serde_json::Value::String("{}".to_string());
+                        if let Some(arguments) = item.get("arguments").and_then(|v| v.as_str()) {
+                            // xAI Vercel alignment:
+                            // - toolName: `web_search` (snake_case)
+                            // - tool input: keep `arguments` as-is (JSON string)
+                            // - citations are surfaced as `source` parts from URL annotations
+                            emit_tool_result = false;
 
-                        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
-                        let action_type_raw = action
-                            .get("type")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("search");
-                        let action_type = match action_type_raw {
-                            "open_page" => "openPage",
-                            "find_in_page" => "findInPage",
-                            other => other,
-                        };
+                            let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                            let tool_name = if name.is_empty() { "web_search" } else { name };
+                            (
+                                tool_name,
+                                serde_json::Value::String(arguments.to_string()),
+                                serde_json::Value::Null,
+                            )
+                        } else {
+                            // Vercel alignment: provider-executed web search tool call uses empty input (`{}`),
+                            // while the tool result contains an `action` object and optional `sources`.
+                            let args = serde_json::Value::String("{}".to_string());
 
-                        let mut action_obj = serde_json::Map::new();
-                        action_obj.insert(
-                            "type".to_string(),
-                            serde_json::Value::String(action_type.to_string()),
-                        );
+                            let action = item.get("action").unwrap_or(&serde_json::Value::Null);
+                            let action_type_raw = action
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("search");
+                            let action_type = match action_type_raw {
+                                "open_page" => "openPage",
+                                "find_in_page" => "findInPage",
+                                other => other,
+                            };
 
-                        if action_type_raw == "search" {
-                            let query = action
-                                .get("query")
-                                .or_else(|| item.get("query"))
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            if !query.is_null() {
-                                action_obj.insert("query".to_string(), query);
-                            }
-                        }
-
-                        if matches!(action_type_raw, "open_page" | "find_in_page") {
-                            let url = action
-                                .get("url")
-                                .or_else(|| item.get("url"))
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            if !url.is_null() {
-                                action_obj.insert("url".to_string(), url);
-                            }
-                        }
-
-                        if action_type_raw == "find_in_page" {
-                            let pattern = action
-                                .get("pattern")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            if !pattern.is_null() {
-                                action_obj.insert("pattern".to_string(), pattern);
-                            }
-                        }
-
-                        let mut result_obj = serde_json::Map::new();
-                        result_obj
-                            .insert("action".to_string(), serde_json::Value::Object(action_obj));
-
-                        let sources = action.get("sources").and_then(|v| v.as_array());
-                        if let Some(sources) = sources
-                            && !sources.is_empty()
-                        {
-                            result_obj.insert(
-                                "sources".to_string(),
-                                serde_json::Value::Array(sources.to_vec()),
+                            let mut action_obj = serde_json::Map::new();
+                            action_obj.insert(
+                                "type".to_string(),
+                                serde_json::Value::String(action_type.to_string()),
                             );
-                        }
 
-                        // Fallback: older response variants may surface results directly.
-                        if !result_obj.contains_key("sources")
-                            && let Some(results) = item.get("results").and_then(|v| v.as_array())
-                            && !results.is_empty()
-                        {
-                            let mut sources_out: Vec<serde_json::Value> =
-                                Vec::with_capacity(results.len());
-                            for r in results {
-                                let Some(url) = r.get("url").and_then(|v| v.as_str()) else {
-                                    continue;
-                                };
-                                sources_out.push(serde_json::json!({ "type": "url", "url": url }));
+                            if action_type_raw == "search" {
+                                let query = action
+                                    .get("query")
+                                    .or_else(|| item.get("query"))
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                if !query.is_null() {
+                                    action_obj.insert("query".to_string(), query);
+                                }
                             }
-                            if !sources_out.is_empty() {
+
+                            if matches!(action_type_raw, "open_page" | "find_in_page") {
+                                let url = action
+                                    .get("url")
+                                    .or_else(|| item.get("url"))
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                if !url.is_null() {
+                                    action_obj.insert("url".to_string(), url);
+                                }
+                            }
+
+                            if action_type_raw == "find_in_page" {
+                                let pattern = action
+                                    .get("pattern")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                if !pattern.is_null() {
+                                    action_obj.insert("pattern".to_string(), pattern);
+                                }
+                            }
+
+                            let mut result_obj = serde_json::Map::new();
+                            result_obj.insert(
+                                "action".to_string(),
+                                serde_json::Value::Object(action_obj),
+                            );
+
+                            let sources = action.get("sources").and_then(|v| v.as_array());
+                            if let Some(sources) = sources
+                                && !sources.is_empty()
+                            {
                                 result_obj.insert(
                                     "sources".to_string(),
-                                    serde_json::Value::Array(sources_out),
+                                    serde_json::Value::Array(sources.to_vec()),
                                 );
                             }
-                        }
 
-                        ("webSearch", args, serde_json::Value::Object(result_obj))
+                            // Fallback: older response variants may surface results directly.
+                            if !result_obj.contains_key("sources")
+                                && let Some(results) =
+                                    item.get("results").and_then(|v| v.as_array())
+                                && !results.is_empty()
+                            {
+                                let mut sources_out: Vec<serde_json::Value> =
+                                    Vec::with_capacity(results.len());
+                                for r in results {
+                                    let Some(url) = r.get("url").and_then(|v| v.as_str()) else {
+                                        continue;
+                                    };
+                                    sources_out
+                                        .push(serde_json::json!({ "type": "url", "url": url }));
+                                }
+                                if !sources_out.is_empty() {
+                                    result_obj.insert(
+                                        "sources".to_string(),
+                                        serde_json::Value::Array(sources_out),
+                                    );
+                                }
+                            }
+
+                            ("webSearch", args, serde_json::Value::Object(result_obj))
+                        }
                     }
                     "file_search_call" => {
                         // Vercel alignment: provider-executed file search tool call uses empty input (`{}`),
@@ -501,6 +533,22 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             "result": item.get("result").cloned().unwrap_or(serde_json::Value::Null),
                         });
                         ("generateImage", args, result)
+                    }
+                    "x_search_call" => {
+                        if let Some(arguments) = item.get("arguments").and_then(|v| v.as_str()) {
+                            // xAI Vercel alignment:
+                            // - toolName: `x_search` (public tool name)
+                            // - tool input: keep `arguments` as-is (JSON string)
+                            // - citations are surfaced as `source` parts from URL annotations
+                            emit_tool_result = false;
+                            (
+                                "x_search",
+                                serde_json::Value::String(arguments.to_string()),
+                                serde_json::Value::Null,
+                            )
+                        } else {
+                            continue;
+                        }
                     }
                     "computer_call" => {
                         let status = item
@@ -705,6 +753,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
         // Extract text content from output[*].content[*].text
         let mut text_content = String::new();
+        let mut xai_source_urls: Vec<String> = Vec::new();
         if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
             for item in output {
                 if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
@@ -715,6 +764,24 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             }
                             text_content.push_str(t);
                         }
+
+                        if is_xai_response {
+                            let Some(annotations) = p.get("annotations").and_then(|v| v.as_array())
+                            else {
+                                continue;
+                            };
+                            for ann in annotations {
+                                if ann.get("type").and_then(|v| v.as_str()) != Some("url_citation")
+                                {
+                                    continue;
+                                }
+                                let url = ann.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                if url.is_empty() {
+                                    continue;
+                                }
+                                xai_source_urls.push(url.to_string());
+                            }
+                        }
                     }
                 }
             }
@@ -723,6 +790,19 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         // Add text content if present
         if !text_content.is_empty() {
             content_parts.push(ContentPart::text(&text_content));
+        }
+
+        if is_xai_response && !xai_source_urls.is_empty() {
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut idx = 0usize;
+            for url in xai_source_urls {
+                if !seen.insert(url.clone()) {
+                    continue;
+                }
+                let id = format!("id-{idx}");
+                content_parts.push(ContentPart::source(&id, "url", &url, &url));
+                idx += 1;
+            }
         }
 
         // Tool calls (support nested function object or flattened)
@@ -991,6 +1071,11 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             let ann_type = ann.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
                             if ann_type == "url_citation" {
+                                if is_xai_response {
+                                    // xAI Vercel alignment: citations are exposed as `source` parts,
+                                    // so keep provider metadata minimal.
+                                    continue;
+                                }
                                 let url = ann.get("url").and_then(|v| v.as_str()).unwrap_or("");
                                 if url.is_empty() {
                                     continue;

@@ -281,6 +281,26 @@ pub enum ContentPart {
         filename: Option<String>,
     },
 
+    /// Source citation (Vercel-aligned).
+    ///
+    /// Providers may surface citations/attributions as a list of sources.
+    /// This content part represents a single source entry in the unified content stream.
+    #[serde(rename = "source")]
+    Source {
+        /// Source id (Vercel-aligned, e.g. "id-0").
+        id: String,
+
+        /// Source type (Vercel-aligned, e.g. "url", "document").
+        #[serde(rename = "sourceType")]
+        source_type: String,
+
+        /// Source URL (or provider file id for document sources).
+        url: String,
+
+        /// Human-readable title (often the URL itself for web citations).
+        title: String,
+    },
+
     /// Tool call (function call request from AI)
     ///
     /// This represents a request from the AI model to call a tool/function.
@@ -735,6 +755,21 @@ impl ContentPart {
         }
     }
 
+    /// Create a source content part (Vercel-aligned).
+    pub fn source(
+        id: impl Into<String>,
+        source_type: impl Into<String>,
+        url: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
+        Self::Source {
+            id: id.into(),
+            source_type: source_type.into(),
+            url: url.into(),
+            title: title.into(),
+        }
+    }
+
     /// Create a tool approval response content part.
     pub fn tool_approval_response(approval_id: impl Into<String>, approved: bool) -> Self {
         Self::ToolApprovalResponse {
@@ -956,6 +991,11 @@ impl ContentPart {
     /// Check if this is a tool result
     pub fn is_tool_result(&self) -> bool {
         matches!(self, Self::ToolResult { .. })
+    }
+
+    /// Check if this is a source
+    pub fn is_source(&self) -> bool {
+        matches!(self, Self::Source { .. })
     }
 
     /// Check if this is reasoning

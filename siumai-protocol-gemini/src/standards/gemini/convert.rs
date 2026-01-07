@@ -152,6 +152,9 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         // Tool approval is an out-of-band workflow; Gemini request does not accept it.
                         // Ignore it at request conversion time to keep behavior consistent with other providers.
                     }
+                    crate::types::ContentPart::Source { .. } => {
+                        // Sources are not part of Gemini request content; ignore them.
+                    }
                 }
             }
         }
