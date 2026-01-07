@@ -183,6 +183,14 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 
 - [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
 
+## OpenAI Responses Reasoning (Streaming)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Streaming SSE emits `reasoning-start` / `reasoning-delta` / `reasoning-end` (incl. encrypted content) via fixtures
+
 ## OpenAI Responses Tool Choice (Fixtures)
 
 Provider id: `openai` (Responses API)

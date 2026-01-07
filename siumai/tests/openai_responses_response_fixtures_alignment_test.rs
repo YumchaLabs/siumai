@@ -87,7 +87,12 @@ fn run_case(root: &Path) {
     let mut expected_value = expected;
     normalize_json(&mut got_value);
     normalize_json(&mut expected_value);
-    assert_eq!(got_value, expected_value, "fixture case: {}", root.display());
+    assert_eq!(
+        got_value,
+        expected_value,
+        "fixture case: {}",
+        root.display()
+    );
 }
 
 #[test]

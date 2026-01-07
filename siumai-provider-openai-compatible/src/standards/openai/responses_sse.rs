@@ -22,6 +22,9 @@ pub struct OpenAiResponsesEventConverter {
     mcp_approval_tool_call_id_by_approval_id: Arc<Mutex<HashMap<String, String>>>,
     next_mcp_approval_tool_call_index: Arc<Mutex<u64>>,
     emitted_mcp_approval_request_ids: Arc<Mutex<HashSet<String>>>,
+    reasoning_encrypted_content_by_item_id: Arc<Mutex<HashMap<String, Option<String>>>>,
+    emitted_reasoning_start_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_reasoning_end_ids: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Default for OpenAiResponsesEventConverter {
@@ -36,6 +39,9 @@ impl Default for OpenAiResponsesEventConverter {
             mcp_approval_tool_call_id_by_approval_id: Arc::new(Mutex::new(HashMap::new())),
             next_mcp_approval_tool_call_index: Arc::new(Mutex::new(0)),
             emitted_mcp_approval_request_ids: Arc::new(Mutex::new(HashSet::new())),
+            reasoning_encrypted_content_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            emitted_reasoning_start_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_reasoning_end_ids: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -279,6 +285,48 @@ impl OpenAiResponsesEventConverter {
             .is_some_and(|set| set.contains(approval_id))
     }
 
+    fn record_reasoning_encrypted_content(&self, item_id: &str, encrypted_content: Option<String>) {
+        if item_id.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.reasoning_encrypted_content_by_item_id.lock() {
+            map.insert(item_id.to_string(), encrypted_content);
+        }
+    }
+
+    fn reasoning_encrypted_content(&self, item_id: &str) -> Option<String> {
+        let Ok(map) = self.reasoning_encrypted_content_by_item_id.lock() else {
+            return None;
+        };
+        map.get(item_id).cloned().unwrap_or(None)
+    }
+
+    fn mark_reasoning_start_emitted(&self, id: &str) {
+        if let Ok(mut set) = self.emitted_reasoning_start_ids.lock() {
+            set.insert(id.to_string());
+        }
+    }
+
+    fn has_emitted_reasoning_start(&self, id: &str) -> bool {
+        self.emitted_reasoning_start_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn mark_reasoning_end_emitted(&self, id: &str) {
+        if let Ok(mut set) = self.emitted_reasoning_end_ids.lock() {
+            set.insert(id.to_string());
+        }
+    }
+
+    fn has_emitted_reasoning_end(&self, id: &str) -> bool {
+        self.emitted_reasoning_end_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
     fn convert_responses_event(
         &self,
         json: serde_json::Value,
@@ -386,6 +434,191 @@ impl OpenAiResponsesEventConverter {
         }
 
         None
+    }
+
+    fn convert_reasoning_output_item_added(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        let item = json.get("item")?.as_object()?;
+        if item.get("type").and_then(|t| t.as_str()) != Some("reasoning") {
+            return None;
+        }
+
+        let item_id = item.get("id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+
+        let encrypted_content = item
+            .get("encrypted_content")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        self.record_reasoning_encrypted_content(item_id, encrypted_content.clone());
+
+        // Vercel alignment: a reasoning item implies at least one block (`:0`), even when summary is empty.
+        let id = format!("{item_id}:0");
+        if self.has_emitted_reasoning_start(&id) {
+            return None;
+        }
+        self.mark_reasoning_start_emitted(&id);
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:reasoning-start".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-start",
+                "id": id,
+                "providerMetadata": {
+                    "openai": {
+                        "itemId": item_id,
+                        // Vercel alignment: always include the key for start events.
+                        "reasoningEncryptedContent": encrypted_content,
+                    },
+                },
+            }),
+        })
+    }
+
+    fn convert_reasoning_summary_part_added(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        // response.reasoning_summary_part.added
+        let item_id = json.get("item_id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+        let summary_index = json
+            .get("summary_index")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        let id = format!("{item_id}:{summary_index}");
+        if self.has_emitted_reasoning_start(&id) {
+            return None;
+        }
+        self.mark_reasoning_start_emitted(&id);
+
+        let encrypted_content = self.reasoning_encrypted_content(item_id);
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:reasoning-start".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-start",
+                "id": id,
+                "providerMetadata": {
+                    "openai": {
+                        "itemId": item_id,
+                        // Vercel alignment: always include the key for start events.
+                        "reasoningEncryptedContent": encrypted_content,
+                    },
+                },
+            }),
+        })
+    }
+
+    fn convert_reasoning_summary_text_delta(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        // response.reasoning_summary_text.delta
+        let item_id = json.get("item_id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+        let summary_index = json
+            .get("summary_index")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
+        if delta.is_empty() {
+            return None;
+        }
+
+        let id = format!("{item_id}:{summary_index}");
+
+        // Ensure a start event exists for this block.
+        if !self.has_emitted_reasoning_start(&id) {
+            self.mark_reasoning_start_emitted(&id);
+        }
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:reasoning-delta".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-delta",
+                "id": id,
+                "delta": delta,
+                "providerMetadata": {
+                    "openai": {
+                        "itemId": item_id,
+                    },
+                },
+            }),
+        })
+    }
+
+    fn convert_reasoning_output_item_done(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item = json.get("item")?.as_object()?;
+        if item.get("type").and_then(|t| t.as_str()) != Some("reasoning") {
+            return None;
+        }
+
+        let item_id = item.get("id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+
+        let encrypted_content = item
+            .get("encrypted_content")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        self.record_reasoning_encrypted_content(item_id, encrypted_content.clone());
+
+        let summary_len = item
+            .get("summary")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let blocks = std::cmp::max(1, summary_len);
+
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+        for i in 0..blocks {
+            let id = format!("{item_id}:{i}");
+            if self.has_emitted_reasoning_end(&id) {
+                continue;
+            }
+            self.mark_reasoning_end_emitted(&id);
+
+            // Vercel alignment: omit reasoningEncryptedContent when it is null/absent.
+            let provider_metadata = if let Some(enc) = encrypted_content.as_ref() {
+                serde_json::json!({
+                    "openai": {
+                        "itemId": item_id,
+                        "reasoningEncryptedContent": enc,
+                    }
+                })
+            } else {
+                serde_json::json!({
+                    "openai": {
+                        "itemId": item_id,
+                    }
+                })
+            };
+
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-end".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-end",
+                    "id": id,
+                    "providerMetadata": provider_metadata,
+                }),
+            });
+        }
+
+        Some(events)
     }
 
     fn convert_output_text_annotation_added(
@@ -1158,6 +1391,9 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 "response.output_item.added" => {
+                    if let Some(evt) = self.convert_reasoning_output_item_added(&json) {
+                        return vec![Ok(evt)];
+                    }
                     if let Some(evt) = self.convert_provider_tool_output_item_added(&json) {
                         return vec![Ok(evt)];
                     }
@@ -1166,10 +1402,25 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 "response.output_item.done" => {
+                    if let Some(events) = self.convert_reasoning_output_item_done(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
+                    }
                     if let Some(events) = self.convert_provider_tool_output_item_done(&json)
                         && !events.is_empty()
                     {
                         return events.into_iter().map(Ok).collect();
+                    }
+                }
+                "response.reasoning_summary_part.added" => {
+                    if let Some(evt) = self.convert_reasoning_summary_part_added(&json) {
+                        return vec![Ok(evt)];
+                    }
+                }
+                "response.reasoning_summary_text.delta" => {
+                    if let Some(evt) = self.convert_reasoning_summary_text_delta(&json) {
+                        return vec![Ok(evt)];
                     }
                 }
                 _ => {
