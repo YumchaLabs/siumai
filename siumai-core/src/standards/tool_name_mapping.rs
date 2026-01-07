@@ -113,6 +113,25 @@ mod tests {
     }
 
     #[test]
+    fn ignores_function_tools() {
+        let tools = vec![Tool::function(
+            "my-function-tool",
+            "A function tool",
+            serde_json::json!({ "type": "object" }),
+        )];
+
+        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        assert_eq!(
+            mapping.to_provider_tool_name("my-function-tool"),
+            "my-function-tool"
+        );
+        assert_eq!(
+            mapping.to_custom_tool_name("my-function-tool"),
+            "my-function-tool"
+        );
+    }
+
+    #[test]
     fn returns_input_when_no_mapping_exists() {
         let tools = vec![Tool::ProviderDefined(ProviderDefinedTool::new(
             "openai.web_search",
@@ -141,5 +160,40 @@ mod tests {
         assert_eq!(mapping.to_provider_tool_name("unknownTool"), "unknownTool");
         assert_eq!(mapping.to_provider_tool_name("myFileSearch"), "file_search");
         assert_eq!(mapping.to_custom_tool_name("file_search"), "myFileSearch");
+    }
+
+    #[test]
+    fn handles_empty_tools_array() {
+        let tools: Vec<Tool> = Vec::new();
+        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        assert_eq!(mapping.to_provider_tool_name("any-tool"), "any-tool");
+        assert_eq!(mapping.to_custom_tool_name("any-tool"), "any-tool");
+    }
+
+    #[test]
+    fn handles_mixed_function_and_provider_defined_tools() {
+        let tools = vec![
+            Tool::function(
+                "function-tool",
+                "A function tool",
+                serde_json::json!({ "type": "object" }),
+            ),
+            Tool::ProviderDefined(ProviderDefinedTool::new(
+                "openai.web_search",
+                "provider-tool",
+            )),
+        ];
+
+        let mapping = create_tool_name_mapping(&tools, OPENAI_PROVIDER_TOOL_NAMES);
+        assert_eq!(
+            mapping.to_provider_tool_name("function-tool"),
+            "function-tool"
+        );
+        assert_eq!(
+            mapping.to_custom_tool_name("function-tool"),
+            "function-tool"
+        );
+        assert_eq!(mapping.to_provider_tool_name("provider-tool"), "web_search");
+        assert_eq!(mapping.to_custom_tool_name("web_search"), "provider-tool");
     }
 }
