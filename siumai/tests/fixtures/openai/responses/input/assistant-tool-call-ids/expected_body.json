@@ -1,0 +1,13 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "item_reference",
+      "id": "id_123"
+    },
+    {
+      "type": "item_reference",
+      "id": "id_456"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "file",
+            "data": "file-12345",
+            "media_type": "image/png"
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": {
+    "openai": {
+      "fileIdPrefixes": [
+        "file-"
+      ]
+    }
+  },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

@@ -1,0 +1,14 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ]
+}

@@ -139,6 +139,16 @@ Provider id: `openai` (Responses API)
 - [x] Streaming SSE `response.completed` backfills missing MCP tool-call/results (fixture contains 2 `mcp_call` items)
 - [x] Prompt tool approval response input mapping (`tool-approval-response` -> `mcp_approval_response` + `item_reference` by default)
 
+## OpenAI Responses Input (Fixtures)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] System message mode parity (`system`/`developer`/`remove`) via `providerOptions.openai.systemMessageMode`
+- [x] User file part parity for images/PDFs (URL, base64, file_id via `fileIdPrefixes`) in `input[]`
+- [x] Assistant message parity (`output_text`) and function tool call parity (`function_call`) in `input[]`
+
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
 Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE stream)
