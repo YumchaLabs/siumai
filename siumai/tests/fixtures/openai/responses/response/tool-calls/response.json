@@ -1,0 +1,57 @@
+{
+  "id": "resp_67c97c0203188190a025beb4a75242bc",
+  "object": "response",
+  "created_at": 1741257730,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "input": [],
+  "instructions": null,
+  "max_output_tokens": null,
+  "model": "gpt-4o-2024-07-18",
+  "output": [
+    {
+      "type": "function_call",
+      "id": "fc_67caf7f4c1ec8190b27edfb5580cfd31",
+      "call_id": "call_0NdsJqOS8N3J9l2p0p4WpYU9",
+      "name": "weather",
+      "arguments": "{\"location\":\"San Francisco\"}",
+      "status": "completed"
+    },
+    {
+      "type": "function_call",
+      "id": "fc_67caf7f5071c81908209c2909c77af05",
+      "call_id": "call_gexo0HtjUfmAIW4gjNOgyrcr",
+      "name": "cityAttractions",
+      "arguments": "{\"city\":\"San Francisco\"}",
+      "status": "completed"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": null,
+    "summary": null
+  },
+  "store": true,
+  "temperature": 1,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 1,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 34,
+    "output_tokens": 538,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 572
+  },
+  "user": null,
+  "metadata": {}
+}

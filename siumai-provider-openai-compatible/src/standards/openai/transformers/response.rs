@@ -307,7 +307,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     "function_call" => {
                         // User-defined function call (tool calling).
                         //
-                        // OpenAI Responses encodes arguments as a JSON string. Parse into JSON when possible.
+                        // OpenAI Responses encodes arguments as a JSON string.
+                        //
+                        // Vercel alignment: keep the raw JSON string as `input` instead of parsing, and
+                        // surface the output item id via `providerMetadata.openai.itemId`.
                         let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                         if call_id.is_empty() {
                             continue;
@@ -322,15 +325,25 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .get("arguments")
                             .and_then(|v| v.as_str())
                             .unwrap_or("{}");
-                        let args_json = serde_json::from_str::<serde_json::Value>(args_str)
-                            .unwrap_or_else(|_| serde_json::Value::String(args_str.to_string()));
+                        let mut provider_metadata: Option<
+                            std::collections::HashMap<String, serde_json::Value>,
+                        > = None;
+                        if let Some(item_id) = item.get("id").and_then(|v| v.as_str()) {
+                            let mut all = std::collections::HashMap::new();
+                            all.insert(
+                                "openai".to_string(),
+                                serde_json::json!({ "itemId": item_id }),
+                            );
+                            provider_metadata = Some(all);
+                        }
 
-                        content_parts.push(ContentPart::tool_call(
-                            call_id.to_string(),
-                            name,
-                            args_json,
-                            None,
-                        ));
+                        content_parts.push(ContentPart::ToolCall {
+                            tool_call_id: call_id.to_string(),
+                            tool_name: name.to_string(),
+                            arguments: serde_json::Value::String(args_str.to_string()),
+                            provider_executed: None,
+                            provider_metadata,
+                        });
 
                         // Function calls are not provider-executed; no synthetic ToolResult is emitted here.
                         continue;
@@ -499,13 +512,27 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 other => FinishReason::Other(other.to_string()),
             });
 
-        // Vercel alignment: when a Responses API call completes normally, infer `stop` even if no
-        // explicit finish reason is present on the response envelope.
+        // Vercel alignment:
+        // - When a Responses API call completes normally, infer `stop` even if no explicit
+        //   finish reason is present on the response envelope.
+        // - When the response consists of function tool calls, infer `tool_calls`.
+        let has_function_calls = root
+            .get("output")
+            .and_then(|v| v.as_array())
+            .is_some_and(|out| {
+                out.iter()
+                    .any(|item| item.get("type").and_then(|v| v.as_str()) == Some("function_call"))
+            });
+
         let finish_reason = finish_reason.or_else(|| {
-            if root.get("status").and_then(|v| v.as_str()) == Some("completed") {
-                Some(FinishReason::Stop)
+            if root.get("status").and_then(|v| v.as_str()) != Some("completed") {
+                return None;
+            }
+
+            if has_function_calls {
+                Some(FinishReason::ToolCalls)
             } else {
-                None
+                Some(FinishReason::Stop)
             }
         });
 

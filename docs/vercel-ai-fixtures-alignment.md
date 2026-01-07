@@ -157,6 +157,7 @@ Provider id: `openai` (Responses API)
 ### Done
 
 - [x] Basic text response parsing (message `output_text` -> `ChatResponse.content`)
+- [x] Function tool calls parsing (`function_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
 - [x] Usage details parity (cached + reasoning tokens)
 - [x] Response metadata parity (`system_fingerprint`, `service_tier`) + message `itemId` surfaced via `provider_metadata.openai.itemId`
 
