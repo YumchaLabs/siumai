@@ -335,6 +335,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     continue;
                 }
 
+                let mut emit_tool_result = true;
                 let (tool_name, args, result) = match item_type {
                     "web_search_call" => {
                         // Vercel alignment: provider-executed web search tool call uses empty input (`{}`),
@@ -438,34 +439,57 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         ("fileSearch", args, result)
                     }
                     "code_interpreter_call" => {
-                        // Vercel alignment:
-                        // - toolName: `codeExecution`
-                        // - tool input: JSON string `{ code, containerId }` (preserve key order)
-                        // - tool result: `{ outputs }`
-                        let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("");
-                        let container_id = item
-                            .get("container_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        if let Some(arguments) = item.get("arguments").and_then(|v| v.as_str()) {
+                            // xAI Vercel alignment:
+                            // - type: `code_interpreter_call`
+                            // - toolName: `code_execution` (from item name or type mapping)
+                            // - tool input: keep `arguments` as-is (JSON string)
+                            // - no tool-result part; output is surfaced as normal text message
+                            emit_tool_result = false;
 
-                        let code_json =
-                            serde_json::to_string(&code).unwrap_or_else(|_| "\"\"".to_string());
-                        let container_json = serde_json::to_string(&container_id)
-                            .unwrap_or_else(|_| "\"\"".to_string());
-                        let input_str =
-                            format!("{{\"code\":{code_json},\"containerId\":{container_json}}}");
+                            let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                            let tool_name = if name.is_empty() {
+                                "code_execution"
+                            } else {
+                                name
+                            };
 
-                        let outputs = item
-                            .get("outputs")
-                            .cloned()
-                            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
-                        let result = serde_json::json!({ "outputs": outputs });
+                            (
+                                tool_name,
+                                serde_json::Value::String(arguments.to_string()),
+                                serde_json::Value::Null,
+                            )
+                        } else {
+                            // Vercel alignment (OpenAI):
+                            // - toolName: `codeExecution`
+                            // - tool input: JSON string `{ code, containerId }` (preserve key order)
+                            // - tool result: `{ outputs }`
+                            let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("");
+                            let container_id = item
+                                .get("container_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
 
-                        (
-                            "codeExecution",
-                            serde_json::Value::String(input_str),
-                            result,
-                        )
+                            let code_json =
+                                serde_json::to_string(&code).unwrap_or_else(|_| "\"\"".to_string());
+                            let container_json = serde_json::to_string(&container_id)
+                                .unwrap_or_else(|_| "\"\"".to_string());
+                            let input_str = format!(
+                                "{{\"code\":{code_json},\"containerId\":{container_json}}}"
+                            );
+
+                            let outputs = item
+                                .get("outputs")
+                                .cloned()
+                                .unwrap_or_else(|| serde_json::Value::Array(vec![]));
+                            let result = serde_json::json!({ "outputs": outputs });
+
+                            (
+                                "codeExecution",
+                                serde_json::Value::String(input_str),
+                                result,
+                            )
+                        }
                     }
                     "image_generation_call" => {
                         // Vercel alignment:
@@ -666,13 +690,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     args,
                     Some(true),
                 ));
-                content_parts.push(ContentPart::ToolResult {
-                    tool_call_id,
-                    tool_name: tool_name.to_string(),
-                    output: crate::types::ToolResultOutput::json(result),
-                    provider_executed: Some(true),
-                    provider_metadata: None,
-                });
+
+                if emit_tool_result {
+                    content_parts.push(ContentPart::ToolResult {
+                        tool_call_id,
+                        tool_name: tool_name.to_string(),
+                        output: crate::types::ToolResultOutput::json(result),
+                        provider_executed: Some(true),
+                        provider_metadata: None,
+                    });
+                }
             }
         }
 

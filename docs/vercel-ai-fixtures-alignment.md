@@ -205,6 +205,7 @@ Provider id: `xai` (Responses API)
 
 ### Done
 
+- [x] doGenerate code_interpreter tool call (xai-code-execution-tool.1)
 - [x] Streaming SSE emits `web_search` tool input (xai-web-search-tool.1)
 - [x] Streaming SSE emits `x_search` custom tool input mapping (xai-x-search-tool.1)
 - [x] Streaming SSE emits xAI-style `reasoning-*` / `text-*` ids + `finishReason.raw: "completed"` via fixtures

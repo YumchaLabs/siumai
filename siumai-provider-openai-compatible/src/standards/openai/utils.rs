@@ -80,7 +80,21 @@ pub fn convert_tools_to_responses_format(
                 openai_tools.push(tool);
             }
             crate::types::Tool::ProviderDefined(provider_tool) => {
-                if provider_tool.provider() != Some("openai") {
+                let provider = provider_tool.provider().unwrap_or("");
+                if provider != "openai" && provider != "xai" {
+                    continue;
+                }
+
+                // xAI Vercel alignment: provider tools map to Responses tool types with minimal args.
+                // In particular, `xai.code_execution` is sent as `type: "code_interpreter"`.
+                if provider == "xai" {
+                    let raw = provider_tool.tool_type().unwrap_or("unknown");
+                    let mapped = match raw {
+                        "code_execution" => "code_interpreter",
+                        other => other,
+                    };
+
+                    openai_tools.push(serde_json::json!({ "type": mapped }));
                     continue;
                 }
 
