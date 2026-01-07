@@ -1499,6 +1499,12 @@ pub fn convert_tools_to_anthropic_format(
 
                 let mut anthropic_tool = serde_json::Value::Object(tool_map);
 
+                if let Some(strict) = function.strict
+                    && let Some(map) = anthropic_tool.as_object_mut()
+                {
+                    map.insert("strict".to_string(), serde_json::json!(strict));
+                }
+
                 // Vercel-aligned: tool-level provider options for Anthropic.
                 // Example: `{ providerOptions: { anthropic: { deferLoading: true } } }`
                 if let Some(opts) = function.provider_options_map.get("anthropic")
@@ -1640,7 +1646,6 @@ pub fn convert_tools_to_anthropic_format(
 #[cfg(test)]
 mod provider_tool_tests {
     use super::*;
-    use crate::types::Tool;
 
     #[test]
     fn maps_anthropic_provider_defined_web_search() {
@@ -1727,6 +1732,42 @@ mod provider_tool_tests {
         assert_eq!(
             obj.get("name").and_then(|v| v.as_str()),
             Some("code_execution")
+        );
+    }
+}
+
+#[cfg(test)]
+mod function_tool_tests {
+    use super::*;
+
+    #[test]
+    fn function_tools_preserve_strict_and_defer_loading() {
+        let mut tool = crate::types::Tool::function(
+            "testFunction",
+            "A test function",
+            serde_json::json!({ "type": "object", "properties": {} }),
+        );
+        match &mut tool {
+            crate::types::Tool::Function { function } => {
+                function.strict = Some(true);
+                function
+                    .provider_options_map
+                    .insert("anthropic", serde_json::json!({ "deferLoading": true }));
+            }
+            _ => panic!("expected function tool"),
+        }
+
+        let mapped = convert_tools_to_anthropic_format(&[tool]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+
+        assert_eq!(
+            obj.get("name").and_then(|v| v.as_str()),
+            Some("testFunction")
+        );
+        assert_eq!(obj.get("strict").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            obj.get("defer_loading").and_then(|v| v.as_bool()),
+            Some(true)
         );
     }
 }

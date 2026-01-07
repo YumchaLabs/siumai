@@ -374,6 +374,22 @@ impl AnthropicAutoBetaHeadersMiddleware {
             }
         }
 
+        // Strict mode for function tools -> beta header (Vercel-aligned).
+        let uses_strict_function_tool = req.tools.as_ref().is_some_and(|tools| {
+            tools
+                .iter()
+                .any(|t| matches!(t, Tool::Function { function } if function.strict.is_some()))
+        });
+        if uses_strict_function_tool {
+            let model = req.common_params.model.as_str();
+            let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
+                || model.starts_with("claude-opus-4-5")
+                || model.starts_with("claude-haiku-4-5");
+            if supports_structured_outputs {
+                out.push("structured-outputs-2025-11-13");
+            }
+        }
+
         // PDF documents -> required beta (Vercel-aligned).
         let uses_pdf = req.messages.iter().any(|m| match &m.content {
             crate::types::MessageContent::MultiModal(parts) => parts.iter().any(|p| {
@@ -692,7 +708,7 @@ mod tests {
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
             .with_tools(vec![crate::tools::anthropic::code_execution_20250825()])
-            .provider_option(
+            .with_provider_option(
                 "anthropic",
                 serde_json::json!({
                     "container": {
@@ -721,7 +737,7 @@ mod tests {
     fn adds_warning_when_agent_skills_used_without_code_execution_tool() {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
-        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).provider_option(
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_provider_option(
             "anthropic",
             serde_json::json!({
                 "container": {
@@ -766,5 +782,36 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(val, "pdfs-2024-09-25");
+    }
+
+    #[test]
+    fn beta_middleware_injects_structured_outputs_beta_for_strict_function_tools() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let mut tool = crate::types::Tool::function(
+            "testFunction",
+            "A test function",
+            serde_json::json!({ "type": "object", "properties": {} }),
+        );
+        match &mut tool {
+            Tool::Function { function } => {
+                function.strict = Some(true);
+            }
+            _ => panic!("expected function tool"),
+        }
+
+        let mut req =
+            ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![tool]);
+        req.common_params.model = "claude-sonnet-4-5".to_string();
+
+        let out = mw.transform_params(req);
+        let val = out
+            .http_config
+            .as_ref()
+            .and_then(|hc| hc.headers.get("anthropic-beta"))
+            .cloned()
+            .unwrap_or_default();
+
+        assert_eq!(val, "structured-outputs-2025-11-13");
     }
 }

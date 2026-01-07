@@ -93,18 +93,19 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     body["stop_sequences"] = serde_json::json!(stops);
                 }
                 if let Some(tools) = &req.tools {
-                    let arr = convert_tools_to_anthropic_format(tools)?;
-                    if !arr.is_empty() {
-                        body["tools"] = serde_json::Value::Array(arr);
+                    if !matches!(req.tool_choice, Some(crate::types::ToolChoice::None)) {
+                        let arr = convert_tools_to_anthropic_format(tools)?;
+                        if !arr.is_empty() {
+                            body["tools"] = serde_json::Value::Array(arr);
 
-                        // Add tool_choice if specified
-                        if let Some(choice) = &req.tool_choice
-                            && let Some(anthropic_choice) =
-                                super::utils::convert_tool_choice(choice)
-                        {
-                            body["tool_choice"] = anthropic_choice;
+                            // Add tool_choice if specified
+                            if let Some(choice) = &req.tool_choice
+                                && let Some(anthropic_choice) =
+                                    super::utils::convert_tool_choice(choice)
+                            {
+                                body["tool_choice"] = anthropic_choice;
+                            }
                         }
-                        // If None is returned, tools should be removed (handled by caller if needed)
                     }
                 }
 
@@ -545,6 +546,29 @@ mod tests {
                 .get("redacted_thinking_data")
                 .unwrap(),
             "abc123"
+        );
+    }
+
+    #[test]
+    fn tool_choice_none_removes_tools_from_request_body() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(crate::types::ToolChoice::None)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert!(body.get("tools").is_none(), "tools should be removed");
+        assert!(
+            body.get("tool_choice").is_none(),
+            "tool_choice should be removed"
         );
     }
 }
