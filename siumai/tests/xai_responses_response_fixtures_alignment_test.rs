@@ -79,8 +79,7 @@ fn run_case(root: &Path) {
     let response: Value = read_json(root.join("response.json"));
     let expected: Value = read_json(root.join("expected_response.json"));
 
-    let tx =
-        siumai::experimental::standards::openai::transformers::response::OpenAiResponsesResponseTransformer;
+    let tx = siumai_provider_xai::standards::xai::responses_response::XaiResponsesResponseTransformer::new();
     let resp = tx.transform_chat_response(&response).expect("transform");
 
     let mut got_value = serde_json::to_value(resp).expect("serialize");

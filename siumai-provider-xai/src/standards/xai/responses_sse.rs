@@ -24,6 +24,9 @@ impl XaiResponsesEventConverter {
                 )
                 .with_web_search_stream_mode(
                     crate::standards::openai::responses_sse::WebSearchStreamMode::Xai,
+                )
+                .with_responses_transform_style(
+                    crate::standards::openai::transformers::ResponsesTransformStyle::Xai,
                 ),
         }
     }

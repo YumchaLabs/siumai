@@ -96,7 +96,7 @@ async fn test_xai_chat_non_streaming() {
 
     // Mount mock endpoint
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .and(header("authorization", "Bearer test-api-key"))
         .and(header("content-type", "application/json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(create_chat_response()))
@@ -141,7 +141,7 @@ async fn test_xai_error_response() {
 
     // Mount error response
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(404).set_body_json(create_error_response()))
         .mount(&mock_server)
         .await;
@@ -176,7 +176,7 @@ async fn test_xai_request_format() {
 
     // Mount mock with request body verification
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .and(header("authorization", "Bearer test-key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(create_chat_response()))
         .mount(&mock_server)
@@ -208,7 +208,7 @@ async fn test_xai_tool_calling() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_json(create_tool_call_response()))
         .mount(&mock_server)
         .await;
@@ -271,7 +271,7 @@ async fn test_xai_system_fingerprint() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_json(create_chat_response()))
         .mount(&mock_server)
         .await;

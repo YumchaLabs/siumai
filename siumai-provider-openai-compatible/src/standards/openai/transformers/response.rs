@@ -238,7 +238,37 @@ pub fn extract_thinking_from_multiple_fields(value: &serde_json::Value) -> Optio
 #[cfg(feature = "openai-responses")]
 /// Response transformer for OpenAI Responses API
 #[derive(Clone)]
-pub struct OpenAiResponsesResponseTransformer;
+pub struct OpenAiResponsesResponseTransformer {
+    style: ResponsesTransformStyle,
+}
+
+#[cfg(feature = "openai-responses")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResponsesTransformStyle {
+    OpenAi,
+    Xai,
+}
+
+#[cfg(feature = "openai-responses")]
+impl Default for OpenAiResponsesResponseTransformer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "openai-responses")]
+impl OpenAiResponsesResponseTransformer {
+    pub fn new() -> Self {
+        Self {
+            style: ResponsesTransformStyle::OpenAi,
+        }
+    }
+
+    pub fn with_style(mut self, style: ResponsesTransformStyle) -> Self {
+        self.style = style;
+        self
+    }
+}
 
 #[cfg(feature = "openai-responses")]
 impl ResponseTransformer for OpenAiResponsesResponseTransformer {
@@ -249,18 +279,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
         use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
         let root = raw.get("response").unwrap_or(raw);
-
-        let is_xai_response = root
-            .get("output")
-            .and_then(|v| v.as_array())
-            .is_some_and(|out| {
-                out.iter().any(|item| {
-                    matches!(
-                        item.get("type").and_then(|v| v.as_str()),
-                        Some("web_search_call" | "x_search_call")
-                    ) && item.get("arguments").and_then(|v| v.as_str()).is_some()
-                })
-            });
+        let xai_style = self.style == ResponsesTransformStyle::Xai;
 
         // Build content parts (tool calls/results + text).
         //
@@ -350,11 +369,15 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 let mut emit_tool_result = true;
                 let (tool_name, args, result) = match item_type {
                     "web_search_call" => {
-                        if let Some(arguments) = item.get("arguments").and_then(|v| v.as_str()) {
+                        if xai_style {
                             // xAI Vercel alignment:
                             // - toolName: `web_search` (snake_case)
                             // - tool input: keep `arguments` as-is (JSON string)
-                            // - citations are surfaced as `source` parts from URL annotations
+                            // - no tool-result part; citations are surfaced as `source` parts
+                            let Some(arguments) = item.get("arguments").and_then(|v| v.as_str())
+                            else {
+                                continue;
+                            };
                             emit_tool_result = false;
 
                             let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
@@ -471,12 +494,15 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         ("fileSearch", args, result)
                     }
                     "code_interpreter_call" => {
-                        if let Some(arguments) = item.get("arguments").and_then(|v| v.as_str()) {
+                        if xai_style {
                             // xAI Vercel alignment:
-                            // - type: `code_interpreter_call`
-                            // - toolName: `code_execution` (from item name or type mapping)
+                            // - toolName: `code_execution` (snake_case)
                             // - tool input: keep `arguments` as-is (JSON string)
                             // - no tool-result part; output is surfaced as normal text message
+                            let Some(arguments) = item.get("arguments").and_then(|v| v.as_str())
+                            else {
+                                continue;
+                            };
                             emit_tool_result = false;
 
                             let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
@@ -535,20 +561,22 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         ("generateImage", args, result)
                     }
                     "x_search_call" => {
-                        if let Some(arguments) = item.get("arguments").and_then(|v| v.as_str()) {
-                            // xAI Vercel alignment:
-                            // - toolName: `x_search` (public tool name)
-                            // - tool input: keep `arguments` as-is (JSON string)
-                            // - citations are surfaced as `source` parts from URL annotations
-                            emit_tool_result = false;
-                            (
-                                "x_search",
-                                serde_json::Value::String(arguments.to_string()),
-                                serde_json::Value::Null,
-                            )
-                        } else {
+                        if !xai_style {
                             continue;
                         }
+                        let Some(arguments) = item.get("arguments").and_then(|v| v.as_str()) else {
+                            continue;
+                        };
+                        // xAI Vercel alignment:
+                        // - toolName: `x_search` (public tool name)
+                        // - tool input: keep `arguments` as-is (JSON string)
+                        // - no tool-result part; citations are surfaced as `source` parts
+                        emit_tool_result = false;
+                        (
+                            "x_search",
+                            serde_json::Value::String(arguments.to_string()),
+                            serde_json::Value::Null,
+                        )
                     }
                     "computer_call" => {
                         let status = item
@@ -765,7 +793,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             text_content.push_str(t);
                         }
 
-                        if is_xai_response {
+                        if xai_style {
                             let Some(annotations) = p.get("annotations").and_then(|v| v.as_array())
                             else {
                                 continue;
@@ -792,7 +820,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             content_parts.push(ContentPart::text(&text_content));
         }
 
-        if is_xai_response && !xai_source_urls.is_empty() {
+        if xai_style && !xai_source_urls.is_empty() {
             let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
             let mut idx = 0usize;
             for url in xai_source_urls {
@@ -1071,7 +1099,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             let ann_type = ann.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
                             if ann_type == "url_citation" {
-                                if is_xai_response {
+                                if xai_style {
                                     // xAI Vercel alignment: citations are exposed as `source` parts,
                                     // so keep provider metadata minimal.
                                     continue;
@@ -1312,7 +1340,7 @@ mod tests {
             }
         });
 
-        let tx = OpenAiResponsesResponseTransformer;
+        let tx = OpenAiResponsesResponseTransformer::new();
         let resp = tx.transform_chat_response(&raw).unwrap();
 
         // Text should still be accessible even when content is multimodal.

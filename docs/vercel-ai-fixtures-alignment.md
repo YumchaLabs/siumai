@@ -199,7 +199,7 @@ Provider id: `openai` (Responses API)
 
 - [x] Streaming SSE emits `stream-start` / `response-metadata` / `text-start` / `text-delta` / `text-end` / `finish` via fixtures
 
-## xAI Responses (Streaming)
+## xAI Responses (Fixtures)
 
 Provider id: `xai` (Responses API)
 
@@ -208,6 +208,14 @@ Provider id: `xai` (Responses API)
 - [x] doGenerate code_interpreter tool call (xai-code-execution-tool.1)
 - [x] doGenerate web_search tool call + sources (xai-web-search-tool.1)
 - [x] doGenerate x_search tool call + sources (xai-x-search-tool.1)
+- [x] Provider presets for Responses API response + SSE (avoid shared heuristics): `XaiResponsesResponseTransformer`, `XaiResponsesEventConverter`
+
+## xAI Responses (Streaming)
+
+Provider id: `xai` (Responses API)
+
+### Done
+
 - [x] Streaming SSE emits `web_search` tool input (xai-web-search-tool.1)
 - [x] Streaming SSE emits `x_search` custom tool input mapping (xai-x-search-tool.1)
 - [x] Streaming SSE emits xAI-style `reasoning-*` / `text-*` ids + `finishReason.raw: "completed"` via fixtures

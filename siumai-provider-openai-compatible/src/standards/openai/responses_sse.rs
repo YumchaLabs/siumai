@@ -74,6 +74,9 @@ pub struct OpenAiResponsesEventConverter {
     /// Controls the Vercel stream parts shape (ids / providerMetadata) emitted by this converter.
     stream_parts_style: StreamPartsStyle,
 
+    /// Controls how the final `response.completed` payload is transformed into `ChatResponse`.
+    responses_transform_style: super::transformers::ResponsesTransformStyle,
+
     /// Maps custom tool call names (e.g. xAI internal tool names) to the user-facing tool name.
     custom_tool_name_by_call_name: Arc<Mutex<HashMap<String, String>>>,
     custom_tool_call_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
@@ -124,6 +127,7 @@ impl Default for OpenAiResponsesEventConverter {
             emit_web_search_tool_input_delta: false,
             emit_web_search_tool_result: true,
             stream_parts_style: StreamPartsStyle::OpenAi,
+            responses_transform_style: super::transformers::ResponsesTransformStyle::OpenAi,
             custom_tool_name_by_call_name: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_call_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_tool_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
@@ -169,6 +173,14 @@ impl OpenAiResponsesEventConverter {
 
     pub fn with_stream_parts_style(mut self, style: StreamPartsStyle) -> Self {
         self.stream_parts_style = style;
+        self
+    }
+
+    pub fn with_responses_transform_style(
+        mut self,
+        style: super::transformers::ResponsesTransformStyle,
+    ) -> Self {
+        self.responses_transform_style = style;
         self
     }
 
@@ -2924,7 +2936,8 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
                 // The completed event often contains the full response payload.
                 // Delegate to centralized ResponseTransformer for final ChatResponse.
-                let resp_tx = super::transformers::OpenAiResponsesResponseTransformer;
+                let resp_tx = super::transformers::OpenAiResponsesResponseTransformer::new()
+                    .with_style(self.responses_transform_style);
                 match crate::execution::transformers::response::ResponseTransformer::transform_chat_response(
                     &resp_tx, &json,
                 ) {

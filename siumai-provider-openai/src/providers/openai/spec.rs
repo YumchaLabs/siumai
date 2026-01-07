@@ -291,7 +291,7 @@ impl ProviderSpec for OpenAiSpec {
             // Responses API transformers
             let req_tx = crate::providers::openai::transformers::OpenAiResponsesRequestTransformer;
             let resp_tx =
-                crate::providers::openai::transformers::OpenAiResponsesResponseTransformer;
+                crate::providers::openai::transformers::OpenAiResponsesResponseTransformer::new();
             let converter =
                 crate::providers::openai::responses::OpenAiResponsesEventConverter::new()
                     .with_request_tools(req.tools.as_deref().unwrap_or(&[]));
