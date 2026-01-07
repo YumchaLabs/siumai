@@ -90,6 +90,9 @@ pub mod anthropic {
 
     pub const WEB_SEARCH_20250305_ID: &str = "anthropic.web_search_20250305";
     pub const WEB_FETCH_20250910_ID: &str = "anthropic.web_fetch_20250910";
+    pub const COMPUTER_20241022_ID: &str = "anthropic.computer_20241022";
+    pub const TEXT_EDITOR_20241022_ID: &str = "anthropic.text_editor_20241022";
+    pub const BASH_20241022_ID: &str = "anthropic.bash_20241022";
     pub const TOOL_SEARCH_REGEX_20251119_ID: &str = "anthropic.tool_search_regex_20251119";
     pub const TOOL_SEARCH_BM25_20251119_ID: &str = "anthropic.tool_search_bm25_20251119";
     pub const CODE_EXECUTION_20250522_ID: &str = "anthropic.code_execution_20250522";
@@ -114,6 +117,30 @@ pub mod anthropic {
 
     pub fn web_fetch_20250910_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(WEB_FETCH_20250910_ID, name)
+    }
+
+    pub fn computer_20241022() -> Tool {
+        computer_20241022_named("computer")
+    }
+
+    pub fn computer_20241022_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(COMPUTER_20241022_ID, name)
+    }
+
+    pub fn text_editor_20241022() -> Tool {
+        text_editor_20241022_named("str_replace_editor")
+    }
+
+    pub fn text_editor_20241022_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(TEXT_EDITOR_20241022_ID, name)
+    }
+
+    pub fn bash_20241022() -> Tool {
+        bash_20241022_named("bash")
+    }
+
+    pub fn bash_20241022_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(BASH_20241022_ID, name)
     }
 
     pub fn tool_search_regex_20251119() -> Tool {

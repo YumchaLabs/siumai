@@ -350,6 +350,9 @@ impl AnthropicAutoBetaHeadersMiddleware {
                     Some("web_fetch_20250910") => out.push("web-fetch-2025-09-10"),
                     Some("code_execution_20250522") => out.push("code-execution-2025-05-22"),
                     Some("code_execution_20250825") => out.push("code-execution-2025-08-25"),
+                    Some("computer_20241022")
+                    | Some("text_editor_20241022")
+                    | Some("bash_20241022") => out.push("computer-use-2024-10-22"),
                     Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
                         out.push("advanced-tool-use-2025-11-20")
                     }
@@ -813,5 +816,28 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(val, "structured-outputs-2025-11-13");
+    }
+
+    #[test]
+    fn beta_middleware_injects_computer_use_beta_for_computer_tools() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
+            crate::tools::anthropic::computer_20241022().with_args(serde_json::json!({
+                "displayWidthPx": 800,
+                "displayHeightPx": 600,
+                "displayNumber": 1
+            })),
+        ]);
+
+        let out = mw.transform_params(req);
+        let val = out
+            .http_config
+            .as_ref()
+            .and_then(|hc| hc.headers.get("anthropic-beta"))
+            .cloned()
+            .unwrap_or_default();
+
+        assert_eq!(val, "computer-use-2024-10-22");
     }
 }
