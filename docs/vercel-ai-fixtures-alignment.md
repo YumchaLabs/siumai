@@ -276,3 +276,4 @@ Provider id: `xai`
 ### Done
 
 - [x] `xai-web-search-tool.1` (provider tool; tool-input-delta from `arguments`, no tool-result when payload missing)
+- [x] `xai-x-search-tool` (x_search triggers `custom_tool_call` items; `x_keyword_search` maps to `x_search`, web_search calls use empty tool-input-delta, no tool-result)

@@ -12,6 +12,12 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{SecondsFormat, TimeZone, Utc};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebSearchStreamMode {
+    OpenAi,
+    Xai,
+}
+
 /// OpenAI Responses SSE event converter using unified streaming utilities
 #[derive(Clone)]
 pub struct OpenAiResponsesEventConverter {
@@ -49,11 +55,23 @@ pub struct OpenAiResponsesEventConverter {
     text_annotations_by_item_id: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
     pending_stream_end_events: Arc<Mutex<VecDeque<crate::streaming::ChatStreamEvent>>>,
 
-    /// Vercel-aligned toggle: whether to include `providerExecuted: true` on
-    /// `tool-input-start` events for provider-executed web search tools.
-    ///
-    /// OpenAI snapshots include this field for `webSearch`, while xAI snapshots omit it.
+    /// Default tool input used for web search calls when the output item does not contain
+    /// an explicit arguments payload.
+    web_search_default_input: String,
+    /// Whether to include `providerExecuted: true` on `tool-input-start` events for web search.
     include_web_search_provider_executed_in_tool_input: bool,
+    /// Whether to emit `tool-input-delta` for web search calls (some vendors expect it).
+    emit_web_search_tool_input_delta: bool,
+    /// Whether to emit `tool-result` for web search calls (OpenAI does, xAI does not).
+    emit_web_search_tool_result: bool,
+
+    /// Maps custom tool call names (e.g. xAI internal tool names) to the user-facing tool name.
+    custom_tool_name_by_call_name: Arc<Mutex<HashMap<String, String>>>,
+    custom_tool_call_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
+    custom_tool_tool_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
+    emitted_custom_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_custom_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_custom_tool_call_ids: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Default for OpenAiResponsesEventConverter {
@@ -92,7 +110,16 @@ impl Default for OpenAiResponsesEventConverter {
             emitted_text_end_ids: Arc::new(Mutex::new(HashSet::new())),
             text_annotations_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             pending_stream_end_events: Arc::new(Mutex::new(VecDeque::new())),
+            web_search_default_input: "{}".to_string(),
             include_web_search_provider_executed_in_tool_input: true,
+            emit_web_search_tool_input_delta: false,
+            emit_web_search_tool_result: true,
+            custom_tool_name_by_call_name: Arc::new(Mutex::new(HashMap::new())),
+            custom_tool_call_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            custom_tool_tool_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            emitted_custom_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_custom_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_custom_tool_call_ids: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -109,6 +136,24 @@ impl OpenAiResponsesEventConverter {
 
     pub fn with_web_search_tool_input_provider_executed(mut self, enabled: bool) -> Self {
         self.include_web_search_provider_executed_in_tool_input = enabled;
+        self
+    }
+
+    pub fn with_web_search_stream_mode(mut self, mode: WebSearchStreamMode) -> Self {
+        match mode {
+            WebSearchStreamMode::OpenAi => {
+                self.web_search_default_input = "{}".to_string();
+                self.include_web_search_provider_executed_in_tool_input = true;
+                self.emit_web_search_tool_input_delta = false;
+                self.emit_web_search_tool_result = true;
+            }
+            WebSearchStreamMode::Xai => {
+                self.web_search_default_input = "".to_string();
+                self.include_web_search_provider_executed_in_tool_input = false;
+                self.emit_web_search_tool_input_delta = true;
+                self.emit_web_search_tool_result = false;
+            }
+        }
         self
     }
 
@@ -140,6 +185,11 @@ impl OpenAiResponsesEventConverter {
             Err(_) => return,
         };
 
+        let mut custom_tool_name_by_call_name = match self.custom_tool_name_by_call_name.lock() {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+
         for tool in tools {
             let Tool::ProviderDefined(t) = tool else {
                 continue;
@@ -157,6 +207,18 @@ impl OpenAiResponsesEventConverter {
                 }
                 "web_search" => {
                     map.entry("web_search_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                // xAI vendor mapping: code execution is exposed as `code_interpreter_call` items.
+                "code_execution" => {
+                    map.entry("code_interpreter_call".to_string())
+                        .or_insert_with(|| t.name.clone());
+                }
+                // xAI vendor mapping: x_search triggers internal `custom_tool_call` items
+                // (e.g. `x_keyword_search`) that should map back to the client tool name.
+                "x_search" => {
+                    custom_tool_name_by_call_name
+                        .entry("x_keyword_search".to_string())
                         .or_insert_with(|| t.name.clone());
                 }
                 "file_search" => {
@@ -193,6 +255,113 @@ impl OpenAiResponsesEventConverter {
                 _ => {}
             }
         }
+    }
+
+    fn custom_tool_name_for_call_name(&self, call_name: &str) -> String {
+        if call_name.is_empty() {
+            return String::new();
+        }
+
+        self.custom_tool_name_by_call_name
+            .lock()
+            .ok()
+            .and_then(|m| m.get(call_name).cloned())
+            .unwrap_or_else(|| call_name.to_string())
+    }
+
+    fn record_custom_tool_item(&self, item_id: &str, call_name: &str, tool_name: &str) {
+        if item_id.is_empty() {
+            return;
+        }
+
+        if let Ok(mut m) = self.custom_tool_call_name_by_item_id.lock() {
+            m.insert(item_id.to_string(), call_name.to_string());
+        }
+        if let Ok(mut m) = self.custom_tool_tool_name_by_item_id.lock() {
+            m.insert(item_id.to_string(), tool_name.to_string());
+        }
+    }
+
+    fn custom_tool_name_by_item_id(&self, item_id: &str) -> Option<String> {
+        self.custom_tool_tool_name_by_item_id
+            .lock()
+            .ok()
+            .and_then(|m| m.get(item_id).cloned())
+    }
+
+    fn mark_custom_tool_input_start_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_custom_tool_input_start_ids.lock() else {
+            return false;
+        };
+        set.insert(id.to_string())
+    }
+
+    fn mark_custom_tool_input_end_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_custom_tool_input_end_ids.lock() else {
+            return false;
+        };
+        set.insert(id.to_string())
+    }
+
+    fn mark_custom_tool_call_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_custom_tool_call_ids.lock() else {
+            return false;
+        };
+        set.insert(id.to_string())
+    }
+
+    fn convert_custom_tool_call_input_delta(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str())?;
+        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
+
+        let mut out: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+        if !self.mark_custom_tool_input_start_emitted(item_id) {
+            // If the start was already emitted, continue.
+        } else if let Some(tool_name) = self.custom_tool_name_by_item_id(item_id)
+            && !tool_name.is_empty()
+        {
+            out.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-start".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-start",
+                    "id": item_id,
+                    "toolName": tool_name,
+                }),
+            });
+        }
+
+        out.push(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": item_id,
+                "delta": delta,
+            }),
+        });
+
+        Some(out)
+    }
+
+    fn convert_custom_tool_call_input_done(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str())?;
+
+        if !self.mark_custom_tool_input_end_emitted(item_id) {
+            return None;
+        }
+
+        Some(vec![crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-end".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-end",
+                "id": item_id,
+            }),
+        }])
     }
 
     fn update_provider_tool_names(&self, json: &serde_json::Value) {
@@ -1852,12 +2021,36 @@ impl OpenAiResponsesEventConverter {
                     }),
                 }]);
             }
+            "custom_tool_call" => {
+                // xAI x_search emits internal custom tool calls (e.g. `x_keyword_search`) and streams
+                // their input via `response.custom_tool_call_input.*` events.
+                let tool_call_id = item.get("id")?.as_str()?;
+                let call_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let tool_name = self.custom_tool_name_for_call_name(call_name);
+                self.record_custom_tool_item(tool_call_id, call_name, &tool_name);
+
+                if self.mark_custom_tool_input_start_emitted(tool_call_id) {
+                    return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:tool-input-start".to_string(),
+                        data: serde_json::json!({
+                            "type": "tool-input-start",
+                            "id": tool_call_id,
+                            "toolName": tool_name,
+                        }),
+                    }]);
+                }
+
+                return None;
+            }
             "web_search_call" => {
                 // xAI streams `arguments` on the output item; Vercel aligns web_search tool input
                 // to this JSON string when present. OpenAI does not always include arguments.
                 let args = item.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
                 if args.is_empty() {
-                    ("web_search", serde_json::json!("{}"))
+                    (
+                        "web_search",
+                        serde_json::Value::String(self.web_search_default_input.clone()),
+                    )
                 } else {
                     ("web_search", serde_json::Value::String(args.to_string()))
                 }
@@ -1902,9 +2095,8 @@ impl OpenAiResponsesEventConverter {
                 data,
             });
 
-            if let serde_json::Value::String(delta) = &input
-                && delta != "{}"
-                && !delta.is_empty()
+            if self.emit_web_search_tool_input_delta
+                && let serde_json::Value::String(delta) = &input
             {
                 events.push(crate::streaming::ChatStreamEvent::Custom {
                     event_type: "openai:tool-input-delta".to_string(),
@@ -1952,6 +2144,29 @@ impl OpenAiResponsesEventConverter {
         let tool_call_id = item.get("id")?.as_str()?;
 
         let mut extra_events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        if item_type == "custom_tool_call" {
+            if !self.mark_custom_tool_call_emitted(tool_call_id) {
+                return None;
+            }
+
+            let call_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let tool_name = self.custom_tool_name_for_call_name(call_name);
+            let input = item.get("input").and_then(|v| v.as_str()).unwrap_or("");
+
+            return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-call".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": tool_call_id,
+                    "toolName": tool_name,
+                    "input": input,
+                    "providerExecuted": true,
+                    "outputIndex": output_index,
+                    "rawItem": serde_json::Value::Object(item.clone()),
+                }),
+            }]);
+        }
 
         let (default_tool_name, result) = match item_type {
             "mcp_approval_request" => {
@@ -2039,6 +2254,10 @@ impl OpenAiResponsesEventConverter {
                 }]);
             }
             "web_search_call" => {
+                if !self.emit_web_search_tool_result {
+                    return None;
+                }
+
                 // xAI web search fixtures do not include `action`/`results` payloads in `output_item.done`.
                 // When there is no result payload, Vercel does not emit a `tool-result` stream part.
                 if item.get("action").is_none() && item.get("results").is_none() {
@@ -2649,6 +2868,20 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 "response.mcp_call_arguments.done" => {
                     if let Some(evt) = self.convert_mcp_call_arguments_done(&json) {
                         return vec![Ok(evt)];
+                    }
+                }
+                "response.custom_tool_call_input.delta" => {
+                    if let Some(events) = self.convert_custom_tool_call_input_delta(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
+                    }
+                }
+                "response.custom_tool_call_input.done" => {
+                    if let Some(events) = self.convert_custom_tool_call_input_done(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
                     }
                 }
                 "response.output_item.added" => {

@@ -35,11 +35,12 @@ fn xai_responses_web_search_stream_emits_vercel_aligned_tool_input() {
         "web_search",
     ))];
 
-    // xAI snapshots omit `providerExecuted` on `tool-input-start` for web_search, unlike OpenAI.
     let conv =
         siumai_provider_xai::standards::openai::responses_sse::OpenAiResponsesEventConverter::new()
             .with_request_tools(&tools)
-            .with_web_search_tool_input_provider_executed(false);
+            .with_web_search_stream_mode(
+                siumai_provider_xai::standards::openai::responses_sse::WebSearchStreamMode::Xai,
+            );
 
     let mut events: Vec<ChatStreamEvent> = Vec::new();
     for (i, line) in lines.into_iter().enumerate() {
