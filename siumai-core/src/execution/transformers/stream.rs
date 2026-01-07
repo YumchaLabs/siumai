@@ -25,4 +25,21 @@ pub trait StreamChunkTransformer: Send + Sync {
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         None
     }
+
+    /// Handle the end of stream and emit zero or more final events.
+    ///
+    /// By default this wraps `handle_stream_end()` (0 or 1 event). Transformers
+    /// that need multiple end events should override this method.
+    fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        self.handle_stream_end().into_iter().collect()
+    }
+
+    /// Whether the StreamFactory should call `handle_stream_end` when the SSE
+    /// connection closes without an explicit `[DONE]` marker.
+    ///
+    /// Default is `false` to preserve the existing semantics: an unexpected
+    /// disconnect should not synthesize a StreamEnd.
+    fn finalize_on_disconnect(&self) -> bool {
+        false
+    }
 }

@@ -19,6 +19,31 @@ use std::sync::Arc;
 pub struct StreamFactory;
 
 impl StreamFactory {
+    fn is_textual_custom_event(event: &ChatStreamEvent) -> bool {
+        let ChatStreamEvent::Custom { data, .. } = event else {
+            return false;
+        };
+
+        matches!(
+            data.get("type").and_then(|v| v.as_str()),
+            Some("text-delta") | Some("reasoning-delta")
+        )
+    }
+
+    fn saw_content_in_events(events: &[Result<ChatStreamEvent, LlmError>]) -> bool {
+        events.iter().any(|ev| match ev {
+            Ok(ChatStreamEvent::ContentDelta { .. }) => true,
+            Ok(other) => Self::is_textual_custom_event(other),
+            Err(_) => false,
+        })
+    }
+
+    fn drain_stream_end_events<C: SseEventConverter>(
+        converter: &C,
+    ) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        converter.handle_stream_end_events()
+    }
+
     /// Convert an HTTP response into a ChatStream, using SSE when available,
     /// and falling back to a single JSON body conversion when not SSE.
     async fn stream_from_response_with_sse_fallback<C>(
@@ -49,22 +74,24 @@ impl StreamFactory {
                 retry: None,
             };
             let mut events = converter.clone().convert_event(evt).await;
-            let saw_content = events
-                .iter()
-                .any(|ev| matches!(ev, Ok(ChatStreamEvent::ContentDelta { .. })));
-            if let Some(end) = converter.handle_stream_end() {
-                if let Ok(ChatStreamEvent::StreamEnd { response }) = &end {
-                    if !saw_content
+            let saw_content = Self::saw_content_in_events(&events);
+
+            let end_events = Self::drain_stream_end_events(&converter);
+            if !end_events.is_empty() {
+                let mut injected = false;
+                for end in end_events {
+                    if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
+                        && !saw_content
+                        && !injected
                         && let Some(text) = response.content_text()
                         && !text.is_empty()
                     {
+                        injected = true;
                         events.push(Ok(ChatStreamEvent::ContentDelta {
                             delta: text.to_string(),
                             index: None,
                         }));
                     }
-                    events.push(end);
-                } else {
                     events.push(end);
                 }
             }
@@ -81,41 +108,57 @@ impl StreamFactory {
 
         // Track whether any ContentDelta was emitted
         let saw_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let saw_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let saw_content_for_then = saw_content.clone();
+        let saw_content_for_end = saw_content.clone();
+        let saw_done_for_then = saw_done.clone();
+        let saw_done_for_end = saw_done.clone();
+
+        let stream_converter = converter.clone();
+        let end_converter = converter;
+
         let chat_stream = sse_stream
             .then(move |event_result| {
-                let converter = converter.clone();
-                let saw_content = saw_content.clone();
+                let converter = stream_converter.clone();
+                let saw_content = saw_content_for_then.clone();
+                let saw_done = saw_done_for_then.clone();
                 async move {
                     match event_result {
                         Ok(event) => {
                             if event.data.trim() == "[DONE]" {
-                                if let Some(end) = converter.handle_stream_end() {
-                                    // Inject synthetic ContentDelta if no deltas were seen
-                                    if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
-                                        && !saw_content.load(std::sync::atomic::Ordering::Relaxed)
-                                        && let Some(text) = response.content_text()
-                                        && !text.is_empty()
-                                    {
-                                        return vec![
-                                            Ok(ChatStreamEvent::ContentDelta {
+                                saw_done.store(true, std::sync::atomic::Ordering::Relaxed);
+
+                                let saw = saw_content.load(std::sync::atomic::Ordering::Relaxed);
+                                let mut out: Vec<Result<ChatStreamEvent, LlmError>> = Vec::new();
+
+                                let end_events = StreamFactory::drain_stream_end_events(&converter);
+                                if !end_events.is_empty() {
+                                    let mut injected = false;
+                                    for end in end_events {
+                                        if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
+                                            && !saw
+                                            && !injected
+                                            && let Some(text) = response.content_text()
+                                            && !text.is_empty()
+                                        {
+                                            injected = true;
+                                            out.push(Ok(ChatStreamEvent::ContentDelta {
                                                 delta: text.to_string(),
                                                 index: None,
-                                            }),
-                                            end,
-                                        ];
+                                            }));
+                                        }
+                                        out.push(end);
                                     }
-                                    return vec![end];
                                 }
-                                return vec![];
+                                return out;
                             }
                             if event.data.trim().is_empty() {
                                 return vec![];
                             }
                             let events = converter.convert_event(event).await;
                             // Mark if any ContentDelta is present
-                            let has_content = events
-                                .iter()
-                                .any(|ev| matches!(ev, Ok(ChatStreamEvent::ContentDelta { .. })));
+                            let has_content = StreamFactory::saw_content_in_events(&events);
                             if has_content {
                                 saw_content.store(true, std::sync::atomic::Ordering::Relaxed);
                             }
@@ -129,7 +172,46 @@ impl StreamFactory {
                     }
                 }
             })
-            .flat_map(futures::stream::iter);
+            .flat_map(futures::stream::iter)
+            .chain({
+                let saw_content = saw_content_for_end;
+                let saw_done = saw_done_for_end;
+
+                futures::stream::once(async move {
+                    if saw_done.load(std::sync::atomic::Ordering::Relaxed) {
+                        return vec![];
+                    }
+                    if !end_converter.finalize_on_disconnect() {
+                        return vec![];
+                    }
+
+                    let saw = saw_content.load(std::sync::atomic::Ordering::Relaxed);
+                    let mut out: Vec<Result<ChatStreamEvent, LlmError>> = Vec::new();
+
+                    let end_events = StreamFactory::drain_stream_end_events(&end_converter);
+                    if !end_events.is_empty() {
+                        let mut injected = false;
+                        for end in end_events {
+                            if let Ok(ChatStreamEvent::StreamEnd { response }) = &end
+                                && !saw
+                                && !injected
+                                && let Some(text) = response.content_text()
+                                && !text.is_empty()
+                            {
+                                injected = true;
+                                out.push(Ok(ChatStreamEvent::ContentDelta {
+                                    delta: text.to_string(),
+                                    index: None,
+                                }));
+                            }
+                            out.push(end);
+                        }
+                    }
+
+                    out
+                })
+                .flat_map(futures::stream::iter)
+            });
         Ok(Box::pin(chat_stream))
     }
 

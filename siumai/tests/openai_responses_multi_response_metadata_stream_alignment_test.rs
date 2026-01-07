@@ -34,6 +34,13 @@ fn run_converter(lines: Vec<String>, tools: Vec<Tool>) -> Vec<ChatStreamEvent> {
         }
     }
 
+    while let Some(item) = conv.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize stream: {err:?}"),
+        }
+    }
+
     events
 }
 
@@ -71,6 +78,11 @@ fn openai_responses_shell_stream_emits_response_metadata_for_each_response() {
 
     let stream_starts = custom_events_by_type(&events, "stream-start");
     let metadata = custom_events_by_type(&events, "response-metadata");
+    let finishes = custom_events_by_type(&events, "finish");
+    let stream_ends = events
+        .iter()
+        .filter(|e| matches!(e, ChatStreamEvent::StreamEnd { .. }))
+        .count();
 
     assert_eq!(stream_starts.len(), 1, "expected exactly one stream-start");
     assert_eq!(
@@ -78,6 +90,8 @@ fn openai_responses_shell_stream_emits_response_metadata_for_each_response() {
         2,
         "expected response-metadata for each response.created"
     );
+    assert_eq!(finishes.len(), 1, "expected exactly one finish");
+    assert_eq!(stream_ends, 1, "expected exactly one StreamEnd");
 
     let ids: Vec<&str> = metadata
         .iter()
@@ -91,5 +105,15 @@ fn openai_responses_shell_stream_emits_response_metadata_for_each_response() {
     assert!(
         ids.contains(&"resp_0434d6d64b12b08900692f639d784481959af65f985b9c13e2"),
         "expected second response id in response-metadata"
+    );
+
+    assert_eq!(
+        finishes[0]
+            .get("providerMetadata")
+            .and_then(|m| m.get("openai"))
+            .and_then(|o| o.get("responseId"))
+            .and_then(|v| v.as_str()),
+        Some("resp_0434d6d64b12b08900692f639d784481959af65f985b9c13e2"),
+        "finish should refer to the final response"
     );
 }

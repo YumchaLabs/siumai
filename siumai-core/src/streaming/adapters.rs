@@ -38,6 +38,14 @@ impl SseEventConverter for TransformerConverter {
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.0.handle_stream_end()
     }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        self.0.handle_stream_end_events()
+    }
+
+    fn finalize_on_disconnect(&self) -> bool {
+        self.0.finalize_on_disconnect()
+    }
 }
 
 /// Wrap SSE conversion with language model middlewares applied to each event.
@@ -106,6 +114,31 @@ where
             other => other,
         }
     }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        let raw = self.convert.handle_stream_end_events();
+        let mut out = Vec::new();
+        for item in raw.into_iter() {
+            match item {
+                Ok(ev) => {
+                    match crate::execution::middleware::language_model::apply_stream_event_chain(
+                        &self.middlewares,
+                        &self.req,
+                        ev,
+                    ) {
+                        Ok(list) => out.extend(list.into_iter().map(Ok)),
+                        Err(e) => out.push(Err(e)),
+                    }
+                }
+                Err(e) => out.push(Err(e)),
+            }
+        }
+        out
+    }
+
+    fn finalize_on_disconnect(&self) -> bool {
+        self.convert.finalize_on_disconnect()
+    }
 }
 
 /// Wrap SSE conversion with HTTP interceptors for each raw SSE event.
@@ -158,6 +191,25 @@ where
             }
         }
         self.convert.handle_stream_end()
+    }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        let end_evt = eventsource_stream::Event {
+            event: "siumai_stream_end".to_string(),
+            data: "[DONE]".to_string(),
+            id: "0".to_string(),
+            retry: None,
+        };
+        for it in &self.interceptors {
+            if let Err(e) = it.on_sse_event(&self.ctx, &end_evt) {
+                return vec![Err(e)];
+            }
+        }
+        self.convert.handle_stream_end_events()
+    }
+
+    fn finalize_on_disconnect(&self) -> bool {
+        self.convert.finalize_on_disconnect()
     }
 }
 

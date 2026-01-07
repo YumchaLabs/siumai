@@ -7,7 +7,7 @@
 //! Note: Providers may re-export this converter under historical module paths
 //! (e.g. `providers::openai::responses::OpenAiResponsesEventConverter`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use chrono::{SecondsFormat, TimeZone, Utc};
@@ -47,6 +47,7 @@ pub struct OpenAiResponsesEventConverter {
     emitted_text_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_text_end_ids: Arc<Mutex<HashSet<String>>>,
     text_annotations_by_item_id: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
+    pending_stream_end_events: Arc<Mutex<VecDeque<crate::streaming::ChatStreamEvent>>>,
 }
 
 impl Default for OpenAiResponsesEventConverter {
@@ -84,6 +85,7 @@ impl Default for OpenAiResponsesEventConverter {
             emitted_text_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_text_end_ids: Arc::new(Mutex::new(HashSet::new())),
             text_annotations_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            pending_stream_end_events: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 }
@@ -96,6 +98,26 @@ impl OpenAiResponsesEventConverter {
     pub fn with_request_tools(self, tools: &[crate::types::Tool]) -> Self {
         self.seed_provider_tool_names_from_request_tools(tools);
         self
+    }
+
+    fn clear_pending_stream_end_events(&self) {
+        if let Ok(mut q) = self.pending_stream_end_events.lock() {
+            q.clear();
+        }
+    }
+
+    fn replace_pending_stream_end_events(&self, events: Vec<crate::streaming::ChatStreamEvent>) {
+        if let Ok(mut q) = self.pending_stream_end_events.lock() {
+            q.clear();
+            q.extend(events);
+        }
+    }
+
+    fn pop_pending_stream_end_event(&self) -> Option<crate::streaming::ChatStreamEvent> {
+        self.pending_stream_end_events
+            .lock()
+            .ok()
+            .and_then(|mut q| q.pop_front())
     }
 
     fn seed_provider_tool_names_from_request_tools(&self, tools: &[crate::types::Tool]) {
@@ -2421,6 +2443,10 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
             };
 
             if chunk_type == "response.created" {
+                // A new response in the same SSE connection means any previously buffered
+                // StreamEnd is not terminal for the overall stream.
+                self.clear_pending_stream_end_events();
+
                 if let Some(resp) = json.get("response") {
                     let response_id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("");
                     let model_id = resp.get("model").and_then(|v| v.as_str()).unwrap_or("");
@@ -2461,7 +2487,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
             }
 
             if chunk_type == "response.completed" {
-                let mut extra_events = self.convert_mcp_items_from_completed(&json);
+                let extra_events = self.convert_mcp_items_from_completed(&json);
 
                 // The completed event often contains the full response payload.
                 // Delegate to centralized ResponseTransformer for final ChatResponse.
@@ -2470,10 +2496,17 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     &resp_tx, &json,
                 ) {
                     Ok(response) => {
+                        // Buffer the final finish + StreamEnd until the stream ends.
+                        // OpenAI Responses can emit multiple `response.created` / `response.completed`
+                        // pairs on a single SSE connection (e.g., built-in tools), and only the last
+                        // completed response should terminate the stream.
+                        let mut pending: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
                         if let Some(finish_evt) = self.convert_finish_event(&json, &response) {
-                            extra_events.push(finish_evt);
+                            pending.push(finish_evt);
                         }
-                        extra_events.push(crate::streaming::ChatStreamEvent::StreamEnd { response });
+                        pending.push(crate::streaming::ChatStreamEvent::StreamEnd { response });
+                        self.replace_pending_stream_end_events(pending);
+
                         return extra_events.into_iter().map(Ok).collect();
                     }
                     Err(err) => return vec![Err(err)],
@@ -2650,11 +2683,20 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
     fn handle_stream_end(
         &self,
     ) -> Option<Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>> {
-        // Do not emit a StreamEnd on [DONE]. The Responses API emits a
-        // `response.completed` event that we already convert into the final
-        // ChatResponse via the centralized ResponseTransformer. Returning None
-        // here avoids duplicate StreamEnd events and matches Cherry's behavior.
-        None
+        self.pop_pending_stream_end_event().map(Ok)
+    }
+
+    fn handle_stream_end_events(
+        &self,
+    ) -> Vec<Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>> {
+        let Ok(mut q) = self.pending_stream_end_events.lock() else {
+            return Vec::new();
+        };
+        q.drain(..).map(Ok).collect()
+    }
+
+    fn finalize_on_disconnect(&self) -> bool {
+        true
     }
 }
 

@@ -42,6 +42,13 @@ fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
         }
     }
 
+    while let Some(item) = conv.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize stream: {err:?}"),
+        }
+    }
+
     events
 }
 

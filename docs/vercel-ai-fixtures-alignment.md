@@ -198,6 +198,14 @@ Provider id: `openai` (Responses API)
 ### Done
 
 - [x] Streaming SSE emits `stream-start` / `response-metadata` / `text-start` / `text-delta` / `text-end` / `finish` via fixtures
+
+## OpenAI Responses Multi-response Streams (Streaming)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Emit `response-metadata` for each `response.created`, but only one final `finish` + `StreamEnd` for the last response (e.g., `responses-stream/shell/openai-shell-tool.1`)
 - [x] Emits `response-metadata` per `response.created` (multi-response streams)
 
 ## OpenAI Responses Tool Input (Streaming)

@@ -35,6 +35,14 @@ impl StreamChunkTransformer for OpenAiStreamChunkTransformer {
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
         self.inner.handle_stream_end()
     }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        self.inner.handle_stream_end_events()
+    }
+
+    fn finalize_on_disconnect(&self) -> bool {
+        self.inner.finalize_on_disconnect()
+    }
 }
 
 /// Stream transformer for OpenAI Responses API using the standard Responses converter.
@@ -66,6 +74,14 @@ impl StreamChunkTransformer for OpenAiResponsesStreamChunkTransformer {
     }
 
     fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
-        None
+        self.inner.handle_stream_end()
+    }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        self.inner.handle_stream_end_events()
+    }
+
+    fn finalize_on_disconnect(&self) -> bool {
+        self.inner.finalize_on_disconnect()
     }
 }
