@@ -148,6 +148,7 @@ Provider id: `openai` (Responses API)
 - [x] System message mode parity (`system`/`developer`/`remove`) via `providerOptions.openai.systemMessageMode`
 - [x] User file part parity for images/PDFs (URL, base64, file_id via `fileIdPrefixes`) in `input[]`
 - [x] Assistant message parity (`output_text`) and function tool call parity (`function_call`) in `input[]`
+- [x] Tool message output parity for hosted tools (`local_shell_call_output`, `shell_call_output`, `apply_patch_call_output`)
 
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 

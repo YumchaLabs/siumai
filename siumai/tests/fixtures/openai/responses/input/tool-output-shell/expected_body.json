@@ -1,0 +1,24 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "shell_call_output",
+      "call_id": "call_shell_1",
+      "output": [
+        {
+          "stdout": "out",
+          "stderr": "",
+          "outcome": {
+            "type": "exit",
+            "exit_code": 0
+          }
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "shell"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "local_shell_call_output",
+      "call_id": "call_local_shell_1",
+      "output": "ok"
+    }
+  ],
+  "tools": [
+    {
+      "type": "local_shell"
+    }
+  ]
+}
