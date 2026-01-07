@@ -375,6 +375,47 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         });
                         ("fileSearch", args, result)
                     }
+                    "code_interpreter_call" => {
+                        // Vercel alignment:
+                        // - toolName: `codeExecution`
+                        // - tool input: JSON string `{ code, containerId }` (preserve key order)
+                        // - tool result: `{ outputs }`
+                        let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("");
+                        let container_id = item
+                            .get("container_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+
+                        let code_json =
+                            serde_json::to_string(&code).unwrap_or_else(|_| "\"\"".to_string());
+                        let container_json = serde_json::to_string(&container_id)
+                            .unwrap_or_else(|_| "\"\"".to_string());
+                        let input_str =
+                            format!("{{\"code\":{code_json},\"containerId\":{container_json}}}");
+
+                        let outputs = item
+                            .get("outputs")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::Value::Array(vec![]));
+                        let result = serde_json::json!({ "outputs": outputs });
+
+                        (
+                            "codeExecution",
+                            serde_json::Value::String(input_str),
+                            result,
+                        )
+                    }
+                    "image_generation_call" => {
+                        // Vercel alignment:
+                        // - toolName: `generateImage`
+                        // - tool input: `{}` (provider executed)
+                        // - tool result: `{ result }` (base64 string)
+                        let args = serde_json::Value::String("{}".to_string());
+                        let result = serde_json::json!({
+                            "result": item.get("result").cloned().unwrap_or(serde_json::Value::Null),
+                        });
+                        ("generateImage", args, result)
+                    }
                     "computer_call" => {
                         let status = item
                             .get("status")
