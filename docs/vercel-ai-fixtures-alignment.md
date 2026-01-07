@@ -83,6 +83,7 @@ Provider id: `openai` (Responses API)
 - [x] Omit `stream` when not streaming (Vercel-aligned wire body)
 - [x] Streaming SSE converter emits `toolName: "webSearch"` when request tool name is `webSearch`
 - [x] Built-in web search auto-adds `include: ["web_search_call.action.sources"]` (Vercel-aligned)
+- [x] Web search option mapping parity (`externalWebAccess`, `filters.allowedDomains`) via fixtures
 
 ## OpenAI Responses File Search
 
@@ -104,6 +105,7 @@ Provider id: `openai` (Responses API)
 - [x] Built-in code interpreter auto-adds `include: ["code_interpreter_call.outputs"]` (Vercel-aligned)
 - [x] Streaming SSE converter emits `toolName: "codeExecution"` when request tool name is `codeExecution`
 - [x] Streaming emits document sources from `container_file_citation` annotations
+- [x] Code interpreter container mapping parity (string id + `fileIds[]`) via fixtures
 
 ## OpenAI Responses Image Generation
 
@@ -113,6 +115,7 @@ Provider id: `openai` (Responses API)
 
 - [x] Request body tool mapping (`Tool::ProviderDefined` -> Responses `tools[]`) for `image_generation`
 - [x] Streaming SSE converter emits `toolName: "generateImage"` when request tool name is `generateImage`
+- [x] Image generation option mapping parity (`outputFormat`, `outputCompression`, etc.) via fixtures
 
 ## OpenAI Responses Local Shell / Shell / Apply Patch
 
@@ -143,6 +146,30 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 ### Done
 
 - [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
+
+## OpenAI Responses Tool Choice (Fixtures)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] `tool_choice` mapping parity for built-in tools (`web_search`, `code_interpreter`, `file_search`, `image_generation`, `mcp`, `apply_patch`)
+- [x] `tool_choice` mapping parity for function tools (`{ type: "function", name }`)
+- [x] Custom provider tool name mapping parity (resolve selected `toolName` against request tools)
+
+## Tool Name Mapping (Core)
+
+### Done
+
+- [x] Vercel-style tool name mapping helper (double mapping between canonical tool types and provider custom names)
+- [x] Unit tests aligned with Vercel `ToolNameMapping` behavior
+
+## Function Tools Strict Mode
+
+### Done
+
+- [x] Pass through `strict` for OpenAI Chat Completions tool schema (`tool.function.strict`)
+- [x] Pass through `strict` for OpenAI Responses tool schema (`tool.strict`)
 
 ## Anthropic Messages (Streaming)
 

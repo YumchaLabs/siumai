@@ -1,0 +1,23 @@
+{
+  "model": "gpt-4.1-mini",
+  "include": [
+    "web_search_call.action.sources"
+  ],
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "web_search",
+      "external_web_access": false
+    }
+  ]
+}
