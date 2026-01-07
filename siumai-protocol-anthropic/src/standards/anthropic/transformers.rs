@@ -40,6 +40,18 @@ impl RequestTransformer for AnthropicRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
+        fn disable_parallel_tool_use(req: &ChatRequest) -> bool {
+            req.provider_options_map
+                .get("anthropic")
+                .and_then(|v| v.as_object())
+                .and_then(|o| {
+                    o.get("disableParallelToolUse")
+                        .or_else(|| o.get("disable_parallel_tool_use"))
+                })
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        }
+
         fn default_max_tokens_for_model(model: &str) -> u32 {
             // Vercel-aligned defaults (heuristic).
             // - Most Claude 3.x models default to 4096.
@@ -92,6 +104,8 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 if let Some(stops) = &req.common_params.stop_sequences {
                     body["stop_sequences"] = serde_json::json!(stops);
                 }
+
+                let disable_parallel = disable_parallel_tool_use(req);
                 if let Some(tools) = &req.tools {
                     if !matches!(req.tool_choice, Some(crate::types::ToolChoice::None)) {
                         let arr = convert_tools_to_anthropic_format(tools)?;
@@ -103,7 +117,21 @@ impl RequestTransformer for AnthropicRequestTransformer {
                                 && let Some(anthropic_choice) =
                                     super::utils::convert_tool_choice(choice)
                             {
-                                body["tool_choice"] = anthropic_choice;
+                                let mut tool_choice = anthropic_choice;
+                                if disable_parallel && let Some(obj) = tool_choice.as_object_mut() {
+                                    obj.insert(
+                                        "disable_parallel_tool_use".to_string(),
+                                        serde_json::json!(true),
+                                    );
+                                }
+                                body["tool_choice"] = tool_choice;
+                            } else if disable_parallel {
+                                // Vercel alignment: `disableParallelToolUse` forces a tool_choice
+                                // even when no explicit toolChoice is provided.
+                                body["tool_choice"] = serde_json::json!({
+                                    "type": "auto",
+                                    "disable_parallel_tool_use": true
+                                });
                             }
                         }
                     }
@@ -569,6 +597,94 @@ mod tests {
         assert!(
             body.get("tool_choice").is_none(),
             "tool_choice should be removed"
+        );
+    }
+
+    #[test]
+    fn disable_parallel_tool_use_injects_tool_choice_auto_when_not_specified() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .provider_option(
+                "anthropic",
+                serde_json::json!({ "disableParallelToolUse": true }),
+            )
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert!(body.get("tools").is_some(), "expected tools in body");
+        assert_eq!(
+            body.get("tool_choice"),
+            Some(&serde_json::json!({
+                "type": "auto",
+                "disable_parallel_tool_use": true
+            }))
+        );
+    }
+
+    #[test]
+    fn disable_parallel_tool_use_is_propagated_for_required_tool_choice() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(crate::types::ToolChoice::Required)
+            .provider_option(
+                "anthropic",
+                serde_json::json!({ "disableParallelToolUse": true }),
+            )
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("tool_choice"),
+            Some(&serde_json::json!({
+                "type": "any",
+                "disable_parallel_tool_use": true
+            }))
+        );
+    }
+
+    #[test]
+    fn disable_parallel_tool_use_is_propagated_for_specific_tool_choice() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(crate::types::ToolChoice::tool("testFunction"))
+            .provider_option(
+                "anthropic",
+                serde_json::json!({ "disableParallelToolUse": true }),
+            )
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("tool_choice"),
+            Some(&serde_json::json!({
+                "type": "tool",
+                "name": "testFunction",
+                "disable_parallel_tool_use": true
+            }))
         );
     }
 }
