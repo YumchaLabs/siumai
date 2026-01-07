@@ -551,6 +551,32 @@ mod tests {
             "google_maps should be dropped for gemini-1.5 models"
         );
     }
+
+    #[test]
+    fn function_tools_are_ignored_when_provider_defined_tools_are_present() {
+        let tools = vec![
+            Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            ),
+            crate::tools::google::google_search(),
+        ];
+
+        let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
+        assert!(
+            mapped
+                .iter()
+                .any(|t| matches!(t, GeminiTool::GoogleSearch { .. })),
+            "expected provider tool to be mapped"
+        );
+        assert!(
+            !mapped
+                .iter()
+                .any(|t| matches!(t, GeminiTool::FunctionDeclarations { .. })),
+            "function tools should be ignored when provider tools are present"
+        );
+    }
 }
 
 /// Build the request body for Gemini API from unified request

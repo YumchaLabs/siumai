@@ -613,6 +613,7 @@ impl RequestTransformer for GeminiRequestTransformer {
 #[cfg(test)]
 mod tests_gemini_rules {
     use super::*;
+    use crate::types::{ChatMessage, Tool};
 
     #[test]
     fn move_common_params_into_generation_config() {
@@ -833,6 +834,60 @@ mod tests_gemini_rules {
         assert!(body.get("response_mime_type").is_none());
         assert!(body.get("cached_content").is_none());
         assert!(body.get("safety_settings").is_none());
+    }
+
+    #[test]
+    fn tool_choice_emits_tool_config_for_function_tools() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let req = ChatRequest::builder()
+            .model("gemini-2.5-flash")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(crate::types::ToolChoice::Required)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert!(
+            body.get("tools").is_some(),
+            "expected tools in request body"
+        );
+        assert!(
+            body.get("toolConfig").is_some(),
+            "expected toolConfig for function tools"
+        );
+    }
+
+    #[test]
+    fn tool_choice_does_not_emit_tool_config_when_provider_defined_tools_are_present() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let req = ChatRequest::builder()
+            .model("gemini-2.5-flash")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![crate::tools::google::google_search()])
+            .tool_choice(crate::types::ToolChoice::Required)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert!(
+            body.get("tools").is_some(),
+            "expected tools in request body"
+        );
+        assert!(
+            body.get("toolConfig").is_none(),
+            "toolConfig should not be emitted for provider-defined tools"
+        );
     }
 }
 
