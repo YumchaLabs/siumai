@@ -39,7 +39,7 @@ pub struct OpenAiResponsesEventConverter {
     emitted_code_interpreter_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
     emitted_web_search_tool_input_ids: Arc<Mutex<HashSet<String>>>,
     emitted_stream_start: Arc<Mutex<bool>>,
-    emitted_response_metadata: Arc<Mutex<bool>>,
+    emitted_response_metadata: Arc<Mutex<HashSet<String>>>,
     created_response_id: Arc<Mutex<Option<String>>>,
     created_model_id: Arc<Mutex<Option<String>>>,
     created_created_at: Arc<Mutex<Option<i64>>>,
@@ -76,7 +76,7 @@ impl Default for OpenAiResponsesEventConverter {
             emitted_code_interpreter_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_web_search_tool_input_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_stream_start: Arc::new(Mutex::new(false)),
-            emitted_response_metadata: Arc::new(Mutex::new(false)),
+            emitted_response_metadata: Arc::new(Mutex::new(HashSet::new())),
             created_response_id: Arc::new(Mutex::new(None)),
             created_model_id: Arc::new(Mutex::new(None)),
             created_created_at: Arc::new(Mutex::new(None)),
@@ -549,14 +549,17 @@ impl OpenAiResponsesEventConverter {
         true
     }
 
-    fn mark_response_metadata_emitted(&self) -> bool {
+    fn mark_response_metadata_emitted(&self, response_id: &str) -> bool {
+        if response_id.is_empty() {
+            return false;
+        }
         let Ok(mut emitted) = self.emitted_response_metadata.lock() else {
             return false;
         };
-        if *emitted {
+        if emitted.contains(response_id) {
             return false;
         }
-        *emitted = true;
+        emitted.insert(response_id.to_string());
         true
     }
 
@@ -2437,12 +2440,11 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     });
                 }
 
-                if self.mark_response_metadata_emitted()
-                    && let (Some(id), Some(model_id), Some(ts)) = (
-                        self.created_response_id(),
-                        self.created_model_id(),
-                        self.created_timestamp_rfc3339_millis(),
-                    )
+                if let (Some(id), Some(model_id), Some(ts)) = (
+                    self.created_response_id(),
+                    self.created_model_id(),
+                    self.created_timestamp_rfc3339_millis(),
+                ) && self.mark_response_metadata_emitted(&id)
                 {
                     out.push(crate::streaming::ChatStreamEvent::Custom {
                         event_type: "openai:response-metadata".to_string(),

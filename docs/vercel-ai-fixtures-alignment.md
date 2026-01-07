@@ -198,6 +198,7 @@ Provider id: `openai` (Responses API)
 ### Done
 
 - [x] Streaming SSE emits `stream-start` / `response-metadata` / `text-start` / `text-delta` / `text-end` / `finish` via fixtures
+- [x] Emits `response-metadata` per `response.created` (multi-response streams)
 
 ## OpenAI Responses Tool Input (Streaming)
 
