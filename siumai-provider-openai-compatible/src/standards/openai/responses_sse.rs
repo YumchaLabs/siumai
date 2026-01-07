@@ -18,6 +18,12 @@ pub enum WebSearchStreamMode {
     Xai,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamPartsStyle {
+    OpenAi,
+    Xai,
+}
+
 /// OpenAI Responses SSE event converter using unified streaming utilities
 #[derive(Clone)]
 pub struct OpenAiResponsesEventConverter {
@@ -64,6 +70,9 @@ pub struct OpenAiResponsesEventConverter {
     emit_web_search_tool_input_delta: bool,
     /// Whether to emit `tool-result` for web search calls (OpenAI does, xAI does not).
     emit_web_search_tool_result: bool,
+
+    /// Controls the Vercel stream parts shape (ids / providerMetadata) emitted by this converter.
+    stream_parts_style: StreamPartsStyle,
 
     /// Maps custom tool call names (e.g. xAI internal tool names) to the user-facing tool name.
     custom_tool_name_by_call_name: Arc<Mutex<HashMap<String, String>>>,
@@ -114,6 +123,7 @@ impl Default for OpenAiResponsesEventConverter {
             include_web_search_provider_executed_in_tool_input: true,
             emit_web_search_tool_input_delta: false,
             emit_web_search_tool_result: true,
+            stream_parts_style: StreamPartsStyle::OpenAi,
             custom_tool_name_by_call_name: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_call_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_tool_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
@@ -155,6 +165,25 @@ impl OpenAiResponsesEventConverter {
             }
         }
         self
+    }
+
+    pub fn with_stream_parts_style(mut self, style: StreamPartsStyle) -> Self {
+        self.stream_parts_style = style;
+        self
+    }
+
+    fn text_stream_part_id(&self, item_id: &str) -> String {
+        match self.stream_parts_style {
+            StreamPartsStyle::OpenAi => item_id.to_string(),
+            StreamPartsStyle::Xai => format!("text-{item_id}"),
+        }
+    }
+
+    fn reasoning_stream_part_id(&self, item_id: &str) -> String {
+        match self.stream_parts_style {
+            StreamPartsStyle::OpenAi => item_id.to_string(),
+            StreamPartsStyle::Xai => format!("reasoning-{item_id}"),
+        }
     }
 
     fn clear_pending_stream_end_events(&self) {
@@ -990,23 +1019,34 @@ impl OpenAiResponsesEventConverter {
             .unwrap_or(0);
         self.record_message_item_id(output_index, item_id);
 
-        if self.has_emitted_text_start(item_id) {
+        let id = self.text_stream_part_id(item_id);
+
+        if self.has_emitted_text_start(&id) {
             return None;
         }
-        self.mark_text_start_emitted(item_id);
+        self.mark_text_start_emitted(&id);
 
-        Some(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-start".to_string(),
-            data: serde_json::json!({
-                "type": "text-start",
-                "id": item_id,
-                "providerMetadata": {
-                    "openai": {
-                        "itemId": item_id,
+        match self.stream_parts_style {
+            StreamPartsStyle::OpenAi => Some(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-start".to_string(),
+                data: serde_json::json!({
+                    "type": "text-start",
+                    "id": id,
+                    "providerMetadata": {
+                        "openai": {
+                            "itemId": item_id,
+                        },
                     },
-                },
+                }),
             }),
-        })
+            StreamPartsStyle::Xai => Some(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-start".to_string(),
+                data: serde_json::json!({
+                    "type": "text-start",
+                    "id": id,
+                }),
+            }),
+        }
     }
 
     fn convert_output_text_delta_events(
@@ -1023,29 +1063,44 @@ impl OpenAiResponsesEventConverter {
             return None;
         }
 
+        let id = self.text_stream_part_id(item_id);
+
         let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
 
-        if !self.has_emitted_text_start(item_id) {
-            self.mark_text_start_emitted(item_id);
-            events.push(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:text-start".to_string(),
-                data: serde_json::json!({
-                    "type": "text-start",
-                    "id": item_id,
-                    "providerMetadata": {
-                        "openai": {
-                            "itemId": item_id,
-                        },
-                    },
-                }),
-            });
+        if !self.has_emitted_text_start(&id) {
+            self.mark_text_start_emitted(&id);
+            match self.stream_parts_style {
+                StreamPartsStyle::OpenAi => {
+                    events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:text-start".to_string(),
+                        data: serde_json::json!({
+                            "type": "text-start",
+                            "id": id,
+                            "providerMetadata": {
+                                "openai": {
+                                    "itemId": item_id,
+                                },
+                            },
+                        }),
+                    });
+                }
+                StreamPartsStyle::Xai => {
+                    events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:text-start".to_string(),
+                        data: serde_json::json!({
+                            "type": "text-start",
+                            "id": id,
+                        }),
+                    });
+                }
+            }
         }
 
         events.push(crate::streaming::ChatStreamEvent::Custom {
             event_type: "openai:text-delta".to_string(),
             data: serde_json::json!({
                 "type": "text-delta",
-                "id": item_id,
+                "id": id,
                 "delta": delta,
             }),
         });
@@ -1068,10 +1123,23 @@ impl OpenAiResponsesEventConverter {
             return None;
         }
 
-        if self.has_emitted_text_end(item_id) {
+        let id = self.text_stream_part_id(item_id);
+
+        if self.has_emitted_text_end(&id) {
             return None;
         }
-        self.mark_text_end_emitted(item_id);
+        self.mark_text_end_emitted(&id);
+
+        if self.stream_parts_style == StreamPartsStyle::Xai {
+            // xAI Vercel-aligned stream parts omit providerMetadata and annotations.
+            return Some(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-end".to_string(),
+                data: serde_json::json!({
+                    "type": "text-end",
+                    "id": id,
+                }),
+            });
+        }
 
         let mut annotations = self.take_text_annotations(item_id);
 
@@ -1113,7 +1181,7 @@ impl OpenAiResponsesEventConverter {
             event_type: "openai:text-end".to_string(),
             data: serde_json::json!({
                 "type": "text-end",
-                "id": item_id,
+                "id": id,
                 "providerMetadata": {
                     "openai": provider_metadata_openai,
                 },
@@ -1166,6 +1234,42 @@ impl OpenAiResponsesEventConverter {
             crate::types::FinishReason::Unknown => "unknown".to_string(),
             crate::types::FinishReason::Other(s) => s.clone(),
         });
+
+        if self.stream_parts_style == StreamPartsStyle::Xai {
+            let raw_finish = completed_json
+                .get("response")
+                .and_then(|r| r.get("status"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "completed".to_string());
+
+            let input_tokens_obj = serde_json::json!({
+                "total": input_tokens,
+                "cacheRead": input_cache_read,
+                "noCache": input_no_cache,
+            });
+            let output_tokens_obj = serde_json::json!({
+                "total": output_tokens,
+                "reasoning": output_reasoning,
+                "text": output_text,
+            });
+
+            return Some(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:finish".to_string(),
+                data: serde_json::json!({
+                    "type": "finish",
+                    "finishReason": {
+                        "raw": raw_finish,
+                        "unified": unified,
+                    },
+                    "usage": {
+                        "inputTokens": input_tokens_obj,
+                        "outputTokens": output_tokens_obj,
+                        "raw": usage,
+                    },
+                }),
+            });
+        }
 
         let response_id = self.created_response_id().or_else(|| {
             completed_json
@@ -1244,27 +1348,40 @@ impl OpenAiResponsesEventConverter {
             .map(|s| s.to_string());
         self.record_reasoning_encrypted_content(item_id, encrypted_content.clone());
 
-        // Vercel alignment: a reasoning item implies at least one block (`:0`), even when summary is empty.
-        let id = format!("{item_id}:0");
+        let id = match self.stream_parts_style {
+            // Vercel alignment: a reasoning item implies at least one block (`:0`), even when summary is empty.
+            StreamPartsStyle::OpenAi => format!("{item_id}:0"),
+            // xAI Vercel stream parts use a single id without block suffix.
+            StreamPartsStyle::Xai => self.reasoning_stream_part_id(item_id),
+        };
         if self.has_emitted_reasoning_start(&id) {
             return None;
         }
         self.mark_reasoning_start_emitted(&id);
 
-        Some(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-start".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-start",
-                "id": id,
-                "providerMetadata": {
-                    "openai": {
-                        "itemId": item_id,
-                        // Vercel alignment: always include the key for start events.
-                        "reasoningEncryptedContent": encrypted_content,
+        match self.stream_parts_style {
+            StreamPartsStyle::OpenAi => Some(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-start".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-start",
+                    "id": id,
+                    "providerMetadata": {
+                        "openai": {
+                            "itemId": item_id,
+                            // Vercel alignment: always include the key for start events.
+                            "reasoningEncryptedContent": encrypted_content,
+                        },
                     },
-                },
+                }),
             }),
-        })
+            StreamPartsStyle::Xai => Some(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-start".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-start",
+                    "id": id,
+                }),
+            }),
+        }
     }
 
     fn convert_reasoning_summary_part_added(
@@ -1275,6 +1392,23 @@ impl OpenAiResponsesEventConverter {
         let item_id = json.get("item_id")?.as_str()?;
         if item_id.is_empty() {
             return None;
+        }
+
+        if self.stream_parts_style == StreamPartsStyle::Xai {
+            // xAI Vercel stream parts do not expose block indices for reasoning summaries.
+            // Ensure a start event exists and otherwise ignore this event.
+            let id = self.reasoning_stream_part_id(item_id);
+            if self.has_emitted_reasoning_start(&id) {
+                return None;
+            }
+            self.mark_reasoning_start_emitted(&id);
+            return Some(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-start".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-start",
+                    "id": id,
+                }),
+            });
         }
         let summary_index = json
             .get("summary_index")
@@ -1314,35 +1448,54 @@ impl OpenAiResponsesEventConverter {
         if item_id.is_empty() {
             return None;
         }
-        let summary_index = json
-            .get("summary_index")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
         let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
         if delta.is_empty() {
             return None;
         }
 
-        let id = format!("{item_id}:{summary_index}");
+        match self.stream_parts_style {
+            StreamPartsStyle::OpenAi => {
+                let summary_index = json
+                    .get("summary_index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let id = format!("{item_id}:{summary_index}");
 
-        // Ensure a start event exists for this block.
-        if !self.has_emitted_reasoning_start(&id) {
-            self.mark_reasoning_start_emitted(&id);
+                // Ensure a start event exists for this block.
+                if !self.has_emitted_reasoning_start(&id) {
+                    self.mark_reasoning_start_emitted(&id);
+                }
+
+                Some(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:reasoning-delta".to_string(),
+                    data: serde_json::json!({
+                        "type": "reasoning-delta",
+                        "id": id,
+                        "delta": delta,
+                        "providerMetadata": {
+                            "openai": {
+                                "itemId": item_id,
+                            },
+                        },
+                    }),
+                })
+            }
+            StreamPartsStyle::Xai => {
+                let id = self.reasoning_stream_part_id(item_id);
+                if !self.has_emitted_reasoning_start(&id) {
+                    self.mark_reasoning_start_emitted(&id);
+                }
+
+                Some(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:reasoning-delta".to_string(),
+                    data: serde_json::json!({
+                        "type": "reasoning-delta",
+                        "id": id,
+                        "delta": delta,
+                    }),
+                })
+            }
         }
-
-        Some(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-delta".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-delta",
-                "id": id,
-                "delta": delta,
-                "providerMetadata": {
-                    "openai": {
-                        "itemId": item_id,
-                    },
-                },
-            }),
-        })
     }
 
     fn convert_reasoning_output_item_done(
@@ -1364,6 +1517,22 @@ impl OpenAiResponsesEventConverter {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         self.record_reasoning_encrypted_content(item_id, encrypted_content.clone());
+
+        if self.stream_parts_style == StreamPartsStyle::Xai {
+            let id = self.reasoning_stream_part_id(item_id);
+            if self.has_emitted_reasoning_end(&id) {
+                return None;
+            }
+            self.mark_reasoning_end_emitted(&id);
+
+            return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-end".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-end",
+                    "id": id,
+                }),
+            }]);
+        }
 
         let summary_len = item
             .get("summary")
