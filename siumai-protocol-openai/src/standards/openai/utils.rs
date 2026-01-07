@@ -478,12 +478,11 @@ mod tests {
 
     #[test]
     fn responses_tools_map_computer_use_to_preview_type() {
-        let tool = crate::types::Tool::provider_defined("openai.computer_use", "computer_use")
-            .with_args(serde_json::json!({
-                "displayWidth": 1920,
-                "displayHeight": 1080,
-                "environment": "headless",
-            }));
+        let tool = crate::tools::openai::computer_use().with_args(serde_json::json!({
+            "displayWidth": 1920,
+            "displayHeight": 1080,
+            "environment": "headless",
+        }));
 
         let out = convert_tools_to_responses_format(&[tool]).unwrap();
         assert_eq!(out.len(), 1);
@@ -495,11 +494,9 @@ mod tests {
 
     #[test]
     fn responses_tools_map_code_interpreter_container_shape() {
-        let tool =
-            crate::types::Tool::provider_defined("openai.code_interpreter", "code_interpreter")
-                .with_args(serde_json::json!({
-                    "container": { "fileIds": ["file_1", "file_2"] }
-                }));
+        let tool = crate::tools::openai::code_interpreter().with_args(serde_json::json!({
+            "container": { "fileIds": ["file_1", "file_2"] }
+        }));
 
         let out = convert_tools_to_responses_format(&[tool]).unwrap();
         assert_eq!(out.len(), 1);
@@ -513,11 +510,7 @@ mod tests {
 
     #[test]
     fn responses_tools_map_image_generation_keys() {
-        let tool = crate::types::Tool::provider_defined(
-            "openai.image_generation",
-            "image_generation",
-        )
-        .with_args(serde_json::json!({
+        let tool = crate::tools::openai::image_generation().with_args(serde_json::json!({
             "background": "transparent",
             "inputFidelity": "high",
             "inputImageMask": { "fileId": "file_mask", "imageUrl": "data:image/png;base64,..." },
@@ -570,8 +563,7 @@ mod tests {
     #[test]
     fn responses_tool_choice_resolves_custom_provider_tool_name() {
         let choice = crate::types::ToolChoice::tool("generateImage");
-        let tools = vec![crate::types::Tool::provider_defined(
-            "openai.image_generation",
+        let tools = vec![crate::tools::openai::image_generation_named(
             "generateImage",
         )];
         let out = convert_responses_tool_choice(&choice, Some(&tools));

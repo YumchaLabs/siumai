@@ -41,7 +41,11 @@ fn openai_generate_object_injects_response_format_object() {
         let _ = generate_object_openai::<serde_json::Value>(&client, messages, None, opts).await;
     });
     let body = captured.lock().unwrap().clone().expect("captured body");
-    let rf = body.get("response_format").cloned().expect("format");
+    let rf = body
+        .get("text")
+        .and_then(|t| t.get("format"))
+        .cloned()
+        .expect("format");
     assert_eq!(rf.get("type").and_then(|v| v.as_str()), Some("json_object"));
 }
 
@@ -70,12 +74,14 @@ fn openai_stream_object_injects_response_format_named_schema() {
         let _ = stream_object_openai::<serde_json::Value>(&client, messages, None, opts).await;
     });
     let body = captured.lock().unwrap().clone().expect("captured body");
-    let rf = body.get("response_format").cloned().expect("format");
+    let rf = body
+        .get("text")
+        .and_then(|t| t.get("format"))
+        .cloned()
+        .expect("format");
     assert_eq!(rf.get("type").and_then(|v| v.as_str()), Some("json_schema"));
     assert_eq!(
-        rf.get("json_schema")
-            .and_then(|o| o.get("name"))
-            .and_then(|v| v.as_str()),
+        rf.get("name").and_then(|v| v.as_str()),
         Some("User")
     );
 }

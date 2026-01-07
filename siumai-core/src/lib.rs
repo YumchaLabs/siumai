@@ -18,6 +18,7 @@ pub mod retry;
 pub mod retry_api;
 pub mod standards;
 pub mod streaming;
+pub mod tools;
 pub mod traits;
 pub mod types;
 pub mod utils;

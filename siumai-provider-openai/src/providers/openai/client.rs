@@ -715,7 +715,7 @@ mod tests {
     // Local helpers to construct provider-defined tools for tests without depending
     // on the `siumai::hosted_tools` helper module.
     fn web_search_tool() -> crate::types::Tool {
-        crate::types::Tool::provider_defined("openai.web_search", "web_search")
+        crate::tools::openai::web_search()
     }
 
     fn file_search_tool_with(
@@ -738,7 +738,7 @@ mod tests {
             });
         }
 
-        crate::types::Tool::provider_defined("openai.file_search", "file_search").with_args(args)
+        crate::tools::openai::file_search().with_args(args)
     }
 
     #[test]
@@ -1437,6 +1437,7 @@ mod tests {
                     tool_name,
                     arguments,
                     provider_executed,
+                    ..
                 } = p
                 {
                     Some((tool_call_id, tool_name, arguments, provider_executed))
@@ -1449,7 +1450,10 @@ mod tests {
         assert_eq!(tool.0, "call_1");
         assert_eq!(tool.1, "get_weather");
         assert!(tool.3.is_none()); // user-defined function tool call
-        assert_eq!(tool.2["location"], serde_json::json!("tokyo"));
+        let args_str = tool.2.as_str().expect("args should be a JSON string");
+        let args_json: serde_json::Value =
+            serde_json::from_str(args_str).expect("args should be valid JSON");
+        assert_eq!(args_json["location"], serde_json::json!("tokyo"));
     }
 
     #[tokio::test]

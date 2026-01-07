@@ -7,7 +7,7 @@
 // This preserves existing internal module paths in migrated code (e.g. `crate::types::*`).
 pub use siumai_core::{
     LlmError, auth, client, core, defaults, error, execution, hosted_tools, observability, params,
-    retry, retry_api, streaming, traits, types, utils,
+    retry, retry_api, streaming, tools, traits, types, utils,
 };
 
 /// Builder utilities shared across provider crates.

@@ -184,7 +184,7 @@ mod tests {
             })
             .tools(vec![
                 Tool::function("f".to_string(), "".to_string(), serde_json::json!({})),
-                Tool::provider_defined("google.google_search", "google_search"),
+                crate::tools::google::google_search(),
             ])
             .build();
 
@@ -204,10 +204,7 @@ mod tests {
                 model: "gemini-1.5-pro".to_string(),
                 ..Default::default()
             })
-            .tools(vec![Tool::provider_defined(
-                "google.url_context",
-                "url_context",
-            )])
+            .tools(vec![crate::tools::google::url_context()])
             .build();
 
         let mw = GeminiToolWarningsMiddleware::new();

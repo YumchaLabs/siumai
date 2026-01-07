@@ -663,8 +663,8 @@ mod tests {
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
             .with_tools(vec![
-                Tool::provider_defined("anthropic.tool_search_regex_20251119", "tool_search"),
-                Tool::provider_defined("anthropic.code_execution_20250522", "code_execution"),
+                crate::tools::anthropic::tool_search_regex_20251119(),
+                crate::tools::anthropic::code_execution_20250522(),
             ])
             .with_http_config(
                 HttpConfig::builder()
@@ -691,10 +691,7 @@ mod tests {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
-            .with_tools(vec![Tool::provider_defined(
-                "anthropic.code_execution_20250825",
-                "code_execution",
-            )])
+            .with_tools(vec![crate::tools::anthropic::code_execution_20250825()])
             .provider_option(
                 "anthropic",
                 serde_json::json!({

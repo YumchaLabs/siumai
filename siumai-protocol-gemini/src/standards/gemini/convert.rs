@@ -422,10 +422,7 @@ mod tests {
     #[test]
     fn maps_google_provider_defined_tools() {
         // code_execution
-        let tools = vec![Tool::provider_defined(
-            "google.code_execution",
-            "code_execution",
-        )];
+        let tools = vec![crate::tools::google::code_execution()];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -434,10 +431,7 @@ mod tests {
         );
 
         // google_search
-        let tools = vec![Tool::provider_defined(
-            "google.google_search",
-            "google_search",
-        )];
+        let tools = vec![crate::tools::google::google_search()];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -446,10 +440,7 @@ mod tests {
         );
 
         // google_search_retrieval
-        let tools = vec![Tool::provider_defined(
-            "google.google_search_retrieval",
-            "google_search_retrieval",
-        )];
+        let tools = vec![crate::tools::google::google_search_retrieval()];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -458,7 +449,7 @@ mod tests {
         );
 
         // google_maps
-        let tools = vec![Tool::provider_defined("google.google_maps", "google_maps")];
+        let tools = vec![crate::tools::google::google_maps()];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -467,7 +458,7 @@ mod tests {
         );
 
         // url_context
-        let tools = vec![Tool::provider_defined("google.url_context", "url_context")];
+        let tools = vec![crate::tools::google::url_context()];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -476,10 +467,7 @@ mod tests {
         );
 
         // enterprise_web_search
-        let tools = vec![Tool::provider_defined(
-            "google.enterprise_web_search",
-            "enterprise_web_search",
-        )];
+        let tools = vec![crate::tools::google::enterprise_web_search()];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -488,8 +476,12 @@ mod tests {
         );
 
         // vertex_rag_store
-        let tools = vec![Tool::provider_defined("google.vertex_rag_store", "vertex_rag_store")
-            .with_args(serde_json::json!({ "ragCorpus": "projects/p/locations/l/ragCorpora/c", "topK": 3 }))];
+        let tools = vec![
+            crate::tools::google::vertex_rag_store().with_args(serde_json::json!({
+                "ragCorpus": "projects/p/locations/l/ragCorpora/c",
+                "topK": 3
+            })),
+        ];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -499,12 +491,10 @@ mod tests {
 
         // file_search
         let tools = vec![
-            Tool::provider_defined("google.file_search", "file_search").with_args(
-                serde_json::json!({
-                    "fileSearchStoreNames": ["fileSearchStores/abc123"],
-                    "topK": 5
-                }),
-            ),
+            crate::tools::google::file_search().with_args(serde_json::json!({
+                "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                "topK": 5
+            })),
         ];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
@@ -516,10 +506,7 @@ mod tests {
 
     #[test]
     fn google_search_maps_to_legacy_retrieval_on_gemini_1_5() {
-        let tools = vec![Tool::provider_defined(
-            "google.google_search",
-            "google_search",
-        )];
+        let tools = vec![crate::tools::google::google_search()];
         let mapped = convert_tools_to_gemini("gemini-1.5-flash", &tools).expect("map ok");
         assert!(
             mapped
@@ -538,12 +525,10 @@ mod tests {
     #[test]
     fn file_search_is_ignored_when_model_does_not_support_it() {
         let tools = vec![
-            Tool::provider_defined("google.file_search", "file_search").with_args(
-                serde_json::json!({
-                    "fileSearchStoreNames": ["fileSearchStores/abc123"],
-                    "topK": 5
-                }),
-            ),
+            crate::tools::google::file_search().with_args(serde_json::json!({
+                "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                "topK": 5
+            })),
         ];
 
         let mapped = convert_tools_to_gemini("gemini-2.0-flash", &tools).expect("map ok");
@@ -557,7 +542,7 @@ mod tests {
 
     #[test]
     fn google_maps_is_ignored_on_gemini_1_5() {
-        let tools = vec![Tool::provider_defined("google.google_maps", "google_maps")];
+        let tools = vec![crate::tools::google::google_maps()];
         let mapped = convert_tools_to_gemini("gemini-1.5-pro", &tools).expect("map ok");
         assert!(
             !mapped

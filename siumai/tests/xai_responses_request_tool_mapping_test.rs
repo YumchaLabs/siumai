@@ -7,10 +7,7 @@ use siumai::prelude::unified::*;
 fn xai_code_execution_tool_maps_to_code_interpreter_in_responses_request() {
     let req = ChatRequest {
         messages: vec![user!("hello")],
-        tools: Some(vec![Tool::ProviderDefined(ProviderDefinedTool::new(
-            "xai.code_execution",
-            "code_execution",
-        ))]),
+        tools: Some(vec![tools::xai::code_execution()]),
         common_params: CommonParams {
             model: "grok-4-fast".to_string(),
             ..Default::default()

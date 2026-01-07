@@ -52,7 +52,7 @@ async fn gemini_warns_on_mixed_function_and_provider_tools() {
 
     let tools = vec![
         Tool::function("testFunction".to_string(), "Test".to_string(), json!({})),
-        Tool::provider_defined("google.google_search", "google_search"),
+        tools::google::google_search(),
     ];
 
     let response = client
@@ -95,10 +95,7 @@ async fn gemini_warns_on_unsupported_url_context_tool_for_non_gemini2_models() {
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![Tool::provider_defined(
-                "google.url_context",
-                "url_context",
-            )]),
+            Some(vec![tools::google::url_context()]),
         )
         .await
         .unwrap();
@@ -139,10 +136,7 @@ async fn gemini_warns_on_unsupported_file_search_tool_for_non_gemini_2_5_models(
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![Tool::provider_defined(
-                "google.file_search",
-                "file_search",
-            )]),
+            Some(vec![tools::google::file_search()]),
         )
         .await
         .unwrap();
@@ -183,10 +177,7 @@ async fn gemini_warns_on_unsupported_code_execution_tool_for_non_gemini2_models(
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![Tool::provider_defined(
-                "google.code_execution",
-                "code_execution",
-            )]),
+            Some(vec![tools::google::code_execution()]),
         )
         .await
         .unwrap();
@@ -270,10 +261,7 @@ async fn gemini_warns_on_unsupported_enterprise_web_search_tool_for_non_gemini2_
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![Tool::provider_defined(
-                "google.enterprise_web_search",
-                "enterprise_web_search",
-            )]),
+            Some(vec![tools::google::enterprise_web_search()]),
         )
         .await
         .unwrap();
@@ -314,11 +302,7 @@ async fn gemini_warns_on_unsupported_vertex_rag_store_tool_for_non_gemini2_model
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![Tool::provider_defined(
-                "google.vertex_rag_store",
-                "vertex_rag_store",
-            )
-            .with_args(json!({
+            Some(vec![tools::google::vertex_rag_store().with_args(json!({
                 "ragCorpus": "projects/my-project/locations/us-central1/ragCorpora/my-rag-corpus",
                 "topK": 5
             }))]),
@@ -362,10 +346,7 @@ async fn gemini_warns_on_unsupported_google_maps_tool_for_non_gemini2_models() {
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![Tool::provider_defined(
-                "google.google_maps",
-                "google_maps",
-            )]),
+            Some(vec![tools::google::google_maps()]),
         )
         .await
         .unwrap();
