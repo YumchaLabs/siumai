@@ -5,3 +5,4 @@
 #![deny(unsafe_code)]
 
 pub mod openai;
+pub mod tool_name_mapping;
