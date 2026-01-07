@@ -1,0 +1,28 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "query_database",
+      "description": "Query a database",
+      "parameters": { "type": "object", "properties": { "sql": { "type": "string" } } },
+      "providerOptions": { "anthropic": { "allowedCallers": ["code_execution_20250825"] } }
+    }
+  ],
+  "common_params": {
+    "model": "claude-sonnet-4-5",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

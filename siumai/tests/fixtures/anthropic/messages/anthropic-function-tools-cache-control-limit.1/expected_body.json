@@ -1,0 +1,46 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-3-haiku-20240307",
+  "tools": [
+    {
+      "cache_control": { "type": "ephemeral" },
+      "description": "Test 1",
+      "input_schema": {},
+      "name": "tool1"
+    },
+    {
+      "cache_control": { "type": "ephemeral" },
+      "description": "Test 2",
+      "input_schema": {},
+      "name": "tool2"
+    },
+    {
+      "cache_control": { "type": "ephemeral" },
+      "description": "Test 3",
+      "input_schema": {},
+      "name": "tool3"
+    },
+    {
+      "cache_control": { "type": "ephemeral" },
+      "description": "Test 4",
+      "input_schema": {},
+      "name": "tool4"
+    },
+    {
+      "description": "Test 5 (should be rejected)",
+      "input_schema": {},
+      "name": "tool5"
+    }
+  ]
+}

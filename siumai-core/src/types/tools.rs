@@ -254,6 +254,7 @@ impl Tool {
                 name: name.into(),
                 description: description.into(),
                 parameters,
+                input_examples: None,
                 strict: None,
                 provider_options_map: crate::types::ProviderOptionsMap::default(),
             },
@@ -301,6 +302,17 @@ pub struct ToolFunction {
     pub description: String,
     /// JSON schema for function parameters
     pub parameters: serde_json::Value,
+
+    /// Tool input examples (Vercel-aligned).
+    ///
+    /// Vercel's AI SDK accepts `inputExamples: [{ input: {...} }]` on function tools and
+    /// forwards them to Anthropic as `input_examples: [{...}]`.
+    #[serde(
+        default,
+        rename = "inputExamples",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub input_examples: Option<Vec<serde_json::Value>>,
 
     /// Strict mode setting for the tool (Vercel-aligned).
     ///

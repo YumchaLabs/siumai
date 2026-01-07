@@ -1480,6 +1480,7 @@ pub fn convert_tools_to_anthropic_format(
     tools: &[crate::types::Tool],
 ) -> Result<Vec<serde_json::Value>, LlmError> {
     let mut anthropic_tools = Vec::new();
+    let mut cache_control_breakpoints: usize = 0;
 
     for tool in tools {
         match tool {
@@ -1516,6 +1517,68 @@ pub fn convert_tools_to_anthropic_format(
                     && let Some(map) = anthropic_tool.as_object_mut()
                 {
                     map.insert("defer_loading".to_string(), serde_json::json!(v));
+                }
+
+                // Vercel-aligned: tool-level cache control for Anthropic.
+                // Example: `{ providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }`
+                if let Some(opts) = function.provider_options_map.get("anthropic")
+                    && let Some(obj) = opts.as_object()
+                    && let Some(cache) = obj
+                        .get("cacheControl")
+                        .or_else(|| obj.get("cache_control"))
+                        .and_then(|v| v.as_object())
+                    && let Some(map) = anthropic_tool.as_object_mut()
+                {
+                    if cache_control_breakpoints < 4 {
+                        map.insert(
+                            "cache_control".to_string(),
+                            serde_json::Value::Object(cache.clone()),
+                        );
+                        cache_control_breakpoints += 1;
+                    }
+                }
+
+                // Vercel-aligned: allowed callers for programmatic tool calling.
+                // Example: `{ providerOptions: { anthropic: { allowedCallers: ["code_execution_20250825"] } } }`
+                if let Some(opts) = function.provider_options_map.get("anthropic")
+                    && let Some(obj) = opts.as_object()
+                    && let Some(allowed) = obj
+                        .get("allowedCallers")
+                        .or_else(|| obj.get("allowed_callers"))
+                        .and_then(|v| v.as_array())
+                    && let Some(map) = anthropic_tool.as_object_mut()
+                {
+                    let values: Vec<serde_json::Value> = allowed
+                        .iter()
+                        .filter_map(|v| {
+                            v.as_str().map(|s| serde_json::Value::String(s.to_string()))
+                        })
+                        .collect();
+                    if !values.is_empty() {
+                        map.insert(
+                            "allowed_callers".to_string(),
+                            serde_json::Value::Array(values),
+                        );
+                    }
+                }
+
+                // Vercel-aligned: tool input examples.
+                if let Some(examples) = function.input_examples.as_ref()
+                    && !examples.is_empty()
+                    && let Some(map) = anthropic_tool.as_object_mut()
+                {
+                    let out: Vec<serde_json::Value> = examples
+                        .iter()
+                        .filter_map(|v| {
+                            if let Some(obj) = v.as_object()
+                                && let Some(input) = obj.get("input")
+                            {
+                                return Some(input.clone());
+                            }
+                            Some(v.clone())
+                        })
+                        .collect();
+                    map.insert("input_examples".to_string(), serde_json::Value::Array(out));
                 }
 
                 anthropic_tools.push(anthropic_tool);

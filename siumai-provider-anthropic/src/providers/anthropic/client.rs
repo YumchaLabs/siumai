@@ -309,6 +309,12 @@ impl AnthropicClient {
         // Ensure required Anthropic beta headers are present when using provider-hosted tools.
         let mut middlewares = self.model_middlewares.clone();
         middlewares.insert(0, Arc::new(AnthropicAutoBetaHeadersMiddleware));
+        middlewares.insert(
+            1,
+            Arc::new(
+                crate::providers::anthropic::middleware::AnthropicToolWarningsMiddleware::new(),
+            ),
+        );
 
         let mut builder = ChatExecutorBuilder::new("anthropic", self.http_client.clone())
             .with_spec(spec)
@@ -334,27 +340,6 @@ impl AnthropicClient {
 struct AnthropicAutoBetaHeadersMiddleware;
 
 impl AnthropicAutoBetaHeadersMiddleware {
-    fn is_supported_provider_defined_tool_id(id: &str) -> bool {
-        matches!(
-            id,
-            crate::tools::anthropic::WEB_SEARCH_20250305_ID
-                | crate::tools::anthropic::WEB_FETCH_20250910_ID
-                | crate::tools::anthropic::COMPUTER_20250124_ID
-                | crate::tools::anthropic::COMPUTER_20241022_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20250124_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20241022_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20250429_ID
-                | crate::tools::anthropic::TEXT_EDITOR_20250728_ID
-                | crate::tools::anthropic::BASH_20241022_ID
-                | crate::tools::anthropic::BASH_20250124_ID
-                | crate::tools::anthropic::TOOL_SEARCH_REGEX_20251119_ID
-                | crate::tools::anthropic::TOOL_SEARCH_BM25_20251119_ID
-                | crate::tools::anthropic::CODE_EXECUTION_20250522_ID
-                | crate::tools::anthropic::CODE_EXECUTION_20250825_ID
-                | crate::tools::anthropic::MEMORY_20250818_ID
-        )
-    }
-
     fn push_warning(resp: &mut ChatResponse, warning: Warning) {
         match resp.warnings.as_mut() {
             Some(warnings) => warnings.push(warning),
@@ -394,34 +379,58 @@ impl AnthropicAutoBetaHeadersMiddleware {
             }
         }
 
-        // Structured output format -> beta header (Vercel-aligned).
-        if matches!(
-            req.response_format,
-            Some(crate::types::chat::ResponseFormat::Json { .. })
-        ) {
-            let model = req.common_params.model.as_str();
-            let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
-                || model.starts_with("claude-opus-4-5")
-                || model.starts_with("claude-haiku-4-5");
+        let model = req.common_params.model.as_str();
+        let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
+            || model.starts_with("claude-opus-4-5")
+            || model.starts_with("claude-haiku-4-5");
 
-            if supports_structured_outputs {
-                out.push("structured-outputs-2025-11-13");
-            }
+        // Structured outputs beta (Vercel-aligned):
+        // - enabled for supported models when using request-level JSON format, or
+        // - enabled for supported models when any function tools are present.
+        if supports_structured_outputs
+            && (matches!(
+                req.response_format,
+                Some(crate::types::chat::ResponseFormat::Json { .. })
+            ) || req
+                .tools
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|t| matches!(t, Tool::Function { .. })))
+        {
+            out.push("structured-outputs-2025-11-13");
         }
 
-        // Strict mode for function tools -> beta header (Vercel-aligned).
-        let uses_strict_function_tool = req.tools.as_ref().is_some_and(|tools| {
-            tools
-                .iter()
-                .any(|t| matches!(t, Tool::Function { function } if function.strict.is_some()))
-        });
-        if uses_strict_function_tool {
-            let model = req.common_params.model.as_str();
-            let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
-                || model.starts_with("claude-opus-4-5")
-                || model.starts_with("claude-haiku-4-5");
-            if supports_structured_outputs {
-                out.push("structured-outputs-2025-11-13");
+        // Advanced tool use beta is required for tool input examples and allowed_callers.
+        if let Some(tools) = req.tools.as_deref() {
+            for tool in tools {
+                let Tool::Function { function } = tool else {
+                    continue;
+                };
+
+                if function
+                    .input_examples
+                    .as_ref()
+                    .is_some_and(|arr| !arr.is_empty())
+                {
+                    out.push("advanced-tool-use-2025-11-20");
+                    break;
+                }
+
+                let has_allowed_callers = function
+                    .provider_options_map
+                    .get("anthropic")
+                    .and_then(|v| v.as_object())
+                    .and_then(|o| {
+                        o.get("allowedCallers")
+                            .or_else(|| o.get("allowed_callers"))
+                            .and_then(|v| v.as_array())
+                    })
+                    .is_some_and(|arr| !arr.is_empty());
+                if has_allowed_callers {
+                    out.push("advanced-tool-use-2025-11-20");
+                    break;
+                }
             }
         }
 
@@ -520,33 +529,6 @@ impl LanguageModelMiddleware for AnthropicAutoBetaHeadersMiddleware {
         req: &ChatRequest,
         mut resp: ChatResponse,
     ) -> Result<ChatResponse, LlmError> {
-        // Vercel-aligned: warn about provider-defined tools that are not supported by Anthropic.
-        if let Some(tools) = &req.tools {
-            for tool in tools {
-                let Tool::ProviderDefined(t) = tool else {
-                    continue;
-                };
-
-                // Non-Anthropic provider-defined tools are ignored by the Anthropic protocol mapper.
-                // Emit a warning so callers understand the tool won't be used.
-                if t.provider() != Some("anthropic") {
-                    Self::push_warning(
-                        &mut resp,
-                        Warning::unsupported_tool(t.id.clone(), Option::<String>::None),
-                    );
-                    continue;
-                }
-
-                // Unknown Anthropic provider-defined tools are dropped (Vercel behavior).
-                if !Self::is_supported_provider_defined_tool_id(&t.id) {
-                    Self::push_warning(
-                        &mut resp,
-                        Warning::unsupported_tool(t.id.clone(), Option::<String>::None),
-                    );
-                }
-            }
-        }
-
         let has_agent_skills = req
             .provider_options_map
             .get("anthropic")
@@ -794,7 +776,9 @@ mod tests {
 
     #[test]
     fn adds_warning_for_unsupported_provider_defined_tools() {
-        let mw = AnthropicAutoBetaHeadersMiddleware;
+        use crate::execution::middleware::LanguageModelMiddleware;
+
+        let mw = crate::providers::anthropic::AnthropicToolWarningsMiddleware::new();
 
         let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
             crate::types::Tool::provider_defined("unsupported.tool", "unsupported_tool"),

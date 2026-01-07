@@ -3,6 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
+use siumai_core::types::{ChatResponse, MessageContent, Warning};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -131,6 +132,18 @@ fn run_case(root: &Path) {
         normalize_json(&mut got_resp_value);
         normalize_json(&mut expected_resp_value);
         assert_eq!(got_resp_value, expected_resp_value);
+    }
+
+    let expected_warnings_path = root.join("expected_warnings.json");
+    if expected_warnings_path.exists() {
+        use siumai_provider_anthropic::execution::LanguageModelMiddleware;
+
+        let expected_warnings: Vec<Warning> = read_json(expected_warnings_path);
+        let mw =
+            siumai_provider_anthropic::providers::anthropic::AnthropicToolWarningsMiddleware::new();
+        let base = ChatResponse::new(MessageContent::Text("ok".to_string()));
+        let out = mw.post_generate(&req, base).expect("post_generate");
+        assert_eq!(out.warnings.unwrap_or_default(), expected_warnings);
     }
 }
 
@@ -321,6 +334,42 @@ fn anthropic_structured_outputs_enable_beta_header() {
         beta.split(',')
             .any(|t| t.trim() == "structured-outputs-2025-11-13"),
         "missing structured-outputs beta token: {beta}"
+    );
+}
+
+#[test]
+fn anthropic_function_tool_examples_enable_required_betas() {
+    let req: siumai::prelude::unified::ChatRequest = read_json(
+        fixtures_dir()
+            .join("anthropic-function-tools-input-examples.1")
+            .join("request.json"),
+    );
+
+    let spec = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new();
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let base = spec.build_headers(&ctx).expect("base headers");
+    let extra = spec.chat_request_headers(false, &req, &ctx);
+    let merged = spec.merge_request_headers(base, &extra);
+    let beta = merged
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    assert!(
+        beta.split(',')
+            .any(|t| t.trim() == "structured-outputs-2025-11-13"),
+        "missing structured-outputs beta token: {beta}"
+    );
+    assert!(
+        beta.split(',')
+            .any(|t| t.trim() == "advanced-tool-use-2025-11-20"),
+        "missing advanced-tool-use beta token: {beta}"
     );
 }
 

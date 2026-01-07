@@ -112,6 +112,11 @@ impl ProviderSpec for AnthropicSpec {
         fn required_beta_features(req: &ChatRequest) -> Vec<&'static str> {
             let mut out: Vec<&'static str> = Vec::new();
 
+            let model = req.common_params.model.as_str();
+            let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
+                || model.starts_with("claude-opus-4-5")
+                || model.starts_with("claude-haiku-4-5");
+
             // Provider-hosted tools -> required betas.
             if let Some(tools) = &req.tools {
                 for tool in tools {
@@ -125,6 +130,13 @@ impl ProviderSpec for AnthropicSpec {
                         Some("web_fetch_20250910") => out.push("web-fetch-2025-09-10"),
                         Some("code_execution_20250522") => out.push("code-execution-2025-05-22"),
                         Some("code_execution_20250825") => out.push("code-execution-2025-08-25"),
+                        Some("computer_20241022")
+                        | Some("text_editor_20241022")
+                        | Some("bash_20241022") => out.push("computer-use-2024-10-22"),
+                        Some("computer_20250124")
+                        | Some("text_editor_20250124")
+                        | Some("text_editor_20250429")
+                        | Some("bash_20250124") => out.push("computer-use-2025-01-24"),
                         Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
                             out.push("advanced-tool-use-2025-11-20")
                         }
@@ -134,18 +146,52 @@ impl ProviderSpec for AnthropicSpec {
                 }
             }
 
-            // Structured output format -> beta header (Vercel-aligned).
-            if matches!(
-                req.response_format,
-                Some(crate::types::chat::ResponseFormat::Json { .. })
-            ) {
-                let model = req.common_params.model.as_str();
-                let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
-                    || model.starts_with("claude-opus-4-5")
-                    || model.starts_with("claude-haiku-4-5");
+            // Structured outputs beta (Vercel-aligned):
+            // - enabled for supported models when using request-level JSON format, or
+            // - enabled for supported models when any function tools are present.
+            if supports_structured_outputs
+                && (matches!(
+                    req.response_format,
+                    Some(crate::types::chat::ResponseFormat::Json { .. })
+                ) || req
+                    .tools
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|t| matches!(t, Tool::Function { .. })))
+            {
+                out.push("structured-outputs-2025-11-13");
+            }
 
-                if supports_structured_outputs {
-                    out.push("structured-outputs-2025-11-13");
+            // Advanced tool use beta is required for tool input examples and allowed_callers.
+            if let Some(tools) = req.tools.as_deref() {
+                for tool in tools {
+                    let Tool::Function { function } = tool else {
+                        continue;
+                    };
+                    if function
+                        .input_examples
+                        .as_ref()
+                        .is_some_and(|arr| !arr.is_empty())
+                    {
+                        out.push("advanced-tool-use-2025-11-20");
+                        break;
+                    }
+
+                    let has_allowed_callers = function
+                        .provider_options_map
+                        .get("anthropic")
+                        .and_then(|v| v.as_object())
+                        .and_then(|o| {
+                            o.get("allowedCallers")
+                                .or_else(|| o.get("allowed_callers"))
+                                .and_then(|v| v.as_array())
+                        })
+                        .is_some_and(|arr| !arr.is_empty());
+                    if has_allowed_callers {
+                        out.push("advanced-tool-use-2025-11-20");
+                        break;
+                    }
                 }
             }
 

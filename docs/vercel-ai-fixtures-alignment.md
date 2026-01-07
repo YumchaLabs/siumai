@@ -270,6 +270,10 @@ Provider id: `anthropic`
 
 ### Done
 
+- [x] `anthropic-tools-null.1` / `anthropic-tools-empty.1` (tools omitted when null/empty)
+- [x] Function tool request mapping parity (basic / toolChoice / input_examples / allowed_callers / cache_control)
+- [x] Cache control breakpoint limit for tools (max 4; emits warning)
+- [x] Unsupported provider-defined tool warnings (drops tool; emits warning)
 - [x] `anthropic-mcp.1` (MCP servers request + streaming tool-call/result)
 - [x] `anthropic-web-search-tool.1` (provider tool + streaming tool-call/result)
 - [x] `anthropic-web-fetch-tool.1` (provider tool + streaming tool-call/result)

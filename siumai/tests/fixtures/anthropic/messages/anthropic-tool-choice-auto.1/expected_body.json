@@ -1,0 +1,23 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-3-haiku-20240307",
+  "tool_choice": { "type": "auto" },
+  "tools": [
+    {
+      "description": "Test",
+      "input_schema": {},
+      "name": "testFunction"
+    }
+  ]
+}

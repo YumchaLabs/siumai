@@ -1,0 +1,26 @@
+{
+  "max_tokens": 64000,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "tools": [
+    {
+      "description": "tool with examples",
+      "input_examples": [{ "a": 1 }, { "a": 2 }],
+      "input_schema": {
+        "properties": { "a": { "type": "number" } },
+        "type": "object"
+      },
+      "name": "tool_with_examples"
+    }
+  ]
+}
