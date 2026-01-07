@@ -150,6 +150,16 @@ Provider id: `openai` (Responses API)
 - [x] Assistant message parity (`output_text`) and function tool call parity (`function_call`) in `input[]`
 - [x] Tool message output parity for hosted tools (`local_shell_call_output`, `shell_call_output`, `apply_patch_call_output`)
 
+## OpenAI Responses Response (Fixtures)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Basic text response parsing (message `output_text` -> `ChatResponse.content`)
+- [x] Usage details parity (cached + reasoning tokens)
+- [x] Response metadata parity (`system_fingerprint`, `service_tier`) + message `itemId` surfaced via `provider_metadata.openai.itemId`
+
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
 Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE stream)

@@ -433,6 +433,13 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32;
 
+            let cached_tokens = u
+                .get("input_tokens_details")
+                .or_else(|| u.get("prompt_tokens_details"))
+                .and_then(|v| v.get("cached_tokens").or_else(|| v.get("cachedTokens")))
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+
             let completion_tokens = u
                 .get("output_tokens")
                 .or_else(|| u.get("completion_tokens"))
@@ -452,10 +459,25 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 .and_then(|v| v.as_u64())
                 .map(|v| v as u32);
 
+            let reasoning_tokens = reasoning_tokens.or_else(|| {
+                u.get("output_tokens_details")
+                    .or_else(|| u.get("completion_tokens_details"))
+                    .and_then(|v| {
+                        v.get("reasoning_tokens")
+                            .or_else(|| v.get("reasoningTokens"))
+                    })
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32)
+            });
+
             let mut builder = Usage::builder()
                 .prompt_tokens(prompt_tokens)
                 .completion_tokens(completion_tokens)
                 .total_tokens(total_tokens);
+
+            if let Some(cached) = cached_tokens {
+                builder = builder.with_cached_tokens(cached);
+            }
 
             if let Some(reasoning) = reasoning_tokens {
                 builder = builder.with_reasoning_tokens(reasoning);
@@ -477,6 +499,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 other => FinishReason::Other(other.to_string()),
             });
 
+        // Vercel alignment: when a Responses API call completes normally, infer `stop` even if no
+        // explicit finish reason is present on the response envelope.
+        let finish_reason = finish_reason.or_else(|| {
+            if root.get("status").and_then(|v| v.as_str()) == Some("completed") {
+                Some(FinishReason::Stop)
+            } else {
+                None
+            }
+        });
+
         // Determine final content
         let content = if content_parts.is_empty() {
             MessageContent::Text(String::new())
@@ -488,6 +520,23 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
         // Provider metadata (Vercel-aligned): sources extracted from web_search_call results.
         let provider_metadata = {
+            let mut item_id: Option<String> = None;
+            if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
+                for item in output {
+                    if item.get("type").and_then(|v| v.as_str()) != Some("message") {
+                        continue;
+                    }
+                    let role = item.get("role").and_then(|v| v.as_str());
+                    if role != Some("assistant") {
+                        continue;
+                    }
+                    if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                        item_id = Some(id.to_string());
+                        break;
+                    }
+                }
+            }
+
             let mut sources: Vec<serde_json::Value> = Vec::new();
             let mut seen_urls: std::collections::HashSet<String> = std::collections::HashSet::new();
             if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
@@ -701,20 +750,23 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 }
             }
 
-            if sources.is_empty() {
+            let mut openai_meta: std::collections::HashMap<String, serde_json::Value> =
+                std::collections::HashMap::new();
+
+            if let Some(id) = item_id {
+                openai_meta.insert("itemId".to_string(), serde_json::Value::String(id));
+            }
+
+            if !sources.is_empty() {
+                openai_meta.insert("sources".to_string(), serde_json::Value::Array(sources));
+            }
+
+            if openai_meta.is_empty() {
                 None
             } else {
-                let mut openai_meta: std::collections::HashMap<String, serde_json::Value> =
-                    std::collections::HashMap::new();
-                openai_meta.insert("sources".to_string(), serde_json::Value::Array(sources));
-
-                if openai_meta.is_empty() {
-                    None
-                } else {
-                    let mut all = std::collections::HashMap::new();
-                    all.insert("openai".to_string(), openai_meta);
-                    Some(all)
-                }
+                let mut all = std::collections::HashMap::new();
+                all.insert("openai".to_string(), openai_meta);
+                Some(all)
             }
         };
 
@@ -732,8 +784,14 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             usage,
             finish_reason,
             audio: None, // Responses API doesn't support audio output yet
-            system_fingerprint: None,
-            service_tier: None,
+            system_fingerprint: root
+                .get("system_fingerprint")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            service_tier: root
+                .get("service_tier")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             warnings: None,
             provider_metadata,
         })

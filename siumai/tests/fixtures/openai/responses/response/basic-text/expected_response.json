@@ -1,0 +1,28 @@
+{
+  "id": "resp_67c97c0203188190a025beb4a75242bc",
+  "content": {
+    "Text": "answer text"
+  },
+  "model": "gpt-4o-2024-07-18",
+  "usage": {
+    "prompt_tokens": 345,
+    "completion_tokens": 538,
+    "total_tokens": 572,
+    "cached_tokens": 234,
+    "reasoning_tokens": 123,
+    "prompt_tokens_details": {
+      "cached_tokens": 234
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 123
+    }
+  },
+  "finish_reason": "stop",
+  "service_tier": "default",
+  "system_fingerprint": "fp-test",
+  "provider_metadata": {
+    "openai": {
+      "itemId": "msg_67c97c02656c81908e080dfdf4a03cd1"
+    }
+  }
+}
