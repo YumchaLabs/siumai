@@ -80,8 +80,5 @@ fn openai_stream_object_injects_response_format_named_schema() {
         .cloned()
         .expect("format");
     assert_eq!(rf.get("type").and_then(|v| v.as_str()), Some("json_schema"));
-    assert_eq!(
-        rf.get("name").and_then(|v| v.as_str()),
-        Some("User")
-    );
+    assert_eq!(rf.get("name").and_then(|v| v.as_str()), Some("User"));
 }

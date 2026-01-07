@@ -36,6 +36,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - `siumai-protocol-openai` exists as the preferred OpenAI-like protocol crate name (now the real implementation).
 - `siumai-protocol-anthropic` exists as the preferred Anthropic protocol crate name (now the real implementation).
 - OpenAI-like dependent providers (`groq`, `xai`, `minimaxi`, and `siumai-registry`) are migrated to `siumai-protocol-openai`.
+- Provider-defined tool factories are available under `siumai::tools::*` (implemented in `siumai-core::tools`) and serialize to the Vercel `{ type: "provider", id, name, args }` shape; `Tool::provider_defined(id, name)` remains the escape hatch for unknown tools.
 
 ## Fixture/test parity checklist
 
@@ -59,9 +60,9 @@ Target categories (ordered by ROI):
 - OpenAI: `chat`, `tools`, `streaming`, `embeddings`, `images` (where applicable).
 - Anthropic: `messages`, `tools`, `streaming`, `thinking`, `prompt caching` (protocol-level where applicable).
 - Gemini: `generateContent`, `streaming`, `tools`, `grounding`.
-- Google Vertex: `imagen` (`edit/mask/referenceImages`) and auth/headers behavior.
+- Google Vertex: `imagen` (fixtures for `edit/mask/referenceImages` and Imagen 4 parameters), plus auth/headers behavior.
 
 ## Open questions (design)
 
-- Should tool factories mirror Vercel's `Tool::provider_defined("openai.web_search", "web_search")` exactly, or should we expose a higher-level Rust API that still serializes to the same wire format?
+- Tool factories: we expose a higher-level Rust API (`siumai::tools::<provider>::...`) while preserving the exact wire shape; the `id` is authoritative (`provider.tool_type`), and the `name` is customizable for toolName mappings.
 - How do we guarantee cross-provider tool interoperability without re-introducing provider-to-provider coupling?
