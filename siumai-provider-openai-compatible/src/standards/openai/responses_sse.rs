@@ -48,6 +48,12 @@ pub struct OpenAiResponsesEventConverter {
     emitted_text_end_ids: Arc<Mutex<HashSet<String>>>,
     text_annotations_by_item_id: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
     pending_stream_end_events: Arc<Mutex<VecDeque<crate::streaming::ChatStreamEvent>>>,
+
+    /// Vercel-aligned toggle: whether to include `providerExecuted: true` on
+    /// `tool-input-start` events for provider-executed web search tools.
+    ///
+    /// OpenAI snapshots include this field for `webSearch`, while xAI snapshots omit it.
+    include_web_search_provider_executed_in_tool_input: bool,
 }
 
 impl Default for OpenAiResponsesEventConverter {
@@ -86,6 +92,7 @@ impl Default for OpenAiResponsesEventConverter {
             emitted_text_end_ids: Arc::new(Mutex::new(HashSet::new())),
             text_annotations_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             pending_stream_end_events: Arc::new(Mutex::new(VecDeque::new())),
+            include_web_search_provider_executed_in_tool_input: true,
         }
     }
 }
@@ -97,6 +104,11 @@ impl OpenAiResponsesEventConverter {
 
     pub fn with_request_tools(self, tools: &[crate::types::Tool]) -> Self {
         self.seed_provider_tool_names_from_request_tools(tools);
+        self
+    }
+
+    pub fn with_web_search_tool_input_provider_executed(mut self, enabled: bool) -> Self {
+        self.include_web_search_provider_executed_in_tool_input = enabled;
         self
     }
 
@@ -1840,7 +1852,16 @@ impl OpenAiResponsesEventConverter {
                     }),
                 }]);
             }
-            "web_search_call" => ("web_search", serde_json::json!("{}")),
+            "web_search_call" => {
+                // xAI streams `arguments` on the output item; Vercel aligns web_search tool input
+                // to this JSON string when present. OpenAI does not always include arguments.
+                let args = item.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
+                if args.is_empty() {
+                    ("web_search", serde_json::json!("{}"))
+                } else {
+                    ("web_search", serde_json::Value::String(args.to_string()))
+                }
+            }
             "file_search_call" => ("file_search", serde_json::json!("{}")),
             "computer_call" => ("computer_use", serde_json::json!("")),
             "code_interpreter_call" => {
@@ -1868,15 +1889,33 @@ impl OpenAiResponsesEventConverter {
 
         // Vercel alignment: webSearch emits tool-input-start/end even with empty input.
         if item_type == "web_search_call" && self.mark_web_search_tool_input_emitted(tool_call_id) {
+            let mut data = serde_json::json!({
+                "type": "tool-input-start",
+                "id": tool_call_id,
+                "toolName": tool_name,
+            });
+            if self.include_web_search_provider_executed_in_tool_input {
+                data["providerExecuted"] = serde_json::json!(true);
+            }
             events.push(crate::streaming::ChatStreamEvent::Custom {
                 event_type: "openai:tool-input-start".to_string(),
-                data: serde_json::json!({
-                    "type": "tool-input-start",
-                    "id": tool_call_id,
-                    "toolName": tool_name,
-                    "providerExecuted": true,
-                }),
+                data,
             });
+
+            if let serde_json::Value::String(delta) = &input
+                && delta != "{}"
+                && !delta.is_empty()
+            {
+                events.push(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-input-delta".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-input-delta",
+                        "id": tool_call_id,
+                        "delta": delta,
+                    }),
+                });
+            }
+
             events.push(crate::streaming::ChatStreamEvent::Custom {
                 event_type: "openai:tool-input-end".to_string(),
                 data: serde_json::json!({
@@ -2000,6 +2039,12 @@ impl OpenAiResponsesEventConverter {
                 }]);
             }
             "web_search_call" => {
+                // xAI web search fixtures do not include `action`/`results` payloads in `output_item.done`.
+                // When there is no result payload, Vercel does not emit a `tool-result` stream part.
+                if item.get("action").is_none() && item.get("results").is_none() {
+                    return None;
+                }
+
                 // Include results if present (align with non-streaming transformer).
                 let results = item
                     .get("results")

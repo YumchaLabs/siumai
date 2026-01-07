@@ -273,6 +273,6 @@ Provider id: `anthropic`
 
 Provider id: `xai`
 
-### Next
+### Done
 
-- [ ] `xai-web-search-tool.1` (provider tool)
+- [x] `xai-web-search-tool.1` (provider tool; tool-input-delta from `arguments`, no tool-result when payload missing)
