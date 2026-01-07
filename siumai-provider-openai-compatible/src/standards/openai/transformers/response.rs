@@ -284,14 +284,14 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         ("web_search", args, result)
                     }
                     "file_search_call" => {
-                        let args = serde_json::json!({
-                            "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
-                        });
+                        // Vercel alignment: provider-executed file search tool call uses empty input (`{}`),
+                        // and returns queries/results in the tool result.
+                        let args = serde_json::json!({});
                         let result = serde_json::json!({
                             "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
                             "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
                         });
-                        ("file_search", args, result)
+                        ("fileSearch", args, result)
                     }
                     "computer_call" => {
                         let status = item
