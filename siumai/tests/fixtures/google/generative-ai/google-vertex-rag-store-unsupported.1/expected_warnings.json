@@ -1,0 +1,7 @@
+[
+  {
+    "type": "unsupported-tool",
+    "tool_name": "google.vertex_rag_store",
+    "details": "The RAG store tool is not supported with other Gemini models than Gemini 2."
+  }
+]

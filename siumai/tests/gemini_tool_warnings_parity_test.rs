@@ -114,7 +114,7 @@ async fn gemini_warns_on_unsupported_url_context_tool_for_non_gemini2_models() {
 
 #[tokio::test]
 #[cfg(feature = "google")]
-async fn gemini_warns_on_unsupported_file_search_tool_for_non_gemini_2_5_models() {
+async fn gemini_warns_on_unsupported_file_search_tool_for_non_gemini_2_5_or_3_models() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -147,7 +147,7 @@ async fn gemini_warns_on_unsupported_file_search_tool_for_non_gemini_2_5_models(
             w,
             Warning::UnsupportedTool { tool_name, details: Some(d) }
                 if tool_name == "google.file_search"
-                    && d == "The file search tool is only supported with Gemini 2.5 models."
+                    && d == "The file search tool is only supported with Gemini 2.5 models and Gemini 3 models."
         )),
         "expected file_search unsupported warning, got: {warnings:?}"
     );

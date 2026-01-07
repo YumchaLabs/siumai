@@ -326,7 +326,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                         }
 
                         fn supports_file_search(model: &str) -> bool {
-                            model.contains("gemini-2.5")
+                            model.contains("gemini-2.5") || model.contains("gemini-3")
                         }
 
                         let mut tools = body

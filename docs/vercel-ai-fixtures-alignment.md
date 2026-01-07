@@ -11,6 +11,7 @@ plus a test that validates Siumai’s request/response mapping.
 - Each suite should include:
   - `request.json` (unified request shape used by the test)
   - `expected_body.json` (provider wire body produced by transformers)
+  - `expected_warnings.json` (optional; unified warnings emitted by provider middleware)
   - `expected_url.txt` (final URL produced by ProviderSpec)
   - `response.json` (provider wire response)
   - `expected_response.json` (unified response produced by transformers)
@@ -68,6 +69,8 @@ Provider id: `gemini` (tools use `google.*` ids)
 - [x] `google-enterprise-web-search-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
 - [x] `google-vertex-rag-store-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
 - [x] `google-google-maps-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
+- [x] Function tools + `tool_choice` (`toolConfig`) parity via fixtures (`google-function-*.1`)
+- [x] File Search availability on Gemini 3 models (`google-file-search-gemini-3.1`)
 
 ### Next
 

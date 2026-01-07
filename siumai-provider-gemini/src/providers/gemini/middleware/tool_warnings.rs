@@ -22,7 +22,7 @@ impl GeminiToolWarningsMiddleware {
     }
 
     fn supports_file_search(model_id: &str) -> bool {
-        model_id.contains("gemini-2.5")
+        model_id.contains("gemini-2.5") || model_id.contains("gemini-3")
     }
 
     fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
@@ -92,7 +92,9 @@ impl GeminiToolWarningsMiddleware {
                     if !supports_file_search {
                         warnings.push(Warning::unsupported_tool(
                             "google.file_search",
-                            Some("The file search tool is only supported with Gemini 2.5 models."),
+                            Some(
+                                "The file search tool is only supported with Gemini 2.5 models and Gemini 3 models.",
+                            ),
                         ));
                     }
                 }

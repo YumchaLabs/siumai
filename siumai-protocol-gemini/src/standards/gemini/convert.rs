@@ -12,6 +12,263 @@ use super::types::{
     Part,
 };
 
+fn is_empty_object_schema(json_schema: &serde_json::Value) -> bool {
+    let Some(obj) = json_schema.as_object() else {
+        return false;
+    };
+    if obj.get("type").and_then(|v| v.as_str()) != Some("object") {
+        return false;
+    }
+    let has_no_properties = obj
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .is_none_or(|m| m.is_empty());
+    let has_no_additional_properties = obj.get("additionalProperties").is_none();
+    has_no_properties && has_no_additional_properties
+}
+
+/// Convert JSON Schema 7 into an OpenAPI Schema 3.0 object (Vercel-aligned).
+///
+/// This is intentionally a minimal conversion that matches the semantics used in
+/// `repo-ref/ai/packages/google/src/convert-json-schema-to-openapi-schema.ts`.
+fn convert_json_schema_to_openapi_schema(
+    json_schema: &serde_json::Value,
+    is_root: bool,
+) -> Option<serde_json::Value> {
+    if json_schema.is_null() {
+        return None;
+    }
+
+    // Handle empty object schemas: undefined at root, preserved when nested.
+    if is_empty_object_schema(json_schema) {
+        if is_root {
+            return None;
+        }
+
+        let mut out = serde_json::Map::new();
+        out.insert("type".to_string(), serde_json::json!("object"));
+        if let Some(desc) = json_schema
+            .as_object()
+            .and_then(|o| o.get("description"))
+            .and_then(|v| v.as_str())
+        {
+            out.insert("description".to_string(), serde_json::json!(desc));
+        }
+        return Some(serde_json::Value::Object(out));
+    }
+
+    if json_schema.is_boolean() {
+        return Some(serde_json::json!({ "type": "boolean", "properties": {} }));
+    }
+
+    let Some(obj) = json_schema.as_object() else {
+        return None;
+    };
+
+    let mut result = serde_json::Map::new();
+
+    if let Some(desc) = obj.get("description") {
+        result.insert("description".to_string(), desc.clone());
+    }
+    if let Some(required) = obj.get("required") {
+        result.insert("required".to_string(), required.clone());
+    }
+    if let Some(format) = obj.get("format") {
+        result.insert("format".to_string(), format.clone());
+    }
+
+    if let Some(const_value) = obj.get("const")
+        && !const_value.is_null()
+    {
+        result.insert(
+            "enum".to_string(),
+            serde_json::Value::Array(vec![const_value.clone()]),
+        );
+    }
+
+    // Handle type.
+    if let Some(type_value) = obj.get("type") {
+        match type_value {
+            serde_json::Value::String(s) => {
+                result.insert("type".to_string(), serde_json::Value::String(s.clone()));
+            }
+            serde_json::Value::Array(arr) => {
+                let mut has_null = false;
+                let mut non_null_types: Vec<String> = Vec::new();
+                for v in arr {
+                    let Some(s) = v.as_str() else {
+                        continue;
+                    };
+                    if s == "null" {
+                        has_null = true;
+                    } else {
+                        non_null_types.push(s.to_string());
+                    }
+                }
+
+                if non_null_types.is_empty() {
+                    result.insert("type".to_string(), serde_json::json!("null"));
+                } else {
+                    result.insert(
+                        "anyOf".to_string(),
+                        serde_json::Value::Array(
+                            non_null_types
+                                .into_iter()
+                                .map(|t| serde_json::json!({ "type": t }))
+                                .collect(),
+                        ),
+                    );
+                    if has_null {
+                        result.insert("nullable".to_string(), serde_json::json!(true));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Handle enum.
+    if let Some(enum_values) = obj.get("enum") {
+        result.insert("enum".to_string(), enum_values.clone());
+    }
+
+    // Handle properties (omit entries that convert to undefined).
+    if let Some(props) = obj.get("properties").and_then(|v| v.as_object()) {
+        let mut mapped = serde_json::Map::new();
+        for (k, v) in props {
+            if let Some(converted) = convert_json_schema_to_openapi_schema(v, false) {
+                mapped.insert(k.clone(), converted);
+            }
+        }
+        result.insert("properties".to_string(), serde_json::Value::Object(mapped));
+    }
+
+    // Handle items.
+    if let Some(items) = obj.get("items") {
+        match items {
+            serde_json::Value::Array(arr) => {
+                result.insert(
+                    "items".to_string(),
+                    serde_json::Value::Array(
+                        arr.iter()
+                            .map(|v| {
+                                convert_json_schema_to_openapi_schema(v, false)
+                                    .unwrap_or(serde_json::Value::Null)
+                            })
+                            .collect(),
+                    ),
+                );
+            }
+            _ => {
+                if let Some(converted) = convert_json_schema_to_openapi_schema(items, false) {
+                    result.insert("items".to_string(), converted);
+                }
+            }
+        }
+    }
+
+    // Handle allOf.
+    if let Some(all_of) = obj.get("allOf").and_then(|v| v.as_array()) {
+        result.insert(
+            "allOf".to_string(),
+            serde_json::Value::Array(
+                all_of
+                    .iter()
+                    .map(|v| {
+                        convert_json_schema_to_openapi_schema(v, false)
+                            .unwrap_or(serde_json::Value::Null)
+                    })
+                    .collect(),
+            ),
+        );
+    }
+
+    // Handle anyOf (nullable special-case).
+    if let Some(any_of) = obj.get("anyOf").and_then(|v| v.as_array()) {
+        let has_null_type = any_of.iter().any(|schema| {
+            schema
+                .as_object()
+                .and_then(|o| o.get("type"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t == "null")
+        });
+
+        if has_null_type {
+            let non_null_schemas: Vec<&serde_json::Value> = any_of
+                .iter()
+                .filter(|schema| {
+                    !schema
+                        .as_object()
+                        .and_then(|o| o.get("type"))
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|t| t == "null")
+                })
+                .collect();
+
+            if non_null_schemas.len() == 1 {
+                if let Some(converted) =
+                    convert_json_schema_to_openapi_schema(non_null_schemas[0], false)
+                    && let Some(converted_obj) = converted.as_object()
+                {
+                    result.insert("nullable".to_string(), serde_json::json!(true));
+                    for (k, v) in converted_obj {
+                        result.insert(k.clone(), v.clone());
+                    }
+                }
+            } else {
+                result.insert(
+                    "anyOf".to_string(),
+                    serde_json::Value::Array(
+                        non_null_schemas
+                            .iter()
+                            .map(|v| {
+                                convert_json_schema_to_openapi_schema(v, false)
+                                    .unwrap_or(serde_json::Value::Null)
+                            })
+                            .collect(),
+                    ),
+                );
+                result.insert("nullable".to_string(), serde_json::json!(true));
+            }
+        } else {
+            result.insert(
+                "anyOf".to_string(),
+                serde_json::Value::Array(
+                    any_of
+                        .iter()
+                        .map(|v| {
+                            convert_json_schema_to_openapi_schema(v, false)
+                                .unwrap_or(serde_json::Value::Null)
+                        })
+                        .collect(),
+                ),
+            );
+        }
+    }
+
+    // Handle oneOf.
+    if let Some(one_of) = obj.get("oneOf").and_then(|v| v.as_array()) {
+        result.insert(
+            "oneOf".to_string(),
+            serde_json::Value::Array(
+                one_of
+                    .iter()
+                    .map(|v| {
+                        convert_json_schema_to_openapi_schema(v, false)
+                            .unwrap_or(serde_json::Value::Null)
+                    })
+                    .collect(),
+            ),
+        );
+    }
+
+    if let Some(min_length) = obj.get("minLength") {
+        result.insert("minLength".to_string(), min_length.clone());
+    }
+
+    Some(serde_json::Value::Object(result))
+}
+
 /// Parse data URL to extract MIME type and base64 data
 fn parse_data_url(data_url: &str) -> Option<(String, String)> {
     if let Some(comma_pos) = data_url.find(',') {
@@ -229,8 +486,8 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
     }
 
     fn supports_file_search(model: &str) -> bool {
-        // Vercel AI SDK: File Search is available on Gemini 2.5 models.
-        model.contains("gemini-2.5")
+        // Vercel AI SDK: File Search is available on Gemini 2.5 models and Gemini 3 models.
+        model.contains("gemini-2.5") || model.contains("gemini-3")
     }
 
     fn parse_dynamic_retrieval_config(
@@ -268,11 +525,11 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
                     // Vercel AI SDK: when provider-defined tools are present, function tools are ignored.
                     continue;
                 }
-                let parameters = function.parameters.clone();
+                let parameters = convert_json_schema_to_openapi_schema(&function.parameters, true);
                 function_declarations.push(FunctionDeclaration {
                     name: function.name.clone(),
                     description: function.description.clone(),
-                    parameters: Some(parameters),
+                    parameters,
                     response: None,
                 });
             }
@@ -536,7 +793,25 @@ mod tests {
             !mapped
                 .iter()
                 .any(|t| matches!(t, GeminiTool::FileSearch { .. })),
-            "file_search should be dropped for non-2.5 models"
+            "file_search should be dropped for models before gemini-2.5 and gemini-3"
+        );
+    }
+
+    #[test]
+    fn file_search_is_allowed_on_gemini_3_models() {
+        let tools = vec![
+            crate::tools::google::file_search().with_args(serde_json::json!({
+                "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                "topK": 5
+            })),
+        ];
+
+        let mapped = convert_tools_to_gemini("gemini-3-pro-preview", &tools).expect("map ok");
+        assert!(
+            mapped
+                .iter()
+                .any(|t| matches!(t, GeminiTool::FileSearch { .. })),
+            "file_search should be allowed for gemini-3 models"
         );
     }
 
@@ -576,6 +851,28 @@ mod tests {
                 .any(|t| matches!(t, GeminiTool::FunctionDeclarations { .. })),
             "function tools should be ignored when provider tools are present"
         );
+    }
+
+    #[test]
+    fn empty_object_schema_is_omitted_for_function_declarations() {
+        let tools = vec![Tool::function(
+            "testFunction",
+            "A test function",
+            serde_json::json!({ "type": "object", "properties": {} }),
+        )];
+
+        let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
+        let decls = mapped
+            .iter()
+            .find_map(|t| match t {
+                GeminiTool::FunctionDeclarations {
+                    function_declarations,
+                } => Some(function_declarations),
+                _ => None,
+            })
+            .expect("function declarations");
+        assert_eq!(decls.len(), 1);
+        assert!(decls[0].parameters.is_none());
     }
 }
 
