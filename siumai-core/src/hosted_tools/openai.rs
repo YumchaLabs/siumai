@@ -10,7 +10,7 @@
 //! use siumai::hosted_tools::openai;
 //!
 //! // Create a web search tool with default settings
-//! let web_search = openai::web_search();
+//! let web_search = openai::web_search().build();
 //!
 //! // Create a web search tool with custom configuration
 //! let web_search_custom = openai::web_search()
@@ -19,12 +19,14 @@
 //!         openai::UserLocation::new("approximate")
 //!             .with_country("US")
 //!             .with_city("San Francisco"),
-//!     );
+//!     )
+//!     .build();
 //!
 //! // Create a file search tool
 //! let file_search = openai::file_search()
 //!     .with_vector_store_ids(vec!["vs_123".to_string()])
-//!     .with_max_num_results(10);
+//!     .with_max_num_results(10)
+//!     .build();
 //!
 //! // Create a computer use tool
 //! let computer_use = openai::computer_use(1920, 1080, "headless");
