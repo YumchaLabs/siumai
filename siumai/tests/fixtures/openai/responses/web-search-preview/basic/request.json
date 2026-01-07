@@ -1,0 +1,40 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Hello"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.web_search_preview",
+      "name": "web_search_preview",
+      "args": {
+        "searchContextSize": "low",
+        "userLocation": {
+          "type": "approximate",
+          "country": "US"
+        }
+      }
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

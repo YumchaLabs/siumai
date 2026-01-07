@@ -697,7 +697,10 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                         // Add tool_choice if specified
                         if let Some(choice) = &req.tool_choice {
                             body["tool_choice"] =
-                                crate::standards::openai::utils::convert_tool_choice(choice);
+                                crate::standards::openai::utils::convert_responses_tool_choice(
+                                    choice,
+                                    req.tools.as_deref(),
+                                );
                         }
                     }
                 }

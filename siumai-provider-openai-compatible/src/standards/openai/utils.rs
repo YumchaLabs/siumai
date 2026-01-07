@@ -375,6 +375,70 @@ pub fn convert_tool_choice(choice: &crate::types::ToolChoice) -> serde_json::Val
     }
 }
 
+/// Convert Siumai tool choice to OpenAI Responses API wire format.
+///
+/// Vercel AI SDK mapping (Responses API):
+/// - `"auto"`, `"none"`, `"required"`
+/// - `{ "type": "<builtin>" }` for provider-defined builtins (e.g. `web_search`)
+/// - `{ "type": "function", "name": "<toolName>" }` for function tools
+///
+/// Note: This helper also supports custom names for provider-defined tools by
+/// resolving the selected tool name against the provided tool list.
+pub fn convert_responses_tool_choice(
+    choice: &crate::types::ToolChoice,
+    tools: Option<&[crate::types::Tool]>,
+) -> serde_json::Value {
+    match choice {
+        ToolChoice::Auto => serde_json::json!("auto"),
+        ToolChoice::Required => serde_json::json!("required"),
+        ToolChoice::None => serde_json::json!("none"),
+        ToolChoice::Tool { name } => {
+            // Vercel parity: recognize built-in responses tools by name.
+            if matches!(
+                name.as_str(),
+                "code_interpreter"
+                    | "file_search"
+                    | "image_generation"
+                    | "web_search_preview"
+                    | "web_search"
+                    | "mcp"
+                    | "apply_patch"
+            ) {
+                return serde_json::json!({ "type": name });
+            }
+
+            // Optional: resolve custom tool names (e.g. "generateImage") to the built-in type
+            // by matching against the request tool list.
+            if let Some(tools) = tools {
+                for tool in tools {
+                    let crate::types::Tool::ProviderDefined(provider_tool) = tool else {
+                        continue;
+                    };
+                    if provider_tool.name != *name {
+                        continue;
+                    }
+
+                    if provider_tool.provider() != Some("openai") {
+                        continue;
+                    }
+
+                    match provider_tool.tool_type() {
+                        Some(
+                            "code_interpreter" | "file_search" | "image_generation"
+                            | "web_search_preview" | "web_search" | "mcp" | "apply_patch",
+                        ) => {
+                            return serde_json::json!({ "type": provider_tool.tool_type().unwrap() });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            serde_json::json!({ "type": "function", "name": name })
+        }
+    }
+}
+
 /// Parse OpenAI finish reason to unified FinishReason.
 pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
     siumai_core::standards::openai::utils::parse_finish_reason(reason)
@@ -456,5 +520,33 @@ mod tests {
         assert_eq!(out[0]["partial_images"], serde_json::json!(2));
         assert_eq!(out[0]["quality"], serde_json::json!("high"));
         assert_eq!(out[0]["size"], serde_json::json!("1024x1024"));
+    }
+
+    #[test]
+    fn responses_tool_choice_maps_builtins_by_name() {
+        let choice = crate::types::ToolChoice::tool("web_search");
+        let out = convert_responses_tool_choice(&choice, None);
+        assert_eq!(out, serde_json::json!({ "type": "web_search" }));
+    }
+
+    #[test]
+    fn responses_tool_choice_maps_function_by_name() {
+        let choice = crate::types::ToolChoice::tool("testFunction");
+        let out = convert_responses_tool_choice(&choice, None);
+        assert_eq!(
+            out,
+            serde_json::json!({ "type": "function", "name": "testFunction" })
+        );
+    }
+
+    #[test]
+    fn responses_tool_choice_resolves_custom_provider_tool_name() {
+        let choice = crate::types::ToolChoice::tool("generateImage");
+        let tools = vec![crate::types::Tool::provider_defined(
+            "openai.image_generation",
+            "generateImage",
+        )];
+        let out = convert_responses_tool_choice(&choice, Some(&tools));
+        assert_eq!(out, serde_json::json!({ "type": "image_generation" }));
     }
 }
