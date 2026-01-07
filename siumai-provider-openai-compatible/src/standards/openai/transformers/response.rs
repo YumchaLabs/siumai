@@ -275,18 +275,100 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 
                 let (tool_name, args, result) = match item_type {
                     "web_search_call" => {
-                        let args = serde_json::json!({
-                            "query": item.get("query").cloned().unwrap_or(serde_json::Value::Null),
-                        });
-                        let result = serde_json::json!({
-                            "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
-                        });
-                        ("web_search", args, result)
+                        // Vercel alignment: provider-executed web search tool call uses empty input (`{}`),
+                        // while the tool result contains an `action` object and optional `sources`.
+                        let args = serde_json::Value::String("{}".to_string());
+
+                        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
+                        let action_type_raw = action
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("search");
+                        let action_type = match action_type_raw {
+                            "open_page" => "openPage",
+                            "find_in_page" => "findInPage",
+                            other => other,
+                        };
+
+                        let mut action_obj = serde_json::Map::new();
+                        action_obj.insert(
+                            "type".to_string(),
+                            serde_json::Value::String(action_type.to_string()),
+                        );
+
+                        if action_type_raw == "search" {
+                            let query = action
+                                .get("query")
+                                .or_else(|| item.get("query"))
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            if !query.is_null() {
+                                action_obj.insert("query".to_string(), query);
+                            }
+                        }
+
+                        if matches!(action_type_raw, "open_page" | "find_in_page") {
+                            let url = action
+                                .get("url")
+                                .or_else(|| item.get("url"))
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            if !url.is_null() {
+                                action_obj.insert("url".to_string(), url);
+                            }
+                        }
+
+                        if action_type_raw == "find_in_page" {
+                            let pattern = action
+                                .get("pattern")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            if !pattern.is_null() {
+                                action_obj.insert("pattern".to_string(), pattern);
+                            }
+                        }
+
+                        let mut result_obj = serde_json::Map::new();
+                        result_obj
+                            .insert("action".to_string(), serde_json::Value::Object(action_obj));
+
+                        let sources = action.get("sources").and_then(|v| v.as_array());
+                        if let Some(sources) = sources
+                            && !sources.is_empty()
+                        {
+                            result_obj.insert(
+                                "sources".to_string(),
+                                serde_json::Value::Array(sources.to_vec()),
+                            );
+                        }
+
+                        // Fallback: older response variants may surface results directly.
+                        if !result_obj.contains_key("sources")
+                            && let Some(results) = item.get("results").and_then(|v| v.as_array())
+                            && !results.is_empty()
+                        {
+                            let mut sources_out: Vec<serde_json::Value> =
+                                Vec::with_capacity(results.len());
+                            for r in results {
+                                let Some(url) = r.get("url").and_then(|v| v.as_str()) else {
+                                    continue;
+                                };
+                                sources_out.push(serde_json::json!({ "type": "url", "url": url }));
+                            }
+                            if !sources_out.is_empty() {
+                                result_obj.insert(
+                                    "sources".to_string(),
+                                    serde_json::Value::Array(sources_out),
+                                );
+                            }
+                        }
+
+                        ("webSearch", args, serde_json::Value::Object(result_obj))
                     }
                     "file_search_call" => {
                         // Vercel alignment: provider-executed file search tool call uses empty input (`{}`),
                         // and returns queries/results in the tool result.
-                        let args = serde_json::json!({});
+                        let args = serde_json::Value::String("{}".to_string());
                         let result = serde_json::json!({
                             "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
                             "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),

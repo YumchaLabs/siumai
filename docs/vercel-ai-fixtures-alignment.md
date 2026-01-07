@@ -160,6 +160,7 @@ Provider id: `openai` (Responses API)
 - [x] Function tool calls parsing (`function_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
 - [x] Hosted tool calls parsing (`local_shell_call` / `shell_call` / `apply_patch_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
 - [x] Provider tool calls parsing (`file_search_call` -> `tool-call` + `tool-result` parts, `toolName: "fileSearch"`, empty input)
+- [x] Provider tool calls parsing (`web_search_call` -> `tool-call` + `tool-result` parts, action type normalization, `toolName: "webSearch"`, empty input)
 - [x] Usage details parity (cached + reasoning tokens)
 - [x] Response metadata parity (`system_fingerprint`, `service_tier`) + message `itemId` surfaced via `provider_metadata.openai.itemId`
 
