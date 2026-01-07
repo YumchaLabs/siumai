@@ -16,6 +16,9 @@ use chrono::{SecondsFormat, TimeZone, Utc};
 #[derive(Clone)]
 pub struct OpenAiResponsesEventConverter {
     function_call_ids_by_output_index: Arc<Mutex<HashMap<u64, String>>>,
+    function_call_meta_by_item_id: Arc<Mutex<HashMap<String, (String, String)>>>,
+    emitted_function_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_function_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
     provider_tool_name_by_item_type: Arc<Mutex<HashMap<String, String>>>,
     mcp_calls_by_item_id: Arc<Mutex<HashMap<String, (String, String)>>>,
     mcp_call_args_by_item_id: Arc<Mutex<HashMap<String, String>>>,
@@ -27,6 +30,14 @@ pub struct OpenAiResponsesEventConverter {
     reasoning_encrypted_content_by_item_id: Arc<Mutex<HashMap<String, Option<String>>>>,
     emitted_reasoning_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_reasoning_end_ids: Arc<Mutex<HashSet<String>>>,
+    apply_patch_call_id_by_item_id: Arc<Mutex<HashMap<String, String>>>,
+    apply_patch_operation_by_item_id: Arc<Mutex<HashMap<String, serde_json::Value>>>,
+    emitted_apply_patch_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_apply_patch_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
+    code_interpreter_container_id_by_item_id: Arc<Mutex<HashMap<String, String>>>,
+    emitted_code_interpreter_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_code_interpreter_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_web_search_tool_input_ids: Arc<Mutex<HashSet<String>>>,
     emitted_stream_start: Arc<Mutex<bool>>,
     emitted_response_metadata: Arc<Mutex<bool>>,
     created_response_id: Arc<Mutex<Option<String>>>,
@@ -42,6 +53,9 @@ impl Default for OpenAiResponsesEventConverter {
     fn default() -> Self {
         Self {
             function_call_ids_by_output_index: Arc::new(Mutex::new(HashMap::new())),
+            function_call_meta_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            emitted_function_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_function_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
             provider_tool_name_by_item_type: Arc::new(Mutex::new(HashMap::new())),
             mcp_calls_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             mcp_call_args_by_item_id: Arc::new(Mutex::new(HashMap::new())),
@@ -53,6 +67,14 @@ impl Default for OpenAiResponsesEventConverter {
             reasoning_encrypted_content_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_reasoning_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_reasoning_end_ids: Arc::new(Mutex::new(HashSet::new())),
+            apply_patch_call_id_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            apply_patch_operation_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            emitted_apply_patch_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_apply_patch_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
+            code_interpreter_container_id_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            emitted_code_interpreter_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_code_interpreter_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_web_search_tool_input_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_stream_start: Arc::new(Mutex::new(false)),
             emitted_response_metadata: Arc::new(Mutex::new(false)),
             created_response_id: Arc::new(Mutex::new(None)),
@@ -345,6 +367,175 @@ impl OpenAiResponsesEventConverter {
             .lock()
             .ok()
             .is_some_and(|set| set.contains(id))
+    }
+
+    fn record_function_call_meta(&self, item_id: &str, call_id: &str, name: &str) {
+        if item_id.is_empty() || call_id.is_empty() || name.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.function_call_meta_by_item_id.lock() {
+            map.insert(item_id.to_string(), (call_id.to_string(), name.to_string()));
+        }
+    }
+
+    fn function_call_meta(&self, item_id: &str) -> Option<(String, String)> {
+        let map = self.function_call_meta_by_item_id.lock().ok()?;
+        map.get(item_id).cloned()
+    }
+
+    fn mark_function_tool_input_start_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_function_tool_input_start_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    fn has_emitted_function_tool_input_start(&self, id: &str) -> bool {
+        self.emitted_function_tool_input_start_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn mark_function_tool_input_end_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_function_tool_input_end_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    fn has_emitted_function_tool_input_end(&self, id: &str) -> bool {
+        self.emitted_function_tool_input_end_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn record_apply_patch_call(&self, item_id: &str, call_id: &str, operation: serde_json::Value) {
+        if item_id.is_empty() || call_id.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.apply_patch_call_id_by_item_id.lock() {
+            map.insert(item_id.to_string(), call_id.to_string());
+        }
+        if let Ok(mut map) = self.apply_patch_operation_by_item_id.lock() {
+            map.insert(item_id.to_string(), operation);
+        }
+    }
+
+    fn apply_patch_call_id(&self, item_id: &str) -> Option<String> {
+        let map = self.apply_patch_call_id_by_item_id.lock().ok()?;
+        map.get(item_id).cloned()
+    }
+
+    fn apply_patch_operation(&self, item_id: &str) -> Option<serde_json::Value> {
+        let map = self.apply_patch_operation_by_item_id.lock().ok()?;
+        map.get(item_id).cloned()
+    }
+
+    fn mark_apply_patch_tool_input_start_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_apply_patch_tool_input_start_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    fn has_emitted_apply_patch_tool_input_start(&self, id: &str) -> bool {
+        self.emitted_apply_patch_tool_input_start_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn mark_apply_patch_tool_input_end_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_apply_patch_tool_input_end_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    fn has_emitted_apply_patch_tool_input_end(&self, id: &str) -> bool {
+        self.emitted_apply_patch_tool_input_end_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn record_code_interpreter_container_id(&self, item_id: &str, container_id: &str) {
+        if item_id.is_empty() || container_id.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.code_interpreter_container_id_by_item_id.lock() {
+            map.insert(item_id.to_string(), container_id.to_string());
+        }
+    }
+
+    fn code_interpreter_container_id(&self, item_id: &str) -> Option<String> {
+        let map = self.code_interpreter_container_id_by_item_id.lock().ok()?;
+        map.get(item_id).cloned()
+    }
+
+    fn mark_code_interpreter_tool_input_start_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_code_interpreter_tool_input_start_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    fn has_emitted_code_interpreter_tool_input_start(&self, id: &str) -> bool {
+        self.emitted_code_interpreter_tool_input_start_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn mark_code_interpreter_tool_input_end_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_code_interpreter_tool_input_end_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    fn has_emitted_code_interpreter_tool_input_end(&self, id: &str) -> bool {
+        self.emitted_code_interpreter_tool_input_end_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn mark_web_search_tool_input_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_web_search_tool_input_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
     }
 
     fn mark_stream_start_emitted(&self) -> bool {
@@ -1106,7 +1297,7 @@ impl OpenAiResponsesEventConverter {
 
     fn convert_function_call_arguments_delta(
         &self,
-        json: serde_json::Value,
+        json: &serde_json::Value,
     ) -> Option<crate::streaming::ChatStreamEvent> {
         // Handle response.function_call_arguments.delta events
         let delta = json.get("delta").and_then(|d| d.as_str())?;
@@ -1137,7 +1328,7 @@ impl OpenAiResponsesEventConverter {
 
     fn convert_output_item_added(
         &self,
-        json: serde_json::Value,
+        json: &serde_json::Value,
     ) -> Option<crate::streaming::ChatStreamEvent> {
         // Handle response.output_item.added events for function calls
         let item = json.get("item")?;
@@ -1147,10 +1338,18 @@ impl OpenAiResponsesEventConverter {
 
         let id = item.get("call_id").and_then(|id| id.as_str()).unwrap_or("");
         let function_name = item.get("name").and_then(|name| name.as_str());
+        let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let output_index = json
             .get("output_index")
             .and_then(|idx| idx.as_u64())
             .unwrap_or(0);
+
+        if !item_id.is_empty()
+            && !id.is_empty()
+            && let Some(name) = function_name
+        {
+            self.record_function_call_meta(item_id, id, name);
+        }
 
         if !id.is_empty()
             && let Ok(mut map) = self.function_call_ids_by_output_index.lock()
@@ -1166,10 +1365,413 @@ impl OpenAiResponsesEventConverter {
         })
     }
 
-    fn convert_provider_tool_output_item_added(
+    fn convert_function_call_output_item_added_tool_input(
         &self,
         json: &serde_json::Value,
     ) -> Option<crate::streaming::ChatStreamEvent> {
+        let item = json.get("item")?;
+        if item.get("type").and_then(|t| t.as_str()) != Some("function_call") {
+            return None;
+        }
+
+        let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+
+        if !item_id.is_empty() && !call_id.is_empty() && !tool_name.is_empty() {
+            self.record_function_call_meta(item_id, call_id, tool_name);
+        }
+
+        if call_id.is_empty() || tool_name.is_empty() {
+            return None;
+        }
+
+        if !self.mark_function_tool_input_start_emitted(call_id) {
+            return None;
+        }
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-start".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-start",
+                "id": call_id,
+                "toolName": tool_name,
+            }),
+        })
+    }
+
+    fn convert_function_call_arguments_delta_tool_input(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        let delta = json.get("delta").and_then(|d| d.as_str())?;
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+
+        let (call_id, _tool_name) = self.function_call_meta(item_id)?;
+        if call_id.is_empty() || delta.is_empty() {
+            return None;
+        }
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": call_id,
+                "delta": delta,
+            }),
+        })
+    }
+
+    fn convert_function_call_arguments_done_tool_input(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+        let args = json.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
+        if item_id.is_empty() {
+            return None;
+        }
+
+        let (call_id, tool_name) = self.function_call_meta(item_id)?;
+        if call_id.is_empty() || tool_name.is_empty() {
+            return None;
+        }
+
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        if !self.has_emitted_function_tool_input_end(call_id.as_str())
+            && self.mark_function_tool_input_end_emitted(call_id.as_str())
+        {
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-end".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-end",
+                    "id": call_id,
+                }),
+            });
+        }
+
+        events.push(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": call_id,
+                "toolName": tool_name,
+                "input": args,
+                "providerMetadata": {
+                    "openai": {
+                        "itemId": item_id,
+                    },
+                },
+            }),
+        });
+
+        Some(events)
+    }
+
+    fn convert_apply_patch_output_item_added_tool_input(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item = json.get("item")?.as_object()?;
+        if item.get("type").and_then(|t| t.as_str()) != Some("apply_patch_call") {
+            return None;
+        }
+
+        let item_id = item.get("id")?.as_str()?;
+        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+        let operation = item
+            .get("operation")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        if call_id.is_empty() {
+            return None;
+        }
+        self.record_apply_patch_call(item_id, call_id, operation.clone());
+
+        if !self.mark_apply_patch_tool_input_start_emitted(call_id) {
+            return None;
+        }
+
+        let tool_name = self
+            .provider_tool_name_for_item_type("apply_patch_call")
+            .unwrap_or_else(|| "apply_patch".to_string());
+
+        let mut events: Vec<crate::streaming::ChatStreamEvent> =
+            vec![crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-start".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-start",
+                    "id": call_id,
+                    "toolName": tool_name,
+                }),
+            }];
+
+        let op_type = operation.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let path = operation.get("path").and_then(|v| v.as_str());
+
+        let call_id_json = serde_json::to_string(call_id).unwrap_or_else(|_| "\"\"".to_string());
+        let op_type_json = serde_json::to_string(op_type).unwrap_or_else(|_| "\"\"".to_string());
+        let path_json = path
+            .and_then(|p| serde_json::to_string(p).ok())
+            .unwrap_or_else(|| "null".to_string());
+
+        if op_type == "delete_file" {
+            let input = format!(
+                "{{\"callId\":{call_id_json},\"operation\":{{\"type\":{op_type_json},\"path\":{path_json}}}}}"
+            );
+
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-delta",
+                    "id": call_id,
+                    "delta": input,
+                }),
+            });
+
+            if self.mark_apply_patch_tool_input_end_emitted(call_id) {
+                events.push(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-input-end".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-input-end",
+                        "id": call_id,
+                    }),
+                });
+            }
+
+            return Some(events);
+        }
+
+        let prefix = format!(
+            "{{\"callId\":{call_id_json},\"operation\":{{\"type\":{op_type_json},\"path\":{path_json},\"diff\":\""
+        );
+        events.push(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": call_id,
+                "delta": prefix,
+            }),
+        });
+
+        Some(events)
+    }
+
+    fn convert_apply_patch_operation_diff_delta(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
+        if item_id.is_empty() || delta.is_empty() {
+            return None;
+        }
+        let call_id = self.apply_patch_call_id(item_id)?;
+        if call_id.is_empty() {
+            return None;
+        }
+        if !self.has_emitted_apply_patch_tool_input_start(call_id.as_str()) {
+            return None;
+        }
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": call_id,
+                "delta": delta,
+            }),
+        })
+    }
+
+    fn convert_apply_patch_operation_diff_done(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+        if item_id.is_empty() {
+            return None;
+        }
+        let call_id = self.apply_patch_call_id(item_id)?;
+        if call_id.is_empty() || self.has_emitted_apply_patch_tool_input_end(call_id.as_str()) {
+            return None;
+        }
+
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        // Close the open `diff` string and the surrounding objects: `"}}`
+        events.push(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": call_id,
+                "delta": "\"}}",
+            }),
+        });
+
+        if self.mark_apply_patch_tool_input_end_emitted(call_id.as_str()) {
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-end".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-end",
+                    "id": call_id,
+                }),
+            });
+        }
+
+        Some(events)
+    }
+
+    fn convert_code_interpreter_output_item_added_tool_input(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item = json.get("item")?.as_object()?;
+        if item.get("type").and_then(|t| t.as_str()) != Some("code_interpreter_call") {
+            return None;
+        }
+
+        let item_id = item.get("id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+
+        let tool_name = self
+            .provider_tool_name_for_item_type("code_interpreter_call")
+            .unwrap_or_else(|| "code_interpreter".to_string());
+
+        let container_id = item
+            .get("container_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !container_id.is_empty() {
+            self.record_code_interpreter_container_id(item_id, container_id);
+        }
+
+        if !self.mark_code_interpreter_tool_input_start_emitted(item_id) {
+            return None;
+        }
+
+        let container_id_json =
+            serde_json::to_string(container_id).unwrap_or_else(|_| "\"\"".to_string());
+        let prefix = format!("{{\"containerId\":{container_id_json},\"code\":\"");
+
+        Some(vec![
+            crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-start".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-start",
+                    "id": item_id,
+                    "toolName": tool_name,
+                    "providerExecuted": true,
+                }),
+            },
+            crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-delta",
+                    "id": item_id,
+                    "delta": prefix,
+                }),
+            },
+        ])
+    }
+
+    fn convert_code_interpreter_code_delta_tool_input(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
+        if item_id.is_empty() || delta.is_empty() {
+            return None;
+        }
+
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        if !self.has_emitted_code_interpreter_tool_input_start(item_id)
+            && self.mark_code_interpreter_tool_input_start_emitted(item_id)
+        {
+            let tool_name = self
+                .provider_tool_name_for_item_type("code_interpreter_call")
+                .unwrap_or_else(|| "code_interpreter".to_string());
+            let container_id = self
+                .code_interpreter_container_id(item_id)
+                .unwrap_or_default();
+            let container_id_json =
+                serde_json::to_string(container_id.as_str()).unwrap_or_else(|_| "\"\"".to_string());
+            let prefix = format!("{{\"containerId\":{container_id_json},\"code\":\"");
+
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-start".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-start",
+                    "id": item_id,
+                    "toolName": tool_name,
+                    "providerExecuted": true,
+                }),
+            });
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-delta",
+                    "id": item_id,
+                    "delta": prefix,
+                }),
+            });
+        }
+
+        events.push(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": item_id,
+                "delta": delta,
+            }),
+        });
+
+        Some(events)
+    }
+
+    fn convert_code_interpreter_code_done_tool_input(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+        if item_id.is_empty() || self.has_emitted_code_interpreter_tool_input_end(item_id) {
+            return None;
+        }
+
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        // Close the open `code` string and the object: `"}`
+        events.push(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-input-delta".to_string(),
+            data: serde_json::json!({
+                "type": "tool-input-delta",
+                "id": item_id,
+                "delta": "\"}",
+            }),
+        });
+
+        if self.mark_code_interpreter_tool_input_end_emitted(item_id) {
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-end".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-end",
+                    "id": item_id,
+                }),
+            });
+        }
+
+        Some(events)
+    }
+
+    fn convert_provider_tool_output_item_added(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
         let item = json.get("item")?.as_object()?;
         let item_type = item.get("type")?.as_str()?;
         let output_index = json.get("output_index").and_then(|v| v.as_u64());
@@ -1199,7 +1801,7 @@ impl OpenAiResponsesEventConverter {
                 let tool_call_id = self.mcp_approval_tool_call_id(approval_id);
                 let tool_name = format!("mcp.{name}");
 
-                return Some(crate::streaming::ChatStreamEvent::Custom {
+                return Some(vec![crate::streaming::ChatStreamEvent::Custom {
                     event_type: "openai:tool-call".to_string(),
                     data: serde_json::json!({
                         "type": "tool-call",
@@ -1211,20 +1813,21 @@ impl OpenAiResponsesEventConverter {
                         "outputIndex": output_index,
                         "rawItem": serde_json::Value::Object(item.clone()),
                     }),
-                });
+                }]);
             }
             "web_search_call" => ("web_search", serde_json::json!("{}")),
             "file_search_call" => ("file_search", serde_json::json!("{}")),
             "computer_call" => ("computer_use", serde_json::json!("")),
             "code_interpreter_call" => {
                 let container_id = item.get("container_id").and_then(|v| v.as_str());
-                let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("");
-                let json_str = serde_json::json!({
-                    "containerId": container_id,
-                    "code": code,
-                })
-                .to_string();
-                ("code_interpreter", serde_json::Value::String(json_str))
+                let tool_call_id = item.get("id")?.as_str()?;
+                if let Some(cid) = container_id {
+                    self.record_code_interpreter_container_id(tool_call_id, cid);
+                }
+
+                // Vercel alignment: code interpreter tool-call is emitted after tool-input-end,
+                // once the full code is known (at output_item.done).
+                return None;
             }
             "image_generation_call" => ("image_generation", serde_json::json!("{}")),
             _ => return None,
@@ -1236,7 +1839,29 @@ impl OpenAiResponsesEventConverter {
 
         let tool_call_id = item.get("id")?.as_str()?;
 
-        Some(crate::streaming::ChatStreamEvent::Custom {
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        // Vercel alignment: webSearch emits tool-input-start/end even with empty input.
+        if item_type == "web_search_call" && self.mark_web_search_tool_input_emitted(tool_call_id) {
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-start".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-start",
+                    "id": tool_call_id,
+                    "toolName": tool_name,
+                    "providerExecuted": true,
+                }),
+            });
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-end".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-end",
+                    "id": tool_call_id,
+                }),
+            });
+        }
+
+        events.push(crate::streaming::ChatStreamEvent::Custom {
             event_type: "openai:tool-call".to_string(),
             data: serde_json::json!({
                 "type": "tool-call",
@@ -1247,7 +1872,9 @@ impl OpenAiResponsesEventConverter {
                 "outputIndex": output_index,
                 "rawItem": serde_json::Value::Object(item.clone()),
             }),
-        })
+        });
+
+        Some(events)
     }
 
     fn convert_provider_tool_output_item_done(
@@ -1395,12 +2022,74 @@ impl OpenAiResponsesEventConverter {
                     "status": item.get("status").cloned().unwrap_or_else(|| serde_json::json!("completed")),
                 }),
             ),
-            "code_interpreter_call" => (
-                "code_interpreter",
-                serde_json::json!({
-                    "outputs": item.get("outputs").cloned().unwrap_or_else(|| serde_json::json!([])),
-                }),
-            ),
+            "code_interpreter_call" => {
+                // Vercel alignment: codeExecution streams tool input, then emits tool-call, then tool-result.
+                let tool_name = self
+                    .provider_tool_name_for_item_type(item_type)
+                    .unwrap_or_else(|| "code_interpreter".to_string());
+
+                let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+                if !self.has_emitted_code_interpreter_tool_input_end(tool_call_id)
+                    && self.mark_code_interpreter_tool_input_end_emitted(tool_call_id)
+                {
+                    events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:tool-input-delta".to_string(),
+                        data: serde_json::json!({
+                            "type": "tool-input-delta",
+                            "id": tool_call_id,
+                            "delta": "\"}",
+                        }),
+                    });
+                    events.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:tool-input-end".to_string(),
+                        data: serde_json::json!({
+                            "type": "tool-input-end",
+                            "id": tool_call_id,
+                        }),
+                    });
+                }
+
+                let container_id = item.get("container_id").and_then(|v| v.as_str());
+                let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("");
+
+                let code_json = serde_json::to_string(code).unwrap_or_else(|_| "\"\"".to_string());
+                let container_id_json = container_id
+                    .and_then(|cid| serde_json::to_string(cid).ok())
+                    .unwrap_or_else(|| "null".to_string());
+
+                let input = format!("{{\"code\":{code_json},\"containerId\":{container_id_json}}}");
+
+                events.push(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-call".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-call",
+                        "toolCallId": tool_call_id,
+                        "toolName": tool_name,
+                        "input": input,
+                        "providerExecuted": true,
+                        "outputIndex": output_index,
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                });
+
+                events.push(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-result".to_string(),
+                    data: serde_json::json!({
+                        "type": "tool-result",
+                        "toolCallId": tool_call_id,
+                        "toolName": tool_name,
+                        "result": {
+                            "outputs": item.get("outputs").cloned().unwrap_or_else(|| serde_json::json!([])),
+                        },
+                        "providerExecuted": true,
+                        "outputIndex": output_index,
+                        "rawItem": serde_json::Value::Object(item.clone()),
+                    }),
+                });
+
+                return Some(events);
+            }
             "image_generation_call" => (
                 "image_generation",
                 serde_json::json!({
@@ -1824,8 +2513,50 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     return vec![Ok(crate::streaming::ChatStreamEvent::Error { error: msg })];
                 }
                 "response.function_call_arguments.delta" => {
-                    if let Some(evt) = self.convert_function_call_arguments_delta(json) {
+                    let mut out: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+                    if let Some(evt) = self.convert_function_call_arguments_delta_tool_input(&json)
+                    {
+                        out.push(evt);
+                    }
+                    if let Some(evt) = self.convert_function_call_arguments_delta(&json) {
+                        out.push(evt);
+                    }
+                    if !out.is_empty() {
+                        return out.into_iter().map(Ok).collect();
+                    }
+                }
+                "response.function_call_arguments.done" => {
+                    if let Some(events) =
+                        self.convert_function_call_arguments_done_tool_input(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
+                    }
+                }
+                "response.apply_patch_call_operation_diff.delta" => {
+                    if let Some(evt) = self.convert_apply_patch_operation_diff_delta(&json) {
                         return vec![Ok(evt)];
+                    }
+                }
+                "response.apply_patch_call_operation_diff.done" => {
+                    if let Some(events) = self.convert_apply_patch_operation_diff_done(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
+                    }
+                }
+                "response.code_interpreter_call_code.delta" => {
+                    if let Some(events) = self.convert_code_interpreter_code_delta_tool_input(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
+                    }
+                }
+                "response.code_interpreter_call_code.done" => {
+                    if let Some(events) = self.convert_code_interpreter_code_done_tool_input(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
                     }
                 }
                 "response.mcp_call_arguments.delta" => {
@@ -1847,11 +2578,35 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     if let Some(evt) = self.convert_reasoning_output_item_added(&json) {
                         return vec![Ok(evt)];
                     }
-                    if let Some(evt) = self.convert_provider_tool_output_item_added(&json) {
-                        return vec![Ok(evt)];
+                    if let Some(events) =
+                        self.convert_apply_patch_output_item_added_tool_input(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
                     }
-                    if let Some(evt) = self.convert_output_item_added(json) {
-                        return vec![Ok(evt)];
+                    if let Some(events) =
+                        self.convert_code_interpreter_output_item_added_tool_input(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
+                    }
+                    if let Some(events) = self.convert_provider_tool_output_item_added(&json)
+                        && !events.is_empty()
+                    {
+                        return events.into_iter().map(Ok).collect();
+                    }
+
+                    let mut extra: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+                    if let Some(evt) =
+                        self.convert_function_call_output_item_added_tool_input(&json)
+                    {
+                        extra.push(evt);
+                    }
+                    if let Some(evt) = self.convert_output_item_added(&json) {
+                        extra.push(evt);
+                    }
+                    if !extra.is_empty() {
+                        return extra.into_iter().map(Ok).collect();
                     }
                 }
                 "response.output_item.done" => {
@@ -2067,8 +2822,24 @@ mod tests {
             retry: None,
         };
         let out_added = futures::executor::block_on(conv.convert_event(ev_added));
-        assert_eq!(out_added.len(), 1);
+        assert_eq!(out_added.len(), 3);
         match out_added[0].as_ref().unwrap() {
+            crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+                assert_eq!(event_type, "openai:tool-input-start");
+                assert_eq!(data["id"], serde_json::json!("ws_1"));
+                assert_eq!(data["toolName"], serde_json::json!("web_search"));
+                assert_eq!(data["providerExecuted"], serde_json::json!(true));
+            }
+            other => panic!("expected Custom tool-input-start, got {other:?}"),
+        }
+        match out_added[1].as_ref().unwrap() {
+            crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+                assert_eq!(event_type, "openai:tool-input-end");
+                assert_eq!(data["id"], serde_json::json!("ws_1"));
+            }
+            other => panic!("expected Custom tool-input-end, got {other:?}"),
+        }
+        match out_added[2].as_ref().unwrap() {
             crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
                 assert_eq!(event_type, "openai:tool-call");
                 assert_eq!(data["toolCallId"], serde_json::json!("ws_1"));

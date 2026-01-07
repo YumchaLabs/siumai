@@ -199,6 +199,14 @@ Provider id: `openai` (Responses API)
 
 - [x] Streaming SSE emits `stream-start` / `response-metadata` / `text-start` / `text-delta` / `text-end` / `finish` via fixtures
 
+## OpenAI Responses Tool Input (Streaming)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Streaming SSE emits `tool-input-start` / `tool-input-delta` / `tool-input-end` for `apply_patch`, `codeExecution`, function tools, and `webSearch` via fixtures
+
 ## OpenAI Responses Tool Choice (Fixtures)
 
 Provider id: `openai` (Responses API)
