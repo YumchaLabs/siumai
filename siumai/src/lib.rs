@@ -124,6 +124,9 @@ pub mod protocol {
     }
 }
 
+/// Provider-defined tool factories (Vercel-aligned).
+pub mod tools;
+
 // Unified retry facade (siumai-core re-export + provider-aware defaults)
 pub mod retry_api;
 
@@ -550,6 +553,7 @@ pub mod prelude {
         pub use crate::Provider;
         pub use crate::provider::Siumai;
         pub use crate::retry_api::*;
+        pub use crate::tools;
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::error::{ErrorCategory, LlmError};
