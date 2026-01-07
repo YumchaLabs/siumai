@@ -1,0 +1,9 @@
+{
+  "image": [104, 101, 108, 108, 111],
+  "mask": [119, 111, 114, 108, 100],
+  "prompt": "Edit this image",
+  "model": "imagen-3.0-generate-002",
+  "count": 1,
+  "response_format": "b64_json",
+  "extra_params": {}
+}
