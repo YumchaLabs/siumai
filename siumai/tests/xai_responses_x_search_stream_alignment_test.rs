@@ -50,11 +50,8 @@ fn xai_responses_x_search_stream_emits_vercel_aligned_custom_tool_calls() {
     ))];
 
     let conv =
-        siumai_provider_xai::standards::openai::responses_sse::OpenAiResponsesEventConverter::new()
-            .with_request_tools(&tools)
-            .with_web_search_stream_mode(
-                siumai_provider_xai::standards::openai::responses_sse::WebSearchStreamMode::Xai,
-            );
+        siumai_provider_xai::standards::xai::responses_sse::XaiResponsesEventConverter::new()
+            .with_request_tools(&tools);
 
     let mut events: Vec<ChatStreamEvent> = Vec::new();
     for (i, line) in lines.into_iter().enumerate() {

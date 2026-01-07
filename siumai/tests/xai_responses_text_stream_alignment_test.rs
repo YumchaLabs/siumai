@@ -23,10 +23,7 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
 
 fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
     let conv =
-        siumai_provider_xai::standards::openai::responses_sse::OpenAiResponsesEventConverter::new()
-            .with_stream_parts_style(
-                siumai_provider_xai::standards::openai::responses_sse::StreamPartsStyle::Xai,
-            );
+        siumai_provider_xai::standards::xai::responses_sse::XaiResponsesEventConverter::new();
 
     let mut events: Vec<ChatStreamEvent> = Vec::new();
     for (i, line) in lines.into_iter().enumerate() {
