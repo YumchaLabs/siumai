@@ -1,0 +1,29 @@
+{
+  "id": "resp_0f0d479976b1e9a600692f61be5948819783b655c7a54af2a2",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "call_udkLUvR8lWvG8cDO2B6GNpvZ",
+        "toolName": "shell",
+        "input": "{\"action\":{\"commands\":[\"cd ~ && pwd\",\"cd ~/Desktop && pwd\",\"cd ~/Desktop && echo 'THIS WORKS!' > dec1.txt && ls -l dec1.txt && cat dec1.txt\"]}}",
+        "providerMetadata": {
+          "openai": { "itemId": "sh_0f0d479976b1e9a600692f61bec0e08197a0864dc5ddf1d38c" }
+        }
+      }
+    ]
+  },
+  "model": "gpt-5.1-2025-11-13",
+  "usage": {
+    "prompt_tokens": 157,
+    "completion_tokens": 73,
+    "total_tokens": 230,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "prompt_tokens_details": { "cached_tokens": 0 },
+    "completion_tokens_details": { "reasoning_tokens": 0 }
+  },
+  "finish_reason": "tool_calls",
+  "service_tier": "default"
+}
+

@@ -1,0 +1,29 @@
+{
+  "id": "resp_0b04c5f8dfc43af500692749bc5b288197b45e830995fd32d3",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "call_CdXiGtcRl49Q6Ek20tG9lYOr",
+        "toolName": "apply_patch",
+        "input": "{\"callId\":\"call_CdXiGtcRl49Q6Ek20tG9lYOr\",\"operation\":{\"type\":\"create_file\",\"path\":\"shopping-checklist.md\",\"diff\":\"+## Shopping Checklist\\n+\\n+- [ ] Milk\\n+- [ ] Bread\\n+- [ ] Eggs\\n+- [ ] Apples\\n+- [ ] Coffee\\n+\\n\"}}",
+        "providerMetadata": {
+          "openai": { "itemId": "apc_0b04c5f8dfc43af500692749bd60908197b0e453c38f30191a" }
+        }
+      }
+    ]
+  },
+  "model": "gpt-5.1-2025-11-13",
+  "usage": {
+    "prompt_tokens": 642,
+    "completion_tokens": 67,
+    "total_tokens": 709,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "prompt_tokens_details": { "cached_tokens": 0 },
+    "completion_tokens_details": { "reasoning_tokens": 0 }
+  },
+  "finish_reason": "tool_calls",
+  "service_tier": "default"
+}
+

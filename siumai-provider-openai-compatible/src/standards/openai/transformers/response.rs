@@ -304,6 +304,126 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         });
                         ("computer_use", serde_json::json!({}), result)
                     }
+                    "local_shell_call" => {
+                        // Vercel alignment: map OpenAI hosted local shell tool call to `toolName: "shell"`,
+                        // keep `input` as a JSON string, and surface the output item id via providerMetadata.
+                        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+                        if call_id.is_empty() {
+                            continue;
+                        }
+
+                        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
+                        // NOTE: serde_json serializes object keys in sorted order by default, but Vercel's
+                        // JSON.stringify preserves insertion order. Build the JSON string manually to match.
+                        let action_type = serde_json::to_string(
+                            action.get("type").unwrap_or(&serde_json::json!("exec")),
+                        )
+                        .unwrap_or_else(|_| "\"exec\"".to_string());
+                        let command = serde_json::to_string(
+                            action.get("command").unwrap_or(&serde_json::json!([])),
+                        )
+                        .unwrap_or_else(|_| "[]".to_string());
+                        let working_directory = serde_json::to_string(
+                            action
+                                .get("working_directory")
+                                .unwrap_or(&serde_json::json!("/")),
+                        )
+                        .unwrap_or_else(|_| "\"/\"".to_string());
+                        let env = serde_json::to_string(
+                            action.get("env").unwrap_or(&serde_json::json!({})),
+                        )
+                        .unwrap_or_else(|_| "{}".to_string());
+                        let input_str = format!(
+                            "{{\"action\":{{\"type\":{action_type},\"command\":{command},\"working_directory\":{working_directory},\"env\":{env}}}}}"
+                        );
+
+                        let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
+                            let mut all = std::collections::HashMap::new();
+                            all.insert("openai".to_string(), serde_json::json!({ "itemId": id }));
+                            all
+                        });
+
+                        content_parts.push(ContentPart::ToolCall {
+                            tool_call_id: call_id.to_string(),
+                            tool_name: "shell".to_string(),
+                            arguments: serde_json::Value::String(input_str),
+                            provider_executed: None,
+                            provider_metadata,
+                        });
+                        continue;
+                    }
+                    "shell_call" => {
+                        // Vercel alignment: map OpenAI hosted shell tool call to `toolName: "shell"` and
+                        // stringify `{ action: { commands } }` (omit other action fields like timeouts).
+                        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+                        if call_id.is_empty() {
+                            continue;
+                        }
+
+                        let action = item.get("action").unwrap_or(&serde_json::Value::Null);
+                        let commands = serde_json::to_string(
+                            action.get("commands").unwrap_or(&serde_json::json!([])),
+                        )
+                        .unwrap_or_else(|_| "[]".to_string());
+                        let input_str = format!("{{\"action\":{{\"commands\":{commands}}}}}");
+
+                        let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
+                            let mut all = std::collections::HashMap::new();
+                            all.insert("openai".to_string(), serde_json::json!({ "itemId": id }));
+                            all
+                        });
+
+                        content_parts.push(ContentPart::ToolCall {
+                            tool_call_id: call_id.to_string(),
+                            tool_name: "shell".to_string(),
+                            arguments: serde_json::Value::String(input_str),
+                            provider_executed: None,
+                            provider_metadata,
+                        });
+                        continue;
+                    }
+                    "apply_patch_call" => {
+                        // Vercel alignment: map hosted apply_patch tool call to `toolName: "apply_patch"`,
+                        // stringify `{ callId, operation }`, and surface item id via providerMetadata.
+                        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+                        if call_id.is_empty() {
+                            continue;
+                        }
+
+                        let op = item.get("operation").unwrap_or(&serde_json::Value::Null);
+                        let call_id_json =
+                            serde_json::to_string(&call_id).unwrap_or_else(|_| "\"\"".to_string());
+                        let op_type = serde_json::to_string(
+                            op.get("type").unwrap_or(&serde_json::Value::Null),
+                        )
+                        .unwrap_or_else(|_| "null".to_string());
+                        let op_path = serde_json::to_string(
+                            op.get("path").unwrap_or(&serde_json::Value::Null),
+                        )
+                        .unwrap_or_else(|_| "null".to_string());
+                        let op_diff = serde_json::to_string(
+                            op.get("diff").unwrap_or(&serde_json::Value::Null),
+                        )
+                        .unwrap_or_else(|_| "null".to_string());
+                        let input_str = format!(
+                            "{{\"callId\":{call_id_json},\"operation\":{{\"type\":{op_type},\"path\":{op_path},\"diff\":{op_diff}}}}}"
+                        );
+
+                        let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
+                            let mut all = std::collections::HashMap::new();
+                            all.insert("openai".to_string(), serde_json::json!({ "itemId": id }));
+                            all
+                        });
+
+                        content_parts.push(ContentPart::ToolCall {
+                            tool_call_id: call_id.to_string(),
+                            tool_name: "apply_patch".to_string(),
+                            arguments: serde_json::Value::String(input_str),
+                            provider_executed: None,
+                            provider_metadata,
+                        });
+                        continue;
+                    }
                     "function_call" => {
                         // User-defined function call (tool calling).
                         //
@@ -515,21 +635,30 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         // Vercel alignment:
         // - When a Responses API call completes normally, infer `stop` even if no explicit
         //   finish reason is present on the response envelope.
-        // - When the response consists of function tool calls, infer `tool_calls`.
-        let has_function_calls = root
-            .get("output")
-            .and_then(|v| v.as_array())
-            .is_some_and(|out| {
-                out.iter()
-                    .any(|item| item.get("type").and_then(|v| v.as_str()) == Some("function_call"))
-            });
+        // - When the response consists of tool calls (function or hosted tools), infer `tool_calls`.
+        let has_pending_tool_calls =
+            root.get("output")
+                .and_then(|v| v.as_array())
+                .is_some_and(|out| {
+                    out.iter().any(|item| {
+                        matches!(
+                            item.get("type").and_then(|v| v.as_str()),
+                            Some(
+                                "function_call"
+                                    | "local_shell_call"
+                                    | "shell_call"
+                                    | "apply_patch_call"
+                            )
+                        )
+                    })
+                });
 
         let finish_reason = finish_reason.or_else(|| {
             if root.get("status").and_then(|v| v.as_str()) != Some("completed") {
                 return None;
             }
 
-            if has_function_calls {
+            if has_pending_tool_calls {
                 Some(FinishReason::ToolCalls)
             } else {
                 Some(FinishReason::Stop)
