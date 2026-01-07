@@ -254,6 +254,7 @@ impl Tool {
                 name: name.into(),
                 description: description.into(),
                 parameters,
+                strict: None,
                 provider_options_map: crate::types::ProviderOptionsMap::default(),
             },
         }
@@ -300,6 +301,14 @@ pub struct ToolFunction {
     pub description: String,
     /// JSON schema for function parameters
     pub parameters: serde_json::Value,
+
+    /// Strict mode setting for the tool (Vercel-aligned).
+    ///
+    /// Providers that support strict mode will use this setting to determine
+    /// how the input should be generated. Strict mode will always produce
+    /// valid inputs, but it might limit what input schemas the model can use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
 
     /// Tool-level provider options (Vercel-aligned).
     ///

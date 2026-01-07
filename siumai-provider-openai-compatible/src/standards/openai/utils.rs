@@ -16,14 +16,22 @@ pub fn convert_tools_to_openai_format(
     for tool in tools {
         match tool {
             crate::types::Tool::Function { function } => {
-                openai_tools.push(serde_json::json!({
+                let mut tool = serde_json::json!({
                     "type": "function",
                     "function": {
                         "name": function.name,
                         "description": function.description,
                         "parameters": function.parameters
                     }
-                }));
+                });
+
+                if let Some(strict) = function.strict
+                    && let serde_json::Value::Object(obj) = &mut tool["function"]
+                {
+                    obj.insert("strict".to_string(), serde_json::Value::Bool(strict));
+                }
+
+                openai_tools.push(tool);
             }
             crate::types::Tool::ProviderDefined(provider_tool) => {
                 if provider_tool.provider() == Some("openai") {
@@ -58,12 +66,18 @@ pub fn convert_tools_to_responses_format(
     for tool in tools {
         match tool {
             crate::types::Tool::Function { function } => {
-                openai_tools.push(serde_json::json!({
+                let mut tool = serde_json::json!({
                     "type": "function",
                     "name": function.name,
                     "description": function.description,
                     "parameters": function.parameters
-                }));
+                });
+
+                if let Some(strict) = function.strict {
+                    tool["strict"] = serde_json::Value::Bool(strict);
+                }
+
+                openai_tools.push(tool);
             }
             crate::types::Tool::ProviderDefined(provider_tool) => {
                 if provider_tool.provider() != Some("openai") {
