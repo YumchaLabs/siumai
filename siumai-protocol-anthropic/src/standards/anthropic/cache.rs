@@ -243,6 +243,24 @@ impl CacheAwareMessageBuilder {
                                 "text": placeholder
                             }));
                         }
+                        ContentPart::Source {
+                            source_type: _,
+                            url,
+                            title,
+                            ..
+                        } => {
+                            // Anthropic does not support `source` parts in request input.
+                            // Convert them into a best-effort text placeholder to preserve context.
+                            let text = if !title.is_empty() && title != url {
+                                format!("[Source: {title} ({url})]")
+                            } else {
+                                format!("[Source: {url}]")
+                            };
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": text
+                            }));
+                        }
                         ContentPart::File {
                             source, media_type, ..
                         } => {

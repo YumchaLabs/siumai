@@ -130,6 +130,24 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             "text": placeholder
                         }));
                     }
+                    ContentPart::Source {
+                        source_type: _,
+                        url,
+                        title,
+                        ..
+                    } => {
+                        // Anthropic does not support `source` parts in request input.
+                        // Convert them into a best-effort text placeholder to preserve context.
+                        let text = if !title.is_empty() && title != url {
+                            format!("[Source: {title} ({url})]")
+                        } else {
+                            format!("[Source: {url}]")
+                        };
+                        content_parts.push(serde_json::json!({
+                            "type": "text",
+                            "text": text
+                        }));
+                    }
                     ContentPart::File {
                         source,
                         media_type,
@@ -1734,6 +1752,8 @@ mod tests {
                 id: None,
                 name: None,
                 input: None,
+                caller: None,
+                server_name: None,
                 tool_use_id: None,
                 content: None,
                 is_error: None,
@@ -1748,6 +1768,8 @@ mod tests {
                 id: Some("toolu_123".to_string()),
                 name: Some("get_weather".to_string()),
                 input: Some(serde_json::json!({"location": "San Francisco"})),
+                caller: None,
+                server_name: None,
                 tool_use_id: None,
                 content: None,
                 is_error: None,
@@ -1799,6 +1821,8 @@ mod tests {
             id: None,
             name: None,
             input: None,
+            caller: None,
+            server_name: None,
             tool_use_id: None,
             content: None,
             is_error: None,
@@ -1826,6 +1850,8 @@ mod tests {
                 id: Some("srvtoolu_1".to_string()),
                 name: Some("web_search".to_string()),
                 input: Some(serde_json::json!({"query": "rust 1.85"})),
+                caller: None,
+                server_name: None,
                 tool_use_id: None,
                 content: None,
                 is_error: None,
@@ -1840,6 +1866,8 @@ mod tests {
                 id: None,
                 name: None,
                 input: None,
+                caller: None,
+                server_name: None,
                 tool_use_id: Some("srvtoolu_1".to_string()),
                 content: Some(serde_json::json!([
                     {
@@ -1861,6 +1889,8 @@ mod tests {
                 id: None,
                 name: None,
                 input: None,
+                caller: None,
+                server_name: None,
                 tool_use_id: None,
                 content: None,
                 is_error: None,
@@ -1880,6 +1910,7 @@ mod tests {
                     tool_name,
                     arguments,
                     provider_executed,
+                    ..
                 } = &parts[0]
                 {
                     assert_eq!(tool_call_id, "srvtoolu_1");
@@ -1896,6 +1927,7 @@ mod tests {
                     tool_name,
                     output,
                     provider_executed,
+                    ..
                 } = &parts[1]
                 {
                     assert_eq!(tool_call_id, "srvtoolu_1");
@@ -1935,6 +1967,8 @@ mod tests {
                 id: Some("srvtoolu_2".to_string()),
                 name: Some("tool_search_tool_regex".to_string()),
                 input: Some(serde_json::json!({"pattern": "weather", "limit": 2})),
+                caller: None,
+                server_name: None,
                 tool_use_id: None,
                 content: None,
                 is_error: None,
@@ -1949,6 +1983,8 @@ mod tests {
                 id: None,
                 name: None,
                 input: None,
+                caller: None,
+                server_name: None,
                 tool_use_id: Some("srvtoolu_2".to_string()),
                 content: Some(serde_json::json!({
                     "type": "tool_search_tool_search_result",
@@ -2002,6 +2038,8 @@ mod tests {
                 id: Some("srvtoolu_3".to_string()),
                 name: Some("code_execution".to_string()),
                 input: Some(serde_json::json!({"code": "print(1+1)"})),
+                caller: None,
+                server_name: None,
                 tool_use_id: None,
                 content: None,
                 is_error: None,
@@ -2016,6 +2054,8 @@ mod tests {
                 id: None,
                 name: None,
                 input: None,
+                caller: None,
+                server_name: None,
                 tool_use_id: Some("srvtoolu_3".to_string()),
                 content: Some(serde_json::json!({
                     "type": "code_execution_result",

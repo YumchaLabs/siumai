@@ -16,7 +16,7 @@ in `siumai`, while keeping fixture-driven behavior stable.
 
 - We already have split crates:
   - `siumai-core` (types, execution, streaming primitives)
-  - `siumai-protocol-*` protocol crates (some are still thin compatibility re-exports during the migration)
+  - `siumai-protocol-*` protocol crates (authoritative implementations; legacy `*-compatible` crates remain as compatibility aliases)
   - `siumai-provider-*` provider crates (OpenAI, Anthropic, Gemini, xAI, etc.)
 - However, xAI behavior currently requires "mode" toggles in shared OpenAI Responses logic:
   - SSE stream parts shape (`reasoning-*` / `text-*`, finish reason raw, usage omissions)

@@ -2728,7 +2728,35 @@ dependencies = [
 name = "siumai-protocol-anthropic"
 version = "0.11.0-beta.5"
 dependencies = [
- "siumai-provider-anthropic-compatible",
+ "async-stream",
+ "async-trait",
+ "backoff",
+ "base64",
+ "chrono",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "infer",
+ "lru",
+ "mockito",
+ "once_cell",
+ "proptest",
+ "rand 0.8.5",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+ "tracing-test",
+ "urlencoding",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -2828,35 +2856,7 @@ dependencies = [
 name = "siumai-provider-anthropic-compatible"
 version = "0.11.0-beta.5"
 dependencies = [
- "async-stream",
- "async-trait",
- "backoff",
- "base64",
- "chrono",
- "eventsource-stream",
- "futures",
- "futures-util",
- "infer",
- "lru",
- "mockito",
- "once_cell",
- "proptest",
- "rand 0.8.5",
- "reqwest",
- "secrecy",
- "serde",
- "serde_json",
- "siumai-core",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-test",
- "tokio-util",
- "tracing",
- "tracing-test",
- "urlencoding",
- "uuid",
- "wiremock",
+ "siumai-protocol-anthropic",
 ]
 
 [[package]]

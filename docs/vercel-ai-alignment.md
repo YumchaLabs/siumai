@@ -34,7 +34,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 
 - Protocol facade is available at `siumai::protocol::*` to keep downstream imports stable.
 - `siumai-protocol-openai` exists as the preferred OpenAI-like protocol crate name (now the real implementation).
-- `siumai-protocol-anthropic` exists as the preferred Anthropic protocol crate name (currently a thin wrapper over the legacy crate name).
+- `siumai-protocol-anthropic` exists as the preferred Anthropic protocol crate name (now the real implementation).
 - OpenAI-like dependent providers (`groq`, `xai`, `minimaxi`, and `siumai-registry`) are migrated to `siumai-protocol-openai`.
 
 ## Fixture/test parity checklist

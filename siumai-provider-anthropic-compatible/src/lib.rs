@@ -1,27 +1,9 @@
 //! siumai-provider-anthropic-compatible
 //!
-//! Anthropic Messages protocol standard (Vercel-aligned; legacy crate name):
-//! - Anthropic Messages API mapping (Chat + streaming)
-//! - Prompt caching + thinking helpers (protocol-level)
+//! Legacy crate name for the Anthropic Messages protocol mapping.
 //!
-//! Note: This crate intentionally does **not** include a native Anthropic provider client.
+//! Downstream code should prefer `siumai-protocol-anthropic`. This crate remains as a compatibility
+//! alias and re-exports the full public surface from `siumai-protocol-anthropic`.
 #![deny(unsafe_code)]
 
-// Re-export the provider-agnostic core modules required by the standard implementation.
-// This preserves existing internal-style module paths in migrated code (e.g. `crate::types::*`).
-pub use siumai_core::{
-    LlmError, auth, client, core, defaults, error, execution, hosted_tools, observability, retry,
-    retry_api, streaming, traits, types, utils,
-};
-
-/// Builder utilities shared across provider crates.
-pub mod builder {
-    pub use siumai_core::builder::*;
-}
-
-/// Protocol-owned typed metadata views.
-pub mod provider_metadata;
-
-pub mod standards;
-
-pub use types::{ChatResponse, CommonParams};
+pub use siumai_protocol_anthropic::*;
