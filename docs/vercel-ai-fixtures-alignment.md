@@ -191,6 +191,14 @@ Provider id: `openai` (Responses API)
 
 - [x] Streaming SSE emits `reasoning-start` / `reasoning-delta` / `reasoning-end` (incl. encrypted content) via fixtures
 
+## OpenAI Responses Text (Streaming)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Streaming SSE emits `stream-start` / `response-metadata` / `text-start` / `text-delta` / `text-end` / `finish` via fixtures
+
 ## OpenAI Responses Tool Choice (Fixtures)
 
 Provider id: `openai` (Responses API)

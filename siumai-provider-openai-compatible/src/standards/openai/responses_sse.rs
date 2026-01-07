@@ -10,6 +10,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use chrono::{SecondsFormat, TimeZone, Utc};
+
 /// OpenAI Responses SSE event converter using unified streaming utilities
 #[derive(Clone)]
 pub struct OpenAiResponsesEventConverter {
@@ -25,6 +27,15 @@ pub struct OpenAiResponsesEventConverter {
     reasoning_encrypted_content_by_item_id: Arc<Mutex<HashMap<String, Option<String>>>>,
     emitted_reasoning_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_reasoning_end_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_stream_start: Arc<Mutex<bool>>,
+    emitted_response_metadata: Arc<Mutex<bool>>,
+    created_response_id: Arc<Mutex<Option<String>>>,
+    created_model_id: Arc<Mutex<Option<String>>>,
+    created_created_at: Arc<Mutex<Option<i64>>>,
+    message_item_id_by_output_index: Arc<Mutex<HashMap<u64, String>>>,
+    emitted_text_start_ids: Arc<Mutex<HashSet<String>>>,
+    emitted_text_end_ids: Arc<Mutex<HashSet<String>>>,
+    text_annotations_by_item_id: Arc<Mutex<HashMap<String, Vec<serde_json::Value>>>>,
 }
 
 impl Default for OpenAiResponsesEventConverter {
@@ -42,6 +53,15 @@ impl Default for OpenAiResponsesEventConverter {
             reasoning_encrypted_content_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_reasoning_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_reasoning_end_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_stream_start: Arc::new(Mutex::new(false)),
+            emitted_response_metadata: Arc::new(Mutex::new(false)),
+            created_response_id: Arc::new(Mutex::new(None)),
+            created_model_id: Arc::new(Mutex::new(None)),
+            created_created_at: Arc::new(Mutex::new(None)),
+            message_item_id_by_output_index: Arc::new(Mutex::new(HashMap::new())),
+            emitted_text_start_ids: Arc::new(Mutex::new(HashSet::new())),
+            emitted_text_end_ids: Arc::new(Mutex::new(HashSet::new())),
+            text_annotations_by_item_id: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -327,9 +347,125 @@ impl OpenAiResponsesEventConverter {
             .is_some_and(|set| set.contains(id))
     }
 
+    fn mark_stream_start_emitted(&self) -> bool {
+        let Ok(mut emitted) = self.emitted_stream_start.lock() else {
+            return false;
+        };
+        if *emitted {
+            return false;
+        }
+        *emitted = true;
+        true
+    }
+
+    fn mark_response_metadata_emitted(&self) -> bool {
+        let Ok(mut emitted) = self.emitted_response_metadata.lock() else {
+            return false;
+        };
+        if *emitted {
+            return false;
+        }
+        *emitted = true;
+        true
+    }
+
+    fn record_created_response_metadata(&self, response_id: &str, model_id: &str, created_at: i64) {
+        if let Ok(mut id) = self.created_response_id.lock() {
+            *id = if response_id.is_empty() {
+                None
+            } else {
+                Some(response_id.to_string())
+            };
+        }
+        if let Ok(mut model) = self.created_model_id.lock() {
+            *model = if model_id.is_empty() {
+                None
+            } else {
+                Some(model_id.to_string())
+            };
+        }
+        if let Ok(mut created) = self.created_created_at.lock() {
+            *created = Some(created_at);
+        }
+    }
+
+    fn created_response_id(&self) -> Option<String> {
+        self.created_response_id.lock().ok().and_then(|v| v.clone())
+    }
+
+    fn created_model_id(&self) -> Option<String> {
+        self.created_model_id.lock().ok().and_then(|v| v.clone())
+    }
+
+    fn created_timestamp_rfc3339_millis(&self) -> Option<String> {
+        let created_at = self.created_created_at.lock().ok().and_then(|v| *v)?;
+        Utc.timestamp_opt(created_at, 0)
+            .single()
+            .map(|dt| dt.to_rfc3339_opts(SecondsFormat::Millis, true))
+    }
+
+    fn record_message_item_id(&self, output_index: u64, item_id: &str) {
+        if item_id.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.message_item_id_by_output_index.lock() {
+            map.insert(output_index, item_id.to_string());
+        }
+    }
+
+    fn message_item_id_for_output_index(&self, output_index: u64) -> Option<String> {
+        let map = self.message_item_id_by_output_index.lock().ok()?;
+        map.get(&output_index).cloned()
+    }
+
+    fn mark_text_start_emitted(&self, id: &str) {
+        if let Ok(mut set) = self.emitted_text_start_ids.lock() {
+            set.insert(id.to_string());
+        }
+    }
+
+    fn has_emitted_text_start(&self, id: &str) -> bool {
+        self.emitted_text_start_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn mark_text_end_emitted(&self, id: &str) {
+        if let Ok(mut set) = self.emitted_text_end_ids.lock() {
+            set.insert(id.to_string());
+        }
+    }
+
+    fn has_emitted_text_end(&self, id: &str) -> bool {
+        self.emitted_text_end_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    fn record_text_annotation(&self, item_id: &str, annotation: serde_json::Value) {
+        if item_id.is_empty() {
+            return;
+        }
+        let Ok(mut map) = self.text_annotations_by_item_id.lock() else {
+            return;
+        };
+        map.entry(item_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(annotation);
+    }
+
+    fn take_text_annotations(&self, item_id: &str) -> Vec<serde_json::Value> {
+        let Ok(mut map) = self.text_annotations_by_item_id.lock() else {
+            return Vec::new();
+        };
+        map.remove(item_id).unwrap_or_default()
+    }
+
     fn convert_responses_event(
         &self,
-        json: serde_json::Value,
+        json: &serde_json::Value,
     ) -> Option<crate::streaming::ChatStreamEvent> {
         // Handle delta as plain text or delta.content
         if let Some(delta) = json.get("delta") {
@@ -434,6 +570,261 @@ impl OpenAiResponsesEventConverter {
         }
 
         None
+    }
+
+    fn convert_message_output_item_added(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        // response.output_item.added (message)
+        let item = json.get("item")?.as_object()?;
+        if item.get("type").and_then(|t| t.as_str()) != Some("message") {
+            return None;
+        }
+
+        let item_id = item.get("id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+
+        let output_index = json
+            .get("output_index")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        self.record_message_item_id(output_index, item_id);
+
+        if self.has_emitted_text_start(item_id) {
+            return None;
+        }
+        self.mark_text_start_emitted(item_id);
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:text-start".to_string(),
+            data: serde_json::json!({
+                "type": "text-start",
+                "id": item_id,
+                "providerMetadata": {
+                    "openai": {
+                        "itemId": item_id,
+                    },
+                },
+            }),
+        })
+    }
+
+    fn convert_output_text_delta_events(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<Vec<crate::streaming::ChatStreamEvent>> {
+        // response.output_text.delta
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+        if item_id.is_empty() {
+            return None;
+        }
+        let delta = json.get("delta").and_then(|v| v.as_str()).unwrap_or("");
+        if delta.is_empty() {
+            return None;
+        }
+
+        let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+        if !self.has_emitted_text_start(item_id) {
+            self.mark_text_start_emitted(item_id);
+            events.push(crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-start".to_string(),
+                data: serde_json::json!({
+                    "type": "text-start",
+                    "id": item_id,
+                    "providerMetadata": {
+                        "openai": {
+                            "itemId": item_id,
+                        },
+                    },
+                }),
+            });
+        }
+
+        events.push(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:text-delta".to_string(),
+            data: serde_json::json!({
+                "type": "text-delta",
+                "id": item_id,
+                "delta": delta,
+            }),
+        });
+
+        Some(events)
+    }
+
+    fn convert_message_output_item_done(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        // response.output_item.done (message)
+        let item = json.get("item")?.as_object()?;
+        if item.get("type").and_then(|t| t.as_str()) != Some("message") {
+            return None;
+        }
+
+        let item_id = item.get("id")?.as_str()?;
+        if item_id.is_empty() {
+            return None;
+        }
+
+        if self.has_emitted_text_end(item_id) {
+            return None;
+        }
+        self.mark_text_end_emitted(item_id);
+
+        let mut annotations = self.take_text_annotations(item_id);
+
+        // If the message id changes between added/deltas and done, try to carry over annotations
+        // captured under the original output_index message id.
+        if annotations.is_empty()
+            && let Some(output_index) = json.get("output_index").and_then(|v| v.as_u64())
+            && let Some(original_id) = self.message_item_id_for_output_index(output_index)
+            && original_id != item_id
+        {
+            annotations = self.take_text_annotations(&original_id);
+        }
+
+        if annotations.is_empty() {
+            // Best-effort fallback: extract final annotations from completed message content.
+            if let Some(content) = item.get("content").and_then(|v| v.as_array()) {
+                for part in content {
+                    if let Some(arr) = part.get("annotations").and_then(|v| v.as_array())
+                        && !arr.is_empty()
+                    {
+                        annotations.extend(arr.iter().cloned());
+                    }
+                }
+            }
+        }
+
+        let provider_metadata_openai = if annotations.is_empty() {
+            serde_json::json!({
+                "itemId": item_id,
+            })
+        } else {
+            serde_json::json!({
+                "itemId": item_id,
+                "annotations": annotations,
+            })
+        };
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:text-end".to_string(),
+            data: serde_json::json!({
+                "type": "text-end",
+                "id": item_id,
+                "providerMetadata": {
+                    "openai": provider_metadata_openai,
+                },
+            }),
+        })
+    }
+
+    fn convert_finish_event(
+        &self,
+        completed_json: &serde_json::Value,
+        response: &crate::types::ChatResponse,
+    ) -> Option<crate::streaming::ChatStreamEvent> {
+        let usage = completed_json
+            .get("response")
+            .and_then(|r| r.get("usage"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        let input_tokens = usage
+            .get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let cached_tokens = usage
+            .get("input_tokens_details")
+            .and_then(|d| d.get("cached_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let output_tokens = usage
+            .get("output_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let reasoning_tokens = usage
+            .get("output_tokens_details")
+            .and_then(|d| d.get("reasoning_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        let input_cache_read = cached_tokens.min(input_tokens);
+        let input_no_cache = input_tokens.saturating_sub(input_cache_read);
+        let output_reasoning = reasoning_tokens.min(output_tokens);
+        let output_text = output_tokens.saturating_sub(output_reasoning);
+
+        let unified = response.finish_reason.as_ref().map(|r| match r {
+            crate::types::FinishReason::Stop => "stop".to_string(),
+            crate::types::FinishReason::StopSequence => "stop".to_string(),
+            crate::types::FinishReason::Length => "length".to_string(),
+            crate::types::FinishReason::ToolCalls => "tool-calls".to_string(),
+            crate::types::FinishReason::ContentFilter => "content-filter".to_string(),
+            crate::types::FinishReason::Error => "error".to_string(),
+            crate::types::FinishReason::Unknown => "unknown".to_string(),
+            crate::types::FinishReason::Other(s) => s.clone(),
+        });
+
+        let response_id = self.created_response_id().or_else(|| {
+            completed_json
+                .get("response")?
+                .get("id")?
+                .as_str()
+                .map(|s| s.to_string())
+        });
+
+        let service_tier = completed_json
+            .get("response")
+            .and_then(|r| r.get("service_tier"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let provider_metadata_openai = match (response_id, service_tier) {
+            (Some(id), Some(tier)) => serde_json::json!({
+                "responseId": id,
+                "serviceTier": tier,
+            }),
+            (Some(id), None) => serde_json::json!({
+                "responseId": id,
+            }),
+            (None, Some(tier)) => serde_json::json!({
+                "serviceTier": tier,
+            }),
+            (None, None) => serde_json::json!({}),
+        };
+
+        Some(crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:finish".to_string(),
+            data: serde_json::json!({
+                "type": "finish",
+                "finishReason": {
+                    "raw": serde_json::Value::Null,
+                    "unified": unified,
+                },
+                "providerMetadata": {
+                    "openai": provider_metadata_openai,
+                },
+                "usage": {
+                    "inputTokens": {
+                        "total": input_tokens,
+                        "cacheRead": input_cache_read,
+                        "cacheWrite": serde_json::Value::Null,
+                        "noCache": input_no_cache,
+                    },
+                    "outputTokens": {
+                        "total": output_tokens,
+                        "reasoning": output_reasoning,
+                        "text": output_text,
+                    },
+                    "raw": usage,
+                },
+            }),
+        })
     }
 
     fn convert_reasoning_output_item_added(
@@ -625,7 +1016,13 @@ impl OpenAiResponsesEventConverter {
         &self,
         json: &serde_json::Value,
     ) -> Option<crate::streaming::ChatStreamEvent> {
+        let item_id = json.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
         let annotation = json.get("annotation")?;
+
+        if !item_id.is_empty() {
+            self.record_text_annotation(item_id, annotation.clone());
+        }
+
         let ann_type = annotation.get("type")?.as_str()?;
 
         if ann_type == "url_citation" {
@@ -1331,6 +1728,47 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 json.get("type").and_then(|t| t.as_str()).unwrap_or("")
             };
 
+            if chunk_type == "response.created" {
+                if let Some(resp) = json.get("response") {
+                    let response_id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    let model_id = resp.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                    let created_at = resp.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0);
+                    self.record_created_response_metadata(response_id, model_id, created_at);
+                }
+
+                let mut out: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+                if self.mark_stream_start_emitted() {
+                    out.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:stream-start".to_string(),
+                        data: serde_json::json!({
+                            "type": "stream-start",
+                            "warnings": [],
+                        }),
+                    });
+                }
+
+                if self.mark_response_metadata_emitted()
+                    && let (Some(id), Some(model_id), Some(ts)) = (
+                        self.created_response_id(),
+                        self.created_model_id(),
+                        self.created_timestamp_rfc3339_millis(),
+                    )
+                {
+                    out.push(crate::streaming::ChatStreamEvent::Custom {
+                        event_type: "openai:response-metadata".to_string(),
+                        data: serde_json::json!({
+                            "type": "response-metadata",
+                            "id": id,
+                            "modelId": model_id,
+                            "timestamp": ts,
+                        }),
+                    });
+                }
+
+                return out.into_iter().map(Ok).collect();
+            }
+
             if chunk_type == "response.completed" {
                 let mut extra_events = self.convert_mcp_items_from_completed(&json);
 
@@ -1341,6 +1779,9 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     &resp_tx, &json,
                 ) {
                     Ok(response) => {
+                        if let Some(finish_evt) = self.convert_finish_event(&json, &response) {
+                            extra_events.push(finish_evt);
+                        }
                         extra_events.push(crate::streaming::ChatStreamEvent::StreamEnd { response });
                         return extra_events.into_iter().map(Ok).collect();
                     }
@@ -1350,11 +1791,20 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
             // Route by event name first
             match chunk_type {
-                "response.output_text.delta"
-                | "response.tool_call.delta"
-                | "response.function_call.delta"
-                | "response.usage" => {
-                    if let Some(evt) = self.convert_responses_event(json) {
+                "response.output_text.delta" => {
+                    let mut out: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
+
+                    if let Some(mut extra) = self.convert_output_text_delta_events(&json) {
+                        out.append(&mut extra);
+                    }
+                    if let Some(evt) = self.convert_responses_event(&json) {
+                        out.push(evt);
+                    }
+
+                    return out.into_iter().map(Ok).collect();
+                }
+                "response.tool_call.delta" | "response.function_call.delta" | "response.usage" => {
+                    if let Some(evt) = self.convert_responses_event(&json) {
                         return vec![Ok(evt)];
                     }
                 }
@@ -1391,6 +1841,9 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 "response.output_item.added" => {
+                    if let Some(evt) = self.convert_message_output_item_added(&json) {
+                        return vec![Ok(evt)];
+                    }
                     if let Some(evt) = self.convert_reasoning_output_item_added(&json) {
                         return vec![Ok(evt)];
                     }
@@ -1412,6 +1865,9 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     {
                         return events.into_iter().map(Ok).collect();
                     }
+                    if let Some(evt) = self.convert_message_output_item_done(&json) {
+                        return vec![Ok(evt)];
+                    }
                 }
                 "response.reasoning_summary_part.added" => {
                     if let Some(evt) = self.convert_reasoning_summary_part_added(&json) {
@@ -1424,7 +1880,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 _ => {
-                    if let Some(evt) = self.convert_responses_event(json) {
+                    if let Some(evt) = self.convert_responses_event(&json) {
                         return vec![Ok(evt)];
                     }
                 }
