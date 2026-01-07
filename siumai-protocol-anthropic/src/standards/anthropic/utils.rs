@@ -1524,6 +1524,27 @@ pub fn convert_tools_to_anthropic_format(
                 // Check if this is an Anthropic provider-defined tool
                 if provider_tool.provider() == Some("anthropic") {
                     let tool_type = provider_tool.tool_type().unwrap_or("unknown");
+                    let is_supported = matches!(
+                        tool_type,
+                        "code_execution_20250522"
+                            | "code_execution_20250825"
+                            | "computer_20241022"
+                            | "computer_20250124"
+                            | "text_editor_20241022"
+                            | "text_editor_20250124"
+                            | "text_editor_20250429"
+                            | "text_editor_20250728"
+                            | "bash_20241022"
+                            | "bash_20250124"
+                            | "tool_search_regex_20251119"
+                            | "tool_search_bm25_20251119"
+                            | "web_fetch_20250910"
+                            | "web_search_20250305"
+                            | "memory_20250818"
+                    );
+                    if !is_supported {
+                        continue;
+                    }
 
                     // Vercel alignment:
                     // - provider tool args live in SDK-shaped camelCase (e.g., maxUses),
@@ -1542,6 +1563,16 @@ pub fn convert_tools_to_anthropic_format(
                                 tool_map.insert(
                                     "type".to_string(),
                                     serde_json::json!("code_execution_20250522"),
+                                );
+                                tool_map.insert(
+                                    "name".to_string(),
+                                    serde_json::json!("code_execution"),
+                                );
+                            }
+                            "code_execution_20250825" => {
+                                tool_map.insert(
+                                    "type".to_string(),
+                                    serde_json::json!("code_execution_20250825"),
                                 );
                                 tool_map.insert(
                                     "name".to_string(),
@@ -1675,6 +1706,7 @@ pub fn convert_tools_to_anthropic_format(
                                 );
                             }
                             "web_fetch_20250910" => {
+                                tool_map.insert("name".to_string(), serde_json::json!("web_fetch"));
                                 if let Some(v) =
                                     args_map.get("maxUses").or_else(|| args_map.get("max_uses"))
                                 {
@@ -1703,6 +1735,8 @@ pub fn convert_tools_to_anthropic_format(
                                 }
                             }
                             "web_search_20250305" => {
+                                tool_map
+                                    .insert("name".to_string(), serde_json::json!("web_search"));
                                 if let Some(v) =
                                     args_map.get("maxUses").or_else(|| args_map.get("max_uses"))
                                 {
@@ -1727,12 +1761,13 @@ pub fn convert_tools_to_anthropic_format(
                                     tool_map.insert("user_location".to_string(), v.clone());
                                 }
                             }
-                            _ => {
-                                // Best-effort passthrough for unknown tools
+                            "memory_20250818" => {
+                                tool_map.insert("name".to_string(), serde_json::json!("memory"));
                                 for (k, v) in args_map {
                                     tool_map.insert(k.clone(), v.clone());
                                 }
                             }
+                            _ => {}
                         }
                     }
 
@@ -1834,6 +1869,21 @@ mod provider_tool_tests {
         assert_eq!(
             obj.get("type").and_then(|v| v.as_str()),
             Some("code_execution_20250522")
+        );
+        assert_eq!(
+            obj.get("name").and_then(|v| v.as_str()),
+            Some("code_execution")
+        );
+    }
+
+    #[test]
+    fn maps_anthropic_provider_defined_code_execution_20250825() {
+        let t = crate::tools::anthropic::code_execution_20250825();
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("code_execution_20250825")
         );
         assert_eq!(
             obj.get("name").and_then(|v| v.as_str()),
@@ -1979,6 +2029,14 @@ mod provider_tool_tests {
             Some("bash_20250124")
         );
         assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("bash"));
+    }
+
+    #[test]
+    fn ignores_unknown_anthropic_provider_defined_tools() {
+        let t = crate::types::Tool::provider_defined("anthropic.unknown_tool", "unknown_tool")
+            .with_args(serde_json::json!({ "foo": "bar" }));
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        assert!(mapped.is_empty());
     }
 }
 

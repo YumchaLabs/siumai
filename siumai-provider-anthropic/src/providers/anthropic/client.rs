@@ -334,6 +334,34 @@ impl AnthropicClient {
 struct AnthropicAutoBetaHeadersMiddleware;
 
 impl AnthropicAutoBetaHeadersMiddleware {
+    fn is_supported_provider_defined_tool_id(id: &str) -> bool {
+        matches!(
+            id,
+            crate::tools::anthropic::WEB_SEARCH_20250305_ID
+                | crate::tools::anthropic::WEB_FETCH_20250910_ID
+                | crate::tools::anthropic::COMPUTER_20250124_ID
+                | crate::tools::anthropic::COMPUTER_20241022_ID
+                | crate::tools::anthropic::TEXT_EDITOR_20250124_ID
+                | crate::tools::anthropic::TEXT_EDITOR_20241022_ID
+                | crate::tools::anthropic::TEXT_EDITOR_20250429_ID
+                | crate::tools::anthropic::TEXT_EDITOR_20250728_ID
+                | crate::tools::anthropic::BASH_20241022_ID
+                | crate::tools::anthropic::BASH_20250124_ID
+                | crate::tools::anthropic::TOOL_SEARCH_REGEX_20251119_ID
+                | crate::tools::anthropic::TOOL_SEARCH_BM25_20251119_ID
+                | crate::tools::anthropic::CODE_EXECUTION_20250522_ID
+                | crate::tools::anthropic::CODE_EXECUTION_20250825_ID
+                | crate::tools::anthropic::MEMORY_20250818_ID
+        )
+    }
+
+    fn push_warning(resp: &mut ChatResponse, warning: Warning) {
+        match resp.warnings.as_mut() {
+            Some(warnings) => warnings.push(warning),
+            None => resp.warnings = Some(vec![warning]),
+        }
+    }
+
     fn required_beta_features(req: &ChatRequest) -> Vec<&'static str> {
         let mut out: Vec<&'static str> = Vec::new();
 
@@ -492,6 +520,33 @@ impl LanguageModelMiddleware for AnthropicAutoBetaHeadersMiddleware {
         req: &ChatRequest,
         mut resp: ChatResponse,
     ) -> Result<ChatResponse, LlmError> {
+        // Vercel-aligned: warn about provider-defined tools that are not supported by Anthropic.
+        if let Some(tools) = &req.tools {
+            for tool in tools {
+                let Tool::ProviderDefined(t) = tool else {
+                    continue;
+                };
+
+                // Non-Anthropic provider-defined tools are ignored by the Anthropic protocol mapper.
+                // Emit a warning so callers understand the tool won't be used.
+                if t.provider() != Some("anthropic") {
+                    Self::push_warning(
+                        &mut resp,
+                        Warning::unsupported_tool(t.id.clone(), Option::<String>::None),
+                    );
+                    continue;
+                }
+
+                // Unknown Anthropic provider-defined tools are dropped (Vercel behavior).
+                if !Self::is_supported_provider_defined_tool_id(&t.id) {
+                    Self::push_warning(
+                        &mut resp,
+                        Warning::unsupported_tool(t.id.clone(), Option::<String>::None),
+                    );
+                }
+            }
+        }
+
         let has_agent_skills = req
             .provider_options_map
             .get("anthropic")
@@ -527,10 +582,7 @@ impl LanguageModelMiddleware for AnthropicAutoBetaHeadersMiddleware {
         }
 
         let warning = Warning::other("code execution tool is required when using skills");
-        match resp.warnings.as_mut() {
-            Some(warnings) => warnings.push(warning),
-            None => resp.warnings = Some(vec![warning]),
-        }
+        Self::push_warning(&mut resp, warning);
 
         Ok(resp)
     }
@@ -737,6 +789,29 @@ mod tests {
         assert_eq!(
             val,
             "code-execution-2025-08-25,skills-2025-10-02,files-api-2025-04-14"
+        );
+    }
+
+    #[test]
+    fn adds_warning_for_unsupported_provider_defined_tools() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
+            crate::types::Tool::provider_defined("unsupported.tool", "unsupported_tool"),
+            crate::types::Tool::provider_defined("anthropic.unknown_tool", "unknown_tool"),
+            crate::tools::anthropic::web_search_20250305(),
+        ]);
+
+        let base = ChatResponse::new(crate::types::MessageContent::Text("ok".to_string()));
+        let out = mw.post_generate(&req, base).expect("post_generate");
+        let warnings = out.warnings.expect("warnings");
+
+        assert_eq!(
+            warnings,
+            vec![
+                Warning::unsupported_tool("unsupported.tool", Option::<String>::None),
+                Warning::unsupported_tool("anthropic.unknown_tool", Option::<String>::None),
+            ]
         );
     }
 
