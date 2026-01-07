@@ -221,7 +221,7 @@ impl ChatResponse {
             MessageContent::MultiModal(parts) => parts
                 .iter()
                 .filter_map(|p| {
-                    if let ContentPart::Reasoning { text } = p {
+                    if let ContentPart::Reasoning { text, .. } = p {
                         Some(text.as_str())
                     } else {
                         None

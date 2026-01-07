@@ -852,7 +852,7 @@ impl OpenAiResponsesRequestTransformer {
                                     }));
                                 }
                             }
-                            ContentPart::Reasoning { text } => {
+                            ContentPart::Reasoning { text, .. } => {
                                 content_parts.push(serde_json::json!({
                                     "type": "output_text",
                                     "text": format!("<thinking>{}</thinking>", text)
@@ -1082,7 +1082,7 @@ impl OpenAiResponsesRequestTransformer {
                             }
                         }
                         ContentPart::ToolResult { .. } => {}
-                        ContentPart::Reasoning { text } => {
+                        ContentPart::Reasoning { text, .. } => {
                             // Reasoning content as text
                             content_parts.push(serde_json::json!({
                                 "type": "input_text",

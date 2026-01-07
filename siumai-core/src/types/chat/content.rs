@@ -420,7 +420,17 @@ pub enum ContentPart {
     ///     "Let me think about this step by step..."
     /// );
     /// ```
-    Reasoning { text: String },
+    Reasoning {
+        text: String,
+
+        /// Provider-specific metadata (Vercel-aligned).
+        #[serde(
+            rename = "providerMetadata",
+            alias = "provider_metadata",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+    },
 }
 
 // Helper function for base64 encoding
@@ -912,7 +922,10 @@ impl ContentPart {
     /// );
     /// ```
     pub fn reasoning(text: impl Into<String>) -> Self {
-        Self::Reasoning { text: text.into() }
+        Self::Reasoning {
+            text: text.into(),
+            provider_metadata: None,
+        }
     }
 
     /// Check if this is a text part

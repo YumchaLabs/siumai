@@ -3,6 +3,16 @@
   "content": {
     "MultiModal": [
       {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_0a098396a8feca410068caae3b47208196957fe59419daad70",
+            "reasoningEncryptedContent": null
+          }
+        }
+      },
+      {
         "type": "tool-call",
         "toolCallId": "fs_0a098396a8feca410068caae3cab5c8196a54fd00498464e62",
         "toolName": "fileSearch",
@@ -26,6 +36,16 @@
           }
         },
         "providerExecuted": true
+      },
+      {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_0a098396a8feca410068caae3e21a081968e7ac588401c4a6a",
+            "reasoningEncryptedContent": null
+          }
+        }
       },
       {
         "type": "text",

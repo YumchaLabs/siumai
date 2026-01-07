@@ -273,6 +273,68 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     .unwrap_or("")
                     .to_string();
 
+                // Reasoning items (o1/o3/gpt-5 reasoning models).
+                //
+                // Vercel alignment:
+                // - Each `summary_text` block becomes a separate `type: "reasoning"` content part.
+                // - Empty summary still yields a single reasoning part with empty text.
+                // - Surface item id and optional encrypted content via `providerMetadata.openai`.
+                if item_type == "reasoning" {
+                    if tool_call_id.is_empty() {
+                        continue;
+                    }
+
+                    let encrypted_content = item
+                        .get("encrypted_content")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    let mut openai_meta = serde_json::Map::new();
+                    openai_meta.insert(
+                        "itemId".to_string(),
+                        serde_json::Value::String(tool_call_id.clone()),
+                    );
+                    openai_meta.insert(
+                        "reasoningEncryptedContent".to_string(),
+                        encrypted_content
+                            .as_ref()
+                            .map(|s| serde_json::Value::String(s.clone()))
+                            .unwrap_or(serde_json::Value::Null),
+                    );
+
+                    let mut provider_metadata: std::collections::HashMap<
+                        String,
+                        serde_json::Value,
+                    > = std::collections::HashMap::new();
+                    provider_metadata
+                        .insert("openai".to_string(), serde_json::Value::Object(openai_meta));
+                    let provider_metadata = Some(provider_metadata);
+
+                    let mut emitted = 0usize;
+                    if let Some(summary) = item.get("summary").and_then(|v| v.as_array()) {
+                        for s in summary {
+                            if s.get("type").and_then(|v| v.as_str()) != Some("summary_text") {
+                                continue;
+                            }
+                            let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                            content_parts.push(ContentPart::Reasoning {
+                                text: text.to_string(),
+                                provider_metadata: provider_metadata.clone(),
+                            });
+                            emitted += 1;
+                        }
+                    }
+
+                    if emitted == 0 {
+                        content_parts.push(ContentPart::Reasoning {
+                            text: String::new(),
+                            provider_metadata,
+                        });
+                    }
+
+                    continue;
+                }
+
                 let (tool_name, args, result) = match item_type {
                     "web_search_call" => {
                         // Vercel alignment: provider-executed web search tool call uses empty input (`{}`),

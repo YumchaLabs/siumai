@@ -280,7 +280,7 @@ impl CacheAwareMessageBuilder {
                         ContentPart::ToolCall { .. } => {}
                         ContentPart::ToolResult { .. } => {}
                         ContentPart::ToolApprovalResponse { .. } => {}
-                        ContentPart::Reasoning { text } => {
+                        ContentPart::Reasoning { text, .. } => {
                             content_parts.push(serde_json::json!({
                                 "type": "text",
                                 "text": format!("<thinking>{}</thinking>", text)

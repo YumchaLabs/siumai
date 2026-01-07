@@ -284,7 +284,7 @@ impl ChatMessage {
                         .map(|s| s.len())
                         .unwrap_or(0),
                     ContentPart::ToolResult { output, .. } => output.to_string_lossy().len(),
-                    ContentPart::Reasoning { text } => text.len(),
+                    ContentPart::Reasoning { text, .. } => text.len(),
                     ContentPart::ToolApprovalResponse {
                         approval_id,
                         approved,
@@ -363,7 +363,7 @@ impl ChatMessage {
             MessageContent::MultiModal(parts) => parts
                 .iter()
                 .filter_map(|p| {
-                    if let ContentPart::Reasoning { text } = p {
+                    if let ContentPart::Reasoning { text, .. } = p {
                         Some(text.as_str())
                     } else {
                         None

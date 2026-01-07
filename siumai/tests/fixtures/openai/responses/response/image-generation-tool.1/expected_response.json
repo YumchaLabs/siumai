@@ -3,6 +3,16 @@
   "content": {
     "MultiModal": [
       {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_0a33d15155cb126d0068c96c5527808195a933b468ccb5dfd9",
+            "reasoningEncryptedContent": null
+          }
+        }
+      },
+      {
         "type": "tool-call",
         "toolCallId": "ig_0a33d15155cb126d0068c96c59bc14819599154c9988b82996",
         "toolName": "generateImage",
@@ -20,6 +30,17 @@
           }
         },
         "providerExecuted": true
+      }
+      ,
+      {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_0a33d15155cb126d0068c96c6c0ef48195bc73e30faf832ba3",
+            "reasoningEncryptedContent": null
+          }
+        }
       }
     ]
   },

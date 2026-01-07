@@ -296,7 +296,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                         }));
                     }
                     ContentPart::ToolApprovalResponse { .. } => {}
-                    ContentPart::Reasoning { text } => {
+                    ContentPart::Reasoning { text, .. } => {
                         // Emit as a thinking block (Anthropic format). If the caller does not provide
                         // a valid signature (required for replaying thinking blocks), we will
                         // degrade it to a plain text `<thinking>...</thinking>` wrapper later in

@@ -3,6 +3,16 @@
   "content": {
     "MultiModal": [
       {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_024ee52fc1900767006903bf2cf8348193be2e9dedeedfd7eb",
+            "reasoningEncryptedContent": null
+          }
+        }
+      },
+      {
         "type": "tool-call",
         "toolCallId": "ci_024ee52fc1900767006903bf34e2b08193a689f71dcc3724f7",
         "toolName": "codeExecution",
@@ -27,6 +37,16 @@
         "providerExecuted": true
       },
       {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_024ee52fc1900767006903bf381cec8193a48068baa82e17a3",
+            "reasoningEncryptedContent": null
+          }
+        }
+      },
+      {
         "type": "tool-call",
         "toolCallId": "ci_024ee52fc1900767006903bf38f1f08193a0b46ddc935fa028",
         "toolName": "codeExecution",
@@ -44,6 +64,16 @@
           }
         },
         "providerExecuted": true
+      },
+      {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_024ee52fc1900767006903bf3ddb0881939e1af28db8fb9f17",
+            "reasoningEncryptedContent": null
+          }
+        }
       },
       {
         "type": "tool-call",
@@ -68,6 +98,16 @@
           }
         },
         "providerExecuted": true
+      },
+      {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_024ee52fc1900767006903bf40cd488193b3a36868bf31054a",
+            "reasoningEncryptedContent": null
+          }
+        }
       },
       {
         "type": "text",

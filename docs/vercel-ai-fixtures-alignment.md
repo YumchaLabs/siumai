@@ -163,8 +163,17 @@ Provider id: `openai` (Responses API)
 - [x] Provider tool calls parsing (`web_search_call` -> `tool-call` + `tool-result` parts, action type normalization, `toolName: "webSearch"`, empty input)
 - [x] Provider tool calls parsing (`code_interpreter_call` -> `tool-call` + `tool-result` parts, `toolName: "codeExecution"`, `{ code, containerId }` input)
 - [x] Provider tool calls parsing (`image_generation_call` -> `tool-call` + `tool-result` parts, `toolName: "generateImage"`, empty input)
+- [x] Reasoning parsing (`reasoning` -> `type: "reasoning"` parts, summary blocks + `providerMetadata.openai.reasoningEncryptedContent`)
 - [x] Usage details parity (cached + reasoning tokens)
 - [x] Response metadata parity (`system_fingerprint`, `service_tier`) + message `itemId` surfaced via `provider_metadata.openai.itemId`
+
+## OpenAI HTTP Errors (Fixtures)
+
+Provider id: `openai` (OpenAI-compatible error envelope)
+
+### Done
+
+- [x] Error envelope mapping parity (`openai-error.1` -> typed `LlmError` with lossless `error.message`)
 
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
