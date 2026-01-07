@@ -1573,6 +1573,31 @@ pub fn convert_tools_to_anthropic_format(
                                     tool_map.insert("display_number".to_string(), v.clone());
                                 }
                             }
+                            "computer_20250124" => {
+                                tool_map.insert(
+                                    "type".to_string(),
+                                    serde_json::json!("computer_20250124"),
+                                );
+                                tool_map.insert("name".to_string(), serde_json::json!("computer"));
+                                if let Some(v) = args_map
+                                    .get("displayWidthPx")
+                                    .or_else(|| args_map.get("display_width_px"))
+                                {
+                                    tool_map.insert("display_width_px".to_string(), v.clone());
+                                }
+                                if let Some(v) = args_map
+                                    .get("displayHeightPx")
+                                    .or_else(|| args_map.get("display_height_px"))
+                                {
+                                    tool_map.insert("display_height_px".to_string(), v.clone());
+                                }
+                                if let Some(v) = args_map
+                                    .get("displayNumber")
+                                    .or_else(|| args_map.get("display_number"))
+                                {
+                                    tool_map.insert("display_number".to_string(), v.clone());
+                                }
+                            }
                             "text_editor_20241022" => {
                                 tool_map.insert(
                                     "type".to_string(),
@@ -1583,9 +1608,50 @@ pub fn convert_tools_to_anthropic_format(
                                     serde_json::json!("str_replace_editor"),
                                 );
                             }
+                            "text_editor_20250124" => {
+                                tool_map.insert(
+                                    "type".to_string(),
+                                    serde_json::json!("text_editor_20250124"),
+                                );
+                                tool_map.insert(
+                                    "name".to_string(),
+                                    serde_json::json!("str_replace_editor"),
+                                );
+                            }
+                            "text_editor_20250429" => {
+                                tool_map.insert(
+                                    "type".to_string(),
+                                    serde_json::json!("text_editor_20250429"),
+                                );
+                                tool_map.insert(
+                                    "name".to_string(),
+                                    serde_json::json!("str_replace_based_edit_tool"),
+                                );
+                            }
+                            "text_editor_20250728" => {
+                                tool_map.insert(
+                                    "type".to_string(),
+                                    serde_json::json!("text_editor_20250728"),
+                                );
+                                tool_map.insert(
+                                    "name".to_string(),
+                                    serde_json::json!("str_replace_based_edit_tool"),
+                                );
+                                if let Some(v) = args_map
+                                    .get("maxCharacters")
+                                    .or_else(|| args_map.get("max_characters"))
+                                {
+                                    tool_map.insert("max_characters".to_string(), v.clone());
+                                }
+                            }
                             "bash_20241022" => {
                                 tool_map
                                     .insert("type".to_string(), serde_json::json!("bash_20241022"));
+                                tool_map.insert("name".to_string(), serde_json::json!("bash"));
+                            }
+                            "bash_20250124" => {
+                                tool_map
+                                    .insert("type".to_string(), serde_json::json!("bash_20250124"));
                                 tool_map.insert("name".to_string(), serde_json::json!("bash"));
                             }
                             "tool_search_regex_20251119" => {
@@ -1801,6 +1867,31 @@ mod provider_tool_tests {
     }
 
     #[test]
+    fn maps_anthropic_provider_defined_computer_use_20250124() {
+        let t = crate::tools::anthropic::computer_20250124().with_args(serde_json::json!({
+            "displayWidthPx": 800,
+            "displayHeightPx": 600,
+            "displayNumber": 1
+        }));
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("computer_20250124")
+        );
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("computer"));
+        assert_eq!(
+            obj.get("display_width_px").and_then(|v| v.as_u64()),
+            Some(800)
+        );
+        assert_eq!(
+            obj.get("display_height_px").and_then(|v| v.as_u64()),
+            Some(600)
+        );
+        assert_eq!(obj.get("display_number").and_then(|v| v.as_u64()), Some(1));
+    }
+
+    #[test]
     fn maps_anthropic_provider_defined_text_editor() {
         let t = crate::tools::anthropic::text_editor_20241022();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
@@ -1816,6 +1907,57 @@ mod provider_tool_tests {
     }
 
     #[test]
+    fn maps_anthropic_provider_defined_text_editor_20250124() {
+        let t = crate::tools::anthropic::text_editor_20250124();
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("text_editor_20250124")
+        );
+        assert_eq!(
+            obj.get("name").and_then(|v| v.as_str()),
+            Some("str_replace_editor")
+        );
+    }
+
+    #[test]
+    fn maps_anthropic_provider_defined_text_editor_20250429() {
+        let t = crate::tools::anthropic::text_editor_20250429();
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("text_editor_20250429")
+        );
+        assert_eq!(
+            obj.get("name").and_then(|v| v.as_str()),
+            Some("str_replace_based_edit_tool")
+        );
+    }
+
+    #[test]
+    fn maps_anthropic_provider_defined_text_editor_20250728_max_characters() {
+        let t = crate::tools::anthropic::text_editor_20250728().with_args(serde_json::json!({
+            "maxCharacters": 10000
+        }));
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("text_editor_20250728")
+        );
+        assert_eq!(
+            obj.get("name").and_then(|v| v.as_str()),
+            Some("str_replace_based_edit_tool")
+        );
+        assert_eq!(
+            obj.get("max_characters").and_then(|v| v.as_u64()),
+            Some(10000)
+        );
+    }
+
+    #[test]
     fn maps_anthropic_provider_defined_bash() {
         let t = crate::tools::anthropic::bash_20241022();
         let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
@@ -1823,6 +1965,18 @@ mod provider_tool_tests {
         assert_eq!(
             obj.get("type").and_then(|v| v.as_str()),
             Some("bash_20241022")
+        );
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("bash"));
+    }
+
+    #[test]
+    fn maps_anthropic_provider_defined_bash_20250124() {
+        let t = crate::tools::anthropic::bash_20250124();
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("bash_20250124")
         );
         assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("bash"));
     }

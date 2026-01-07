@@ -353,6 +353,10 @@ impl AnthropicAutoBetaHeadersMiddleware {
                     Some("computer_20241022")
                     | Some("text_editor_20241022")
                     | Some("bash_20241022") => out.push("computer-use-2024-10-22"),
+                    Some("computer_20250124")
+                    | Some("text_editor_20250124")
+                    | Some("text_editor_20250429")
+                    | Some("bash_20250124") => out.push("computer-use-2025-01-24"),
                     Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
                         out.push("advanced-tool-use-2025-11-20")
                     }
@@ -839,5 +843,49 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(val, "computer-use-2024-10-22");
+    }
+
+    #[test]
+    fn beta_middleware_injects_computer_use_beta_2025_for_computer_tools() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
+            crate::tools::anthropic::computer_20250124().with_args(serde_json::json!({
+                "displayWidthPx": 800,
+                "displayHeightPx": 600,
+                "displayNumber": 1
+            })),
+        ]);
+
+        let out = mw.transform_params(req);
+        let val = out
+            .http_config
+            .as_ref()
+            .and_then(|hc| hc.headers.get("anthropic-beta"))
+            .cloned()
+            .unwrap_or_default();
+
+        assert_eq!(val, "computer-use-2025-01-24");
+    }
+
+    #[test]
+    fn beta_middleware_does_not_inject_computer_use_beta_for_text_editor_20250728() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
+            crate::tools::anthropic::text_editor_20250728().with_args(serde_json::json!({
+                "maxCharacters": 10000
+            })),
+        ]);
+
+        let out = mw.transform_params(req);
+        let val = out
+            .http_config
+            .as_ref()
+            .and_then(|hc| hc.headers.get("anthropic-beta"))
+            .cloned()
+            .unwrap_or_default();
+
+        assert!(val.is_empty(), "unexpected anthropic-beta header: {val}");
     }
 }
