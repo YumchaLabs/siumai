@@ -33,7 +33,8 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 ## Current status (alpha.5)
 
 - Protocol facade is available at `siumai::protocol::*` to keep downstream imports stable.
-- `siumai-protocol-openai` and `siumai-protocol-anthropic` exist as the preferred protocol crate names (currently thin wrappers over legacy crate names).
+- `siumai-protocol-openai` exists as the preferred OpenAI-like protocol crate name (now the real implementation).
+- `siumai-protocol-anthropic` exists as the preferred Anthropic protocol crate name (currently a thin wrapper over the legacy crate name).
 - OpenAI-like dependent providers (`groq`, `xai`, `minimaxi`, and `siumai-registry`) are migrated to `siumai-protocol-openai`.
 
 ## Fixture/test parity checklist
@@ -64,4 +65,3 @@ Target categories (ordered by ROI):
 
 - Should tool factories mirror Vercel's `Tool::provider_defined("openai.web_search", "web_search")` exactly, or should we expose a higher-level Rust API that still serializes to the same wire format?
 - How do we guarantee cross-provider tool interoperability without re-introducing provider-to-provider coupling?
-

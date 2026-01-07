@@ -3420,8 +3420,22 @@ mod tests {
             retry: None,
         };
         let out_added = futures::executor::block_on(conv.convert_event(ev_added));
-        assert_eq!(out_added.len(), 1);
+        // Vercel alignment: web search emits tool-input-start/end even with empty input.
+        assert_eq!(out_added.len(), 3);
         match out_added[0].as_ref().unwrap() {
+            crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+                assert_eq!(event_type, "openai:tool-input-start");
+                assert_eq!(data["toolName"], serde_json::json!("web_search_preview"));
+            }
+            other => panic!("expected Custom tool-input-start, got {other:?}"),
+        }
+        match out_added[1].as_ref().unwrap() {
+            crate::streaming::ChatStreamEvent::Custom { event_type, .. } => {
+                assert_eq!(event_type, "openai:tool-input-end");
+            }
+            other => panic!("expected Custom tool-input-end, got {other:?}"),
+        }
+        match out_added[2].as_ref().unwrap() {
             crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
                 assert_eq!(event_type, "openai:tool-call");
                 assert_eq!(data["toolName"], serde_json::json!("web_search_preview"));

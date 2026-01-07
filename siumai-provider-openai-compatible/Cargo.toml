@@ -16,49 +16,17 @@ categories = ["api-bindings"]
 doctest = false
 
 [dependencies]
-siumai-core = { workspace = true, default-features = false }
-
-# Keep versions aligned with the workspace for consistent behavior.
-async-trait.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-futures.workspace = true
-futures-util.workspace = true
-async-stream.workspace = true
-eventsource-stream.workspace = true
-tokio-util.workspace = true
-chrono.workspace = true
-thiserror.workspace = true
-uuid.workspace = true
-tracing.workspace = true
-rand.workspace = true
-urlencoding.workspace = true
-infer.workspace = true
-secrecy.workspace = true
-backoff.workspace = true
-lru.workspace = true
-base64.workspace = true
-once_cell.workspace = true
+siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
 
 [features]
 default = []
 
-structured-messages = ["siumai-core/structured-messages"]
+structured-messages = ["siumai-protocol-openai/structured-messages"]
 
 # Enable the OpenAI(-like) protocol types in core. This crate is intentionally
 # "protocol-first" and does not include the native OpenAI provider.
-openai-standard = ["siumai-core/openai"]
+openai-standard = ["siumai-protocol-openai/openai-standard"]
 
 # Reserved: OpenAI Responses API mapping (kept out of the default OpenAI-compatible surface).
 # The native OpenAI provider owns this in `siumai-provider-openai`.
-openai-responses = []
-
-[dev-dependencies]
-tokio-test.workspace = true
-mockito.workspace = true
-wiremock.workspace = true
-tracing-test.workspace = true
-tempfile.workspace = true
-proptest.workspace = true
+openai-responses = ["siumai-protocol-openai/openai-responses"]
