@@ -256,6 +256,7 @@ Provider id: `anthropic`
 - [x] `anthropic-tool-no-args` (streaming tool_use start + no-args tool call)
 - [x] `anthropic-json-tool.1` (responseFormat json schema -> json tool + response mapped to JSON text)
 - [x] `anthropic-json-tool.1` streaming: treat `json` tool_use as final JSON text + `stop` (AI SDK semantics)
+- [x] `anthropic-json-tool.2` streaming: ignore text prefix block, stream the reserved `json` tool_use as text deltas (AI SDK semantics)
 - [x] `anthropic-json-other-tool.1` (responseFormat json schema + other tool response)
 - [x] `anthropic-json-output-format.1` (supported model -> `output_format` json schema)
 - [x] `anthropic-memory-20250818.1` (provider tool + `context-management-2025-06-27` beta)

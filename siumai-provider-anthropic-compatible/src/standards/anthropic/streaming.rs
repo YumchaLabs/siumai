@@ -4,6 +4,7 @@
 //! The legacy AnthropicStreaming client has been removed in favor of the unified HttpChatExecutor.
 
 use super::params::AnthropicParams;
+use super::params::StructuredOutputMode;
 use super::provider_metadata::AnthropicSource;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
@@ -40,7 +41,7 @@ struct AnthropicStreamEvent {
     #[serde(default)]
     error: Option<serde_json::Value>,
     #[serde(default)]
-    usage: Option<AnthropicUsage>,
+    usage: Option<serde_json::Value>,
     #[serde(default)]
     #[allow(dead_code)]
     // Kept for forward-compatibility with Anthropic SSE payloads (serde needs the field even if unused)
@@ -65,6 +66,12 @@ struct AnthropicMessage {
     #[allow(dead_code)]
     // Final stop reason may appear on message events; parsing handled elsewhere
     stop_reason: Option<String>,
+    #[allow(dead_code)]
+    // Stop sequence may appear on message events; retained for finish metadata
+    stop_sequence: Option<String>,
+    #[allow(dead_code)]
+    // Usage may be attached to message_start; retained for finish metadata
+    usage: Option<serde_json::Value>,
 }
 
 /// Anthropic content structure
@@ -108,13 +115,6 @@ struct AnthropicDelta {
     stop_sequence: Option<String>,
 }
 
-/// Anthropic usage structure
-#[derive(Debug, Clone, Deserialize)]
-struct AnthropicUsage {
-    input_tokens: Option<u32>,
-    output_tokens: Option<u32>,
-}
-
 /// Anthropic event converter
 #[derive(Clone)]
 pub struct AnthropicEventConverter {
@@ -131,6 +131,11 @@ pub struct AnthropicEventConverter {
     tool_names_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     mcp_server_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     json_tool_seen: Arc<AtomicBool>,
+    vercel_stream_start_emitted: Arc<AtomicBool>,
+    vercel_response_id: Arc<Mutex<Option<String>>>,
+    vercel_model_id: Arc<Mutex<Option<String>>>,
+    vercel_stop_sequence: Arc<Mutex<Option<String>>>,
+    vercel_usage: Arc<Mutex<Option<serde_json::Value>>>,
 }
 
 impl AnthropicEventConverter {
@@ -147,6 +152,11 @@ impl AnthropicEventConverter {
             tool_names_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             mcp_server_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             json_tool_seen: Arc::new(AtomicBool::new(false)),
+            vercel_stream_start_emitted: Arc::new(AtomicBool::new(false)),
+            vercel_response_id: Arc::new(Mutex::new(None)),
+            vercel_model_id: Arc::new(Mutex::new(None)),
+            vercel_stop_sequence: Arc::new(Mutex::new(None)),
+            vercel_usage: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -236,6 +246,205 @@ impl AnthropicEventConverter {
         }
     }
 
+    fn record_vercel_message_start(&self, message: &AnthropicMessage) {
+        if let Ok(mut id) = self.vercel_response_id.lock() {
+            *id = message.id.clone();
+        }
+        if let Ok(mut model) = self.vercel_model_id.lock() {
+            *model = message.model.clone();
+        }
+        if let Ok(mut stop_seq) = self.vercel_stop_sequence.lock() {
+            *stop_seq = message.stop_sequence.clone();
+        }
+        if let Ok(mut usage) = self.vercel_usage.lock() {
+            *usage = message.usage.clone();
+        }
+    }
+
+    fn merge_vercel_usage(&self, patch: &serde_json::Value) {
+        let Ok(mut usage) = self.vercel_usage.lock() else {
+            return;
+        };
+
+        let Some(patch_obj) = patch.as_object() else {
+            return;
+        };
+
+        match usage.as_mut() {
+            Some(serde_json::Value::Object(base)) => {
+                for (k, v) in patch_obj {
+                    base.insert(k.clone(), v.clone());
+                }
+            }
+            None => {
+                *usage = Some(serde_json::Value::Object(patch_obj.clone()));
+            }
+            Some(_) => {}
+        }
+    }
+
+    fn finish_reason_unified(reason: &FinishReason) -> String {
+        match reason {
+            FinishReason::Stop => "stop".to_string(),
+            FinishReason::StopSequence => "stop".to_string(),
+            FinishReason::Length => "length".to_string(),
+            FinishReason::ToolCalls => "tool-calls".to_string(),
+            FinishReason::ContentFilter => "content-filter".to_string(),
+            FinishReason::Error => "error".to_string(),
+            FinishReason::Unknown => "unknown".to_string(),
+            FinishReason::Other(s) => s.clone(),
+        }
+    }
+
+    fn vercel_stream_start_event(&self) -> Option<ChatStreamEvent> {
+        if self
+            .vercel_stream_start_emitted
+            .swap(true, Ordering::Relaxed)
+        {
+            return None;
+        }
+
+        Some(ChatStreamEvent::Custom {
+            event_type: "anthropic:stream-start".to_string(),
+            data: serde_json::json!({
+                "type": "stream-start",
+                "warnings": [],
+            }),
+        })
+    }
+
+    fn vercel_response_metadata_event(&self) -> Option<ChatStreamEvent> {
+        let id = self
+            .vercel_response_id
+            .lock()
+            .ok()
+            .and_then(|v| v.clone())?;
+        let model_id = self.vercel_model_id.lock().ok().and_then(|v| v.clone())?;
+
+        Some(ChatStreamEvent::Custom {
+            event_type: "anthropic:response-metadata".to_string(),
+            data: serde_json::json!({
+                "type": "response-metadata",
+                "id": id,
+                "modelId": model_id,
+            }),
+        })
+    }
+
+    fn vercel_text_start_event(id: usize) -> ChatStreamEvent {
+        ChatStreamEvent::Custom {
+            event_type: "anthropic:text-start".to_string(),
+            data: serde_json::json!({
+                "type": "text-start",
+                "id": id.to_string(),
+            }),
+        }
+    }
+
+    fn vercel_text_delta_event(id: usize, delta: String) -> ChatStreamEvent {
+        ChatStreamEvent::Custom {
+            event_type: "anthropic:text-delta".to_string(),
+            data: serde_json::json!({
+                "type": "text-delta",
+                "id": id.to_string(),
+                "delta": delta,
+            }),
+        }
+    }
+
+    fn vercel_text_end_event(id: usize) -> ChatStreamEvent {
+        ChatStreamEvent::Custom {
+            event_type: "anthropic:text-end".to_string(),
+            data: serde_json::json!({
+                "type": "text-end",
+                "id": id.to_string(),
+            }),
+        }
+    }
+
+    fn should_stream_json_tool_as_text(&self) -> bool {
+        self.config.structured_output_mode == Some(StructuredOutputMode::JsonTool)
+    }
+
+    fn vercel_finish_event(
+        &self,
+        raw_stop_reason: Option<&str>,
+        finish_reason: &FinishReason,
+    ) -> ChatStreamEvent {
+        let unified = Self::finish_reason_unified(finish_reason);
+
+        let usage_raw = self
+            .vercel_usage
+            .lock()
+            .ok()
+            .and_then(|v| v.clone())
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        let input_tokens = usage_raw
+            .get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let output_tokens = usage_raw
+            .get("output_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let cache_creation_input_tokens = usage_raw
+            .get("cache_creation_input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let cache_read_input_tokens = usage_raw
+            .get("cache_read_input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        let input_no_cache = input_tokens
+            .saturating_sub(cache_creation_input_tokens)
+            .saturating_sub(cache_read_input_tokens);
+
+        let stop_sequence = self
+            .vercel_stop_sequence
+            .lock()
+            .ok()
+            .and_then(|v| v.clone());
+
+        ChatStreamEvent::Custom {
+            event_type: "anthropic:finish".to_string(),
+            data: serde_json::json!({
+                "type": "finish",
+                "finishReason": {
+                    "raw": raw_stop_reason.map(|s| serde_json::json!(s)).unwrap_or(serde_json::Value::Null),
+                    "unified": unified,
+                },
+                "providerMetadata": {
+                    "anthropic": {
+                        "cacheCreationInputTokens": cache_creation_input_tokens,
+                        "container": serde_json::Value::Null,
+                        "contextManagement": serde_json::Value::Null,
+                        "stopSequence": stop_sequence.map(|s| serde_json::json!(s)).unwrap_or(serde_json::Value::Null),
+                        "usage": usage_raw,
+                    }
+                },
+                "usage": {
+                    "inputTokens": {
+                        "total": input_tokens,
+                        "cacheRead": cache_read_input_tokens,
+                        "cacheWrite": cache_creation_input_tokens,
+                        "noCache": input_no_cache,
+                    },
+                    "outputTokens": {
+                        "total": output_tokens,
+                    },
+                    "raw": {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "cache_creation_input_tokens": cache_creation_input_tokens,
+                        "cache_read_input_tokens": cache_read_input_tokens,
+                    }
+                },
+            }),
+        }
+    }
+
     /// Convert Anthropic stream event to one or more ChatStreamEvents
     fn convert_anthropic_event(&self, event: AnthropicStreamEvent) -> Vec<ChatStreamEvent> {
         use crate::streaming::EventBuilder;
@@ -261,6 +470,7 @@ impl AnthropicEventConverter {
             }
             "message_start" => {
                 if let Some(message) = event.message {
+                    self.record_vercel_message_start(&message);
                     let metadata = ResponseMetadata {
                         id: message.id,
                         model: message.model,
@@ -268,7 +478,15 @@ impl AnthropicEventConverter {
                         provider: "anthropic".to_string(),
                         request_id: None,
                     };
-                    EventBuilder::new().add_stream_start(metadata).build()
+                    let mut out: Vec<ChatStreamEvent> = Vec::new();
+                    out.push(ChatStreamEvent::StreamStart { metadata });
+                    if let Some(evt) = self.vercel_stream_start_event() {
+                        out.push(evt);
+                    }
+                    if let Some(evt) = self.vercel_response_metadata_event() {
+                        out.push(evt);
+                    }
+                    out
                 } else {
                     vec![]
                 }
@@ -297,6 +515,16 @@ impl AnthropicEventConverter {
                 }
 
                 match effective_block_type {
+                    "text" => {
+                        if self.should_stream_json_tool_as_text() {
+                            return vec![];
+                        }
+                        if let Some(idx) = event.index {
+                            vec![Self::vercel_text_start_event(idx)]
+                        } else {
+                            vec![]
+                        }
+                    }
                     "thinking" => {
                         if let Some(idx) = event.index {
                             vec![ChatStreamEvent::Custom {
@@ -381,7 +609,13 @@ impl AnthropicEventConverter {
 
                         // Vercel-aligned: do not emit tool-call deltas for the reserved `json` tool.
                         // The corresponding `input_json_delta` chunks are emitted as ContentDelta.
-                        vec![]
+                        if self.should_stream_json_tool_as_text()
+                            && let Some(idx) = event.index
+                        {
+                            vec![Self::vercel_text_start_event(idx)]
+                        } else {
+                            vec![]
+                        }
                     }
                     "server_tool_use" => {
                         let tool_call_id = content_block
@@ -811,7 +1045,22 @@ impl AnthropicEventConverter {
                     match delta.delta_type.as_deref() {
                         Some("text_delta") => {
                             if let Some(text) = delta.text {
-                                builder = builder.add_content_delta(text, None);
+                                if !self.should_stream_json_tool_as_text() {
+                                    builder = builder.add_content_delta(text.clone(), None);
+                                    if let Some(idx) = event.index
+                                        && self.get_content_block_type(idx).as_deref()
+                                            == Some("text")
+                                    {
+                                        builder = builder.add_custom_event(
+                                            "anthropic:text-delta".to_string(),
+                                            serde_json::json!({
+                                                "type": "text-delta",
+                                                "id": idx.to_string(),
+                                                "delta": text,
+                                            }),
+                                        );
+                                    }
+                                }
                             }
                         }
                         Some("thinking_delta") => {
@@ -998,7 +1247,17 @@ impl AnthropicEventConverter {
                                 if self.get_content_block_type(idx).as_deref()
                                     == Some("json_tool_use")
                                 {
-                                    builder = builder.add_content_delta(partial_json, None);
+                                    builder = builder.add_content_delta(partial_json.clone(), None);
+                                    if self.should_stream_json_tool_as_text() {
+                                        builder = builder.add_custom_event(
+                                            "anthropic:text-delta".to_string(),
+                                            serde_json::json!({
+                                                "type": "text-delta",
+                                                "id": idx.to_string(),
+                                                "delta": partial_json,
+                                            }),
+                                        );
+                                    }
                                 } else if let Ok(map) = self.tool_use_ids_by_index.lock()
                                     && let Some(tool_call_id) = map.get(&idx)
                                 {
@@ -1025,7 +1284,17 @@ impl AnthropicEventConverter {
                                 if self.get_content_block_type(idx).as_deref()
                                     == Some("json_tool_use")
                                 {
-                                    builder = builder.add_content_delta(partial_json, None);
+                                    builder = builder.add_content_delta(partial_json.clone(), None);
+                                    if self.should_stream_json_tool_as_text() {
+                                        builder = builder.add_custom_event(
+                                            "anthropic:text-delta".to_string(),
+                                            serde_json::json!({
+                                                "type": "text-delta",
+                                                "id": idx.to_string(),
+                                                "delta": partial_json,
+                                            }),
+                                        );
+                                    }
                                 } else if let Ok(map) = self.tool_use_ids_by_index.lock()
                                     && let Some(tool_call_id) = map.get(&idx)
                                 {
@@ -1042,6 +1311,36 @@ impl AnthropicEventConverter {
                 }
                 builder.build()
             }
+            "content_block_stop" => {
+                let Some(idx) = event.index else {
+                    return vec![];
+                };
+
+                match self.get_content_block_type(idx).as_deref() {
+                    Some("text") => {
+                        if self.should_stream_json_tool_as_text() {
+                            vec![]
+                        } else {
+                            vec![Self::vercel_text_end_event(idx)]
+                        }
+                    }
+                    Some("json_tool_use") => {
+                        if self.should_stream_json_tool_as_text() {
+                            vec![Self::vercel_text_end_event(idx)]
+                        } else {
+                            vec![]
+                        }
+                    }
+                    Some("thinking") | Some("redacted_thinking") => vec![ChatStreamEvent::Custom {
+                        event_type: "anthropic:reasoning-end".to_string(),
+                        data: serde_json::json!({
+                            "type": "reasoning-end",
+                            "contentBlockIndex": idx as u64,
+                        }),
+                    }],
+                    _ => vec![],
+                }
+            }
             "message_delta" => {
                 let mut builder = EventBuilder::new();
 
@@ -1055,19 +1354,18 @@ impl AnthropicEventConverter {
 
                 // Usage update
                 if let Some(usage) = &event.usage {
-                    let usage_info = Usage {
-                        prompt_tokens: usage.input_tokens.unwrap_or(0),
-                        completion_tokens: usage.output_tokens.unwrap_or(0),
-                        total_tokens: usage.input_tokens.unwrap_or(0)
-                            + usage.output_tokens.unwrap_or(0),
-                        #[allow(deprecated)]
-                        cached_tokens: None,
-                        #[allow(deprecated)]
-                        reasoning_tokens: None,
-                        prompt_tokens_details: None,
-                        completion_tokens_details: None,
-                    };
-                    builder = builder.add_usage_update(usage_info);
+                    self.merge_vercel_usage(usage);
+
+                    let prompt_tokens = usage
+                        .get("input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    let completion_tokens = usage
+                        .get("output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    builder =
+                        builder.add_usage_update(Usage::new(prompt_tokens, completion_tokens));
                 }
 
                 // Finish reason -> StreamEnd
@@ -1089,30 +1387,39 @@ impl AnthropicEventConverter {
                         _ => FinishReason::Stop,
                     };
 
-                    // Mark that StreamEnd is being emitted
-                    self.state_tracker.mark_stream_ended();
+                    if let Some(stop_sequence) = &delta.stop_sequence
+                        && !stop_sequence.is_empty()
+                        && let Ok(mut v) = self.vercel_stop_sequence.lock()
+                    {
+                        *v = Some(stop_sequence.clone());
+                    }
 
-                    let response = ChatResponse {
-                        id: None,
-                        model: None,
-                        content: MessageContent::Text("".to_string()),
-                        usage: None, // usage already emitted as UsageUpdate above if present
-                        finish_reason: Some(reason),
-                        audio: None,
-                        system_fingerprint: None,
-                        service_tier: None,
-                        warnings: None,
-                        provider_metadata: self.build_stream_provider_metadata(),
-                    };
-                    builder = builder.add_stream_end(response);
+                    if self.state_tracker.needs_stream_end() {
+                        if let ChatStreamEvent::Custom { event_type, data } =
+                            self.vercel_finish_event(Some(stop_reason.as_str()), &reason)
+                        {
+                            builder = builder.add_custom_event(event_type, data);
+                        }
+
+                        let response = ChatResponse {
+                            id: None,
+                            model: None,
+                            content: MessageContent::Text("".to_string()),
+                            usage: None, // usage already emitted as UsageUpdate above if present
+                            finish_reason: Some(reason),
+                            audio: None,
+                            system_fingerprint: None,
+                            service_tier: None,
+                            warnings: None,
+                            provider_metadata: self.build_stream_provider_metadata(),
+                        };
+                        builder = builder.add_stream_end(response);
+                    }
                 }
 
                 builder.build()
             }
             "message_stop" => {
-                // Mark that StreamEnd is being emitted
-                self.state_tracker.mark_stream_ended();
-
                 let response = ChatResponse {
                     id: None,
                     model: None,
@@ -1125,7 +1432,18 @@ impl AnthropicEventConverter {
                     warnings: None,
                     provider_metadata: self.build_stream_provider_metadata(),
                 };
-                EventBuilder::new().add_stream_end(response).build()
+                if !self.state_tracker.needs_stream_end() {
+                    return vec![];
+                }
+
+                let mut out = Vec::new();
+                if let ChatStreamEvent::Custom { event_type, data } =
+                    self.vercel_finish_event(None, &FinishReason::Stop)
+                {
+                    out.push(ChatStreamEvent::Custom { event_type, data });
+                }
+                out.push(ChatStreamEvent::StreamEnd { response });
+                out
             }
             _ => vec![],
         }

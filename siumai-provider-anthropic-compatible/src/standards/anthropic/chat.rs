@@ -255,10 +255,30 @@ impl ProviderSpec for AnthropicChatSpec {
         }
 
         let citation_documents = extract_citation_documents(req);
-        let inner = crate::standards::anthropic::streaming::AnthropicEventConverter::new(
-            super::params::AnthropicParams::default(),
-        )
-        .with_citation_documents(citation_documents);
+        let mut stream_params = super::params::AnthropicParams::default();
+        if matches!(
+            req.response_format,
+            Some(crate::types::chat::ResponseFormat::Json { .. })
+        ) {
+            fn supports_output_format(model: &str) -> bool {
+                model.starts_with("claude-sonnet-4-5")
+                    || model.starts_with("claude-opus-4-5")
+                    || model.starts_with("claude-haiku-4-5")
+            }
+
+            let tools_empty = req.tools.as_ref().map(|t| t.is_empty()).unwrap_or(true);
+            stream_params = stream_params.with_structured_output_mode(
+                if supports_output_format(&req.common_params.model) && tools_empty {
+                    super::params::StructuredOutputMode::OutputFormat
+                } else {
+                    super::params::StructuredOutputMode::JsonTool
+                },
+            );
+        }
+
+        let inner =
+            crate::standards::anthropic::streaming::AnthropicEventConverter::new(stream_params)
+                .with_citation_documents(citation_documents);
         let stream_tx = Arc::new(AnthropicChatStreamTransformer {
             provider_id: ctx.provider_id.clone(),
             adapter: self.adapter.clone(),

@@ -63,6 +63,20 @@ fn tool_events(events: &[ChatStreamEvent], kind: &str, tool_name: &str) -> Vec<s
         .collect()
 }
 
+fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn anthropic_stream_mcp_emits_tool_call_and_result() {
     let path = fixtures_dir().join("anthropic-mcp.1.chunks.txt");
@@ -253,4 +267,112 @@ fn anthropic_stream_json_tool_emits_tool_call_delta_and_args_delta() {
         )
     });
     assert!(has_stop, "expected StreamEnd with finish_reason=stop");
+}
+
+#[test]
+fn anthropic_stream_json_tool_text_prefix_is_ignored_in_vercel_stream_parts() {
+    use siumai::experimental::standards::anthropic::params::StructuredOutputMode;
+    use siumai::experimental::standards::anthropic::streaming::AnthropicEventConverter;
+    use siumai::prelude::unified::SseEventConverter;
+
+    let path = fixtures_dir().join("anthropic-json-tool.2.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let conv = AnthropicEventConverter::new(
+        siumai::experimental::standards::anthropic::params::AnthropicParams::default()
+            .with_structured_output_mode(StructuredOutputMode::JsonTool),
+    );
+
+    let mut events: Vec<ChatStreamEvent> = Vec::new();
+    for (i, line) in lines.into_iter().enumerate() {
+        let ev = eventsource_stream::Event {
+            event: "".to_string(),
+            data: line,
+            id: i.to_string(),
+            retry: None,
+        };
+
+        let out = futures::executor::block_on(conv.convert_event(ev));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to convert chunk: {err:?}"),
+            }
+        }
+    }
+
+    let stream_starts = custom_events_by_type(&events, "stream-start");
+    let metadata = custom_events_by_type(&events, "response-metadata");
+    let text_starts = custom_events_by_type(&events, "text-start");
+    let text_deltas = custom_events_by_type(&events, "text-delta");
+    let text_ends = custom_events_by_type(&events, "text-end");
+    let finishes = custom_events_by_type(&events, "finish");
+
+    assert_eq!(stream_starts.len(), 1, "expected exactly one stream-start");
+    assert_eq!(metadata.len(), 1, "expected exactly one response-metadata");
+    assert_eq!(text_starts.len(), 1, "expected exactly one text-start");
+    assert_eq!(text_ends.len(), 1, "expected exactly one text-end");
+    assert_eq!(finishes.len(), 1, "expected exactly one finish");
+
+    assert_eq!(
+        metadata[0].get("id").and_then(|v| v.as_str()),
+        Some("msg_01K2JbSUMYhez5RHoK9ZCj9U")
+    );
+    assert_eq!(
+        metadata[0].get("modelId").and_then(|v| v.as_str()),
+        Some("claude-haiku-4-5-20251001")
+    );
+
+    assert_eq!(
+        text_starts[0].get("id").and_then(|v| v.as_str()),
+        Some("1"),
+        "expected json tool content block index as text id"
+    );
+
+    let deltas_for_block_1: Vec<&str> = text_deltas
+        .iter()
+        .filter(|d| d.get("id").and_then(|v| v.as_str()) == Some("1"))
+        .filter_map(|d| d.get("delta").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(deltas_for_block_1.len(), 2, "expected two json text-delta");
+    assert_eq!(
+        deltas_for_block_1[0],
+        "{\"elements\": [{\"location\": \"San Francisco\", \"temperature\": 58, \"condition\": \"sunny\"}]"
+    );
+    assert_eq!(deltas_for_block_1[1], "}");
+
+    assert_eq!(text_ends[0].get("id").and_then(|v| v.as_str()), Some("1"));
+
+    assert_eq!(
+        finishes[0]
+            .get("finishReason")
+            .and_then(|r| r.get("raw"))
+            .and_then(|v| v.as_str()),
+        Some("tool_use")
+    );
+    assert_eq!(
+        finishes[0]
+            .get("finishReason")
+            .and_then(|r| r.get("unified"))
+            .and_then(|v| v.as_str()),
+        Some("stop")
+    );
+    assert_eq!(
+        finishes[0]
+            .get("usage")
+            .and_then(|u| u.get("inputTokens"))
+            .and_then(|u| u.get("total"))
+            .and_then(|v| v.as_u64()),
+        Some(849)
+    );
+    assert_eq!(
+        finishes[0]
+            .get("usage")
+            .and_then(|u| u.get("outputTokens"))
+            .and_then(|u| u.get("total"))
+            .and_then(|v| v.as_u64()),
+        Some(47)
+    );
 }
