@@ -952,9 +952,7 @@ impl OpenAiResponsesRequestTransformer {
                             content_parts.push(image_part);
                         }
                         ContentPart::Audio {
-                            source,
-                            media_type,
-                            ..
+                            source, media_type, ..
                         } => {
                             // Responses API input does not currently accept audio inside message content.
                             // Keep a stable fallback representation.

@@ -44,6 +44,7 @@ fn public_surface_openai_provider_ext_compiles() {
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::openai::web_search().build();
+    let _ = siumai::provider_ext::openai::tools::web_search().build();
 }
 
 #[cfg(feature = "protocol-openai")]
@@ -71,6 +72,7 @@ fn public_surface_anthropic_provider_ext_compiles() {
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::anthropic::web_search_20250305().build();
+    let _ = siumai::provider_ext::anthropic::tools::web_search_20250305().build();
 }
 
 #[cfg(feature = "protocol-anthropic")]
@@ -98,6 +100,7 @@ fn public_surface_gemini_provider_ext_compiles() {
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::google::google_search().build();
+    let _ = siumai::provider_ext::gemini::tools::google_search().build();
 }
 
 #[cfg(feature = "protocol-gemini")]

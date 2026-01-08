@@ -213,6 +213,13 @@ pub mod provider_ext {
     pub mod openai {
         pub use siumai_provider_openai::providers::openai::{OpenAiClient, OpenAiConfig};
 
+        /// Provider-executed tool factories (Vercel-aligned).
+        ///
+        /// These tools are executed on the provider side (e.g. OpenAI Responses hosted tools).
+        pub mod tools {
+            pub use crate::hosted_tools::openai::*;
+        }
+
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["openai"]`).
         pub mod metadata {
             pub use siumai_provider_openai::provider_metadata::openai::{
@@ -276,6 +283,11 @@ pub mod provider_ext {
     pub mod anthropic {
         pub use siumai_provider_anthropic::providers::anthropic::AnthropicClient;
 
+        /// Provider-executed tool factories (Vercel-aligned).
+        pub mod tools {
+            pub use crate::hosted_tools::anthropic::*;
+        }
+
         /// Typed provider options (`provider_options_map["anthropic"]`).
         pub mod options {
             pub use siumai_provider_anthropic::provider_options::anthropic::{
@@ -316,6 +328,11 @@ pub mod provider_ext {
     pub mod gemini {
         pub use siumai_provider_gemini::providers::gemini::GeminiClient;
         pub use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
+
+        /// Provider-executed tool factories (Vercel-aligned).
+        pub mod tools {
+            pub use crate::hosted_tools::google::*;
+        }
 
         /// Typed provider options (`provider_options_map["google"]`).
         pub mod options {
