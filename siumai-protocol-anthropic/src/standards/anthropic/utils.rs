@@ -81,7 +81,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
 
             for part in parts {
                 match part {
-                    ContentPart::Text { text } => {
+                    ContentPart::Text { text, .. } => {
                         content_parts.push(serde_json::json!({
                             "type": "text",
                             "text": text
@@ -597,7 +597,7 @@ pub fn convert_messages(
             MessageContent::MultiModal(parts) => parts
                 .iter()
                 .filter_map(|part| {
-                    if let crate::types::ContentPart::Text { text } = part {
+                    if let crate::types::ContentPart::Text { text, .. } = part {
                         Some(text.as_str())
                     } else {
                         None

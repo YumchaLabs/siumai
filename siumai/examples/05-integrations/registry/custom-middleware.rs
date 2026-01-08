@@ -23,7 +23,7 @@ use std::sync::Arc;
 // Middleware 1: Set default temperature
 #[derive(Clone)]
 struct DefaultTemperatureMiddleware {
-    temperature: f32,
+    temperature: f64,
 }
 
 impl LanguageModelMiddleware for DefaultTemperatureMiddleware {

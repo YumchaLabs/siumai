@@ -112,7 +112,7 @@ impl OpenAiBuilder {
     }
 
     /// Sets the temperature
-    pub const fn temperature(mut self, temp: f32) -> Self {
+    pub const fn temperature(mut self, temp: f64) -> Self {
         self.common_params.temperature = Some(temp);
         self
     }
@@ -124,7 +124,7 @@ impl OpenAiBuilder {
     }
 
     /// Sets `top_p`
-    pub const fn top_p(mut self, top_p: f32) -> Self {
+    pub const fn top_p(mut self, top_p: f64) -> Self {
         self.common_params.top_p = Some(top_p);
         self
     }

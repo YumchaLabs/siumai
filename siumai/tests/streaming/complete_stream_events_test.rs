@@ -295,7 +295,8 @@ async fn test_stream_event_ordering() {
 #[tokio::test]
 #[cfg(feature = "anthropic")]
 async fn test_complete_anthropic_stream_sequence() {
-    let config = siumai::provider_ext::anthropic::AnthropicParams::default();
+    let config =
+        siumai_provider_anthropic::standards::anthropic::params::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Simulate a complete Anthropic streaming sequence

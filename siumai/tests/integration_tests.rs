@@ -82,6 +82,7 @@ mod tests {
                 max_tokens: Some(1000),
                 max_completion_tokens: None,
                 top_p: Some(0.9),
+                top_k: None,
                 stop_sequences: None,
                 seed: Some(42),
             })
@@ -242,6 +243,7 @@ mod tests {
             max_tokens: Some(1000),
             max_completion_tokens: None,
             top_p: Some(0.9),
+            top_k: None,
             stop_sequences: None,
             seed: Some(42),
         };

@@ -3,6 +3,7 @@
 //! These tests verify the embedding functionality across different providers.
 //! They are designed to run with actual API keys when available, but skip gracefully when not.
 
+use siumai::prelude::EmbeddingCapability;
 use siumai::prelude::unified::{EmbeddingExtensions, EmbeddingRequest, HttpConfig};
 
 #[cfg(feature = "openai")]

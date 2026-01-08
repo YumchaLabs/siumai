@@ -1,0 +1,25 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": {
+    "anthropic": {
+      "thinking": { "type": "enabled", "budgetTokens": 1000 }
+    }
+  },
+  "common_params": {
+    "model": "claude-sonnet-4-5",
+    "temperature": 0.5,
+    "max_tokens": 20000,
+    "max_completion_tokens": null,
+    "top_p": 0.7,
+    "top_k": 0.1,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

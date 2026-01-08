@@ -11,7 +11,7 @@ pub struct CommonParams {
     pub model: String,
 
     /// Temperature parameter (must be non-negative)
-    pub temperature: Option<f32>,
+    pub temperature: Option<f64>,
 
     /// Maximum output tokens (deprecated for o1/o3 models, use max_completion_tokens instead)
     pub max_tokens: Option<u32>,
@@ -22,7 +22,10 @@ pub struct CommonParams {
     pub max_completion_tokens: Option<u32>,
 
     /// `top_p` parameter
-    pub top_p: Option<f32>,
+    pub top_p: Option<f64>,
+
+    /// `top_k` parameter (Vercel-aligned; used by some providers like Anthropic/Gemini)
+    pub top_k: Option<f64>,
 
     /// Stop sequences
     pub stop_sequences: Option<Vec<String>>,
@@ -40,6 +43,7 @@ impl CommonParams {
             max_tokens: None,
             max_completion_tokens: None,
             top_p: None,
+            top_k: None,
             stop_sequences: None,
             seed: None,
         }
@@ -52,6 +56,7 @@ impl CommonParams {
             && self.max_tokens.is_none()
             && self.max_completion_tokens.is_none()
             && self.top_p.is_none()
+            && self.top_k.is_none()
             && self.stop_sequences.is_none()
             && self.seed.is_none()
     }
@@ -77,10 +82,11 @@ impl CommonParams {
         let mut hasher = DefaultHasher::new();
         self.model.hash(&mut hasher);
         self.temperature
-            .map(|t| (t * 1000.0) as u32)
+            .map(|t| (t * 1000.0) as u64)
             .hash(&mut hasher);
         self.max_tokens.hash(&mut hasher);
-        self.top_p.map(|t| (t * 1000.0) as u32).hash(&mut hasher);
+        self.top_p.map(|t| (t * 1000.0) as u64).hash(&mut hasher);
+        self.top_k.map(|t| (t * 1000.0) as u64).hash(&mut hasher);
         hasher.finish()
     }
 
@@ -111,6 +117,15 @@ impl CommonParams {
             ));
         }
 
+        // Validate top_k (must be non-negative)
+        if let Some(top_k) = self.top_k
+            && top_k < 0.0
+        {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "top_k must be non-negative".to_string(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -124,9 +139,10 @@ impl CommonParams {
 #[derive(Debug, Clone, Default)]
 pub struct CommonParamsBuilder {
     model: String,
-    temperature: Option<f32>,
+    temperature: Option<f64>,
     max_tokens: Option<u32>,
-    top_p: Option<f32>,
+    top_p: Option<f64>,
+    top_k: Option<f64>,
     stop_sequences: Option<Vec<String>>,
     seed: Option<u64>,
 }
@@ -144,7 +160,7 @@ impl CommonParamsBuilder {
     }
 
     /// Set the temperature with validation
-    pub fn temperature(mut self, temperature: f32) -> Result<Self, crate::error::LlmError> {
+    pub fn temperature(mut self, temperature: f64) -> Result<Self, crate::error::LlmError> {
         if !(0.0..=2.0).contains(&temperature) {
             return Err(crate::error::LlmError::InvalidParameter(
                 "Temperature must be between 0.0 and 2.0".to_string(),
@@ -161,13 +177,24 @@ impl CommonParamsBuilder {
     }
 
     /// Set the top_p with validation
-    pub fn top_p(mut self, top_p: f32) -> Result<Self, crate::error::LlmError> {
+    pub fn top_p(mut self, top_p: f64) -> Result<Self, crate::error::LlmError> {
         if !(0.0..=1.0).contains(&top_p) {
             return Err(crate::error::LlmError::InvalidParameter(
                 "top_p must be between 0.0 and 1.0".to_string(),
             ));
         }
         self.top_p = Some(top_p);
+        Ok(self)
+    }
+
+    /// Set the top_k with basic validation (must be non-negative)
+    pub fn top_k(mut self, top_k: f64) -> Result<Self, crate::error::LlmError> {
+        if top_k < 0.0 {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "top_k must be non-negative".to_string(),
+            ));
+        }
+        self.top_k = Some(top_k);
         Ok(self)
     }
 
@@ -191,6 +218,7 @@ impl CommonParamsBuilder {
             max_tokens: self.max_tokens,
             max_completion_tokens: None,
             top_p: self.top_p,
+            top_k: self.top_k,
             stop_sequences: self.stop_sequences,
             seed: self.seed,
         };
@@ -213,6 +241,7 @@ mod tests {
         assert!(params.max_tokens.is_none());
         assert!(params.max_completion_tokens.is_none());
         assert!(params.top_p.is_none());
+        assert!(params.top_k.is_none());
         assert!(params.stop_sequences.is_none());
         assert!(params.seed.is_none());
     }
@@ -225,6 +254,7 @@ mod tests {
             max_tokens: Some(1000),
             max_completion_tokens: None,
             top_p: Some(0.9),
+            top_k: Some(0.1),
             stop_sequences: Some(vec!["STOP".to_string(), "END".to_string()]),
             seed: Some(42),
         };
@@ -235,6 +265,7 @@ mod tests {
         assert_eq!(de.temperature, Some(0.7));
         assert_eq!(de.max_tokens, Some(1000));
         assert_eq!(de.top_p, Some(0.9));
+        assert_eq!(de.top_k, Some(0.1));
         assert_eq!(
             de.stop_sequences.as_deref(),
             Some(&["STOP".to_string(), "END".to_string()][..])

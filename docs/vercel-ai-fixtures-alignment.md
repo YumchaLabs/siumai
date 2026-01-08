@@ -341,6 +341,19 @@ Provider id: `openai` (Responses API)
 - [x] Pass through `strict` for OpenAI Chat Completions tool schema (`tool.function.strict`)
 - [x] Pass through `strict` for OpenAI Responses tool schema (`tool.strict`)
 
+## Anthropic Messages (Fixtures)
+
+Provider id: `anthropic`
+
+### Done
+
+- [x] `anthropic-settings.1` (temperature/top_k/stop_sequences request mapping)
+- [x] `anthropic-temperature-top_p-mutual-exclusivity.1` (topP ignored when temperature is set; warning)
+- [x] `anthropic-thinking-enabled.1` (thinking config; max_tokens + budget; clears temperature/topP/topK; warnings)
+- [x] `anthropic-thinking-default-budget.1` (default budget 1024; warning; max_tokens capped)
+- [x] `anthropic-max-output-tokens-limited.1` (known model max token cap; warning)
+- [x] `anthropic-max-output-tokens-unknown-model-not-limited.1` (unknown model not capped)
+
 ## Anthropic Messages (Streaming)
 
 Provider id: `anthropic`

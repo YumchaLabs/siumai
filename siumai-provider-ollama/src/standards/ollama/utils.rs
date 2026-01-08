@@ -59,7 +59,7 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
             parts
                 .iter()
                 .filter_map(|part| {
-                    if let crate::types::ContentPart::Text { text } = part {
+                    if let crate::types::ContentPart::Text { text, .. } = part {
                         Some(text.as_str())
                     } else {
                         None
@@ -168,6 +168,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
 
     let mut parts = vec![crate::types::ContentPart::Text {
         text: message.content.clone(),
+        provider_metadata: None,
     }];
 
     // Add images if present
@@ -178,6 +179,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
                     url: image_url.clone(),
                 },
                 detail: None,
+                provider_metadata: None,
             });
         }
     }
@@ -269,9 +271,9 @@ pub fn validate_model_name(model: &str) -> Result<(), LlmError> {
 
 /// Build model options from common parameters
 pub fn build_model_options(
-    temperature: Option<f32>,
+    temperature: Option<f64>,
     max_tokens: Option<u32>,
-    top_p: Option<f32>,
+    top_p: Option<f64>,
     frequency_penalty: Option<f32>,
     presence_penalty: Option<f32>,
     additional_options: Option<&HashMap<String, serde_json::Value>>,
@@ -282,8 +284,7 @@ pub fn build_model_options(
         options.insert(
             "temperature".to_string(),
             serde_json::Value::Number(
-                serde_json::Number::from_f64(temp as f64)
-                    .unwrap_or_else(|| serde_json::Number::from(0)),
+                serde_json::Number::from_f64(temp).unwrap_or_else(|| serde_json::Number::from(0)),
             ),
         );
     }
@@ -299,8 +300,7 @@ pub fn build_model_options(
         options.insert(
             "top_p".to_string(),
             serde_json::Value::Number(
-                serde_json::Number::from_f64(top_p as f64)
-                    .unwrap_or_else(|| serde_json::Number::from(0)),
+                serde_json::Number::from_f64(top_p).unwrap_or_else(|| serde_json::Number::from(0)),
             ),
         );
     }

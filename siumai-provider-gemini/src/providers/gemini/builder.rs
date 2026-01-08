@@ -88,7 +88,7 @@ impl GeminiBuilder {
     }
 
     /// Set temperature (0.0 to 2.0)
-    pub const fn temperature(mut self, temperature: f32) -> Self {
+    pub const fn temperature(mut self, temperature: f64) -> Self {
         self.common_params.temperature = Some(temperature);
         self
     }
@@ -101,7 +101,7 @@ impl GeminiBuilder {
     }
 
     /// Set top-p (0.0 to 1.0)
-    pub const fn top_p(mut self, top_p: f32) -> Self {
+    pub const fn top_p(mut self, top_p: f64) -> Self {
         self.common_params.top_p = Some(top_p);
         self
     }

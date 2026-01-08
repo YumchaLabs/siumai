@@ -128,8 +128,8 @@ impl EnhancedParameterValidator {
 
         // Check temperature compatibility
         if let Some(temp) = params.temperature
-            && (temp < target_constraints.temperature_min as f32
-                || temp > target_constraints.temperature_max as f32)
+            && (temp < target_constraints.temperature_min
+                || temp > target_constraints.temperature_max)
         {
             report.add_incompatibility(ParameterIncompatibility {
                 parameter: "temperature".to_string(),
@@ -198,8 +198,7 @@ impl EnhancedParameterValidator {
 
         // Optimize top_p
         if let Some(top_p) = params.top_p {
-            let optimal_top_p =
-                top_p.clamp(constraints.top_p_min as f32, constraints.top_p_max as f32);
+            let optimal_top_p = top_p.clamp(constraints.top_p_min, constraints.top_p_max);
             if optimal_top_p != top_p {
                 report.add_optimization(ParameterOptimization {
                     parameter: "top_p".to_string(),

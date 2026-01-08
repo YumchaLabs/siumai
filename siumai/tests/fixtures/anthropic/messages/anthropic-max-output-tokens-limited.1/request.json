@@ -1,0 +1,20 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "common_params": {
+    "model": "claude-haiku-4-5",
+    "temperature": null,
+    "max_tokens": 999999,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "top_k": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

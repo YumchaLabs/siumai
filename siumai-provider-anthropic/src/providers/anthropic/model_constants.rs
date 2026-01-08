@@ -213,16 +213,40 @@ pub fn get_context_window(model_id: &str) -> u32 {
 
 /// Get the maximum output tokens for a model
 pub fn get_max_output_tokens(model_id: &str) -> u32 {
-    match model_id {
-        // Claude 4 models have higher output limits
+    try_get_max_output_tokens(model_id).unwrap_or(8192)
+}
+
+/// Try to get the maximum output tokens for a known model.
+///
+/// Vercel-aligned behavior: only known Claude models are capped. Unknown model ids
+/// return `None` and should not be capped.
+pub fn try_get_max_output_tokens(model_id: &str) -> Option<u32> {
+    if !model_id.starts_with("claude-") {
+        return None;
+    }
+
+    Some(match model_id {
+        // Claude 4.5 family (AI SDK fixtures default/cap at 64k).
+        id if id.starts_with("claude-sonnet-4-5")
+            || id.starts_with("claude-opus-4-5")
+            || id.starts_with("claude-haiku-4-5") =>
+        {
+            64_000
+        }
+
+        // Claude 4 models have higher output limits (heuristic).
         id if id.contains("claude-opus-4") || id.contains("claude-sonnet-4") => 32_000,
+
         // Claude 3.7 has higher output limit
         id if id.contains("claude-3-7-sonnet") => 64_000,
+
         // Claude 3.5 models
         id if id.contains("claude-3-5") => 8192,
+
         // Claude 3 models
         id if id.contains("claude-3") => 4096,
-        // Default fallback
+
+        // Default fallback for Claude models not explicitly handled.
         _ => 8192,
-    }
+    })
 }

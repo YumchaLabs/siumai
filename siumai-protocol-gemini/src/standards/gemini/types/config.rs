@@ -88,7 +88,7 @@ impl GeminiConfig {
         self
     }
     /// Set temperature
-    pub fn with_temperature(mut self, temperature: f32) -> Self {
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
         self.common_params.temperature = Some(temperature);
         self
     }
@@ -98,7 +98,7 @@ impl GeminiConfig {
         self
     }
     /// Set top_p
-    pub fn with_top_p(mut self, top_p: f32) -> Self {
+    pub fn with_top_p(mut self, top_p: f64) -> Self {
         self.common_params.top_p = Some(top_p);
         self
     }

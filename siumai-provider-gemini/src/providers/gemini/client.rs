@@ -197,13 +197,13 @@ impl GeminiClient {
     }
 
     /// Set temperature
-    pub fn with_temperature(mut self, temperature: f32) -> Self {
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
         // Update common params
         self.common_params.temperature = Some(temperature);
 
         // Update generation config
         let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.temperature = Some(temperature as f64);
+        generation_config.temperature = Some(temperature);
         self.config.generation_config = Some(generation_config);
         self
     }
@@ -221,13 +221,13 @@ impl GeminiClient {
     }
 
     /// Set top-p
-    pub fn with_top_p(mut self, top_p: f32) -> Self {
+    pub fn with_top_p(mut self, top_p: f64) -> Self {
         // Update common params
         self.common_params.top_p = Some(top_p);
 
         // Update generation config
         let mut generation_config = self.config.generation_config.unwrap_or_default();
-        generation_config.top_p = Some(top_p as f64);
+        generation_config.top_p = Some(top_p);
         self.config.generation_config = Some(generation_config);
         self
     }

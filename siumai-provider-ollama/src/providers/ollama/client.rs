@@ -220,7 +220,7 @@ impl OllamaClient {
     }
 
     /// Set temperature
-    pub const fn with_temperature(mut self, temperature: f32) -> Self {
+    pub const fn with_temperature(mut self, temperature: f64) -> Self {
         self.common_params.temperature = Some(temperature);
         self
     }

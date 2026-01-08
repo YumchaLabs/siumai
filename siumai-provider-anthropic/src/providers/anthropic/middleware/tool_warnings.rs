@@ -56,14 +56,143 @@ impl AnthropicToolWarningsMiddleware {
     }
 
     fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
-        let Some(tools) = req.tools.as_deref() else {
-            return Vec::new();
-        };
-        if tools.is_empty() {
-            return Vec::new();
+        let mut warnings: Vec<Warning> = Vec::new();
+
+        // --------------------------------------------------------------------
+        // Settings / thinking-mode warnings (Vercel-aligned)
+        // --------------------------------------------------------------------
+        #[derive(Debug, Clone, Copy)]
+        struct ThinkingState {
+            enabled: bool,
+            budget_tokens: Option<u32>,
         }
 
-        let mut warnings: Vec<Warning> = Vec::new();
+        fn thinking_state(req: &ChatRequest) -> ThinkingState {
+            let Some(v) = req.provider_options_map.get("anthropic") else {
+                return ThinkingState {
+                    enabled: false,
+                    budget_tokens: None,
+                };
+            };
+            let Some(obj) = v.as_object() else {
+                return ThinkingState {
+                    enabled: false,
+                    budget_tokens: None,
+                };
+            };
+
+            // Vercel-style: `thinking: { type: "enabled", budgetTokens? }`
+            if let Some(t) = obj.get("thinking").and_then(|v| v.as_object()) {
+                let enabled = t
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|s| s == "enabled");
+                let budget = t
+                    .get("budgetTokens")
+                    .or_else(|| t.get("budget_tokens"))
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u32::try_from(v).ok());
+                return ThinkingState {
+                    enabled,
+                    budget_tokens: budget,
+                };
+            }
+
+            // Legacy typed options: `thinkingMode: { enabled, thinkingBudget? }`
+            if let Some(t) = obj
+                .get("thinkingMode")
+                .or_else(|| obj.get("thinking_mode"))
+                .and_then(|v| v.as_object())
+            {
+                let enabled = t.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                let budget = t
+                    .get("thinkingBudget")
+                    .or_else(|| t.get("thinking_budget"))
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u32::try_from(v).ok());
+                return ThinkingState {
+                    enabled,
+                    budget_tokens: budget,
+                };
+            }
+
+            ThinkingState {
+                enabled: false,
+                budget_tokens: None,
+            }
+        }
+
+        let thinking = thinking_state(req);
+        let thinking_budget = if thinking.enabled {
+            thinking.budget_tokens.or(Some(1024))
+        } else {
+            None
+        };
+
+        if thinking.enabled {
+            if thinking.budget_tokens.is_none() {
+                warnings.push(Warning::unsupported_setting(
+                    "extended thinking",
+                    Some(
+                        "thinking budget is required when thinking is enabled. using default budget of 1024 tokens.",
+                    ),
+                ));
+            }
+
+            if req.common_params.temperature.is_some() {
+                warnings.push(Warning::unsupported_setting(
+                    "temperature",
+                    Some("temperature is not supported when thinking is enabled"),
+                ));
+            }
+            if req.common_params.top_k.is_some() {
+                warnings.push(Warning::unsupported_setting(
+                    "topK",
+                    Some("topK is not supported when thinking is enabled"),
+                ));
+            }
+            if req.common_params.top_p.is_some() {
+                warnings.push(Warning::unsupported_setting(
+                    "topP",
+                    Some("topP is not supported when thinking is enabled"),
+                ));
+            }
+        } else if req.common_params.temperature.is_some() && req.common_params.top_p.is_some() {
+            warnings.push(Warning::unsupported_setting(
+                "topP",
+                Some("topP is not supported when temperature is set. topP is ignored."),
+            ));
+        }
+
+        // Vercel-aligned: cap max_tokens for known models and warn only when maxOutputTokens is provided.
+        if let Some(max_out) =
+            crate::providers::anthropic::model_constants::try_get_max_output_tokens(
+                req.common_params.model.as_str(),
+            )
+        {
+            if let Some(max_tokens) = req.common_params.max_tokens {
+                let effective = max_tokens.saturating_add(thinking_budget.unwrap_or(0));
+                if effective > max_out {
+                    warnings.push(Warning::unsupported_setting(
+                        "maxOutputTokens",
+                        Some(format!(
+                            "{effective} (maxOutputTokens + thinkingBudget) is greater than {} {max_out} max output tokens. The max output tokens have been limited to {max_out}.",
+                            req.common_params.model
+                        )),
+                    ));
+                }
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // Tool warnings
+        // --------------------------------------------------------------------
+        let Some(tools) = req.tools.as_deref() else {
+            return warnings;
+        };
+        if tools.is_empty() {
+            return warnings;
+        }
 
         // Vercel-aligned: warn about provider-defined tools that are not supported by Anthropic.
         for tool in tools {

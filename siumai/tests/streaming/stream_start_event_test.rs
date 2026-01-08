@@ -147,7 +147,8 @@ async fn test_openai_stream_start_event() {
 #[tokio::test]
 #[cfg(feature = "anthropic")]
 async fn test_anthropic_stream_start_event() {
-    let config = siumai::provider_ext::anthropic::AnthropicParams::default();
+    let config =
+        siumai_provider_anthropic::standards::anthropic::params::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Test message_start event generates StreamStart

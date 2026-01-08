@@ -99,7 +99,13 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     body["temperature"] = serde_json::json!(t);
                 }
                 if let Some(tp) = req.common_params.top_p {
-                    body["top_p"] = serde_json::json!(tp);
+                    // Vercel-aligned: `topP` is ignored when `temperature` is set.
+                    if req.common_params.temperature.is_none() {
+                        body["top_p"] = serde_json::json!(tp);
+                    }
+                }
+                if let Some(tk) = req.common_params.top_k {
+                    body["top_k"] = serde_json::json!(tk);
                 }
                 if let Some(stops) = &req.common_params.stop_sequences {
                     body["stop_sequences"] = serde_json::json!(stops);
@@ -275,8 +281,38 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             .filter(|_| response.content.len() == 1);
         let is_json_tool_response = json_tool_input.is_some();
 
+        fn canonicalize_json(mut v: serde_json::Value) -> serde_json::Value {
+            fn sort_value(v: &mut serde_json::Value) {
+                match v {
+                    serde_json::Value::Object(map) => {
+                        let mut entries: Vec<(String, serde_json::Value)> =
+                            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+                        let mut out = serde_json::Map::new();
+                        for (k, mut v) in entries {
+                            sort_value(&mut v);
+                            out.insert(k, v);
+                        }
+                        *map = out;
+                    }
+                    serde_json::Value::Array(arr) => {
+                        for v in arr.iter_mut() {
+                            sort_value(v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            sort_value(&mut v);
+            v
+        }
+
         let mut content = if let Some(input) = json_tool_input {
-            let text = serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
+            // Vercel-aligned: stable JSON stringification for reserved `json` tool outputs.
+            let canonical = canonicalize_json(input);
+            let text = serde_json::to_string(&canonical).unwrap_or_else(|_| "{}".to_string());
             MessageContent::Text(text)
         } else {
             parse_response_content_and_tools(&response.content)

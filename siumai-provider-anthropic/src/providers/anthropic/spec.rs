@@ -316,20 +316,33 @@ impl ProviderSpec for AnthropicSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // Handle Anthropic-specific options (thinking_mode, response_format).
-        let options = self.anthropic_options_from_provider_options_map(req)?;
+        // Handle Anthropic-specific options (thinking_mode, response_format, etc.).
+        let options = self.anthropic_options_from_provider_options_map(req);
 
-        let thinking_mode: Option<ThinkingModeConfig> = options.thinking_mode.clone();
-        let response_format: Option<AnthropicResponseFormat> = options.response_format.clone();
+        let thinking_mode: Option<ThinkingModeConfig> =
+            options.as_ref().and_then(|o| o.thinking_mode.clone());
+        let response_format: Option<AnthropicResponseFormat> =
+            options.as_ref().and_then(|o| o.response_format.clone());
         let mcp_servers: Option<Vec<serde_json::Value>> =
             self.anthropic_mcp_servers_from_provider_options_map(req);
-        let container = options.container.clone();
+        let container = options.as_ref().and_then(|o| o.container.clone());
+
+        // Vercel-aligned: cap max_tokens for known models (warnings handled by middleware).
+        let model_id = req.common_params.model.clone();
+        let max_output_tokens =
+            super::model_constants::try_get_max_output_tokens(model_id.as_str());
+        let needs_max_tokens_cap = max_output_tokens.is_some()
+            && req
+                .common_params
+                .max_tokens
+                .is_some_and(|mt| mt > max_output_tokens.unwrap_or(mt));
 
         // If neither thinking nor response format configured, nothing to inject
         if thinking_mode.is_none()
             && response_format.is_none()
             && mcp_servers.is_none()
             && container.is_none()
+            && !needs_max_tokens_cap
         {
             return None;
         }
@@ -337,15 +350,28 @@ impl ProviderSpec for AnthropicSpec {
         let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
             let mut out = body.clone();
 
-            // 🎯 Inject thinking mode configuration
+            // Inject thinking mode configuration (Vercel-aligned).
             if let Some(ref thinking) = thinking_mode
                 && thinking.enabled
             {
-                let mut thinking_config = serde_json::json!({ "type": "enabled" });
-                if let Some(budget) = thinking.thinking_budget {
-                    thinking_config["budget_tokens"] = serde_json::json!(budget);
+                let budget = thinking.thinking_budget.unwrap_or(1024);
+
+                out["thinking"] = serde_json::json!({
+                    "type": "enabled",
+                    "budget_tokens": budget
+                });
+
+                // Vercel-aligned: temperature/top_p/top_k are not supported when thinking is enabled.
+                if let Some(obj) = out.as_object_mut() {
+                    obj.remove("temperature");
+                    obj.remove("top_p");
+                    obj.remove("top_k");
                 }
-                out["thinking"] = thinking_config;
+
+                // Vercel-aligned: adjust max_tokens to account for thinking budget.
+                if let Some(mt) = out.get("max_tokens").and_then(|v| v.as_u64()) {
+                    out["max_tokens"] = serde_json::json!(mt.saturating_add(budget as u64));
+                }
             }
 
             // 🎯 Inject structured output if configured
@@ -389,6 +415,14 @@ impl ProviderSpec for AnthropicSpec {
                         ))
                     })?;
                 }
+            }
+
+            // Vercel-aligned: limit max_tokens to the model max for known models.
+            if let Some(max_out) = max_output_tokens
+                && let Some(mt) = out.get("max_tokens").and_then(|v| v.as_u64())
+                && mt > max_out as u64
+            {
+                out["max_tokens"] = serde_json::json!(max_out);
             }
 
             Ok(out)
@@ -481,6 +515,40 @@ impl AnthropicSpec {
                 serde_json::Value::Object(map) => {
                     let mut out = serde_json::Map::new();
                     for (k, v) in map {
+                        // Vercel-aligned: `providerOptions.anthropic.thinking`
+                        // shape -> our `thinking_mode`.
+                        if k == "thinking" {
+                            if let Some(obj) = v.as_object() {
+                                let enabled = obj
+                                    .get("type")
+                                    .and_then(|t| t.as_str())
+                                    .map(|t| t == "enabled")
+                                    .unwrap_or(false);
+                                let budget = obj
+                                    .get("budgetTokens")
+                                    .or_else(|| obj.get("budget_tokens"))
+                                    .and_then(|b| b.as_u64())
+                                    .and_then(|b| u32::try_from(b).ok());
+
+                                let mut thinking_mode = serde_json::Map::new();
+                                thinking_mode.insert(
+                                    "enabled".to_string(),
+                                    serde_json::Value::Bool(enabled),
+                                );
+                                if let Some(b) = budget {
+                                    thinking_mode.insert(
+                                        "thinking_budget".to_string(),
+                                        serde_json::json!(b),
+                                    );
+                                }
+                                out.insert(
+                                    "thinking_mode".to_string(),
+                                    serde_json::Value::Object(thinking_mode),
+                                );
+                                continue;
+                            }
+                        }
+
                         let nk = normalize_key(k).unwrap_or(k);
                         out.insert(nk.to_string(), inner(v));
                     }

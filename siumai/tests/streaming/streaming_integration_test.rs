@@ -106,7 +106,8 @@ async fn test_openai_event_conversion() {
 #[tokio::test]
 #[cfg(feature = "anthropic")]
 async fn test_anthropic_event_conversion() {
-    let config = siumai::provider_ext::anthropic::AnthropicParams::default();
+    let config =
+        siumai_provider_anthropic::standards::anthropic::params::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Test content delta
@@ -454,7 +455,8 @@ async fn test_gemini_finish_reason() {
 #[tokio::test]
 #[cfg(feature = "anthropic")]
 async fn test_anthropic_stream_end() {
-    let config = siumai::provider_ext::anthropic::AnthropicParams::default();
+    let config =
+        siumai_provider_anthropic::standards::anthropic::params::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Test stream end

@@ -192,13 +192,13 @@ impl CacheAwareMessageBuilder {
                 let mut content_parts = Vec::new();
                 for part in parts {
                     match part {
-                        ContentPart::Text { text } => {
+                        ContentPart::Text { text, .. } => {
                             content_parts.push(serde_json::json!({
                                 "type": "text",
                                 "text": text
                             }));
                         }
-                        ContentPart::Image { source, detail } => {
+                        ContentPart::Image { source, detail, .. } => {
                             let (media_type, data) = match source {
                                 crate::types::chat::MediaSource::Base64 { data } => {
                                     ("image/jpeg", data.clone())

@@ -36,6 +36,15 @@ impl ProviderSpec for OllamaSpec {
         crate::standards::ollama::utils::build_headers(&ctx.http_extra_headers)
     }
 
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        Some(classify_ollama_http_error(status, body_text))
+    }
+
     fn chat_url(
         &self,
         _stream: bool,
@@ -112,6 +121,15 @@ impl ProviderSpec for OllamaSpecWithConfig {
         crate::standards::ollama::utils::build_headers(&ctx.http_extra_headers)
     }
 
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        Some(classify_ollama_http_error(status, body_text))
+    }
+
     fn chat_url(
         &self,
         _stream: bool,
@@ -161,5 +179,23 @@ impl ProviderSpec for OllamaSpecWithConfig {
             request: Arc::new(req_tx),
             response: Arc::new(resp_tx),
         }
+    }
+}
+
+fn classify_ollama_http_error(status: u16, body_text: &str) -> LlmError {
+    let message = serde_json::from_str::<serde_json::Value>(body_text)
+        .ok()
+        .and_then(|v| {
+            v.get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| body_text.to_string());
+
+    LlmError::ApiError {
+        code: status,
+        message,
+        details: None,
     }
 }

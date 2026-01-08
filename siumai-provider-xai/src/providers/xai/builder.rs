@@ -40,7 +40,7 @@ impl XaiBuilder {
         self
     }
 
-    pub fn temperature(mut self, temperature: f32) -> Self {
+    pub fn temperature(mut self, temperature: f64) -> Self {
         self.inner = self.inner.temperature(temperature);
         self
     }
@@ -50,7 +50,7 @@ impl XaiBuilder {
         self
     }
 
-    pub fn top_p(mut self, top_p: f32) -> Self {
+    pub fn top_p(mut self, top_p: f64) -> Self {
         self.inner = self.inner.top_p(top_p);
         self
     }

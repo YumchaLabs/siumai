@@ -137,7 +137,7 @@ impl OpenAiCompatibleBuilder {
     }
 
     /// Set temperature
-    pub fn temperature(mut self, temperature: f32) -> Self {
+    pub fn temperature(mut self, temperature: f64) -> Self {
         self.common_params.temperature = Some(temperature);
         self
     }
@@ -149,7 +149,7 @@ impl OpenAiCompatibleBuilder {
     }
 
     /// Set top_p
-    pub fn top_p(mut self, top_p: f32) -> Self {
+    pub fn top_p(mut self, top_p: f64) -> Self {
         self.common_params.top_p = Some(top_p);
         self
     }
