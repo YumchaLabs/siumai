@@ -713,7 +713,7 @@ impl OpenAiResponsesRequestTransformer {
 
                     for part in parts {
                         match part {
-                            ContentPart::Text { text } => {
+                            ContentPart::Text { text, .. } => {
                                 content_parts.push(
                                     serde_json::json!({ "type": "output_text", "text": text }),
                                 );
@@ -917,11 +917,11 @@ impl OpenAiResponsesRequestTransformer {
                 let mut content_parts = Vec::new();
                 for (part_index, part) in parts.iter().enumerate() {
                     match part {
-                        ContentPart::Text { text } => {
+                        ContentPart::Text { text, .. } => {
                             content_parts
                                 .push(serde_json::json!({ "type": "input_text", "text": text }));
                         }
-                        ContentPart::Image { source, detail } => {
+                        ContentPart::Image { source, detail, .. } => {
                             // Responses API prefers `input_image` items
                             let url = match source {
                                 crate::types::chat::MediaSource::Url { url } => url.clone(),
@@ -951,7 +951,11 @@ impl OpenAiResponsesRequestTransformer {
                             }
                             content_parts.push(image_part);
                         }
-                        ContentPart::Audio { source, media_type } => {
+                        ContentPart::Audio {
+                            source,
+                            media_type,
+                            ..
+                        } => {
                             // Responses API input does not currently accept audio inside message content.
                             // Keep a stable fallback representation.
                             let hint = match source {

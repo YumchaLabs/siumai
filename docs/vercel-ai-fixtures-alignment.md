@@ -106,6 +106,7 @@ Provider id: `openai_compatible` (Chat Completions)
 - [x] Assistant tool-call parts map to `tool_calls[]` with JSON-string arguments; assistant content is concatenated text
 - [x] Tool role emits one `role: tool` message per tool result; tool approval responses are omitted
 - [x] Non-image file parts in Chat Completions raise an error (Vercel parity), validated via `expected_error.txt`
+- [x] `openaiCompatible` message/part metadata is hoisted into OpenAI message objects and `tool_calls[]` (Vercel parity)
 - [x] Fixture-driven message alignment tests under `siumai/tests/fixtures/openai-compatible/chat-messages/*`
 
 ## OpenAI Responses Web Search

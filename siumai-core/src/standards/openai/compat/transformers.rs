@@ -267,6 +267,7 @@ impl ResponseTransformer for CompatResponseTransformer {
                         if let Some(text) = p.get("text").and_then(|t| t.as_str()) {
                             out.push(crate::types::ContentPart::Text {
                                 text: text.to_string(),
+                                provider_metadata: None,
                             });
                         }
                     }

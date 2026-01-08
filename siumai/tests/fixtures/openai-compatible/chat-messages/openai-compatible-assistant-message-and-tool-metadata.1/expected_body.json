@@ -1,0 +1,22 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "assistant",
+      "globalPriority": "high",
+      "content": "Initiating tool calls...",
+      "tool_calls": [
+        {
+          "id": "callXYZ",
+          "type": "function",
+          "function": {
+            "name": "awesomeTool",
+            "arguments": "{\"param\":\"someValue\"}"
+          },
+          "toolPriority": "critical"
+        }
+      ]
+    }
+  ]
+}
+

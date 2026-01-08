@@ -1,0 +1,47 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "text",
+            "text": "Part A",
+            "providerMetadata": {
+              "openaiCompatible": { "textPartLevel": "localized" },
+              "leftoverForText": { "info": "text leftover" }
+            }
+          },
+          {
+            "type": "file",
+            "data": "CQgHBg==",
+            "media_type": "image/png",
+            "providerMetadata": { "openaiCompatible": { "imagePartLevel": "image-data" } }
+          }
+        ]
+      },
+      "metadata": {
+        "custom": {
+          "openaiCompatible": { "messageLevel": "global-metadata" },
+          "leftoverForMessage": { "x": 123 }
+        }
+      }
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "grok-beta",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

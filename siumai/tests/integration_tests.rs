@@ -44,14 +44,14 @@ mod tests {
                 assert_eq!(parts.len(), 2);
 
                 // Check text part
-                if let ContentPart::Text { text } = &parts[0] {
+                if let ContentPart::Text { text, .. } = &parts[0] {
                     assert_eq!(text, "Analyze this image");
                 } else {
                     panic!("Expected text part");
                 }
 
                 // Check image part
-                if let ContentPart::Image { source, detail } = &parts[1] {
+                if let ContentPart::Image { source, detail, .. } = &parts[1] {
                     if let MediaSource::Url { url } = source {
                         assert_eq!(url, "https://example.com/image.jpg");
                     } else {

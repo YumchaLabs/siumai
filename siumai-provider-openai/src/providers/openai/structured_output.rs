@@ -177,7 +177,7 @@ impl StructuredOutputValidator {
             crate::types::MessageContent::MultiModal(parts) => {
                 // Find the first text part
                 for part in parts {
-                    if let crate::types::ContentPart::Text { text } = part {
+                    if let crate::types::ContentPart::Text { text, .. } = part {
                         return Self::validate_json_string(text, schema);
                     }
                 }

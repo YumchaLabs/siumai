@@ -1,0 +1,18 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "user",
+      "priority": "high",
+      "content": [
+        { "type": "text", "text": "Hello from part 1", "sentiment": "positive" },
+        {
+          "type": "image_url",
+          "image_url": { "url": "data:image/png;base64,AAECAw==" },
+          "alt_text": "A sample image"
+        }
+      ]
+    }
+  ]
+}
+

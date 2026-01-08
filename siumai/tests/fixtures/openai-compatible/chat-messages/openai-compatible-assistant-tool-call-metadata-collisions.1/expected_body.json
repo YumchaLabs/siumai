@@ -1,0 +1,21 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "assistant",
+      "cacheControl": { "type": "default" },
+      "sharedKey": "assistantLevel",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "collisionToolCall",
+          "type": "function",
+          "function": { "name": "collider", "arguments": "{\"num\":42}" },
+          "cacheControl": { "type": "ephemeral" },
+          "sharedKey": "toolLevel"
+        }
+      ]
+    }
+  ]
+}
+

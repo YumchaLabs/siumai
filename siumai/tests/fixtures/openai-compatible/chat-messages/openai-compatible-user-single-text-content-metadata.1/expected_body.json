@@ -1,0 +1,5 @@
+{
+  "model": "grok-beta",
+  "messages": [{ "role": "user", "content": "Hello", "cacheControl": { "type": "ephemeral" } }]
+}
+

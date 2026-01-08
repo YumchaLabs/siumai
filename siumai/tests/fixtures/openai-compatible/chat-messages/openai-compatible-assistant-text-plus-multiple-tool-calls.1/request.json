@@ -1,0 +1,43 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          { "type": "text", "text": "Checking that now..." },
+          {
+            "type": "tool-call",
+            "toolCallId": "call1",
+            "toolName": "searchTool",
+            "input": { "query": "Weather" },
+            "providerMetadata": { "openaiCompatible": { "function_call_reason": "user request" } }
+          },
+          { "type": "text", "text": "Almost there..." },
+          {
+            "type": "tool-call",
+            "toolCallId": "call2",
+            "toolName": "mapsTool",
+            "input": { "location": "Paris" }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "grok-beta",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

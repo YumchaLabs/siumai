@@ -1,0 +1,11 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant.",
+      "cacheControl": { "type": "ephemeral" }
+    }
+  ]
+}
+

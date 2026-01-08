@@ -1,0 +1,29 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Checking that now...Almost there...",
+      "tool_calls": [
+        {
+          "id": "call1",
+          "type": "function",
+          "function": {
+            "name": "searchTool",
+            "arguments": "{\"query\":\"Weather\"}"
+          },
+          "function_call_reason": "user request"
+        },
+        {
+          "id": "call2",
+          "type": "function",
+          "function": {
+            "name": "mapsTool",
+            "arguments": "{\"location\":\"Paris\"}"
+          }
+        }
+      ]
+    }
+  ]
+}
+

@@ -25,7 +25,7 @@ impl MessageContent {
             MessageContent::MultiModal(parts) => {
                 // Return the first text part found
                 for part in parts {
-                    if let ContentPart::Text { text } = part {
+                    if let ContentPart::Text { text, .. } = part {
                         return Some(text);
                     }
                 }
@@ -43,7 +43,7 @@ impl MessageContent {
             MessageContent::MultiModal(parts) => {
                 let mut result = String::new();
                 for part in parts {
-                    if let ContentPart::Text { text } = part {
+                    if let ContentPart::Text { text, .. } = part {
                         if !result.is_empty() {
                             result.push(' ');
                         }
@@ -247,7 +247,17 @@ pub enum ToolResultContentPart {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ContentPart {
     /// Text content
-    Text { text: String },
+    Text {
+        text: String,
+
+        /// Provider-specific metadata (Vercel-aligned).
+        #[serde(
+            rename = "providerMetadata",
+            alias = "provider_metadata",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+    },
 
     /// Image content - supports URL, base64, or binary data
     Image {
@@ -257,6 +267,14 @@ pub enum ContentPart {
         /// Optional detail level (for providers that support it, e.g., OpenAI)
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<ImageDetail>,
+
+        /// Provider-specific metadata (Vercel-aligned).
+        #[serde(
+            rename = "providerMetadata",
+            alias = "provider_metadata",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_metadata: Option<HashMap<String, serde_json::Value>>,
     },
 
     /// Audio content - supports URL, base64, or binary data
@@ -267,6 +285,14 @@ pub enum ContentPart {
         /// Media type (e.g., "audio/wav", "audio/mp3", "audio/mpeg")
         #[serde(skip_serializing_if = "Option::is_none")]
         media_type: Option<String>,
+
+        /// Provider-specific metadata (Vercel-aligned).
+        #[serde(
+            rename = "providerMetadata",
+            alias = "provider_metadata",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_metadata: Option<HashMap<String, serde_json::Value>>,
     },
 
     /// File content (PDF, documents, etc.)
@@ -279,6 +305,14 @@ pub enum ContentPart {
         /// Optional filename (for providers that support it)
         #[serde(skip_serializing_if = "Option::is_none")]
         filename: Option<String>,
+
+        /// Provider-specific metadata (Vercel-aligned).
+        #[serde(
+            rename = "providerMetadata",
+            alias = "provider_metadata",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_metadata: Option<HashMap<String, serde_json::Value>>,
     },
 
     /// Source citation (Vercel-aligned).
@@ -615,7 +649,10 @@ impl ToolResultContentPart {
 impl ContentPart {
     /// Create a text content part
     pub fn text(text: impl Into<String>) -> Self {
-        Self::Text { text: text.into() }
+        Self::Text {
+            text: text.into(),
+            provider_metadata: None,
+        }
     }
 
     /// Create an image content part from URL
@@ -623,6 +660,7 @@ impl ContentPart {
         Self::Image {
             source: MediaSource::url(url),
             detail: None,
+            provider_metadata: None,
         }
     }
 
@@ -631,6 +669,7 @@ impl ContentPart {
         Self::Image {
             source: MediaSource::url(url),
             detail: Some(detail),
+            provider_metadata: None,
         }
     }
 
@@ -639,6 +678,7 @@ impl ContentPart {
         Self::Image {
             source: MediaSource::base64(data),
             detail: None,
+            provider_metadata: None,
         }
     }
 
@@ -647,6 +687,7 @@ impl ContentPart {
         Self::Image {
             source: MediaSource::binary(data),
             detail: None,
+            provider_metadata: None,
         }
     }
 
@@ -655,6 +696,7 @@ impl ContentPart {
         Self::Audio {
             source: MediaSource::url(url),
             media_type,
+            provider_metadata: None,
         }
     }
 
@@ -663,6 +705,7 @@ impl ContentPart {
         Self::Audio {
             source: MediaSource::base64(data),
             media_type: Some(media_type.into()),
+            provider_metadata: None,
         }
     }
 
@@ -671,6 +714,7 @@ impl ContentPart {
         Self::Audio {
             source: MediaSource::binary(data),
             media_type: Some(media_type.into()),
+            provider_metadata: None,
         }
     }
 
@@ -680,6 +724,7 @@ impl ContentPart {
             source: MediaSource::url(url),
             media_type: media_type.into(),
             filename: None,
+            provider_metadata: None,
         }
     }
 
@@ -693,6 +738,7 @@ impl ContentPart {
             source: MediaSource::base64(data),
             media_type: media_type.into(),
             filename,
+            provider_metadata: None,
         }
     }
 
@@ -706,6 +752,7 @@ impl ContentPart {
             source: MediaSource::binary(data),
             media_type: media_type.into(),
             filename,
+            provider_metadata: None,
         }
     }
 
@@ -1006,7 +1053,7 @@ impl ContentPart {
     /// Get the text content if this is a text part
     pub fn as_text(&self) -> Option<&str> {
         match self {
-            Self::Text { text } => Some(text),
+            Self::Text { text, .. } => Some(text),
             _ => None,
         }
     }

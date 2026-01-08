@@ -222,7 +222,7 @@ impl ChatMessage {
         match &self.content {
             MessageContent::Text(text) => Some(text),
             MessageContent::MultiModal(parts) => parts.iter().find_map(|part| {
-                if let ContentPart::Text { text } = part {
+                if let ContentPart::Text { text, .. } = part {
                     Some(text.as_str())
                 } else {
                     None
@@ -272,7 +272,7 @@ impl ChatMessage {
             MessageContent::MultiModal(parts) => parts
                 .iter()
                 .map(|part| match part {
-                    ContentPart::Text { text } => text.len(),
+                    ContentPart::Text { text, .. } => text.len(),
                     ContentPart::Image { source, .. }
                     | ContentPart::Audio { source, .. }
                     | ContentPart::File { source, .. } => match source {
@@ -630,12 +630,13 @@ impl ChatMessageBuilder {
         let image_part = ContentPart::Image {
             source: MediaSource::Url { url: image_url },
             detail: detail.map(|d| ImageDetail::from(d.as_str())),
+            provider_metadata: None,
         };
 
         match self.content {
             Some(MessageContent::Text(text)) => {
                 self.content = Some(MessageContent::MultiModal(vec![
-                    ContentPart::Text { text },
+                    ContentPart::text(text),
                     image_part,
                 ]));
             }
@@ -646,7 +647,7 @@ impl ChatMessageBuilder {
             Some(MessageContent::Json(v)) => {
                 let text = serde_json::to_string(&v).unwrap_or_default();
                 self.content = Some(MessageContent::MultiModal(vec![
-                    ContentPart::Text { text },
+                    ContentPart::text(text),
                     image_part,
                 ]));
             }
@@ -664,7 +665,7 @@ impl ChatMessageBuilder {
     pub fn with_content_parts(mut self, new_parts: Vec<ContentPart>) -> Self {
         let mut parts = match self.content {
             Some(MessageContent::Text(text)) if !text.is_empty() => {
-                vec![ContentPart::Text { text }]
+                vec![ContentPart::text(text)]
             }
             Some(MessageContent::MultiModal(parts)) => parts,
             _ => vec![],

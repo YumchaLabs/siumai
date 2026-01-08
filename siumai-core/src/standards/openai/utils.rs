@@ -10,13 +10,44 @@ use crate::types::{
     ChatMessage, ContentPart, FinishReason, MessageContent, MessageRole, ToolResultOutput,
 };
 use base64::Engine;
+use std::collections::HashMap;
+
+fn merge_openai_compatible_extra(
+    extra: &mut HashMap<String, serde_json::Value>,
+    provider_map: &HashMap<String, serde_json::Value>,
+) {
+    let Some(serde_json::Value::Object(obj)) = provider_map.get("openaiCompatible") else {
+        return;
+    };
+
+    for (k, v) in obj {
+        extra.insert(k.clone(), v.clone());
+    }
+}
+
+fn merge_openai_compatible_json(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    provider_metadata: Option<&HashMap<String, serde_json::Value>>,
+) {
+    let Some(provider_metadata) = provider_metadata else {
+        return;
+    };
+
+    let Some(serde_json::Value::Object(extra)) = provider_metadata.get("openaiCompatible") else {
+        return;
+    };
+
+    for (k, v) in extra {
+        obj.insert(k.clone(), v.clone());
+    }
+}
 
 fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
     match content {
         MessageContent::Text(text) => Ok(serde_json::Value::String(text.clone())),
         MessageContent::MultiModal(parts) => {
             if parts.len() == 1
-                && let Some(ContentPart::Text { text }) = parts.first()
+                && let Some(ContentPart::Text { text, .. }) = parts.first()
             {
                 return Ok(serde_json::Value::String(text.clone()));
             }
@@ -25,13 +56,24 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
 
             for part in parts {
                 match part {
-                    ContentPart::Text { text } => {
-                        content_parts.push(serde_json::json!({
-                            "type": "text",
-                            "text": text
-                        }));
+                    ContentPart::Text {
+                        text,
+                        provider_metadata,
+                    } => {
+                        let mut obj = serde_json::Map::new();
+                        obj.insert(
+                            "type".to_string(),
+                            serde_json::Value::String("text".to_string()),
+                        );
+                        obj.insert("text".to_string(), serde_json::Value::String(text.clone()));
+                        merge_openai_compatible_json(&mut obj, provider_metadata.as_ref());
+                        content_parts.push(serde_json::Value::Object(obj));
                     }
-                    ContentPart::Image { source, detail } => {
+                    ContentPart::Image {
+                        source,
+                        detail,
+                        provider_metadata,
+                    } => {
                         let url = match source {
                             crate::types::chat::MediaSource::Url { url } => url.clone(),
                             crate::types::chat::MediaSource::Base64 { data } => {
@@ -57,9 +99,15 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
                             image_obj["image_url"]["detail"] = serde_json::json!(detail);
                         }
 
+                        if let serde_json::Value::Object(ref mut obj) = image_obj {
+                            merge_openai_compatible_json(obj, provider_metadata.as_ref());
+                        }
+
                         content_parts.push(image_obj);
                     }
-                    ContentPart::Audio { source, media_type } => match source {
+                    ContentPart::Audio {
+                        source, media_type, ..
+                    } => match source {
                         crate::types::chat::MediaSource::Base64 { data } => {
                             let format = infer_audio_format(media_type.as_deref());
                             content_parts.push(serde_json::json!({
@@ -83,7 +131,10 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
                         }
                     },
                     ContentPart::File {
-                        source, media_type, ..
+                        source,
+                        media_type,
+                        provider_metadata,
+                        ..
                     } => {
                         if media_type.starts_with("image/") {
                             let normalized_media_type = if media_type == "image/*" {
@@ -108,10 +159,16 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
                                 }
                             };
 
-                            content_parts.push(serde_json::json!({
+                            let mut image_obj = serde_json::json!({
                                 "type": "image_url",
                                 "image_url": { "url": url }
-                            }));
+                            });
+
+                            if let serde_json::Value::Object(ref mut obj) = image_obj {
+                                merge_openai_compatible_json(obj, provider_metadata.as_ref());
+                            }
+
+                            content_parts.push(image_obj);
                         } else {
                             return Err(LlmError::UnsupportedOperation(format!(
                                 "OpenAI-compatible chat does not support file part media type {media_type}"
@@ -147,18 +204,35 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
     let mut openai_messages = Vec::new();
 
     for message in messages {
-        let openai_message = match message.role {
+        let user_single_text_part_metadata = if message.role == MessageRole::User {
+            match &message.content {
+                MessageContent::MultiModal(parts) if parts.len() == 1 => match parts.first() {
+                    Some(ContentPart::Text {
+                        provider_metadata: Some(provider_metadata),
+                        ..
+                    }) => Some(provider_metadata),
+                    _ => None,
+                },
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let mut openai_message = match message.role {
             MessageRole::System => OpenAiMessage {
                 role: "system".to_string(),
                 content: Some(convert_message_content(&message.content)?),
                 tool_calls: None,
                 tool_call_id: None,
+                extra: HashMap::new(),
             },
             MessageRole::User => OpenAiMessage {
                 role: "user".to_string(),
                 content: Some(convert_message_content(&message.content)?),
                 tool_calls: None,
                 tool_call_id: None,
+                extra: HashMap::new(),
             },
             MessageRole::Assistant => {
                 let tool_calls_vec = message.tool_calls();
@@ -171,10 +245,11 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                                     tool_call_id,
                                     tool_name,
                                     arguments,
+                                    provider_metadata,
                                     ..
                                 } = part
                                 {
-                                    Some(OpenAiToolCall {
+                                    let mut tool_call = OpenAiToolCall {
                                         id: tool_call_id.clone(),
                                         r#type: "function".to_string(),
                                         function: Some(OpenAiFunction {
@@ -182,7 +257,17 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                                             arguments: serde_json::to_string(arguments)
                                                 .unwrap_or_default(),
                                         }),
-                                    })
+                                        extra: HashMap::new(),
+                                    };
+
+                                    if let Some(provider_metadata) = provider_metadata {
+                                        merge_openai_compatible_extra(
+                                            &mut tool_call.extra,
+                                            provider_metadata,
+                                        );
+                                    }
+
+                                    Some(tool_call)
                                 } else {
                                     None
                                 }
@@ -200,7 +285,7 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                     MessageContent::Text(t) => text.push_str(t),
                     MessageContent::MultiModal(parts) => {
                         for p in parts {
-                            if let ContentPart::Text { text: t } = p {
+                            if let ContentPart::Text { text: t, .. } = p {
                                 text.push_str(t);
                             }
                         }
@@ -216,6 +301,7 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                     content: Some(serde_json::Value::String(text)),
                     tool_calls: tool_calls_openai,
                     tool_call_id: None,
+                    extra: HashMap::new(),
                 }
             }
             MessageRole::Tool => {
@@ -228,6 +314,7 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                             let ContentPart::ToolResult {
                                 tool_call_id,
                                 output,
+                                provider_metadata,
                                 ..
                             } = part
                             else {
@@ -256,6 +343,14 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                                 content: Some(serde_json::Value::String(content_value)),
                                 tool_calls: None,
                                 tool_call_id: Some(tool_call_id.clone()),
+                                extra: provider_metadata
+                                    .as_ref()
+                                    .map(|m| {
+                                        let mut extra = HashMap::new();
+                                        merge_openai_compatible_extra(&mut extra, m);
+                                        extra
+                                    })
+                                    .unwrap_or_default(),
                             });
                         }
 
@@ -271,6 +366,7 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                         content: Some(serde_json::Value::String(t.clone())),
                         tool_calls: None,
                         tool_call_id: None,
+                        extra: HashMap::new(),
                     },
                     #[cfg(feature = "structured-messages")]
                     MessageContent::Json(v) => OpenAiMessage {
@@ -280,6 +376,7 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                         )),
                         tool_calls: None,
                         tool_call_id: None,
+                        extra: HashMap::new(),
                     },
                 }
             }
@@ -288,9 +385,14 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                 content: Some(convert_message_content(&message.content)?),
                 tool_calls: None,
                 tool_call_id: None,
+                extra: HashMap::new(),
             },
         };
 
+        merge_openai_compatible_extra(&mut openai_message.extra, &message.metadata.custom);
+        if let Some(provider_metadata) = user_single_text_part_metadata {
+            merge_openai_compatible_extra(&mut openai_message.extra, provider_metadata);
+        }
         openai_messages.push(openai_message);
     }
 

@@ -1,0 +1,18 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "user",
+      "messageLevel": "global-metadata",
+      "content": [
+        { "type": "text", "text": "Part A", "textPartLevel": "localized" },
+        {
+          "type": "image_url",
+          "image_url": { "url": "data:image/png;base64,CQgHBg==" },
+          "imagePartLevel": "image-data"
+        }
+      ]
+    }
+  ]
+}
+
