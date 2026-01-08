@@ -231,6 +231,14 @@ Provider id: `openai` (OpenAI-compatible error envelope)
 
 - [x] Error envelope mapping parity (`openai-error.1` -> typed `LlmError` with lossless `error.message`)
 
+## Azure OpenAI Responses Response (Fixtures)
+
+Provider id: `azure` (Vercel provider string: `azure.responses`)
+
+### Done
+
+- [x] Response parsing fixtures aligned with Vercel `@ai-sdk/azure` (web search preview, code interpreter, image generation, reasoning)
+
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
 Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE stream)
