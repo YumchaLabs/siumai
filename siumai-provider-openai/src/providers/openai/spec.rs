@@ -288,12 +288,26 @@ impl ProviderSpec for OpenAiSpec {
         ctx: &ProviderContext,
     ) -> ChatTransformers {
         if self.use_responses_api(req, ctx) {
+            let provider_metadata_key = {
+                let provider_id = ctx.provider_id.to_ascii_lowercase();
+                let base_url = ctx.base_url.to_ascii_lowercase();
+                if provider_id.contains("azure")
+                    || (base_url.contains("azure") && base_url.contains("openai"))
+                {
+                    "azure"
+                } else {
+                    "openai"
+                }
+            };
+
             // Responses API transformers
             let req_tx = crate::providers::openai::transformers::OpenAiResponsesRequestTransformer;
             let resp_tx =
-                crate::providers::openai::transformers::OpenAiResponsesResponseTransformer::new();
+                crate::providers::openai::transformers::OpenAiResponsesResponseTransformer::new()
+                    .with_provider_metadata_key(provider_metadata_key);
             let converter =
                 crate::providers::openai::responses::OpenAiResponsesEventConverter::new()
+                    .with_provider_metadata_key(provider_metadata_key)
                     .with_request_tools(req.tools.as_deref().unwrap_or(&[]));
             let stream_tx =
                 crate::providers::openai::transformers::OpenAiResponsesStreamChunkTransformer {
@@ -983,5 +997,48 @@ mod tests {
         let out = hook(&serde_json::json!({})).expect("hook ok");
         assert!(out["text"]["format"].is_object());
         assert_eq!(out["text"]["format"]["type"], "json_schema");
+    }
+
+    #[test]
+    fn openai_spec_uses_azure_provider_metadata_key_for_azure_base_url() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "azure.responses",
+            "https://my-resource.openai.azure.com/openai/deployments/my-deployment",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "openai",
+                serde_json::json!({ "responsesApi": { "enabled": true } }),
+            );
+
+        let transformers = spec.choose_chat_transformers(&req, &ctx);
+        let resp = transformers
+            .response
+            .transform_chat_response(&serde_json::json!({
+                "response": {
+                    "id": "resp_provider_metadata_azure",
+                    "model": "gpt-4o",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "id": "msg_1",
+                            "type": "message",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{ "type": "output_text", "text": "hi", "annotations": [] }]
+                        }
+                    ],
+                    "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+                }
+            }))
+            .expect("transform response");
+
+        let provider_metadata = resp.provider_metadata.expect("provider metadata");
+        assert!(provider_metadata.contains_key("azure"));
+        assert!(!provider_metadata.contains_key("openai"));
     }
 }
