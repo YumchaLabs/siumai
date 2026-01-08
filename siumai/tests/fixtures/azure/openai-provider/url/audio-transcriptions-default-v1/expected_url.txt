@@ -1,0 +1,2 @@
+https://test-resource.openai.azure.com/openai/v1/audio/transcriptions?api-version=v1
+

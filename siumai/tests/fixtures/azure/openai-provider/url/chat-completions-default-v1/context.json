@@ -1,0 +1,9 @@
+{
+  "base_url": "https://test-resource.openai.azure.com/openai",
+  "api_key": "test-api-key",
+  "http_extra_headers": {},
+  "api_version": "v1",
+  "use_deployment_based_urls": false,
+  "extras": {}
+}
+

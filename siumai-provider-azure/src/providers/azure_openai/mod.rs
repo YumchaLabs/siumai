@@ -1,3 +1,3 @@
 pub mod spec;
 
-pub use spec::{AzureOpenAiSpec, AzureUrlConfig};
+pub use spec::{AzureChatMode, AzureOpenAiSpec, AzureUrlConfig};

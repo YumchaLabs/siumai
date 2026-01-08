@@ -283,7 +283,9 @@ pub mod provider_ext {
 
     #[cfg(feature = "azure")]
     pub mod azure {
-        pub use siumai_provider_azure::providers::azure_openai::{AzureOpenAiSpec, AzureUrlConfig};
+        pub use siumai_provider_azure::providers::azure_openai::{
+            AzureChatMode, AzureOpenAiSpec, AzureUrlConfig,
+        };
     }
 
     #[cfg(feature = "anthropic")]

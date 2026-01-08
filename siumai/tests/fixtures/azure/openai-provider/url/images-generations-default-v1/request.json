@@ -1,0 +1,15 @@
+{
+  "prompt": "a cat",
+  "model": "test-deployment",
+  "count": 1,
+  "size": null,
+  "quality": null,
+  "style": null,
+  "format": null,
+  "seed": null,
+  "negative_prompt": null,
+  "provider_options_map": {},
+  "http_config": null,
+  "extra_params": {}
+}
+

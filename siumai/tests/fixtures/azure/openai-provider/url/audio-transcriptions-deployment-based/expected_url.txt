@@ -1,0 +1,2 @@
+https://test-resource.openai.azure.com/openai/deployments/whisper-1/audio/transcriptions?api-version=v1
+

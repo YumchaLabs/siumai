@@ -1,0 +1,2 @@
+https://test-resource.openai.azure.com/openai/deployments/test-deployment/chat/completions?api-version=v1
+

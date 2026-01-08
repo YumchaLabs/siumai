@@ -260,6 +260,7 @@ Provider id: `azure` (Vercel package: `@ai-sdk/azure`)
 - [x] Legacy deployment-based URL mode (`/openai/deployments/{deployment}/responses`)
 - [x] `api-key` auth header + provider/request header merge parity
 - [x] Fixture-driven request alignment tests under `siumai/tests/fixtures/azure/openai-provider/request/*`
+- [x] URL routing parity for `chat`/`embeddings`/`images`/`audio` via fixtures under `siumai/tests/fixtures/azure/openai-provider/url/*`
 
 ## OpenAI Responses Reasoning (Streaming)
 
