@@ -32,6 +32,8 @@ Provider id: `vertex`
 - [x] Vercel-aligned provider options allowlist (drops unknown keys)
 - [x] Edit without mask (`EDIT_MODE_CONTROLLED_EDITING`)
 - [x] Edit without mask defaults to `EDIT_MODE_INPAINT_INSERTION`
+- [x] Edit with mask still supports `EDIT_MODE_CONTROLLED_EDITING` (mask reference image is retained)
+- [x] Edit without mask still accepts explicit inpaint modes (e.g. `EDIT_MODE_INPAINT_REMOVAL`)
 - [x] Imagen 4 request parameter mapping (preview/fast/ultra family)
 - [x] Negative prompt precedence (`request` > `extra_params` > `providerOptions`)
 - [x] Vercel-style warning for unsupported `size` (ignored by Vertex Imagen)

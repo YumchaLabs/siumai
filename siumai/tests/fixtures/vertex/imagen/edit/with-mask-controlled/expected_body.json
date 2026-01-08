@@ -1,0 +1,30 @@
+{
+  "instances": [
+    {
+      "prompt": "Upscale this image",
+      "referenceImages": [
+        {
+          "referenceId": 1,
+          "referenceType": "REFERENCE_TYPE_RAW",
+          "referenceImage": {
+            "bytesBase64Encoded": "AQIDBA=="
+          }
+        },
+        {
+          "referenceId": 2,
+          "referenceType": "REFERENCE_TYPE_MASK",
+          "referenceImage": {
+            "bytesBase64Encoded": "CQkJ"
+          },
+          "maskImageConfig": {
+            "maskMode": "MASK_MODE_USER_PROVIDED"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "editMode": "EDIT_MODE_CONTROLLED_EDITING",
+    "sampleCount": 1
+  }
+}
