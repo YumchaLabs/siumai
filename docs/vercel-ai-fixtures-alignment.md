@@ -96,6 +96,15 @@ Provider id: `openai_compatible` (Chat Completions)
 - [x] Reasoning extraction parity (`reasoning_content` > `thinking` > `reasoning`)
 - [x] Fixture-driven response alignment tests under `siumai/tests/fixtures/openai-compatible/chat-response/*`
 
+## OpenAI-Compatible Chat Messages
+
+Provider id: `openai_compatible` (Chat Completions)
+
+### Done
+
+- [x] User image file parts map to `image_url` content parts (supports `image/*` -> `image/jpeg`)
+- [x] Fixture-driven message alignment tests under `siumai/tests/fixtures/openai-compatible/chat-messages/*`
+
 ## OpenAI Responses Web Search
 
 Provider id: `openai` (Responses API)

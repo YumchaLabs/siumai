@@ -77,30 +77,37 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
                     ContentPart::File {
                         source, media_type, ..
                     } => {
-                        if media_type == "application/pdf" {
-                            let data = match source {
-                                crate::types::chat::MediaSource::Base64 { data } => data.clone(),
-                                crate::types::chat::MediaSource::Binary { data } => {
-                                    base64::engine::general_purpose::STANDARD.encode(data)
+                        if media_type.starts_with("image/") {
+                            let normalized_media_type = if media_type == "image/*" {
+                                "image/jpeg"
+                            } else {
+                                media_type.as_str()
+                            };
+
+                            let url = match source {
+                                crate::types::chat::MediaSource::Url { url } => url.clone(),
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    if data.starts_with("data:") {
+                                        data.clone()
+                                    } else {
+                                        format!("data:{};base64,{}", normalized_media_type, data)
+                                    }
                                 }
-                                crate::types::chat::MediaSource::Url { url } => {
-                                    content_parts.push(serde_json::json!({
-                                        "type": "text",
-                                        "text": format!("[PDF: {}]", url)
-                                    }));
-                                    continue;
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    format!("data:{};base64,{}", normalized_media_type, encoded)
                                 }
                             };
 
                             content_parts.push(serde_json::json!({
-                                "type": "file",
-                                "file": { "data": data, "media_type": media_type }
+                                "type": "image_url",
+                                "image_url": { "url": url }
                             }));
                         } else {
-                            content_parts.push(serde_json::json!({
-                                "type": "text",
-                                "text": format!("[Unsupported file type: {}]", media_type)
-                            }));
+                            return Err(LlmError::UnsupportedOperation(format!(
+                                "OpenAI-compatible chat does not support file part media type {media_type}"
+                            )));
                         }
                     }
                     ContentPart::ToolCall { .. } => {}
