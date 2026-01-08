@@ -1,0 +1,6 @@
+[
+  {
+    "type": "other",
+    "message": "Non-OpenAI reasoning parts are not supported. Skipping reasoning part: {\"type\":\"reasoning\",\"text\":\"This is a reasoning part without any provider options\"}."
+  }
+]

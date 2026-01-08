@@ -1,0 +1,54 @@
+{
+  "messages": [
+    { "role": "user", "content": { "Text": "First user question" }, "metadata": {} },
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "reasoning",
+            "text": "First reasoning step (message 1)",
+            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+          },
+          {
+            "type": "reasoning",
+            "text": "Second reasoning step (message 1)",
+            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+          },
+          { "type": "text", "text": "First response" }
+        ]
+      },
+      "metadata": {}
+    },
+    { "role": "user", "content": { "Text": "Second user question" }, "metadata": {} },
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "reasoning",
+            "text": "First reasoning step (message 2)",
+            "providerMetadata": { "openai": { "itemId": "reasoning_002" } }
+          },
+          { "type": "text", "text": "Second response" }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": { "openai": { "store": false } },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

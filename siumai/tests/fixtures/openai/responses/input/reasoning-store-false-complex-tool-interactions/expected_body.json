@@ -1,0 +1,56 @@
+{
+  "model": "gpt-5-nano",
+  "store": false,
+  "input": [
+    {
+      "type": "reasoning",
+      "id": "reasoning_001",
+      "encrypted_content": "encrypted_content_001",
+      "summary": [
+        { "type": "summary_text", "text": "Initial analysis step 1" },
+        { "type": "summary_text", "text": "Initial analysis step 2" }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_001",
+      "name": "search",
+      "arguments": "{\"query\":\"initial search\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_001",
+      "output": "{\"results\":[\"result1\",\"result2\"]}"
+    },
+    {
+      "type": "reasoning",
+      "id": "reasoning_002",
+      "encrypted_content": "encrypted_content_002",
+      "summary": [
+        { "type": "summary_text", "text": "Processing results step 1" },
+        { "type": "summary_text", "text": "Processing results step 2" },
+        { "type": "summary_text", "text": "Processing results step 3" }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_002",
+      "name": "calculator",
+      "arguments": "{\"expression\":\"2 + 2\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_002",
+      "output": "{\"result\":4}"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Based on my analysis and calculations, here is the final answer."
+        }
+      ]
+    }
+  ]
+}

@@ -14,6 +14,57 @@ impl OpenAiResponsesInputWarningsMiddleware {
         Self
     }
 
+    fn vercel_reasoning_part_json(part: &ContentPart) -> Option<String> {
+        let ContentPart::Reasoning {
+            text,
+            provider_metadata,
+        } = part
+        else {
+            return None;
+        };
+
+        let openai = provider_metadata
+            .as_ref()
+            .and_then(|m| m.get("openai"))
+            .and_then(|v| v.as_object());
+
+        let item_id = openai
+            .and_then(|m| m.get("itemId").or_else(|| m.get("item_id")))
+            .and_then(|v| v.as_str());
+        let encrypted = openai.and_then(|m| {
+            m.get("reasoningEncryptedContent")
+                .or_else(|| m.get("reasoning_encrypted_content"))
+        });
+        let reasoning = openai.and_then(|m| m.get("reasoning"));
+
+        // Emit a Vercel-shaped JSON.stringify snapshot with stable key order:
+        // {"type":"reasoning","text":"...","providerOptions":{"openai":{...}}}
+        let text_json = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
+
+        if item_id.is_none() && encrypted.is_none() && reasoning.is_none() {
+            return Some(format!("{{\"type\":\"reasoning\",\"text\":{text_json}}}"));
+        }
+
+        let mut openai_fields: Vec<String> = Vec::new();
+        if let Some(id) = item_id {
+            let id_json = serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string());
+            openai_fields.push(format!("\"itemId\":{id_json}"));
+        }
+        if let Some(enc) = encrypted {
+            let enc_json = serde_json::to_string(enc).unwrap_or_else(|_| "null".to_string());
+            openai_fields.push(format!("\"reasoningEncryptedContent\":{enc_json}"));
+        }
+        if let Some(r) = reasoning {
+            let r_json = serde_json::to_string(r).unwrap_or_else(|_| "null".to_string());
+            openai_fields.push(format!("\"reasoning\":{r_json}"));
+        }
+
+        Some(format!(
+            "{{\"type\":\"reasoning\",\"text\":{text_json},\"providerOptions\":{{\"openai\":{{{}}}}}}}",
+            openai_fields.join(",")
+        ))
+    }
+
     fn store_enabled(req: &ChatRequest) -> bool {
         let openai = req.provider_options_map.get_object("openai");
         let store = openai
@@ -31,9 +82,7 @@ impl OpenAiResponsesInputWarningsMiddleware {
     }
 
     fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
-        if Self::store_enabled(req) {
-            return Vec::new();
-        }
+        let store_enabled = Self::store_enabled(req);
 
         let tool_name_mapping = req.tools.as_deref().map(|tools| {
             create_tool_name_mapping(
@@ -46,6 +95,9 @@ impl OpenAiResponsesInputWarningsMiddleware {
         });
         let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 
+        let mut warnings: Vec<Warning> = Vec::new();
+
+        // Vercel parity: warnings for `store=false` + provider-executed web_search.
         let mut has_web_search_results = false;
 
         for message in &req.messages {
@@ -74,13 +126,64 @@ impl OpenAiResponsesInputWarningsMiddleware {
             }
         }
 
-        if !has_web_search_results {
-            return Vec::new();
+        if !store_enabled && has_web_search_results {
+            warnings.push(Warning::other(
+                "Results for OpenAI tool web_search are not sent to the API when store is false",
+            ));
         }
 
-        vec![Warning::other(
-            "Results for OpenAI tool web_search are not sent to the API when store is false",
-        )]
+        // Vercel parity: reasoning warnings.
+        let mut seen_reasoning_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
+        for message in &req.messages {
+            let MessageContent::MultiModal(parts) = &message.content else {
+                continue;
+            };
+
+            for part in parts {
+                let ContentPart::Reasoning { text, .. } = part else {
+                    continue;
+                };
+
+                let openai = match part {
+                    ContentPart::Reasoning {
+                        provider_metadata, ..
+                    } => provider_metadata
+                        .as_ref()
+                        .and_then(|m| m.get("openai"))
+                        .and_then(|v| v.as_object()),
+                    _ => None,
+                };
+
+                let reasoning_id = openai
+                    .and_then(|m| m.get("itemId").or_else(|| m.get("item_id")))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let Some(reasoning_id) = reasoning_id else {
+                    let snapshot = Self::vercel_reasoning_part_json(part)
+                        .unwrap_or_else(|| "{\"type\":\"reasoning\"}".to_string());
+                    warnings.push(Warning::other(format!(
+                        "Non-OpenAI reasoning parts are not supported. Skipping reasoning part: {snapshot}.",
+                    )));
+                    continue;
+                };
+
+                if !store_enabled && text.is_empty() && seen_reasoning_ids.contains(&reasoning_id) {
+                    let snapshot = Self::vercel_reasoning_part_json(part)
+                        .unwrap_or_else(|| "{\"type\":\"reasoning\"}".to_string());
+                    warnings.push(Warning::other(format!(
+                        "Cannot append empty reasoning part to existing reasoning sequence. Skipping reasoning part: {snapshot}.",
+                    )));
+                    continue;
+                }
+
+                seen_reasoning_ids.insert(reasoning_id);
+            }
+        }
+
+        warnings
     }
 
     fn merge_warnings(mut resp: ChatResponse, additional: Vec<Warning>) -> ChatResponse {

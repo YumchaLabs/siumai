@@ -56,6 +56,9 @@ fn normalize_json(value: &mut Value) {
                 .iter()
                 .filter_map(|(k, v)| {
                     if v.is_null() {
+                        if k == "encrypted_content" {
+                            return None;
+                        }
                         return Some(k.clone());
                     }
                     if let Value::Object(obj) = v

@@ -1,0 +1,7 @@
+{
+  "model": "gpt-5-nano",
+  "store": false,
+  "input": [
+    { "type": "reasoning", "id": "reasoning_001", "summary": [] }
+  ]
+}

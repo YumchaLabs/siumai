@@ -185,6 +185,8 @@ Provider id: `openai` (Responses API)
 - [x] User file part parity for images/PDFs (URL, base64, file_id via `fileIdPrefixes`) in `input[]`
 - [x] Assistant message parity (`output_text`) and function tool call parity (`function_call`) in `input[]`
 - [x] Tool message output parity for hosted tools (`local_shell_call_output`, `shell_call_output`, `apply_patch_call_output`)
+- [x] Reasoning input parity for `store=false` (`type: "reasoning"` summary merge by `itemId`, encrypted content mapping) via fixtures
+- [x] Vercel-style warnings parity for `store=false` reasoning edge-cases (empty append + non-OpenAI reasoning parts)
 
 ## OpenAI Responses Response (Fixtures)
 

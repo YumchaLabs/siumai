@@ -372,6 +372,17 @@ mod tests_openai_rules {
 pub struct OpenAiResponsesRequestTransformer;
 
 #[cfg(feature = "openai-responses")]
+#[derive(Debug, Default)]
+struct ResponsesInputConversionState {
+    // Vercel parity: reasoning parts are merged by `itemId` across the entire prompt.
+    // For store=false we keep the index of the first emitted reasoning item so we can
+    // append subsequent summary parts in-place.
+    reasoning_item_index: std::collections::HashMap<String, usize>,
+    // For store=true we only emit a single item_reference per reasoning id.
+    reasoning_item_seen: std::collections::HashSet<String>,
+}
+
+#[cfg(feature = "openai-responses")]
 impl OpenAiResponsesRequestTransformer {
     fn system_message_mode(req: &ChatRequest) -> Option<&str> {
         req.provider_options_map
@@ -429,10 +440,12 @@ impl OpenAiResponsesRequestTransformer {
         store != Some(false)
     }
 
-    fn convert_message(
+    fn extend_message(
         req: &ChatRequest,
         msg: &crate::types::ChatMessage,
-    ) -> Result<Vec<serde_json::Value>, LlmError> {
+        state: &mut ResponsesInputConversionState,
+        input: &mut Vec<serde_json::Value>,
+    ) -> Result<(), LlmError> {
         use crate::types::{ContentPart, MessageContent, MessageRole};
         use siumai_core::standards::tool_name_mapping::create_tool_name_mapping;
 
@@ -613,7 +626,8 @@ impl OpenAiResponsesRequestTransformer {
                 ));
             }
 
-            return Ok(items);
+            input.extend(items);
+            return Ok(());
         }
 
         let store = Self::should_include_item_reference(req);
@@ -624,7 +638,7 @@ impl OpenAiResponsesRequestTransformer {
         if matches!(msg.role, MessageRole::System)
             && matches!(Self::system_message_mode(req), Some("remove"))
         {
-            return Ok(vec![]);
+            return Ok(());
         }
 
         // Assistant messages (Vercel-aligned: expand to message + tool call items).
@@ -644,10 +658,11 @@ impl OpenAiResponsesRequestTransformer {
             match &msg.content {
                 MessageContent::Text(text) => {
                     if store && msg.metadata.id.is_some() {
-                        return Ok(vec![serde_json::json!({
+                        input.push(serde_json::json!({
                             "type": "item_reference",
                             "id": msg.metadata.id.clone().unwrap(),
-                        })]);
+                        }));
+                        return Ok(());
                     }
 
                     let mut api_message = serde_json::json!({
@@ -657,7 +672,8 @@ impl OpenAiResponsesRequestTransformer {
                     if let Some(id) = msg.metadata.id.clone() {
                         api_message["id"] = serde_json::json!(id);
                     }
-                    return Ok(vec![api_message]);
+                    input.push(api_message);
+                    return Ok(());
                 }
                 MessageContent::MultiModal(parts) => {
                     // Vercel parity: prefer item references when IDs are provided and store is enabled.
@@ -704,11 +720,11 @@ impl OpenAiResponsesRequestTransformer {
                         }
 
                         if !refs.is_empty() {
-                            return Ok(refs);
+                            input.extend(refs);
+                            return Ok(());
                         }
                     }
 
-                    let mut out: Vec<serde_json::Value> = Vec::new();
                     let mut content_parts: Vec<serde_json::Value> = Vec::new();
 
                     let flush_assistant =
@@ -741,11 +757,11 @@ impl OpenAiResponsesRequestTransformer {
                                 if provider_executed == &Some(true) {
                                     // Provider-executed tool calls are not sent back to the API.
                                     // Flush any accumulated assistant text to preserve ordering.
-                                    flush_assistant(&mut out, &mut content_parts);
+                                    flush_assistant(input, &mut content_parts);
                                     continue;
                                 }
 
-                                flush_assistant(&mut out, &mut content_parts);
+                                flush_assistant(input, &mut content_parts);
 
                                 let resolved_tool_name =
                                     tool_name_mapping.to_provider_tool_name(tool_name);
@@ -795,7 +811,7 @@ impl OpenAiResponsesRequestTransformer {
                                     if let Some(id) = item_id {
                                         call["id"] = serde_json::json!(id);
                                     }
-                                    out.push(call);
+                                    input.push(call);
                                     continue;
                                 }
 
@@ -831,7 +847,7 @@ impl OpenAiResponsesRequestTransformer {
                                     if let Some(id) = item_id {
                                         call["id"] = serde_json::json!(id);
                                     }
-                                    out.push(call);
+                                    input.push(call);
                                     continue;
                                 }
 
@@ -844,7 +860,7 @@ impl OpenAiResponsesRequestTransformer {
                                 if let Some(id) = item_id {
                                     call["id"] = serde_json::json!(id);
                                 }
-                                out.push(call);
+                                input.push(call);
                             }
                             ContentPart::ToolResult {
                                 tool_call_id,
@@ -852,7 +868,7 @@ impl OpenAiResponsesRequestTransformer {
                                 provider_executed,
                                 ..
                             } => {
-                                flush_assistant(&mut out, &mut content_parts);
+                                flush_assistant(input, &mut content_parts);
 
                                 // Assistant tool results are typically provider-executed and stored.
                                 if store
@@ -866,7 +882,7 @@ impl OpenAiResponsesRequestTransformer {
                                         .and_then(|v| v.as_str())
                                         .unwrap_or(tool_call_id);
 
-                                    out.push(serde_json::json!({
+                                    input.push(serde_json::json!({
                                         "type": "item_reference",
                                         "id": item_id,
                                     }));
@@ -876,7 +892,7 @@ impl OpenAiResponsesRequestTransformer {
                                 text,
                                 provider_metadata,
                             } => {
-                                flush_assistant(&mut out, &mut content_parts);
+                                flush_assistant(input, &mut content_parts);
 
                                 let openai_meta = provider_metadata
                                     .as_ref()
@@ -893,35 +909,60 @@ impl OpenAiResponsesRequestTransformer {
                                 });
 
                                 if store {
-                                    if let Some(id) = item_id {
-                                        out.push(serde_json::json!({
+                                    let Some(id) = item_id else {
+                                        // Vercel parity: non-OpenAI reasoning parts are not supported.
+                                        continue;
+                                    };
+
+                                    if state.reasoning_item_seen.insert(id.to_string()) {
+                                        input.push(serde_json::json!({
                                             "type": "item_reference",
                                             "id": id,
-                                        }));
-                                    } else if !text.is_empty() {
-                                        out.push(serde_json::json!({
-                                            "role": "assistant",
-                                            "content": [{
-                                                "type": "output_text",
-                                                "text": format!("<thinking>{}</thinking>", text),
-                                            }],
                                         }));
                                     }
                                     continue;
                                 }
 
                                 let Some(id) = item_id else {
-                                    if !text.is_empty() {
-                                        out.push(serde_json::json!({
-                                            "role": "assistant",
-                                            "content": [{
-                                                "type": "output_text",
-                                                "text": format!("<thinking>{}</thinking>", text),
-                                            }],
-                                        }));
-                                    }
+                                    // Vercel parity: non-OpenAI reasoning parts are not supported.
                                     continue;
                                 };
+
+                                let idx = state.reasoning_item_index.get(id).copied();
+                                if let Some(idx) = idx {
+                                    if !text.is_empty() {
+                                        if let Some(obj) =
+                                            input.get_mut(idx).and_then(|v| v.as_object_mut())
+                                        {
+                                            let arr = obj
+                                                .entry("summary")
+                                                .or_insert_with(|| serde_json::Value::Array(vec![]))
+                                                .as_array_mut();
+                                            if let Some(arr) = arr {
+                                                arr.push(serde_json::json!({
+                                                    "type": "summary_text",
+                                                    "text": text,
+                                                }));
+                                            }
+                                        }
+                                    }
+
+                                    // Vercel parity: only overwrite when the provider option is not nullish.
+                                    if let Some(enc) = encrypted
+                                        && !enc.is_null()
+                                    {
+                                        if let Some(obj) =
+                                            input.get_mut(idx).and_then(|v| v.as_object_mut())
+                                        {
+                                            obj.insert(
+                                                "encrypted_content".to_string(),
+                                                enc.clone(),
+                                            );
+                                        }
+                                    }
+
+                                    continue;
+                                }
 
                                 let mut obj = serde_json::Map::new();
                                 obj.insert("type".to_string(), serde_json::json!("reasoning"));
@@ -944,7 +985,9 @@ impl OpenAiResponsesRequestTransformer {
                                     serde_json::Value::Array(summary),
                                 );
 
-                                out.push(serde_json::Value::Object(obj));
+                                let idx = input.len();
+                                input.push(serde_json::Value::Object(obj));
+                                state.reasoning_item_index.insert(id.to_string(), idx);
                             }
                             ContentPart::ToolApprovalResponse { .. }
                             | ContentPart::Image { .. }
@@ -954,16 +997,16 @@ impl OpenAiResponsesRequestTransformer {
                         }
                     }
 
-                    flush_assistant(&mut out, &mut content_parts);
-
-                    return Ok(out);
+                    flush_assistant(input, &mut content_parts);
+                    return Ok(());
                 }
                 #[cfg(feature = "structured-messages")]
                 MessageContent::Json(v) => {
-                    return Ok(vec![serde_json::json!({
+                    input.push(serde_json::json!({
                         "role": "assistant",
                         "content": [{ "type": "output_text", "text": serde_json::to_string(v).unwrap_or_default() }],
-                    })]);
+                    }));
+                    return Ok(());
                 }
             }
         }
@@ -1180,7 +1223,7 @@ impl OpenAiResponsesRequestTransformer {
                 // Vercel alignment: if a message only contained provider-executed tool calls
                 // (or other skipped parts), omit the message entirely.
                 if content_parts.is_empty() {
-                    return Ok(vec![]);
+                    return Ok(());
                 }
 
                 api_message["content"] = serde_json::Value::Array(content_parts);
@@ -1200,7 +1243,8 @@ impl OpenAiResponsesRequestTransformer {
             }
         }
 
-        Ok(vec![api_message])
+        input.push(api_message);
+        Ok(())
     }
 }
 
@@ -1228,8 +1272,14 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
                 // input
                 let mut input_items: Vec<serde_json::Value> = Vec::new();
+                let mut state = ResponsesInputConversionState::default();
                 for m in &req.messages {
-                    input_items.extend(OpenAiResponsesRequestTransformer::convert_message(req, m)?);
+                    OpenAiResponsesRequestTransformer::extend_message(
+                        req,
+                        m,
+                        &mut state,
+                        &mut input_items,
+                    )?;
                 }
                 body["input"] = serde_json::Value::Array(input_items);
 
@@ -1406,17 +1456,23 @@ mod tests {
         assert_eq!(body["instruction"], "rank by semantic relevance");
     }
 
-    #[cfg(feature = "structured-messages")]
+    #[cfg(all(feature = "structured-messages", feature = "openai-responses"))]
     #[test]
     fn convert_message_json_maps_to_input_text_json_string() {
+        use crate::types::ChatRequest;
         use crate::types::{ChatMessage, MessageContent, MessageMetadata, MessageRole};
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::Json(serde_json::json!({"a":1})),
             metadata: MessageMetadata::default(),
         };
-        let items =
-            super::OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        let req = ChatRequest::new(vec![]);
+        let mut state = super::ResponsesInputConversionState::default();
+        let mut items = Vec::new();
+        super::OpenAiResponsesRequestTransformer::extend_message(
+            &req, &msg, &mut state, &mut items,
+        )
+        .expect("convert");
         assert_eq!(items.len(), 1);
         let v = &items[0];
         // Expect content array with input_text JSON string
@@ -1436,11 +1492,11 @@ mod tests {
         assert_eq!(parsed.get("a").and_then(|x| x.as_i64()).unwrap_or(0), 1);
     }
 
-    #[cfg(feature = "structured-messages")]
+    #[cfg(all(feature = "structured-messages", feature = "openai-responses"))]
     #[test]
     fn convert_tool_output_json_maps_to_output_string() {
         use crate::types::{
-            ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
+            ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
         };
         let msg = ChatMessage {
             role: MessageRole::Tool,
@@ -1451,8 +1507,13 @@ mod tests {
             )]),
             metadata: MessageMetadata::default(),
         };
-        let items =
-            super::OpenAiResponsesRequestTransformer::convert_message(&msg).expect("convert");
+        let req = ChatRequest::new(vec![]);
+        let mut state = super::ResponsesInputConversionState::default();
+        let mut items = Vec::new();
+        super::OpenAiResponsesRequestTransformer::extend_message(
+            &req, &msg, &mut state, &mut items,
+        )
+        .expect("convert");
         assert_eq!(items.len(), 1);
         let v = &items[0];
         assert_eq!(
@@ -1477,8 +1538,14 @@ mod tests {
             )]),
             metadata: MessageMetadata::default(),
         };
-        let items2 =
-            super::OpenAiResponsesRequestTransformer::convert_message(&msg2).expect("convert");
+        let mut items2 = Vec::new();
+        super::OpenAiResponsesRequestTransformer::extend_message(
+            &req,
+            &msg2,
+            &mut state,
+            &mut items2,
+        )
+        .expect("convert");
         assert_eq!(items2.len(), 1);
         let v2 = &items2[0];
         assert_eq!(
