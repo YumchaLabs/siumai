@@ -1,0 +1,21 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    { "role": "user", "content": "Hi" },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_1",
+          "type": "function",
+          "function": {
+            "name": "testFunction",
+            "arguments": "{\"input\":\"x\"}"
+          }
+        }
+      ]
+    }
+  ]
+}
+

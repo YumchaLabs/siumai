@@ -15,6 +15,12 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
     match content {
         MessageContent::Text(text) => Ok(serde_json::Value::String(text.clone())),
         MessageContent::MultiModal(parts) => {
+            if parts.len() == 1
+                && let Some(ContentPart::Text { text }) = parts.first()
+            {
+                return Ok(serde_json::Value::String(text.clone()));
+            }
+
             let mut content_parts = Vec::new();
 
             for part in parts {
@@ -187,61 +193,94 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
                     None
                 };
 
+                // Vercel AI SDK parity: assistant content is a plain string, formed by
+                // concatenating text parts without separators. Tool calls live in `tool_calls`.
+                let mut text = String::new();
+                match &message.content {
+                    MessageContent::Text(t) => text.push_str(t),
+                    MessageContent::MultiModal(parts) => {
+                        for p in parts {
+                            if let ContentPart::Text { text: t } = p {
+                                text.push_str(t);
+                            }
+                        }
+                    }
+                    #[cfg(feature = "structured-messages")]
+                    MessageContent::Json(v) => {
+                        text.push_str(&serde_json::to_string(v).unwrap_or_default());
+                    }
+                }
+
                 OpenAiMessage {
                     role: "assistant".to_string(),
-                    content: Some(convert_message_content(&message.content)?),
+                    content: Some(serde_json::Value::String(text)),
                     tool_calls: tool_calls_openai,
                     tool_call_id: None,
                 }
             }
             MessageRole::Tool => {
-                let tool_results = message.tool_results();
-
                 // Vercel AI SDK parity: emit one OpenAI "tool" message per tool result.
                 // Tool approvals are not represented as tool messages.
-                if !tool_results.is_empty() {
-                    for part in tool_results {
-                        let crate::types::ContentPart::ToolResult {
-                            tool_call_id,
-                            output,
-                            ..
-                        } = part
-                        else {
+                match &message.content {
+                    MessageContent::MultiModal(parts) => {
+                        let mut emitted = false;
+                        for part in parts {
+                            let ContentPart::ToolResult {
+                                tool_call_id,
+                                output,
+                                ..
+                            } = part
+                            else {
+                                continue;
+                            };
+
+                            emitted = true;
+
+                            let content_value = match output {
+                                ToolResultOutput::Text { value }
+                                | ToolResultOutput::ErrorText { value } => value.clone(),
+                                ToolResultOutput::ExecutionDenied { reason } => reason
+                                    .clone()
+                                    .unwrap_or_else(|| "Tool execution denied.".to_string()),
+                                ToolResultOutput::Json { value }
+                                | ToolResultOutput::ErrorJson { value } => {
+                                    serde_json::to_string(value).unwrap_or_default()
+                                }
+                                ToolResultOutput::Content { value } => {
+                                    serde_json::to_string(value).unwrap_or_default()
+                                }
+                            };
+
+                            openai_messages.push(OpenAiMessage {
+                                role: "tool".to_string(),
+                                content: Some(serde_json::Value::String(content_value)),
+                                tool_calls: None,
+                                tool_call_id: Some(tool_call_id.clone()),
+                            });
+                        }
+
+                        if emitted {
                             continue;
-                        };
+                        }
 
-                        let content_value = match output {
-                            ToolResultOutput::Text { value }
-                            | ToolResultOutput::ErrorText { value } => value.clone(),
-                            ToolResultOutput::ExecutionDenied { reason } => reason
-                                .clone()
-                                .unwrap_or_else(|| "Tool execution denied.".to_string()),
-                            ToolResultOutput::Json { value }
-                            | ToolResultOutput::ErrorJson { value } => {
-                                serde_json::to_string(value).unwrap_or_default()
-                            }
-                            ToolResultOutput::Content { value } => {
-                                serde_json::to_string(value).unwrap_or_default()
-                            }
-                        };
-
-                        openai_messages.push(OpenAiMessage {
-                            role: "tool".to_string(),
-                            content: Some(serde_json::Value::String(content_value)),
-                            tool_calls: None,
-                            tool_call_id: Some(tool_call_id.clone()),
-                        });
+                        // Tool-only messages without results (e.g. approval responses) are omitted.
+                        continue;
                     }
-
-                    continue;
-                }
-
-                // Fallback: preserve any explicit text content.
-                OpenAiMessage {
-                    role: "tool".to_string(),
-                    content: Some(convert_message_content(&message.content)?),
-                    tool_calls: None,
-                    tool_call_id: None,
+                    MessageContent::Text(t) => OpenAiMessage {
+                        role: "tool".to_string(),
+                        content: Some(serde_json::Value::String(t.clone())),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
+                    #[cfg(feature = "structured-messages")]
+                    MessageContent::Json(v) => OpenAiMessage {
+                        role: "tool".to_string(),
+                        content: Some(serde_json::Value::String(
+                            serde_json::to_string(v).unwrap_or_default(),
+                        )),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
                 }
             }
             MessageRole::Developer => OpenAiMessage {

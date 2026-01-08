@@ -3,6 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
+use siumai::prelude::unified::LlmError;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -76,7 +77,7 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
-fn build_body(req: &siumai::prelude::unified::ChatRequest) -> Value {
+fn build_body(req: &siumai::prelude::unified::ChatRequest) -> Result<Value, LlmError> {
     let adapter =
         siumai_provider_openai::providers::openai_compatible::adapter::OpenAiStandardAdapter {
             base_url: "https://my.api.com/v1".to_string(),
@@ -94,18 +95,30 @@ fn build_body(req: &siumai::prelude::unified::ChatRequest) -> Value {
     );
 
     let transformers = spec.choose_chat_transformers(req, &ctx);
-    let mut body = transformers.request.transform_chat(req).expect("transform");
+    let mut body = transformers.request.transform_chat(req)?;
     if let Some(cb) = spec.chat_before_send(req, &ctx) {
-        body = cb(&body).expect("before_send");
+        body = cb(&body)?;
     }
-    body
+    Ok(body)
 }
 
 fn run_case(root: &Path) {
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
+    let expected_error_path = root.join("expected_error.txt");
+    if expected_error_path.exists() {
+        let expected = read_text(expected_error_path);
+        let err = build_body(&req).expect_err("expected transform error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains(expected.trim()),
+            "error mismatch: expected substring '{expected}', got '{msg}'"
+        );
+        return;
+    }
+
     let expected_body: Value = read_json(root.join("expected_body.json"));
 
-    let got_body = build_body(&req);
+    let got_body = build_body(&req).expect("transform");
 
     let mut got_value = got_body;
     let mut expected_value = expected_body;
