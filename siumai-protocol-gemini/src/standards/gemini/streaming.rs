@@ -125,6 +125,16 @@ impl GeminiEventConverter {
     }
 
     fn provider_metadata_key(&self) -> &'static str {
+        if let Some(override_key) = self.config.provider_metadata_key.as_deref() {
+            let key = override_key.trim().to_ascii_lowercase();
+            if key.contains("vertex") {
+                return "vertex";
+            }
+            if key.contains("google") {
+                return "google";
+            }
+        }
+
         if self.config.base_url.contains("aiplatform.googleapis.com")
             || self.config.base_url.contains("vertex")
         {

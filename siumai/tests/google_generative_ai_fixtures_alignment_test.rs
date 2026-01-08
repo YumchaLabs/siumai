@@ -217,6 +217,21 @@ fn assert_google_thought_signature(
     assert_eq!(sig, expected);
 }
 
+fn assert_vertex_thought_signature(
+    provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
+    expected: &str,
+) {
+    let Some(meta) = provider_metadata.as_ref() else {
+        panic!("expected providerMetadata");
+    };
+    let sig = meta
+        .get("vertex")
+        .and_then(|v| v.get("thoughtSignature"))
+        .and_then(|v| v.as_str())
+        .expect("expected providerMetadata.vertex.thoughtSignature");
+    assert_eq!(sig, expected);
+}
+
 #[test]
 fn google_response_thought_signatures_are_exposed_on_text_and_reasoning_parts() {
     use siumai::prelude::unified::{ContentPart, MessageContent};
@@ -322,4 +337,65 @@ fn google_response_thought_signatures_are_exposed_on_tool_calls() {
         .expect("expected tool-call part");
 
     assert_google_thought_signature(tool, "tool_sig");
+}
+
+#[test]
+fn vertex_provider_id_uses_vertex_key_for_thought_signature_parts_and_response_metadata() {
+    use siumai::prelude::unified::{ContentPart, MessageContent};
+
+    let root = fixtures_dir().join("google-thought-signature-text-and-reasoning.1");
+    let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
+    let raw: Value = read_json(root.join("response.json"));
+
+    let spec = siumai_provider_gemini::providers::gemini::spec::GeminiSpec;
+    let transformers = spec.choose_chat_transformers(
+        &req,
+        &ProviderContext::new(
+            "vertex",
+            "https://generativelanguage.googleapis.com/v1beta",
+            Some("test-api-key".to_string()),
+            HashMap::new(),
+        ),
+    );
+
+    let resp = transformers
+        .response
+        .transform_chat_response(&raw)
+        .expect("transform response");
+
+    let MessageContent::MultiModal(parts) = resp.content else {
+        panic!("expected multimodal content");
+    };
+    assert_eq!(parts.len(), 3);
+
+    match &parts[0] {
+        ContentPart::Text {
+            provider_metadata, ..
+        } => assert_vertex_thought_signature(provider_metadata, "sig1"),
+        other => panic!("expected first part to be text, got: {other:?}"),
+    }
+
+    match &parts[1] {
+        ContentPart::Reasoning {
+            provider_metadata, ..
+        } => assert_vertex_thought_signature(provider_metadata, "sig2"),
+        other => panic!("expected second part to be reasoning, got: {other:?}"),
+    }
+
+    match &parts[2] {
+        ContentPart::Text {
+            provider_metadata, ..
+        } => assert_vertex_thought_signature(provider_metadata, "sig3"),
+        other => panic!("expected third part to be text, got: {other:?}"),
+    }
+
+    let meta = resp
+        .provider_metadata
+        .as_ref()
+        .expect("expected provider_metadata");
+    assert!(
+        meta.contains_key("vertex"),
+        "expected provider_metadata.vertex"
+    );
+    assert!(!meta.contains_key("google"));
 }

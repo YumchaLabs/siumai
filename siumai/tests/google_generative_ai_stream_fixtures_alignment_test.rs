@@ -48,6 +48,58 @@ fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
     events
 }
 
+fn run_converter_with_provider_id(provider_id: &str, lines: Vec<String>) -> Vec<ChatStreamEvent> {
+    use siumai::experimental::core::{ProviderContext, ProviderSpec};
+    use siumai::prelude::unified::{ChatRequest, CommonParams};
+    use std::collections::HashMap;
+
+    let spec = siumai_provider_gemini::providers::gemini::spec::GeminiSpec;
+    let ctx = ProviderContext::new(
+        provider_id,
+        "https://generativelanguage.googleapis.com/v1beta",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+    let req = ChatRequest {
+        stream: true,
+        common_params: CommonParams {
+            model: "gemini-pro".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let stream = bundle.stream.expect("expected stream transformer");
+
+    let mut events: Vec<ChatStreamEvent> = Vec::new();
+    for (i, line) in lines.into_iter().enumerate() {
+        let ev = eventsource_stream::Event {
+            event: "".to_string(),
+            data: line,
+            id: i.to_string(),
+            retry: None,
+        };
+
+        let out = futures::executor::block_on(stream.convert_event(ev));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to convert chunk: {err:?}"),
+            }
+        }
+    }
+
+    while let Some(item) = stream.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize stream: {err:?}"),
+        }
+    }
+
+    events
+}
+
 fn tool_events(events: &[ChatStreamEvent], kind: &str, tool_name: &str) -> Vec<serde_json::Value> {
     events
         .iter()
@@ -143,4 +195,59 @@ fn google_stream_thought_signature_is_exposed_on_reasoning_events() {
         }),
         "expected reasoning-delta to include providerMetadata.google.thoughtSignature"
     );
+}
+
+#[test]
+fn vertex_provider_id_stream_reasoning_events_use_vertex_provider_metadata_key() {
+    let path = fixtures_dir().join("google-thought-signature-reasoning.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter_with_provider_id("vertex", lines);
+
+    let starts = custom_events_by_type(&events, "reasoning-start");
+    let deltas = custom_events_by_type(&events, "reasoning-delta");
+
+    assert!(!starts.is_empty(), "expected reasoning-start event");
+    assert!(!deltas.is_empty(), "expected reasoning-delta event");
+
+    let start = &starts[0];
+    assert_eq!(
+        start
+            .get("providerMetadata")
+            .and_then(|m| m.get("vertex"))
+            .and_then(|m| m.get("thoughtSignature"))
+            .and_then(|v| v.as_str()),
+        Some("stream_sig")
+    );
+    assert!(
+        start
+            .get("providerMetadata")
+            .and_then(|m| m.get("google"))
+            .is_none()
+    );
+
+    assert!(
+        deltas.iter().any(|ev| {
+            ev.get("providerMetadata")
+                .and_then(|m| m.get("vertex"))
+                .and_then(|m| m.get("thoughtSignature"))
+                .and_then(|v| v.as_str())
+                == Some("stream_sig")
+        }),
+        "expected reasoning-delta to include providerMetadata.vertex.thoughtSignature"
+    );
+
+    let end = events.iter().find_map(|e| match e {
+        ChatStreamEvent::StreamEnd { response } => Some(response),
+        _ => None,
+    });
+    let end = end.expect("expected StreamEnd event");
+    let meta = end
+        .provider_metadata
+        .as_ref()
+        .expect("expected provider_metadata on stream end response");
+    assert!(meta.contains_key("vertex"));
+    assert!(!meta.contains_key("google"));
 }

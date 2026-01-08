@@ -59,6 +59,9 @@ impl GeminiChatStandard {
             cfg.model = m.to_string();
             cfg.common_params.model = m.to_string();
         }
+        if provider_id.to_ascii_lowercase().contains("vertex") {
+            cfg.provider_metadata_key = Some("vertex".to_string());
+        }
         let stream_tx = Arc::new(GeminiChatStreamTransformer {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
@@ -128,7 +131,10 @@ impl ResponseTransformer for GeminiChatResponseTransformer {
         if let Some(adapter) = &self.adapter {
             adapter.transform_response(&mut raw)?;
         }
-        let cfg = crate::standards::gemini::types::GeminiConfig::default();
+        let mut cfg = crate::standards::gemini::types::GeminiConfig::default();
+        if self.provider_id.to_ascii_lowercase().contains("vertex") {
+            cfg.provider_metadata_key = Some("vertex".to_string());
+        }
         let provider_tx =
             crate::standards::gemini::transformers::GeminiResponseTransformer { config: cfg };
         provider_tx.transform_chat_response(&raw)

@@ -978,8 +978,20 @@ impl ResponseTransformer for GeminiResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        fn provider_metadata_key(base_url: &str) -> &'static str {
-            if base_url.contains("aiplatform.googleapis.com") || base_url.contains("vertex") {
+        fn provider_metadata_key(config: &GeminiConfig) -> &'static str {
+            if let Some(override_key) = config.provider_metadata_key.as_deref() {
+                let key = override_key.trim().to_ascii_lowercase();
+                if key.contains("vertex") {
+                    return "vertex";
+                }
+                if key.contains("google") {
+                    return "google";
+                }
+            }
+
+            if config.base_url.contains("aiplatform.googleapis.com")
+                || config.base_url.contains("vertex")
+            {
                 "vertex"
             } else {
                 "google"
@@ -1010,7 +1022,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
             return Err(LlmError::api_error(400, "No candidates in response"));
         }
 
-        let provider_key = provider_metadata_key(&self.config.base_url);
+        let provider_key = provider_metadata_key(&self.config);
 
         let candidate = &response.candidates[0];
         let content = candidate
@@ -1575,6 +1587,7 @@ mod files_tests {
             timeout: Some(30),
             http_config: crate::types::HttpConfig::default(),
             token_provider: None,
+            provider_metadata_key: None,
         }
     }
 
@@ -1664,6 +1677,7 @@ mod images_tests {
             timeout: Some(30),
             http_config: crate::types::HttpConfig::default(),
             token_provider: None,
+            provider_metadata_key: None,
         }
     }
 
@@ -1723,6 +1737,7 @@ mod embeddings_tests {
             timeout: Some(30),
             http_config: crate::types::HttpConfig::default(),
             token_provider: None,
+            provider_metadata_key: None,
         }
     }
 

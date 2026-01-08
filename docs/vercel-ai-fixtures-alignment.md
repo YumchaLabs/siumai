@@ -77,6 +77,7 @@ Provider id: `gemini` (tools use `google.*` ids)
 - [x] `thoughtSignature` pass-through into per-part `providerMetadata.google.thoughtSignature` (text/reasoning/tool-call)
 - [x] Streaming `reasoning-start`/`reasoning-delta`/`reasoning-end` custom events carry `providerMetadata.google.thoughtSignature`
 - [x] Vercel-aligned response `provider_metadata["google"]` keys (`promptFeedback`, `groundingMetadata`, `urlContextMetadata`, `safetyRatings`)
+- [x] ProviderMetadata key selection parity (`google` vs `vertex`) when provider id includes `vertex`
 
 ### Next
 

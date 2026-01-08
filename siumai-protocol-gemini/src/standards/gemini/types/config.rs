@@ -24,6 +24,13 @@ pub struct GeminiConfig {
     /// Optional Bearer token provider (e.g., Vertex AI enterprise auth)
     /// Not serialized/deserialized; runtime only.
     pub token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+
+    /// Override the Vercel-aligned providerMetadata namespace key (`google` vs `vertex`).
+    ///
+    /// When unset, we infer:
+    /// - `vertex` when base_url looks like Vertex (`aiplatform.googleapis.com` / contains `vertex`)
+    /// - otherwise `google`
+    pub provider_metadata_key: Option<String>,
 }
 
 impl std::fmt::Debug for GeminiConfig {
@@ -44,6 +51,7 @@ impl std::fmt::Debug for GeminiConfig {
             .field("safety_settings_present", &self.safety_settings.is_some())
             .field("timeout", &self.timeout)
             .field("http_config", &self.http_config)
+            .field("provider_metadata_key", &self.provider_metadata_key)
             .finish()
     }
 }
@@ -60,6 +68,7 @@ impl Default for GeminiConfig {
             timeout: Some(30),
             http_config: HttpConfig::default(),
             token_provider: None,
+            provider_metadata_key: None,
         }
     }
 }
@@ -135,6 +144,12 @@ impl GeminiConfig {
         provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
     ) -> Self {
         self.token_provider = Some(provider);
+        self
+    }
+
+    /// Override providerMetadata namespace key (`google` or `vertex`).
+    pub fn with_provider_metadata_key(mut self, key: impl Into<String>) -> Self {
+        self.provider_metadata_key = Some(key.into());
         self
     }
 }
