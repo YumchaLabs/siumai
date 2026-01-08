@@ -6,7 +6,9 @@
 
 use crate::error::LlmError;
 use crate::standards::openai::types::{OpenAiFunction, OpenAiMessage, OpenAiToolCall};
-use crate::types::{ChatMessage, ContentPart, FinishReason, MessageContent, MessageRole};
+use crate::types::{
+    ChatMessage, ContentPart, FinishReason, MessageContent, MessageRole, ToolResultOutput,
+};
 use base64::Engine;
 
 fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
@@ -194,19 +196,52 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
             }
             MessageRole::Tool => {
                 let tool_results = message.tool_results();
-                let tool_call_id = tool_results.first().and_then(|part| {
-                    if let crate::types::ContentPart::ToolResult { tool_call_id, .. } = part {
-                        Some(tool_call_id.clone())
-                    } else {
-                        None
-                    }
-                });
 
+                // Vercel AI SDK parity: emit one OpenAI "tool" message per tool result.
+                // Tool approvals are not represented as tool messages.
+                if !tool_results.is_empty() {
+                    for part in tool_results {
+                        let crate::types::ContentPart::ToolResult {
+                            tool_call_id,
+                            output,
+                            ..
+                        } = part
+                        else {
+                            continue;
+                        };
+
+                        let content_value = match output {
+                            ToolResultOutput::Text { value }
+                            | ToolResultOutput::ErrorText { value } => value.clone(),
+                            ToolResultOutput::ExecutionDenied { reason } => reason
+                                .clone()
+                                .unwrap_or_else(|| "Tool execution denied.".to_string()),
+                            ToolResultOutput::Json { value }
+                            | ToolResultOutput::ErrorJson { value } => {
+                                serde_json::to_string(value).unwrap_or_default()
+                            }
+                            ToolResultOutput::Content { value } => {
+                                serde_json::to_string(value).unwrap_or_default()
+                            }
+                        };
+
+                        openai_messages.push(OpenAiMessage {
+                            role: "tool".to_string(),
+                            content: Some(serde_json::Value::String(content_value)),
+                            tool_calls: None,
+                            tool_call_id: Some(tool_call_id.clone()),
+                        });
+                    }
+
+                    continue;
+                }
+
+                // Fallback: preserve any explicit text content.
                 OpenAiMessage {
                     role: "tool".to_string(),
                     content: Some(convert_message_content(&message.content)?),
                     tool_calls: None,
-                    tool_call_id,
+                    tool_call_id: None,
                 }
             }
             MessageRole::Developer => OpenAiMessage {

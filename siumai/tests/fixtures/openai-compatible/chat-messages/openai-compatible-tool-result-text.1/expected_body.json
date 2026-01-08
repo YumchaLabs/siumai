@@ -1,0 +1,11 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "tool",
+      "tool_call_id": "call_1",
+      "content": "ok"
+    }
+  ]
+}
+
