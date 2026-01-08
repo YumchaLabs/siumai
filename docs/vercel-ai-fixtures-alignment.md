@@ -212,6 +212,7 @@ Provider id: `openai` (Responses API)
 ### Done
 
 - [x] Basic text response parsing (message `output_text` -> `ChatResponse.content`)
+- [x] Logprobs extraction into `providerMetadata.*.logprobs` (normalized token/logprob + top_logprobs)
 - [x] Function tool calls parsing (`function_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
 - [x] Hosted tool calls parsing (`local_shell_call` / `shell_call` / `apply_patch_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
 - [x] Provider tool calls parsing (`file_search_call` -> `tool-call` + `tool-result` parts, `toolName: "fileSearch"`, empty input)
