@@ -1,0 +1,19 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "shell_call_output",
+      "call_id": "call-shell",
+      "output": [
+        { "stdout": "hi\n", "stderr": "", "outcome": { "type": "exit", "exit_code": 0 } }
+      ]
+    },
+    {
+      "type": "apply_patch_call_output",
+      "call_id": "call-apply",
+      "status": "completed",
+      "output": "patched"
+    }
+  ],
+  "tools": [{ "type": "shell" }, { "type": "apply_patch" }]
+}

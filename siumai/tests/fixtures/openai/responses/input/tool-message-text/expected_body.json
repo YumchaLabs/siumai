@@ -1,0 +1,6 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    { "type": "function_call_output", "call_id": "call_123", "output": "The weather in San Francisco is 72°F" }
+  ]
+}

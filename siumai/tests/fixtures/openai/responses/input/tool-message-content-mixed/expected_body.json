@@ -1,0 +1,14 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "function_call_output",
+      "call_id": "call_123",
+      "output": [
+        { "type": "input_text", "text": "The weather in San Francisco is 72°F" },
+        { "type": "input_image", "image_url": "data:image/png;base64,base64_data" },
+        { "type": "input_file", "filename": "data", "file_data": "data:application/pdf;base64,AQIDBAU=" }
+      ]
+    }
+  ]
+}

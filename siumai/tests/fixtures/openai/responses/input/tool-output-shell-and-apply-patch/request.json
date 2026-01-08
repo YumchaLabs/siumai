@@ -1,0 +1,49 @@
+{
+  "messages": [
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call-shell",
+            "toolName": "shell",
+            "output": {
+              "type": "json",
+              "value": {
+                "output": [
+                  { "stdout": "hi\n", "stderr": "", "outcome": { "type": "exit", "exitCode": 0 } }
+                ]
+              }
+            }
+          },
+          {
+            "type": "tool-result",
+            "toolCallId": "call-apply",
+            "toolName": "apply_patch",
+            "output": { "type": "json", "value": { "status": "completed", "output": "patched" } }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    { "type": "provider", "id": "openai.shell", "name": "shell", "args": {} },
+    { "type": "provider", "id": "openai.apply_patch", "name": "apply_patch", "args": {} }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

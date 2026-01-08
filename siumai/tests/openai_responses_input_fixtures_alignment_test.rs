@@ -82,31 +82,47 @@ fn normalize_json(value: &mut Value) {
     }
 }
 
-fn build_body(req: &siumai::prelude::unified::ChatRequest) -> Value {
+fn build_body(
+    req: &siumai::prelude::unified::ChatRequest,
+) -> Result<Value, siumai::prelude::unified::LlmError> {
     let tx =
         siumai::experimental::standards::openai::transformers::request::OpenAiResponsesRequestTransformer;
-    let mut body = tx.transform_chat(req).expect("transform");
+    let mut body = tx.transform_chat(req)?;
 
     let spec = siumai_provider_openai::providers::openai::spec::OpenAiSpec::new()
         .with_forced_responses_api(ResponsesApiConfig::new());
     let ctx = ProviderContext::new("openai", "https://api.openai.com/v1", None, HashMap::new());
 
     if let Some(cb) = spec.chat_before_send(req, &ctx) {
-        body = cb(&body).expect("before_send");
+        body = cb(&body)?;
     }
 
-    body
+    Ok(body)
 }
 
 fn run_case(root: &Path) {
     let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
-    let expected_body: Value = read_json(root.join("expected_body.json"));
 
-    let mut got_value = build_body(&req);
-    let mut expected_value = expected_body;
-    normalize_json(&mut got_value);
-    normalize_json(&mut expected_value);
-    assert_eq!(got_value, expected_value);
+    let expected_error_path = root.join("expected_error.txt");
+    if expected_error_path.exists() {
+        let expected_error = read_text(expected_error_path);
+        let err = build_body(&req).expect_err("expected error");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains(expected_error.trim()),
+            "error mismatch: expected to contain `{}` but got `{}`",
+            expected_error.trim(),
+            msg
+        );
+    } else {
+        let expected_body: Value = read_json(root.join("expected_body.json"));
+
+        let mut got_value = build_body(&req).expect("build_body");
+        let mut expected_value = expected_body;
+        normalize_json(&mut got_value);
+        normalize_json(&mut expected_value);
+        assert_eq!(got_value, expected_value);
+    }
 
     let expected_warnings_path = root.join("expected_warnings.json");
     if expected_warnings_path.exists() {

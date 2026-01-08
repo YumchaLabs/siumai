@@ -1,0 +1,11 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "function_call_output",
+      "call_id": "call_123",
+      "output": "{\"temperature\":\"72°F\",\"condition\":\"Sunny\"}"
+    },
+    { "type": "function_call_output", "call_id": "call_456", "output": "4" }
+  ]
+}

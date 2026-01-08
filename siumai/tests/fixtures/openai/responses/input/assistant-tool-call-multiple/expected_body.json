@@ -1,0 +1,17 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "function_call",
+      "call_id": "call_123",
+      "name": "search",
+      "arguments": "{\"query\":\"weather in San Francisco\"}"
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_456",
+      "name": "calculator",
+      "arguments": "{\"expression\":\"2 + 2\"}"
+    }
+  ]
+}

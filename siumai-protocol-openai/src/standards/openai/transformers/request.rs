@@ -496,8 +496,23 @@ impl OpenAiResponsesRequestTransformer {
                             tool_call_id,
                             tool_name,
                             output,
+                            provider_metadata,
                             ..
                         } => {
+                            // Vercel parity: skip execution-denied tool results that carry an approval id.
+                            if matches!(
+                                output,
+                                crate::types::ToolResultOutput::ExecutionDenied { .. }
+                            ) && provider_metadata
+                                .as_ref()
+                                .and_then(|m| m.get("openai"))
+                                .and_then(|v| v.get("approvalId").or_else(|| v.get("approval_id")))
+                                .and_then(|v| v.as_str())
+                                .is_some()
+                            {
+                                continue;
+                            }
+
                             let resolved_tool_name =
                                 tool_name_mapping.to_provider_tool_name(tool_name);
 
@@ -577,42 +592,160 @@ impl OpenAiResponsesRequestTransformer {
                             }
 
                             // OpenAI Responses expects `output` (string or output content list). Keep it stable by
-                            // sending a string form for all outputs.
-                            let output_text = match output {
-                                crate::types::ToolResultOutput::Text { value } => value.clone(),
+                            // sending a string form for simple outputs and a list for multipart outputs.
+                            let output_value: serde_json::Value = match output {
+                                crate::types::ToolResultOutput::Text { value } => {
+                                    serde_json::Value::String(value.clone())
+                                }
                                 crate::types::ToolResultOutput::Json { value } => {
-                                    serde_json::to_string(value).unwrap_or_default()
+                                    serde_json::Value::String(
+                                        serde_json::to_string(value).unwrap_or_default(),
+                                    )
                                 }
                                 crate::types::ToolResultOutput::ErrorText { value } => {
-                                    value.clone()
+                                    serde_json::Value::String(value.clone())
                                 }
                                 crate::types::ToolResultOutput::ErrorJson { value } => {
-                                    serde_json::to_string(value).unwrap_or_default()
+                                    serde_json::Value::String(
+                                        serde_json::to_string(value).unwrap_or_default(),
+                                    )
                                 }
                                 crate::types::ToolResultOutput::ExecutionDenied { reason } => {
-                                    reason
-                                        .clone()
-                                        .unwrap_or_else(|| "Execution denied".to_string())
+                                    serde_json::Value::String(
+                                        reason
+                                            .clone()
+                                            .unwrap_or_else(|| "Execution denied".to_string()),
+                                    )
                                 }
-                                crate::types::ToolResultOutput::Content { value } => value
-                                    .iter()
-                                    .filter_map(|part| {
-                                        if let crate::types::ToolResultContentPart::Text { text } =
-                                            part
-                                        {
-                                            Some(text.as_str())
-                                        } else {
-                                            None
+                                crate::types::ToolResultOutput::Content { value } => {
+                                    let mut out: Vec<serde_json::Value> = Vec::new();
+                                    for part in value {
+                                        match part {
+                                            crate::types::ToolResultContentPart::Text { text } => {
+                                                out.push(serde_json::json!({
+                                                    "type": "input_text",
+                                                    "text": text,
+                                                }));
+                                            }
+                                            crate::types::ToolResultContentPart::Image {
+                                                source,
+                                                detail,
+                                            } => {
+                                                let url = match source {
+                                                    crate::types::chat::MediaSource::Url {
+                                                        url,
+                                                    } => url.clone(),
+                                                    crate::types::chat::MediaSource::Base64 {
+                                                        data,
+                                                    } => {
+                                                        format!("data:image/jpeg;base64,{}", data)
+                                                    }
+                                                    crate::types::chat::MediaSource::Binary {
+                                                        data,
+                                                    } => {
+                                                        let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                                                        format!(
+                                                            "data:image/jpeg;base64,{}",
+                                                            encoded
+                                                        )
+                                                    }
+                                                };
+
+                                                let mut image = serde_json::json!({
+                                                    "type": "input_image",
+                                                    "image_url": url,
+                                                });
+                                                if matches!(
+                                                    detail,
+                                                    Some(
+                                                        crate::types::ImageDetail::Low
+                                                            | crate::types::ImageDetail::High
+                                                    )
+                                                ) {
+                                                    image["detail"] =
+                                                        serde_json::json!(detail.clone().unwrap());
+                                                }
+                                                out.push(image);
+                                            }
+                                            crate::types::ToolResultContentPart::File {
+                                                source,
+                                                media_type,
+                                                filename,
+                                            } => {
+                                                if media_type.starts_with("image/") {
+                                                    let media_type = if media_type == "image/*" {
+                                                        "image/jpeg"
+                                                    } else {
+                                                        media_type.as_str()
+                                                    };
+
+                                                    let url = match source {
+                                                        crate::types::chat::MediaSource::Url { url } => url.clone(),
+                                                        crate::types::chat::MediaSource::Base64 { data } => {
+                                                            format!("data:{};base64,{}", media_type, data)
+                                                        }
+                                                        crate::types::chat::MediaSource::Binary { data } => {
+                                                            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                                                            format!("data:{};base64,{}", media_type, encoded)
+                                                        }
+                                                    };
+                                                    out.push(serde_json::json!({
+                                                        "type": "input_image",
+                                                        "image_url": url,
+                                                    }));
+                                                    continue;
+                                                }
+
+                                                if media_type == "application/pdf" {
+                                                    match source {
+                                                        crate::types::chat::MediaSource::Url { url } => {
+                                                            out.push(serde_json::json!({
+                                                                "type": "input_file",
+                                                                "file_url": url,
+                                                            }));
+                                                        }
+                                                        crate::types::chat::MediaSource::Base64 { data } => {
+                                                            let filename = filename
+                                                                .clone()
+                                                                .unwrap_or_else(|| "data".to_string());
+                                                            out.push(serde_json::json!({
+                                                                "type": "input_file",
+                                                                "filename": filename,
+                                                                "file_data": format!("data:application/pdf;base64,{}", data),
+                                                            }));
+                                                        }
+                                                        crate::types::chat::MediaSource::Binary { data } => {
+                                                            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                                                            let filename = filename
+                                                                .clone()
+                                                                .unwrap_or_else(|| "data".to_string());
+                                                            out.push(serde_json::json!({
+                                                                "type": "input_file",
+                                                                "filename": filename,
+                                                                "file_data": format!("data:application/pdf;base64,{}", encoded),
+                                                            }));
+                                                        }
+                                                    }
+                                                    continue;
+                                                }
+
+                                                // Fallback: keep unknown tool output parts as text hints.
+                                                out.push(serde_json::json!({
+                                                    "type": "input_text",
+                                                    "text": format!("[Unsupported file type: {}]", media_type),
+                                                }));
+                                            }
                                         }
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n"),
+                                    }
+
+                                    serde_json::Value::Array(out)
+                                }
                             };
 
                             items.push(serde_json::json!({
                                 "type": "function_call_output",
                                 "call_id": tool_call_id,
-                                "output": output_text,
+                                "output": output_value,
                             }));
                         }
                         _ => {}
@@ -1097,6 +1230,7 @@ impl OpenAiResponsesRequestTransformer {
                             source,
                             media_type,
                             filename,
+                            provider_metadata,
                             ..
                         } => {
                             // Responses API file support
@@ -1109,31 +1243,100 @@ impl OpenAiResponsesRequestTransformer {
 
                                 match source {
                                     crate::types::chat::MediaSource::Url { url } => {
-                                        content_parts.push(serde_json::json!({
+                                        let mut image_part = serde_json::json!({
                                             "type": "input_image",
                                             "image_url": url,
-                                        }));
+                                        });
+
+                                        // Vercel parity: image detail can be specified via provider metadata.
+                                        let provider_detail = provider_metadata
+                                            .as_ref()
+                                            .and_then(|m| {
+                                                m.get("openai").or_else(|| m.get("azure"))
+                                            })
+                                            .and_then(|v| {
+                                                v.get("imageDetail")
+                                                    .or_else(|| v.get("image_detail"))
+                                            })
+                                            .and_then(|v| v.as_str());
+                                        if matches!(provider_detail, Some("low" | "high")) {
+                                            image_part["detail"] =
+                                                serde_json::json!(provider_detail.unwrap());
+                                        }
+
+                                        content_parts.push(image_part);
                                     }
                                     crate::types::chat::MediaSource::Base64 { data } => {
                                         if Self::is_file_id(data, file_id_prefixes) {
-                                            content_parts.push(serde_json::json!({
+                                            let mut image_part = serde_json::json!({
                                                 "type": "input_image",
                                                 "file_id": data,
-                                            }));
+                                            });
+
+                                            let provider_detail = provider_metadata
+                                                .as_ref()
+                                                .and_then(|m| {
+                                                    m.get("openai").or_else(|| m.get("azure"))
+                                                })
+                                                .and_then(|v| {
+                                                    v.get("imageDetail")
+                                                        .or_else(|| v.get("image_detail"))
+                                                })
+                                                .and_then(|v| v.as_str());
+                                            if matches!(provider_detail, Some("low" | "high")) {
+                                                image_part["detail"] =
+                                                    serde_json::json!(provider_detail.unwrap());
+                                            }
+
+                                            content_parts.push(image_part);
                                         } else {
-                                            content_parts.push(serde_json::json!({
+                                            let mut image_part = serde_json::json!({
                                                 "type": "input_image",
                                                 "image_url": format!("data:{};base64,{}", media_type, data),
-                                            }));
+                                            });
+
+                                            let provider_detail = provider_metadata
+                                                .as_ref()
+                                                .and_then(|m| {
+                                                    m.get("openai").or_else(|| m.get("azure"))
+                                                })
+                                                .and_then(|v| {
+                                                    v.get("imageDetail")
+                                                        .or_else(|| v.get("image_detail"))
+                                                })
+                                                .and_then(|v| v.as_str());
+                                            if matches!(provider_detail, Some("low" | "high")) {
+                                                image_part["detail"] =
+                                                    serde_json::json!(provider_detail.unwrap());
+                                            }
+
+                                            content_parts.push(image_part);
                                         }
                                     }
                                     crate::types::chat::MediaSource::Binary { data } => {
                                         let encoded =
                                             base64::engine::general_purpose::STANDARD.encode(data);
-                                        content_parts.push(serde_json::json!({
+                                        let mut image_part = serde_json::json!({
                                             "type": "input_image",
                                             "image_url": format!("data:{};base64,{}", media_type, encoded),
-                                        }));
+                                        });
+
+                                        let provider_detail = provider_metadata
+                                            .as_ref()
+                                            .and_then(|m| {
+                                                m.get("openai").or_else(|| m.get("azure"))
+                                            })
+                                            .and_then(|v| {
+                                                v.get("imageDetail")
+                                                    .or_else(|| v.get("image_detail"))
+                                            })
+                                            .and_then(|v| v.as_str());
+                                        if matches!(provider_detail, Some("low" | "high")) {
+                                            image_part["detail"] =
+                                                serde_json::json!(provider_detail.unwrap());
+                                        }
+
+                                        content_parts.push(image_part);
                                     }
                                 }
                             } else if media_type == "application/pdf" {
@@ -1175,10 +1378,10 @@ impl OpenAiResponsesRequestTransformer {
                                     }
                                 }
                             } else {
-                                content_parts.push(serde_json::json!({
-                                    "type": "input_text",
-                                    "text": format!("[Unsupported file type: {}]", media_type)
-                                }));
+                                return Err(LlmError::InvalidParameter(format!(
+                                    "file part media type {}",
+                                    media_type
+                                )));
                             }
                         }
                         ContentPart::ToolCall { .. } => {

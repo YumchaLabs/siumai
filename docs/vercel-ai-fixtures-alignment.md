@@ -183,10 +183,17 @@ Provider id: `openai` (Responses API)
 
 - [x] System message mode parity (`system`/`developer`/`remove`) via `providerOptions.openai.systemMessageMode`
 - [x] User file part parity for images/PDFs (URL, base64, file_id via `fileIdPrefixes`) in `input[]`
+- [x] User file part parity for `fileIdPrefixes` edge-cases (undefined/empty array/multiple prefixes)
+- [x] User file part parity for image detail (`detail`) via provider metadata
+- [x] Unsupported user file types raise errors (Vercel parity) via `expected_error.txt`
 - [x] Assistant message parity (`output_text`) and function tool call parity (`function_call`) in `input[]`
+- [x] Assistant parity for multiple tool-call parts (multiple `function_call` items)
 - [x] Tool message output parity for hosted tools (`local_shell_call_output`, `shell_call_output`, `apply_patch_call_output`)
 - [x] Reasoning input parity for `store=false` (`type: "reasoning"` summary merge by `itemId`, encrypted content mapping) via fixtures
 - [x] Vercel-style warnings parity for `store=false` reasoning edge-cases (empty append + non-OpenAI reasoning parts)
+- [x] Tool message parity for multipart tool outputs (`output: [{ input_text|input_image|input_file }]`) via fixtures
+- [x] Provider-executed tool result parity for `store=true` (`item_reference` by toolCallId fallback)
+- [x] MCP tool-approval-response parity (store=true/false, dedupe, execution-denied skip) via fixtures
 
 ## OpenAI Responses Response (Fixtures)
 

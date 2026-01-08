@@ -1,0 +1,15 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_file",
+          "filename": "part-0.pdf",
+          "file_data": "data:application/pdf;base64,AQIDBAU="
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "function_call_output",
+      "call_id": "call_123",
+      "output": [
+        { "type": "input_file", "filename": "document.pdf", "file_data": "data:application/pdf;base64,AQIDBAU=" }
+      ]
+    }
+  ]
+}

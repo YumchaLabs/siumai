@@ -1,0 +1,34 @@
+{
+  "messages": [
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          { "type": "tool-approval-response", "approvalId": "denied-approval", "approved": false },
+          {
+            "type": "tool-result",
+            "toolCallId": "call-123",
+            "toolName": "mcp_tool",
+            "output": { "type": "execution-denied", "reason": "User denied the tool execution" },
+            "providerMetadata": { "openai": { "approvalId": "denied-approval" } }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

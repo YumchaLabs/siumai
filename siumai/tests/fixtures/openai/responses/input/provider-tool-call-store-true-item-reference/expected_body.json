@@ -1,0 +1,4 @@
+{
+  "model": "gpt-5-nano",
+  "input": [{ "type": "item_reference", "id": "ci_68c2e2cf522c81908f3e2c1bccd1493b0b24aae9c6c01e4f" }]
+}

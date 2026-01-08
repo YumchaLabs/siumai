@@ -1,0 +1,28 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "MultiModal": [
+          { "type": "file", "media_type": "application/pdf", "data": "assistant-abc123", "filename": "test.pdf" }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": { "openai": { "fileIdPrefixes": ["assistant-"] } },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
