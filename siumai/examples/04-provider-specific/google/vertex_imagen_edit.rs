@@ -20,7 +20,8 @@ use siumai::prelude::extensions::ImageExtras;
 
 #[cfg(all(feature = "google-vertex", feature = "gcp"))]
 use siumai::provider_ext::google_vertex::options::{
-    VertexImagenOptions, VertexImagenReferenceImage, VertexImagenRequestExt,
+    VertexImagenEditOptions, VertexImagenOptions, VertexImagenReferenceImage,
+    VertexImagenRequestExt,
 };
 
 #[cfg(all(feature = "google-vertex", feature = "gcp"))]
@@ -59,6 +60,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         options = options.with_reference_images(vec![
             VertexImagenReferenceImage::from_bytes(bytes).with_reference_type("SUBJECT"),
         ]);
+    }
+    if mask_image.is_some() {
+        options = options.with_edit(
+            VertexImagenEditOptions::new()
+                .with_mode("EDIT_MODE_INPAINT_INSERTION")
+                .with_mask_mode("MASK_MODE_USER_PROVIDED")
+                .with_mask_dilation(0.01),
+        );
     }
 
     let req = siumai::extensions::types::ImageEditRequest {

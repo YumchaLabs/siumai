@@ -401,14 +401,15 @@ pub mod provider_ext {
         /// Typed provider options (`provider_options_map["vertex"]`).
         pub mod options {
             pub use siumai_provider_google_vertex::provider_options::vertex::{
-                VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage,
+                VertexImagenEditOptions, VertexImagenInlineImage, VertexImagenMaskImageConfig,
+                VertexImagenOptions, VertexImagenReferenceImage,
             };
             pub use siumai_provider_google_vertex::providers::vertex::VertexImagenRequestExt;
         }
 
         pub use options::{
-            VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage,
-            VertexImagenRequestExt,
+            VertexImagenEditOptions, VertexImagenInlineImage, VertexImagenMaskImageConfig,
+            VertexImagenOptions, VertexImagenReferenceImage, VertexImagenRequestExt,
         };
     }
 

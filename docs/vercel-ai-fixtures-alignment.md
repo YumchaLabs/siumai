@@ -28,6 +28,7 @@ Provider id: `vertex`
 - [x] `ImageEditRequest` support (mask/inpaint) with `model` in URL
 - [x] `referenceImages` pass-through (via `extra_params` and typed options)
 - [x] Vercel-aligned `referenceImages` shape for editing (no `mimeType`)
+- [x] Typed `edit` options parity (`mode` / `baseSteps` / `maskMode` / `maskDilation`)
 - [x] Vercel-aligned provider options allowlist (drops unknown keys)
 - [x] Edit without mask (`EDIT_MODE_CONTROLLED_EDITING`)
 - [x] Edit without mask defaults to `EDIT_MODE_INPAINT_INSERTION`

@@ -1,3 +1,6 @@
 pub mod imagen;
 
-pub use imagen::{VertexImagenInlineImage, VertexImagenOptions, VertexImagenReferenceImage};
+pub use imagen::{
+    VertexImagenEditOptions, VertexImagenInlineImage, VertexImagenMaskImageConfig,
+    VertexImagenOptions, VertexImagenReferenceImage,
+};
