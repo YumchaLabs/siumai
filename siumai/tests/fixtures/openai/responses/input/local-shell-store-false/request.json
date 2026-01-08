@@ -1,0 +1,56 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-call",
+            "toolCallId": "call_XWgeTylovOiS8xLNz2TONOgO",
+            "toolName": "shell",
+            "input": { "action": { "type": "exec", "command": ["ls"] } },
+            "providerMetadata": {
+              "openai": {
+                "itemId": "lsh_68c2e2cf522c81908f3e2c1bccd1493b0b24aae9c6c01e4f"
+              }
+            }
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call_XWgeTylovOiS8xLNz2TONOgO",
+            "toolName": "shell",
+            "output": { "type": "json", "value": { "output": "example output" } }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    { "type": "provider", "id": "openai.local_shell", "name": "shell", "args": {} }
+  ],
+  "providerOptions": { "openai": { "store": false } },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

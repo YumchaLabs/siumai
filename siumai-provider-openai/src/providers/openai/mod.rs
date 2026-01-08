@@ -69,6 +69,7 @@ pub mod transformers;
 // Request building module (removed; Transformers handle mapping/validation)
 
 // Future capability modules (placeholders)
+pub mod middleware;
 pub mod models;
 pub mod moderation;
 pub mod spec;
@@ -80,6 +81,7 @@ pub mod model_constants;
 pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
+pub use middleware::OpenAiResponsesInputWarningsMiddleware;
 pub use types::*;
 
 // Provider-owned typed options (kept out of `siumai-core`).

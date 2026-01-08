@@ -1,0 +1,22 @@
+{
+  "model": "gpt-5-nano",
+  "store": false,
+  "input": [
+    {
+      "role": "assistant",
+      "content": [
+        { "type": "output_text", "text": "Let me search for recent news from San Francisco." }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Based on the search results, several significant events took place in San Francisco yesterday (June 22, 2025)."
+        }
+      ]
+    }
+  ]
+}
+

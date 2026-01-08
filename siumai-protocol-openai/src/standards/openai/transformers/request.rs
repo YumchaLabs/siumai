@@ -711,6 +711,19 @@ impl OpenAiResponsesRequestTransformer {
                     let mut out: Vec<serde_json::Value> = Vec::new();
                     let mut content_parts: Vec<serde_json::Value> = Vec::new();
 
+                    let flush_assistant =
+                        |out: &mut Vec<serde_json::Value>,
+                         content_parts: &mut Vec<serde_json::Value>| {
+                            if content_parts.is_empty() {
+                                return;
+                            }
+                            let parts = std::mem::take(content_parts);
+                            out.push(serde_json::json!({
+                                "role": "assistant",
+                                "content": parts,
+                            }));
+                        };
+
                     for part in parts {
                         match part {
                             ContentPart::Text { text, .. } => {
@@ -726,8 +739,13 @@ impl OpenAiResponsesRequestTransformer {
                                 provider_metadata,
                             } => {
                                 if provider_executed == &Some(true) {
+                                    // Provider-executed tool calls are not sent back to the API.
+                                    // Flush any accumulated assistant text to preserve ordering.
+                                    flush_assistant(&mut out, &mut content_parts);
                                     continue;
                                 }
+
+                                flush_assistant(&mut out, &mut content_parts);
 
                                 let resolved_tool_name =
                                     tool_name_mapping.to_provider_tool_name(tool_name);
@@ -834,6 +852,8 @@ impl OpenAiResponsesRequestTransformer {
                                 provider_executed,
                                 ..
                             } => {
+                                flush_assistant(&mut out, &mut content_parts);
+
                                 // Assistant tool results are typically provider-executed and stored.
                                 if store
                                     && (provider_executed == &Some(true)
@@ -866,15 +886,7 @@ impl OpenAiResponsesRequestTransformer {
                         }
                     }
 
-                    if !content_parts.is_empty() {
-                        out.insert(
-                            0,
-                            serde_json::json!({
-                                "role": "assistant",
-                                "content": content_parts,
-                            }),
-                        );
-                    }
+                    flush_assistant(&mut out, &mut content_parts);
 
                     return Ok(out);
                 }

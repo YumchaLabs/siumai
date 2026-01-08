@@ -1,0 +1,7 @@
+[
+  {
+    "type": "other",
+    "message": "Results for OpenAI tool web_search are not sent to the API when store is false"
+  }
+]
+
