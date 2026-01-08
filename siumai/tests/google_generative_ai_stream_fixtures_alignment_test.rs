@@ -63,6 +63,20 @@ fn tool_events(events: &[ChatStreamEvent], kind: &str, tool_name: &str) -> Vec<s
         .collect()
 }
 
+fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn google_stream_code_execution_emits_tool_call_and_result() {
     let path = fixtures_dir().join("google-code-execution.1.chunks.txt");
@@ -91,5 +105,42 @@ fn google_stream_code_execution_emits_tool_call_and_result() {
             .iter()
             .any(|v| v.get("toolCallId").and_then(|id| id.as_str()) == Some(call_id.as_str())),
         "expected tool-result to share toolCallId with tool-call"
+    );
+}
+
+#[test]
+fn google_stream_thought_signature_is_exposed_on_reasoning_events() {
+    let path = fixtures_dir().join("google-thought-signature-reasoning.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter(lines);
+
+    let starts = custom_events_by_type(&events, "reasoning-start");
+    let deltas = custom_events_by_type(&events, "reasoning-delta");
+
+    assert!(!starts.is_empty(), "expected reasoning-start event");
+    assert!(!deltas.is_empty(), "expected reasoning-delta event");
+
+    let start = &starts[0];
+    assert_eq!(
+        start
+            .get("providerMetadata")
+            .and_then(|m| m.get("google"))
+            .and_then(|m| m.get("thoughtSignature"))
+            .and_then(|v| v.as_str()),
+        Some("stream_sig")
+    );
+
+    assert!(
+        deltas.iter().any(|ev| {
+            ev.get("providerMetadata")
+                .and_then(|m| m.get("google"))
+                .and_then(|m| m.get("thoughtSignature"))
+                .and_then(|v| v.as_str())
+                == Some("stream_sig")
+        }),
+        "expected reasoning-delta to include providerMetadata.google.thoughtSignature"
     );
 }

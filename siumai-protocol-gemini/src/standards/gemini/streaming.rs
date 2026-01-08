@@ -21,6 +21,8 @@ struct GeminiStreamResponse {
     candidates: Option<Vec<GeminiCandidate>>,
     #[serde(rename = "usageMetadata")]
     usage_metadata: Option<GeminiUsageMetadata>,
+    #[serde(rename = "promptFeedback")]
+    prompt_feedback: Option<super::types::PromptFeedback>,
 }
 
 /// Gemini candidate structure
@@ -31,6 +33,10 @@ struct GeminiCandidate {
     finish_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "groundingMetadata")]
     grounding_metadata: Option<super::types::GroundingMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "urlContextMetadata")]
+    url_context_metadata: Option<super::types::UrlContextMetadata>,
+    #[serde(default, rename = "safetyRatings")]
+    safety_ratings: Vec<super::types::SafetyRating>,
 }
 
 /// Gemini content structure
@@ -49,6 +55,9 @@ struct GeminiPart {
     /// Optional. Whether this is a thought summary (for thinking models)
     #[serde(skip_serializing_if = "Option::is_none")]
     thought: Option<bool>,
+    /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+    thought_signature: Option<String>,
     #[serde(rename = "executableCode", skip_serializing_if = "Option::is_none")]
     executable_code: Option<GeminiExecutableCode>,
     #[serde(
@@ -94,8 +103,12 @@ pub struct GeminiEventConverter {
     seen_source_keys: Arc<Mutex<std::collections::HashSet<String>>>,
     /// Monotonic id counter for emitted `gemini:source` events
     next_source_id: Arc<AtomicU64>,
+    /// Monotonic id counter for emitted text/reasoning blocks (Vercel-aligned custom events)
+    next_block_id: Arc<AtomicU64>,
     /// Pair executableCode -> codeExecutionResult across chunks
     pending_code_execution_id: Arc<Mutex<Option<String>>>,
+    /// Track the active reasoning block id (for Vercel-aligned custom reasoning events)
+    current_reasoning_block_id: Arc<Mutex<Option<String>>>,
 }
 
 impl GeminiEventConverter {
@@ -105,8 +118,40 @@ impl GeminiEventConverter {
             state_tracker: StreamStateTracker::new(),
             seen_source_keys: Arc::new(Mutex::new(std::collections::HashSet::new())),
             next_source_id: Arc::new(AtomicU64::new(0)),
+            next_block_id: Arc::new(AtomicU64::new(0)),
             pending_code_execution_id: Arc::new(Mutex::new(None)),
+            current_reasoning_block_id: Arc::new(Mutex::new(None)),
         }
+    }
+
+    fn provider_metadata_key(&self) -> &'static str {
+        if self.config.base_url.contains("aiplatform.googleapis.com")
+            || self.config.base_url.contains("vertex")
+        {
+            "vertex"
+        } else {
+            "google"
+        }
+    }
+
+    fn thought_signature_provider_metadata_value(
+        &self,
+        sig: Option<&String>,
+    ) -> Option<serde_json::Value> {
+        let sig = sig?;
+        if sig.trim().is_empty() {
+            return None;
+        }
+        let key = self.provider_metadata_key();
+        Some(serde_json::json!({ key: { "thoughtSignature": sig } }))
+    }
+
+    fn take_reasoning_block_id(&self) -> Option<String> {
+        let mut lock = self
+            .current_reasoning_block_id
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        lock.take()
     }
 
     /// Convert Gemini stream response to multiple ChatStreamEvents
@@ -131,8 +176,63 @@ impl GeminiEventConverter {
             }
         }
 
-        // Process thinking content (if supported)
-        if let Some(thinking) = self.extract_thinking(&response) {
+        // Process thinking content (if supported).
+        // Also emit Vercel-aligned custom reasoning events with providerMetadata.thoughtSignature.
+        for (thinking, sig) in self.extract_thinking_parts(&response) {
+            if thinking.is_empty() {
+                continue;
+            }
+
+            let provider_metadata = self.thought_signature_provider_metadata_value(sig.as_ref());
+
+            // reasoning-start
+            let id = {
+                let mut lock = self
+                    .current_reasoning_block_id
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some(id) = lock.as_ref() {
+                    id.clone()
+                } else {
+                    let next = self.next_block_id.fetch_add(1, Ordering::Relaxed);
+                    let id = next.to_string();
+                    *lock = Some(id.clone());
+                    let mut obj = serde_json::Map::new();
+                    obj.insert(
+                        "type".to_string(),
+                        serde_json::Value::String("reasoning-start".to_string()),
+                    );
+                    obj.insert("id".to_string(), serde_json::Value::String(id.clone()));
+                    if let Some(pm) = provider_metadata.clone() {
+                        obj.insert("providerMetadata".to_string(), pm);
+                    }
+                    builder = builder.add_custom_event(
+                        "gemini:reasoning".to_string(),
+                        serde_json::Value::Object(obj),
+                    );
+                    id
+                }
+            };
+
+            // reasoning-delta
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "type".to_string(),
+                serde_json::Value::String("reasoning-delta".to_string()),
+            );
+            obj.insert("id".to_string(), serde_json::Value::String(id));
+            obj.insert(
+                "delta".to_string(),
+                serde_json::Value::String(thinking.clone()),
+            );
+            if let Some(pm) = provider_metadata {
+                obj.insert("providerMetadata".to_string(), pm);
+            }
+            builder = builder.add_custom_event(
+                "gemini:reasoning".to_string(),
+                serde_json::Value::Object(obj),
+            );
+
             builder = builder.add_thinking_delta(thinking);
         }
 
@@ -153,6 +253,18 @@ impl GeminiEventConverter {
 
         // Handle completion/finish reason
         if let Some(end_response) = self.extract_completion(&response) {
+            if let Some(id) = self.take_reasoning_block_id() {
+                let mut obj = serde_json::Map::new();
+                obj.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("reasoning-end".to_string()),
+                );
+                obj.insert("id".to_string(), serde_json::Value::String(id));
+                builder = builder.add_custom_event(
+                    "gemini:reasoning".to_string(),
+                    serde_json::Value::Object(obj),
+                );
+            }
             builder = builder.add_stream_end(end_response);
         }
 
@@ -195,6 +307,7 @@ impl GeminiEventConverter {
                     for part in parts {
                         if let Some(text) = &part.text
                             && !text.is_empty()
+                            && !part.thought.unwrap_or(false)
                         {
                             out.push(text.clone());
                         }
@@ -272,29 +385,30 @@ impl GeminiEventConverter {
         out
     }
 
-    /// Extract thinking content from Gemini response
-    fn extract_thinking(&self, response: &GeminiStreamResponse) -> Option<String> {
-        // Extract thinking content from parts marked with thought: true
-        response
-            .candidates
-            .as_ref()?
-            .first()?
-            .content
-            .as_ref()?
-            .parts
-            .as_ref()?
-            .iter()
-            .find_map(|part| {
-                if let Some(text) = &part.text {
-                    if part.thought.unwrap_or(false) {
-                        Some(text.clone())
-                    } else {
-                        None
+    /// Extract thinking parts (text + thoughtSignature) from Gemini response.
+    fn extract_thinking_parts(
+        &self,
+        response: &GeminiStreamResponse,
+    ) -> Vec<(String, Option<String>)> {
+        let mut out = Vec::new();
+        let Some(candidates) = response.candidates.as_ref() else {
+            return out;
+        };
+        for cand in candidates {
+            if let Some(content) = cand.content.as_ref()
+                && let Some(parts) = content.parts.as_ref()
+            {
+                for part in parts {
+                    if let Some(text) = part.text.as_ref()
+                        && !text.is_empty()
+                        && part.thought.unwrap_or(false)
+                    {
+                        out.push((text.clone(), part.thought_signature.clone()));
                     }
-                } else {
-                    None
                 }
-            })
+            }
+        }
+        out
     }
 
     /// Extract Vercel-aligned source events from grounding metadata (deduplicated across stream).
@@ -372,6 +486,49 @@ impl GeminiEventConverter {
             // Mark that StreamEnd is being emitted
             self.state_tracker.mark_stream_ended();
 
+            let provider_metadata = {
+                let provider_key = self.provider_metadata_key();
+                let mut meta: std::collections::HashMap<String, serde_json::Value> =
+                    std::collections::HashMap::new();
+
+                if let Some(m) = &candidate.grounding_metadata
+                    && let Ok(v) = serde_json::to_value(m)
+                {
+                    meta.insert("groundingMetadata".to_string(), v);
+                }
+                if let Some(m) = &candidate.url_context_metadata
+                    && let Ok(v) = serde_json::to_value(m)
+                {
+                    meta.insert("urlContextMetadata".to_string(), v);
+                }
+                if !candidate.safety_ratings.is_empty()
+                    && let Ok(v) = serde_json::to_value(&candidate.safety_ratings)
+                {
+                    meta.insert("safetyRatings".to_string(), v);
+                }
+                if let Some(m) = response.prompt_feedback.as_ref()
+                    && let Ok(v) = serde_json::to_value(m)
+                {
+                    meta.insert("promptFeedback".to_string(), v);
+                }
+
+                let sources =
+                    super::sources::extract_sources(candidate.grounding_metadata.as_ref());
+                if !sources.is_empty()
+                    && let Ok(v) = serde_json::to_value(sources)
+                {
+                    meta.insert("sources".to_string(), v);
+                }
+
+                if meta.is_empty() {
+                    None
+                } else {
+                    let mut all = std::collections::HashMap::new();
+                    all.insert(provider_key.to_string(), meta);
+                    Some(all)
+                }
+            };
+
             let response = ChatResponse {
                 id: None,
                 model: None,
@@ -382,7 +539,7 @@ impl GeminiEventConverter {
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
-                provider_metadata: None,
+                provider_metadata,
             };
 
             Some(response)

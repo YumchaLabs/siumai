@@ -10,7 +10,7 @@ pub use crate::standards::gemini::GeminiSource;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GeminiMetadata {
     /// Grounding metadata (for search-grounded responses)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "groundingMetadata")]
     pub grounding_metadata: Option<GroundingMetadata>,
 
     /// Sources extracted from provider-hosted grounding chunks (Vercel-aligned).
@@ -18,12 +18,16 @@ pub struct GeminiMetadata {
     pub sources: Option<Vec<GeminiSource>>,
 
     /// URL context metadata (for url_context tool responses)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "urlContextMetadata")]
     pub url_context_metadata: Option<UrlContextMetadata>,
 
     /// Safety ratings
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "safetyRatings")]
     pub safety_ratings: Option<Vec<SafetyRating>>,
+
+    /// Prompt feedback (content filter information for the prompt)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "promptFeedback")]
+    pub prompt_feedback: Option<serde_json::Value>,
 }
 
 /// Grounding metadata for Gemini responses
@@ -213,7 +217,11 @@ pub trait GeminiChatResponseExt {
 impl GeminiChatResponseExt for crate::types::ChatResponse {
     fn gemini_metadata(&self) -> Option<GeminiMetadata> {
         use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("gemini")?;
-        GeminiMetadata::from_metadata(meta)
+        let meta = self.provider_metadata.as_ref()?;
+        let inner = meta
+            .get("google")
+            .or_else(|| meta.get("vertex"))
+            .or_else(|| meta.get("gemini"))?;
+        GeminiMetadata::from_metadata(inner)
     }
 }

@@ -72,6 +72,9 @@ Provider id: `gemini` (tools use `google.*` ids)
 - [x] `google-google-maps-unsupported.1` (unsupported tool -> omitted from request; emits warnings)
 - [x] Function tools + `tool_choice` (`toolConfig`) parity via fixtures (`google-function-*.1`)
 - [x] File Search availability on Gemini 3 models (`google-file-search-gemini-3.1`)
+- [x] `thoughtSignature` pass-through into per-part `providerMetadata.google.thoughtSignature` (text/reasoning/tool-call)
+- [x] Streaming `reasoning-start`/`reasoning-delta`/`reasoning-end` custom events carry `providerMetadata.google.thoughtSignature`
+- [x] Vercel-aligned response `provider_metadata["google"]` keys (`promptFeedback`, `groundingMetadata`, `urlContextMetadata`, `safetyRatings`)
 
 ### Next
 

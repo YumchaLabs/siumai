@@ -20,36 +20,57 @@ pub enum Part {
         /// Optional. Whether this is a thought summary (for thinking models)
         #[serde(skip_serializing_if = "Option::is_none")]
         thought: Option<bool>,
+        /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+        thought_signature: Option<String>,
     },
     /// Inline data (images, audio, etc.)
     InlineData {
         #[serde(rename = "inlineData")]
         inline_data: Blob,
+        /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+        thought_signature: Option<String>,
     },
     /// File data
     FileData {
         #[serde(rename = "fileData")]
         file_data: FileData,
+        /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+        thought_signature: Option<String>,
     },
     /// Function call
     FunctionCall {
         #[serde(rename = "functionCall")]
         function_call: FunctionCall,
+        /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+        thought_signature: Option<String>,
     },
     /// Function response
     FunctionResponse {
         #[serde(rename = "functionResponse")]
         function_response: FunctionResponse,
+        /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+        thought_signature: Option<String>,
     },
     /// Executable code
     ExecutableCode {
         #[serde(rename = "executableCode")]
         executable_code: ExecutableCode,
+        /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+        thought_signature: Option<String>,
     },
     /// Code execution result
     CodeExecutionResult {
         #[serde(rename = "codeExecutionResult")]
         code_execution_result: CodeExecutionResult,
+        /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
+        #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+        thought_signature: Option<String>,
     },
 }
 
@@ -551,6 +572,7 @@ impl Part {
         Self::Text {
             text,
             thought: None,
+            thought_signature: None,
         }
     }
     /// Create a thought summary part
@@ -558,12 +580,14 @@ impl Part {
         Self::Text {
             text,
             thought: Some(true),
+            thought_signature: None,
         }
     }
     /// Create an inline data part
     pub const fn inline_data(mime_type: String, data: String) -> Self {
         Self::InlineData {
             inline_data: Blob { mime_type, data },
+            thought_signature: None,
         }
     }
     /// Create a file data part
@@ -573,18 +597,21 @@ impl Part {
                 file_uri,
                 mime_type,
             },
+            thought_signature: None,
         }
     }
     /// Create a function call part
     pub const fn function_call(name: String, args: Option<serde_json::Value>) -> Self {
         Self::FunctionCall {
             function_call: FunctionCall { name, args },
+            thought_signature: None,
         }
     }
     /// Create a function response part
     pub const fn function_response(name: String, response: serde_json::Value) -> Self {
         Self::FunctionResponse {
             function_response: FunctionResponse { name, response },
+            thought_signature: None,
         }
     }
 }

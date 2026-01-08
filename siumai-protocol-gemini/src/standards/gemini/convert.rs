@@ -315,6 +315,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                 parts.push(Part::Text {
                     text: text.clone(),
                     thought: None,
+                    thought_signature: None,
                 });
             }
         }
@@ -326,6 +327,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                             parts.push(Part::Text {
                                 text: text.clone(),
                                 thought: None,
+                                thought_signature: None,
                             });
                         }
                     }
@@ -339,6 +341,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                     if let Some((mime_type, data)) = parse_data_url(url) {
                                         parts.push(Part::InlineData {
                                             inline_data: super::types::Blob { mime_type, data },
+                                            thought_signature: None,
                                         });
                                     }
                                 } else if url.starts_with("gs://") || url.starts_with("https://") {
@@ -348,6 +351,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                             file_uri: url.clone(),
                                             mime_type: Some(guess_mime_type(url)),
                                         },
+                                        thought_signature: None,
                                     });
                                 }
                             }
@@ -368,6 +372,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                         mime_type: mime_type.to_string(),
                                         data: data.clone(),
                                     },
+                                    thought_signature: None,
                                 });
                             }
                             crate::types::chat::MediaSource::Binary { data } => {
@@ -389,6 +394,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                         mime_type: mime_type.to_string(),
                                         data: encoded,
                                     },
+                                    thought_signature: None,
                                 });
                             }
                         }
@@ -420,6 +426,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
             parts.push(Part::Text {
                 text: serde_json::to_string(v).unwrap_or_default(),
                 thought: None,
+                thought_signature: None,
             });
         }
     }
@@ -438,6 +445,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                     name: tool_name.clone(),
                     args: Some(arguments.clone()),
                 },
+                thought_signature: None,
             });
         }
     }
@@ -455,6 +463,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                     name: tool_name.clone(),
                     response,
                 },
+                thought_signature: None,
             });
         }
     }
@@ -984,6 +993,7 @@ pub fn build_request_body(
             parts: vec![Part::Text {
                 text: system_text.clone(),
                 thought: None,
+                thought_signature: None,
             }],
         })
     };
@@ -1003,6 +1013,7 @@ pub fn build_request_body(
                     Part::Text {
                         text: prefix,
                         thought: None,
+                        thought_signature: None,
                     },
                 );
             } else {
@@ -1013,6 +1024,7 @@ pub fn build_request_body(
                         parts: vec![Part::Text {
                             text: prefix,
                             thought: None,
+                            thought_signature: None,
                         }],
                     },
                 );
@@ -1023,6 +1035,7 @@ pub fn build_request_body(
                 parts: vec![Part::Text {
                     text: prefix,
                     thought: None,
+                    thought_signature: None,
                 }],
             });
         }

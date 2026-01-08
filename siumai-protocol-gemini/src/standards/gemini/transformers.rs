@@ -568,6 +568,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                     parts: vec![Part::Text {
                         text: prompt,
                         thought: None,
+                        thought_signature: None,
                     }],
                 }];
                 let mut gcfg = self.0.generation_config.clone().unwrap_or_default();
@@ -926,6 +927,11 @@ mod tests_gemini_metadata {
                     }
                 }
             ],
+            "promptFeedback": {
+                "safetyRatings": [
+                    { "category": "HARM_CATEGORY_DEROGATORY", "probability": "NEGLIGIBLE" }
+                ]
+            },
             "modelVersion": "gemini-2.0-flash-exp"
         });
 
@@ -933,12 +939,13 @@ mod tests_gemini_metadata {
         let meta = resp
             .provider_metadata
             .as_ref()
-            .and_then(|m| m.get("gemini"))
-            .expect("gemini provider metadata");
+            .and_then(|m| m.get("google"))
+            .expect("google provider metadata");
 
-        assert!(meta.get("grounding_metadata").is_some());
-        assert!(meta.get("url_context_metadata").is_some());
-        assert!(meta.get("safety_ratings").is_some());
+        assert!(meta.get("groundingMetadata").is_some());
+        assert!(meta.get("urlContextMetadata").is_some());
+        assert!(meta.get("safetyRatings").is_some());
+        assert!(meta.get("promptFeedback").is_some());
         assert!(meta.get("sources").is_some());
 
         let sources = meta
@@ -971,6 +978,30 @@ impl ResponseTransformer for GeminiResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
+        fn provider_metadata_key(base_url: &str) -> &'static str {
+            if base_url.contains("aiplatform.googleapis.com") || base_url.contains("vertex") {
+                "vertex"
+            } else {
+                "google"
+            }
+        }
+
+        fn thought_signature_provider_metadata(
+            provider_key: &str,
+            sig: Option<&String>,
+        ) -> Option<std::collections::HashMap<String, serde_json::Value>> {
+            let sig = sig?;
+            if sig.trim().is_empty() {
+                return None;
+            }
+            let mut out = std::collections::HashMap::new();
+            out.insert(
+                provider_key.to_string(),
+                serde_json::json!({ "thoughtSignature": sig }),
+            );
+            Some(out)
+        }
+
         // Parse typed response and convert to unified ChatResponse (mirrors chat::convert_response)
         let response: GenerateContentResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Gemini response: {e}")))?;
@@ -978,6 +1009,8 @@ impl ResponseTransformer for GeminiResponseTransformer {
         if response.candidates.is_empty() {
             return Err(LlmError::api_error(400, "No candidates in response"));
         }
+
+        let provider_key = provider_metadata_key(&self.config.base_url);
 
         let candidate = &response.candidates[0];
         let content = candidate
@@ -994,19 +1027,33 @@ impl ResponseTransformer for GeminiResponseTransformer {
 
         for part in &content.parts {
             match part {
-                Part::Text { text, thought } => {
+                Part::Text {
+                    text,
+                    thought,
+                    thought_signature,
+                } => {
+                    let provider_metadata = thought_signature_provider_metadata(
+                        provider_key,
+                        thought_signature.as_ref(),
+                    );
                     if thought.unwrap_or(false) {
                         // Add reasoning content
-                        content_parts.push(ContentPart::reasoning(text));
+                        content_parts.push(ContentPart::Reasoning {
+                            text: text.clone(),
+                            provider_metadata,
+                        });
                     } else {
                         if !text_content.is_empty() {
                             text_content.push('\n');
                         }
                         text_content.push_str(text);
-                        content_parts.push(ContentPart::text(text));
+                        content_parts.push(ContentPart::Text {
+                            text: text.clone(),
+                            provider_metadata,
+                        });
                     }
                 }
-                Part::InlineData { inline_data } => {
+                Part::InlineData { inline_data, .. } => {
                     _has_multimodal_content = true;
                     if inline_data.mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
@@ -1036,7 +1083,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         });
                     }
                 }
-                Part::FileData { file_data } => {
+                Part::FileData { file_data, .. } => {
                     _has_multimodal_content = true;
                     let mime_type = file_data
                         .mime_type
@@ -1070,19 +1117,30 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         });
                     }
                 }
-                Part::FunctionCall { function_call } => {
+                Part::FunctionCall {
+                    function_call,
+                    thought_signature,
+                } => {
                     let arguments = function_call
                         .args
                         .clone()
                         .unwrap_or_else(|| serde_json::json!({}));
-                    content_parts.push(ContentPart::tool_call(
-                        format!("call_{}", uuid::Uuid::new_v4()),
-                        function_call.name.clone(),
+                    let provider_metadata = thought_signature_provider_metadata(
+                        provider_key,
+                        thought_signature.as_ref(),
+                    );
+                    content_parts.push(ContentPart::ToolCall {
+                        tool_call_id: format!("call_{}", uuid::Uuid::new_v4()),
+                        tool_name: function_call.name.clone(),
                         arguments,
-                        None,
-                    ));
+                        provider_executed: None,
+                        provider_metadata,
+                    });
                 }
-                Part::ExecutableCode { executable_code } => {
+                Part::ExecutableCode {
+                    executable_code,
+                    thought_signature,
+                } => {
                     let id = format!("call_{}", uuid::Uuid::new_v4());
                     pending_code_execution_id = Some(id.clone());
 
@@ -1091,18 +1149,24 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         super::types::CodeLanguage::Unspecified => "LANGUAGE_UNSPECIFIED",
                     };
 
-                    content_parts.push(ContentPart::tool_call(
-                        id,
-                        "code_execution".to_string(),
-                        serde_json::json!({
+                    let provider_metadata = thought_signature_provider_metadata(
+                        provider_key,
+                        thought_signature.as_ref(),
+                    );
+                    content_parts.push(ContentPart::ToolCall {
+                        tool_call_id: id,
+                        tool_name: "code_execution".to_string(),
+                        arguments: serde_json::json!({
                             "language": language,
                             "code": executable_code.code.clone()
                         }),
-                        Some(true),
-                    ));
+                        provider_executed: Some(true),
+                        provider_metadata,
+                    });
                 }
                 Part::CodeExecutionResult {
                     code_execution_result,
+                    thought_signature,
                 } => {
                     let id = pending_code_execution_id
                         .take()
@@ -1117,6 +1181,10 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         super::types::CodeExecutionOutcome::Unspecified => "OUTCOME_UNSPECIFIED",
                     };
 
+                    let provider_metadata = thought_signature_provider_metadata(
+                        provider_key,
+                        thought_signature.as_ref(),
+                    );
                     content_parts.push(ContentPart::ToolResult {
                         tool_call_id: id,
                         tool_name: "code_execution".to_string(),
@@ -1125,7 +1193,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             "output": code_execution_result.output.clone()
                         })),
                         provider_executed: Some(true),
-                        provider_metadata: None,
+                        provider_metadata,
                     });
                 }
                 _ => {}
@@ -1165,25 +1233,31 @@ impl ResponseTransformer for GeminiResponseTransformer {
 
         // Provider metadata (Vercel alignment): expose grounding/url_context and safety ratings.
         let provider_metadata = {
-            let mut gemini_meta: std::collections::HashMap<String, serde_json::Value> =
+            let mut google_meta: std::collections::HashMap<String, serde_json::Value> =
                 std::collections::HashMap::new();
 
             if let Some(m) = &candidate.grounding_metadata
                 && let Ok(v) = serde_json::to_value(m)
             {
-                gemini_meta.insert("grounding_metadata".to_string(), v);
+                google_meta.insert("groundingMetadata".to_string(), v);
             }
 
             if let Some(m) = &candidate.url_context_metadata
                 && let Ok(v) = serde_json::to_value(m)
             {
-                gemini_meta.insert("url_context_metadata".to_string(), v);
+                google_meta.insert("urlContextMetadata".to_string(), v);
             }
 
             if !candidate.safety_ratings.is_empty()
                 && let Ok(v) = serde_json::to_value(&candidate.safety_ratings)
             {
-                gemini_meta.insert("safety_ratings".to_string(), v);
+                google_meta.insert("safetyRatings".to_string(), v);
+            }
+
+            if let Some(m) = &response.prompt_feedback
+                && let Ok(v) = serde_json::to_value(m)
+            {
+                google_meta.insert("promptFeedback".to_string(), v);
             }
 
             // Vercel-aligned: extract normalized sources from grounding chunks.
@@ -1191,14 +1265,14 @@ impl ResponseTransformer for GeminiResponseTransformer {
             if !sources.is_empty()
                 && let Ok(v) = serde_json::to_value(sources)
             {
-                gemini_meta.insert("sources".to_string(), v);
+                google_meta.insert("sources".to_string(), v);
             }
 
-            if gemini_meta.is_empty() {
+            if google_meta.is_empty() {
                 None
             } else {
                 let mut all = std::collections::HashMap::new();
-                all.insert("gemini".to_string(), gemini_meta);
+                all.insert(provider_key.to_string(), google_meta);
                 Some(all)
             }
         };
@@ -1279,7 +1353,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
         {
             for part in &content.parts {
                 match part {
-                    Part::InlineData { inline_data } => {
+                    Part::InlineData { inline_data, .. } => {
                         if inline_data.mime_type.starts_with("image/") {
                             images.push(crate::types::GeneratedImage {
                                 url: None,
@@ -1292,7 +1366,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             });
                         }
                     }
-                    Part::FileData { file_data } => {
+                    Part::FileData { file_data, .. } => {
                         if let Some(m) = &file_data.mime_type
                             && !m.starts_with("image/")
                         {
