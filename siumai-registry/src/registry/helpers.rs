@@ -22,7 +22,7 @@ use crate::registry::entry::ProviderFactory;
 /// - TTL: None (no expiration)
 /// - auto_middleware: true (automatically add model-specific middlewares)
 /// - Built-in provider factories registered for common providers
-///   (OpenAI, Anthropic, Anthropic Vertex, Gemini, Groq, xAI, Ollama,
+///   (OpenAI, Azure OpenAI, Anthropic, Anthropic Vertex, Gemini, Groq, xAI, Ollama,
 ///   MiniMaxi, and all OpenAI-compatible providers)
 #[cfg(feature = "builtins")]
 pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
@@ -38,6 +38,22 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         providers.insert(
             "openai".to_string(),
             Arc::new(crate::registry::factories::OpenAIProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "azure")]
+    {
+        providers.insert(
+            "azure".to_string(),
+            Arc::new(crate::registry::factories::AzureOpenAiProviderFactory::default())
+                as Arc<dyn ProviderFactory>,
+        );
+        // Variant: Azure Chat Completions (Vercel-aligned `azure.chat(...)`).
+        providers.insert(
+            "azure-chat".to_string(),
+            Arc::new(crate::registry::factories::AzureOpenAiProviderFactory::new(
+                siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions,
+            )) as Arc<dyn ProviderFactory>,
         );
     }
 

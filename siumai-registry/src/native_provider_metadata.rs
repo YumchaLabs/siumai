@@ -57,6 +57,24 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_rerank(),
     });
 
+    // Azure OpenAI (OpenAI-compatible endpoints hosted on Azure).
+    #[cfg(feature = "azure")]
+    out.push(NativeProviderMetadata {
+        id: "azure",
+        name: "Azure OpenAI",
+        description: "Azure OpenAI deployments via OpenAI-compatible endpoints",
+        // Requires resource name or explicit base_url; see AZURE_RESOURCE_NAME.
+        default_base_url: None,
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_embedding()
+            .with_audio()
+            .with_file_management()
+            .with_image_generation(),
+    });
+
     // Anthropic
     #[cfg(feature = "anthropic")]
     {

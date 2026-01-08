@@ -2865,6 +2865,7 @@ dependencies = [
 name = "siumai-provider-azure"
 version = "0.11.0-beta.5"
 dependencies = [
+ "async-trait",
  "reqwest",
  "serde",
  "serde_json",
@@ -3108,6 +3109,7 @@ dependencies = [
  "siumai-core",
  "siumai-protocol-openai",
  "siumai-provider-anthropic",
+ "siumai-provider-azure",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",

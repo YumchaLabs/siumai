@@ -6,6 +6,7 @@
 use crate::provider::SiumaiBuilder;
 #[cfg(any(
     feature = "openai",
+    feature = "azure",
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
@@ -61,6 +62,22 @@ impl SiumaiBuilder {
         self.provider_type = Some(ProviderType::OpenAi);
         self.provider_id = Some("openai-responses".to_string());
         // Responses API routing is now handled via provider_options in ChatRequest
+        self
+    }
+
+    /// Create an Azure OpenAI provider (Responses API by default, Vercel-aligned).
+    #[cfg(feature = "azure")]
+    pub fn azure(mut self) -> Self {
+        self.provider_type = Some(ProviderType::Custom("azure".to_string()));
+        self.provider_id = Some("azure".to_string());
+        self
+    }
+
+    /// Create an Azure OpenAI Chat Completions variant (Vercel-aligned `azure.chat`).
+    #[cfg(feature = "azure")]
+    pub fn azure_chat(mut self) -> Self {
+        self.provider_type = Some(ProviderType::Custom("azure".to_string()));
+        self.provider_id = Some("azure-chat".to_string());
         self
     }
 

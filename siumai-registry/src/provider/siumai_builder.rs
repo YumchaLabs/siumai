@@ -110,6 +110,8 @@ impl SiumaiBuilder {
             "openai" => ProviderType::OpenAi,
             "openai-chat" => ProviderType::OpenAi,
             "openai-responses" => ProviderType::OpenAi,
+            "azure" => ProviderType::Custom("azure".to_string()),
+            "azure-chat" => ProviderType::Custom("azure".to_string()),
             "anthropic" => ProviderType::Anthropic,
             "anthropic-vertex" => ProviderType::Anthropic,
             "gemini" => ProviderType::Gemini,

@@ -137,6 +137,7 @@ openai = [
 ]
 azure = [
     "siumai-core/openai",
+    "siumai-registry/azure",
     "dep:siumai-provider-azure",
     "siumai-provider-azure/azure",
 ]

@@ -41,7 +41,12 @@ pub enum AzureChatMode {
 
 impl Default for AzureChatMode {
     fn default() -> Self {
-        Self::Responses
+        // Keep the crate compiling with `azure-standard` only (no Responses mapping).
+        if cfg!(feature = "azure") {
+            Self::Responses
+        } else {
+            Self::ChatCompletions
+        }
     }
 }
 
@@ -332,25 +337,38 @@ impl ProviderSpec for AzureOpenAiSpec {
     ) -> ChatTransformers {
         match self.chat_mode {
             AzureChatMode::Responses => {
-                let provider_metadata_key = self.provider_metadata_key;
+                #[cfg(not(feature = "azure"))]
+                {
+                    // Responses mapping requires `siumai-protocol-openai/openai-responses`.
+                    // Fall back to Chat Completions when the feature is disabled.
+                    let spec =
+                        siumai_protocol_openai::standards::openai::chat::OpenAiChatStandard::new()
+                            .create_spec("azure");
+                    return spec.choose_chat_transformers(req, ctx);
+                }
 
-                let req_tx = siumai_protocol_openai::standards::openai::transformers::OpenAiResponsesRequestTransformer;
-                let resp_tx = siumai_protocol_openai::standards::openai::transformers::OpenAiResponsesResponseTransformer::new()
+                #[cfg(feature = "azure")]
+                {
+                    let provider_metadata_key = self.provider_metadata_key;
+
+                    let req_tx = siumai_protocol_openai::standards::openai::transformers::OpenAiResponsesRequestTransformer;
+                    let resp_tx = siumai_protocol_openai::standards::openai::transformers::OpenAiResponsesResponseTransformer::new()
                     .with_provider_metadata_key(provider_metadata_key);
-                let converter = siumai_protocol_openai::standards::openai::responses_sse::OpenAiResponsesEventConverter::new()
+                    let converter = siumai_protocol_openai::standards::openai::responses_sse::OpenAiResponsesEventConverter::new()
                     .with_provider_metadata_key(provider_metadata_key)
                     .with_request_tools(req.tools.as_deref().unwrap_or(&[]));
-                let stream_tx =
+                    let stream_tx =
                     siumai_protocol_openai::standards::openai::transformers::OpenAiResponsesStreamChunkTransformer {
                         provider_id: "azure_responses".to_string(),
                         inner: converter,
                     };
 
-                ChatTransformers {
-                    request: Arc::new(req_tx),
-                    response: Arc::new(resp_tx),
-                    stream: Some(Arc::new(stream_tx)),
-                    json: None,
+                    ChatTransformers {
+                        request: Arc::new(req_tx),
+                        response: Arc::new(resp_tx),
+                        stream: Some(Arc::new(stream_tx)),
+                        json: None,
+                    }
                 }
             }
             AzureChatMode::ChatCompletions => {

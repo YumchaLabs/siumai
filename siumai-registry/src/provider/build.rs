@@ -2,6 +2,7 @@ use crate::error::LlmError;
 #[cfg(any(
     test,
     feature = "openai",
+    feature = "azure",
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
@@ -15,6 +16,7 @@ use crate::types::ProviderType;
 #[cfg(any(
     test,
     feature = "openai",
+    feature = "azure",
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
@@ -67,6 +69,7 @@ fn infer_provider_from_model(model: &str) -> Option<ProviderType> {
 /// Build the unified Siumai provider from SiumaiBuilder
 #[cfg(any(
     feature = "openai",
+    feature = "azure",
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
@@ -292,6 +295,12 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         common_params.model = match provider_type {
             #[cfg(feature = "openai")]
             ProviderType::OpenAi => siumai_provider_openai::providers::openai::model_constants::gpt_4o::GPT_4O.to_string(),
+            #[cfg(feature = "azure")]
+            ProviderType::Custom(ref provider_id) if provider_id == "azure" => {
+                return Err(LlmError::ConfigurationError(
+                    "Azure OpenAI requires an explicit model (deployment id)".to_string(),
+                ));
+            }
             #[cfg(feature = "anthropic")]
             ProviderType::Anthropic => siumai_provider_anthropic::providers::anthropic::model_constants::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022.to_string(),
             #[cfg(feature = "google")]
@@ -595,6 +604,41 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 .language_model_with_ctx(&common_params.model, &ctx)
                 .await?
         }
+        #[cfg(feature = "azure")]
+        ProviderType::Custom(name) if name == "azure" => {
+            let ctx = BuildContext {
+                http_client: Some(built_http_client.clone()),
+                http_config: Some(http_config.clone()),
+                api_key: Some(api_key.clone()),
+                base_url: base_url.clone(),
+                tracing_config: builder.tracing_config.clone(),
+                http_interceptors: interceptors.clone(),
+                model_middlewares: user_model_middlewares.clone(),
+                retry_options: builder.retry_options.clone(),
+                common_params: Some(common_params.clone()),
+                provider_id: builder.provider_id.clone(),
+                ..Default::default()
+            };
+
+            let chat_mode = match builder.provider_id.as_deref() {
+                Some("azure-chat") => {
+                    siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions
+                }
+                _ => siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
+            };
+
+            let factory = crate::registry::factories::AzureOpenAiProviderFactory::new(chat_mode);
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
+        }
+        #[cfg(not(feature = "azure"))]
+        ProviderType::Custom(name) if name == "azure" => {
+            let _ = name;
+            return Err(LlmError::UnsupportedOperation(
+                "Azure OpenAI provider requires the 'azure' feature to be enabled".to_string(),
+            ));
+        }
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "vertex" => {
             let Some(resolved_base) = base_url.clone() else {
@@ -739,6 +783,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 /// Build stub when no provider features are enabled.
 #[cfg(not(any(
     feature = "openai",
+    feature = "azure",
     feature = "anthropic",
     feature = "google",
     feature = "ollama",
@@ -748,7 +793,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 )))]
 pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     Err(LlmError::UnsupportedOperation(
-        "No provider features enabled (enable at least one of: openai, anthropic, google, ollama, xai, groq, minimaxi)".to_string(),
+        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, ollama, xai, groq, minimaxi)".to_string(),
     ))
 }
 

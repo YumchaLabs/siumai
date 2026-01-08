@@ -19,6 +19,7 @@ doctest = false
 siumai-core = { workspace = true, default-features = false }
 siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
 
+async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
@@ -40,4 +41,3 @@ azure-standard = [
 
 # Azure OpenAI provider (Responses API default).
 azure = ["azure-standard", "siumai-protocol-openai/openai-responses"]
-
