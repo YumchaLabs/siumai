@@ -130,7 +130,13 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
         description: "Google Vertex AI models (e.g., Imagen) served via Vertex endpoints",
         // Requires project/location; use `base_url_for_vertex` or explicit `base_url`.
         default_base_url: None,
-        capabilities: ProviderCapabilities::new().with_image_generation(),
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_vision()
+            .with_embedding()
+            .with_image_generation(),
     });
 
     // Groq

@@ -48,6 +48,20 @@ Provider id: `vertex`
 
 - [ ] Add fixture coverage for future response metadata fields
 
+## Google Vertex (Chat & Embedding)
+
+Provider id: `vertex`
+
+### Done
+
+- [x] Express mode: API key appended as `?key=...` (no `x-goog-api-key` header)
+- [x] Enterprise mode: `Authorization: Bearer ...` disables `key` query param
+- [x] Chat URL routing via `:generateContent` / `:streamGenerateContent?alt=sse`
+- [x] Text embedding URL routing via `:predict`
+- [x] Vercel-aligned embedding request body (`instances[*].task_type/title`, `parameters.outputDimensionality/autoTruncate`)
+- [x] Provider options fallback for embeddings (`providerOptions["vertex"]` then `providerOptions["google"]`)
+- [x] Fixture-driven embedding alignment tests under `siumai/tests/fixtures/vertex/embedding/*`
+
 ## Google Generative AI (Gemini)
 
 Provider id: `gemini` (tools use `google.*` ids)

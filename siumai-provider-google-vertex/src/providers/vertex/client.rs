@@ -9,15 +9,19 @@ use std::sync::Arc;
 
 use crate::auth::TokenProvider;
 use crate::client::LlmClient;
+use crate::core::ProviderSpec;
 use crate::error::LlmError;
 use crate::execution::executors::image::{ImageExecutor, ImageExecutorBuilder};
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
-use crate::traits::{ChatCapability, ImageExtras, ImageGenerationCapability, ProviderCapabilities};
+use crate::traits::{
+    ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
+    ProviderCapabilities,
+};
 use crate::types::{
-    ChatMessage, ChatResponse, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse,
-    Tool,
+    ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, ImageEditRequest,
+    ImageGenerationRequest, ImageGenerationResponse, Tool,
 };
 
 /// Minimal config for Google Vertex client (delegate auth to HttpConfig headers / token providers).
@@ -28,6 +32,9 @@ pub struct GoogleVertexConfig {
     pub base_url: String,
     /// Default model id (e.g., `imagen-3.0-generate-002`).
     pub model: String,
+    /// Optional API key (express mode). When set and no `Authorization` header is present,
+    /// it will be passed as the `key` query parameter.
+    pub api_key: Option<String>,
     /// Per-request HTTP config (headers, timeouts, etc.).
     pub http_config: crate::types::HttpConfig,
     /// Optional Bearer token provider (e.g., ADC). When present, an `Authorization` header
@@ -42,6 +49,10 @@ impl std::fmt::Debug for GoogleVertexConfig {
             .field("model", &self.model)
             .field("http_config", &self.http_config);
 
+        if self.api_key.is_some() {
+            ds.field("has_api_key", &true);
+        }
+
         if self.token_provider.is_some() {
             ds.field("has_token_provider", &true);
         }
@@ -54,18 +65,27 @@ impl std::fmt::Debug for GoogleVertexConfig {
 pub struct GoogleVertexClient {
     http_client: HttpClient,
     config: GoogleVertexConfig,
+    common_params: crate::types::CommonParams,
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     retry_options: Option<RetryOptions>,
 }
 
 impl GoogleVertexClient {
     pub fn new(config: GoogleVertexConfig, http_client: HttpClient) -> Self {
+        let mut common_params = crate::types::CommonParams::default();
+        common_params.model = config.model.clone();
         Self {
             http_client,
             config,
+            common_params,
             http_interceptors: Vec::new(),
             retry_options: None,
         }
+    }
+
+    pub fn with_common_params(mut self, common_params: crate::types::CommonParams) -> Self {
+        self.common_params = common_params;
+        self
     }
 
     pub fn with_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
@@ -78,13 +98,8 @@ impl GoogleVertexClient {
         self
     }
 
-    fn build_context(&self) -> crate::core::ProviderContext {
-        crate::core::ProviderContext::new(
-            "vertex",
-            self.config.base_url.clone(),
-            None,
-            self.config.http_config.headers.clone(),
-        )
+    async fn build_context(&self) -> crate::core::ProviderContext {
+        super::context::build_context(&self.config).await
     }
 
     fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
@@ -125,7 +140,7 @@ impl ImageGenerationCapability for GoogleVertexClient {
         self.inject_auth_header(&mut http_config).await?;
         request.http_config = Some(http_config);
 
-        let ctx = self.build_context();
+        let ctx = self.build_context().await;
         let spec = Arc::new(
             crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
         );
@@ -161,7 +176,7 @@ impl ImageExtras for GoogleVertexClient {
         self.inject_auth_header(&mut http_config).await?;
         request.http_config = Some(http_config);
 
-        let ctx = self.build_context();
+        let ctx = self.build_context().await;
         let spec = Arc::new(
             crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
         );
@@ -216,22 +231,119 @@ impl ImageExtras for GoogleVertexClient {
 impl ChatCapability for GoogleVertexClient {
     async fn chat_with_tools(
         &self,
-        _messages: Vec<ChatMessage>,
-        _tools: Option<Vec<Tool>>,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "Vertex provider does not support chat".to_string(),
-        ))
+        use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
+
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .http_config(self.config.http_config.clone());
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
+
+        let ctx = self.build_context().await;
+        let spec = Arc::new(
+            crate::standards::vertex_generative_ai::VertexGenerativeAiStandard::new()
+                .create_spec("vertex"),
+        );
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
+
+        let mut exec = ChatExecutorBuilder::new("vertex", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(retry) = self.retry_options.clone() {
+            exec = exec.with_retry_options(retry);
+        }
+
+        let exec = exec.build();
+        ChatExecutor::execute(&*exec, request).await
     }
 
     async fn chat_stream(
         &self,
-        _messages: Vec<ChatMessage>,
-        _tools: Option<Vec<Tool>>,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "Vertex provider does not support streaming chat".to_string(),
-        ))
+        use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
+
+        let mut builder = ChatRequest::builder()
+            .messages(messages)
+            .common_params(self.common_params.clone())
+            .http_config(self.config.http_config.clone())
+            .stream(true);
+        if let Some(ts) = tools {
+            builder = builder.tools(ts);
+        }
+        let request = builder.build();
+
+        let ctx = self.build_context().await;
+        let spec = Arc::new(
+            crate::standards::vertex_generative_ai::VertexGenerativeAiStandard::new()
+                .create_spec("vertex"),
+        );
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
+
+        let mut exec = ChatExecutorBuilder::new("vertex", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_transformer_bundle(bundle)
+            .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
+            .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(retry) = self.retry_options.clone() {
+            exec = exec.with_retry_options(retry);
+        }
+
+        let exec = exec.build();
+        ChatExecutor::execute_stream(&*exec, request).await
+    }
+}
+
+#[async_trait]
+impl EmbeddingCapability for GoogleVertexClient {
+    async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
+        use crate::execution::executors::embedding::{EmbeddingExecutor, EmbeddingExecutorBuilder};
+
+        let req = EmbeddingRequest::new(input).with_model(self.common_params.model.clone());
+
+        let ctx = self.build_context().await;
+        let spec = Arc::new(
+            crate::standards::vertex_embedding::VertexEmbeddingStandard::new()
+                .create_spec("vertex"),
+        );
+
+        let exec = EmbeddingExecutorBuilder::new("vertex", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_interceptors(self.http_interceptors.clone());
+
+        let exec = if let Some(retry) = self.retry_options.clone() {
+            exec.with_retry_options(retry).build_for_request(&req)
+        } else {
+            exec.build_for_request(&req)
+        };
+
+        EmbeddingExecutor::execute(&*exec, req).await
+    }
+
+    fn embedding_dimension(&self) -> usize {
+        768
+    }
+
+    fn max_tokens_per_embedding(&self) -> usize {
+        2048
+    }
+
+    fn supported_embedding_models(&self) -> Vec<String> {
+        vec!["text-embedding-004".to_string()]
     }
 }
 
@@ -245,7 +357,13 @@ impl LlmClient for GoogleVertexClient {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new().with_image_generation()
+        ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_vision()
+            .with_embedding()
+            .with_image_generation()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -261,6 +379,10 @@ impl LlmClient for GoogleVertexClient {
     }
 
     fn as_image_extras(&self) -> Option<&dyn ImageExtras> {
+        Some(self)
+    }
+
+    fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         Some(self)
     }
 }

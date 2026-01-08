@@ -491,6 +491,9 @@ impl RequestTransformer for GeminiRequestTransformer {
                     crate::types::EmbeddingTaskType::FactVerification => {
                         "FACT_VERIFICATION".to_string()
                     }
+                    crate::types::EmbeddingTaskType::CodeRetrievalQuery => {
+                        "CODE_RETRIEVAL_QUERY".to_string()
+                    }
                     crate::types::EmbeddingTaskType::Unspecified => {
                         "TASK_TYPE_UNSPECIFIED".to_string()
                     }

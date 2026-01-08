@@ -346,6 +346,7 @@ pub async fn build_anthropic_vertex_client(
 #[allow(clippy::too_many_arguments)]
 pub async fn build_google_vertex_client(
     base_url: String,
+    api_key: Option<String>,
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
@@ -358,12 +359,14 @@ pub async fn build_google_vertex_client(
     let cfg = siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig {
         base_url,
         model: common_params.model.clone(),
+        api_key,
         http_config,
         token_provider,
     };
 
     let mut client =
         siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::new(cfg, http_client);
+    client = client.with_common_params(common_params);
     if let Some(opts) = retry_options {
         client = client.with_retry_options(opts);
     }

@@ -686,12 +686,16 @@ impl ProviderFactory for GoogleVertexProviderFactory {
             build_http_client_from_config(&http_config)?
         };
 
-        let base_url = ctx.base_url.clone().ok_or_else(|| {
-            LlmError::ConfigurationError(
-                "Google Vertex requires `base_url` (use base_url_for_vertex(...) or .base_url(...))"
-                    .to_string(),
-            )
-        })?;
+        let base_url = if let Some(b) = ctx.base_url.clone() {
+            b
+        } else if ctx.api_key.is_some() {
+            // Vercel AI SDK express mode base URL.
+            "https://aiplatform.googleapis.com/v1/publishers/google".to_string()
+        } else {
+            return Err(LlmError::ConfigurationError(
+                "Google Vertex requires `base_url` (use base_url_for_vertex(...) or .base_url(...)), or an API key for express mode".to_string(),
+            ));
+        };
 
         // Resolve common parameters.
         let common_params = crate::utils::builder_helpers::resolve_common_params(
@@ -701,6 +705,7 @@ impl ProviderFactory for GoogleVertexProviderFactory {
 
         crate::registry::factory::build_google_vertex_client(
             base_url,
+            ctx.api_key.clone(),
             http_client,
             common_params,
             http_config,

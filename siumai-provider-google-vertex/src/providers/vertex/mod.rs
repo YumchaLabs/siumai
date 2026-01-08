@@ -1,5 +1,6 @@
 pub mod client;
+pub mod context;
 pub mod ext;
 
 pub use client::{GoogleVertexClient, GoogleVertexConfig};
-pub use ext::VertexImagenRequestExt;
+pub use ext::{VertexEmbeddingRequestExt, VertexImagenRequestExt};

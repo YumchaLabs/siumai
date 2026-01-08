@@ -49,6 +49,8 @@ pub enum EmbeddingTaskType {
     QuestionAnswering,
     /// Fact verification
     FactVerification,
+    /// Code retrieval query (Vertex AI parity)
+    CodeRetrievalQuery,
     /// Unspecified task
     Unspecified,
 }

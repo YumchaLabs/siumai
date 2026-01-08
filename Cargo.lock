@@ -2923,6 +2923,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
+ "siumai-protocol-gemini",
  "thiserror",
  "tokio",
  "tokio-util",

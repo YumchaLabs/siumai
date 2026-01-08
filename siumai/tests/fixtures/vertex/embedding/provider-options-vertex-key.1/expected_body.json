@@ -1,0 +1,18 @@
+{
+  "instances": [
+    {
+      "content": "test text one",
+      "task_type": "SEMANTIC_SIMILARITY",
+      "title": "test title"
+    },
+    {
+      "content": "test text two",
+      "task_type": "SEMANTIC_SIMILARITY",
+      "title": "test title"
+    }
+  ],
+  "parameters": {
+    "outputDimensionality": 768,
+    "autoTruncate": false
+  }
+}

@@ -646,16 +646,25 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "vertex" => {
-            let Some(resolved_base) = base_url.clone() else {
+            let resolved_base = if let Some(b) = base_url.clone() {
+                b
+            } else if !api_key.is_empty() {
+                // Vercel AI SDK express mode base URL.
+                "https://aiplatform.googleapis.com/v1/publishers/google".to_string()
+            } else {
                 return Err(LlmError::ConfigurationError(
-                    "Google Vertex requires `base_url` (use SiumaiBuilder::base_url_for_vertex(...) or .base_url(...))"
-                        .to_string(),
+                    "Google Vertex requires `base_url` (use SiumaiBuilder::base_url_for_vertex(...) or .base_url(...)), or an API key for express mode".to_string(),
                 ));
             };
 
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
                 http_config: Some(http_config.clone()),
+                api_key: if api_key.is_empty() {
+                    None
+                } else {
+                    Some(api_key.clone())
+                },
                 base_url: Some(resolved_base),
                 tracing_config: builder.tracing_config.clone(),
                 http_interceptors: interceptors.clone(),
