@@ -2642,6 +2642,7 @@ dependencies = [
  "siumai-protocol-gemini",
  "siumai-protocol-openai",
  "siumai-provider-anthropic",
+ "siumai-provider-azure",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",
@@ -2858,6 +2859,18 @@ name = "siumai-provider-anthropic-compatible"
 version = "0.11.0-beta.5"
 dependencies = [
  "siumai-protocol-anthropic",
+]
+
+[[package]]
+name = "siumai-provider-azure"
+version = "0.11.0-beta.5"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "siumai-protocol-openai",
+ "thiserror",
 ]
 
 [[package]]

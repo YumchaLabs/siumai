@@ -1,0 +1,2 @@
+https://test-resource.openai.azure.com/openai/v1/responses?api-version=v1
+

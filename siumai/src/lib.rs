@@ -169,6 +169,8 @@ pub mod experimental {
 
         #[cfg(feature = "anthropic")]
         pub use siumai_provider_anthropic as anthropic;
+        #[cfg(feature = "azure")]
+        pub use siumai_provider_azure as azure;
         #[cfg(feature = "google")]
         pub use siumai_provider_gemini as gemini;
         #[cfg(feature = "google-vertex")]
@@ -277,6 +279,11 @@ pub mod provider_ext {
                 FunctionChoice, OpenAiParams, OpenAiParamsBuilder, ResponseFormat, ToolChoice,
             };
         }
+    }
+
+    #[cfg(feature = "azure")]
+    pub mod azure {
+        pub use siumai_provider_azure::providers::azure_openai::{AzureOpenAiSpec, AzureUrlConfig};
     }
 
     #[cfg(feature = "anthropic")]

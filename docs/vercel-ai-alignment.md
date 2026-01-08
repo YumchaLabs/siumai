@@ -16,6 +16,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 | `@ai-sdk/provider` | Provider interfaces/types | `siumai-core` | Traits, request/response types, streaming primitives. |
 | `@ai-sdk/provider-utils` | Shared helpers (HTTP, streaming, tooling) | `siumai-core`, `siumai-registry` | `siumai-registry` owns the Vercel-style `"provider:model"` registry handle. |
 | `@ai-sdk/openai` | Native OpenAI provider | `siumai-provider-openai` | Owns native OpenAI endpoints; re-exports protocol mapping under `standards`. |
+| `@ai-sdk/azure` | Azure OpenAI provider | `siumai-provider-azure` | Owns Azure OpenAI URL + header quirks; reuses `siumai-protocol-openai` mapping. |
 | `@ai-sdk/openai-compatible` | OpenAI-like family adapter | `siumai-protocol-openai` | Preferred name; legacy compatibility crate: `siumai-provider-openai-compatible`. |
 | `@ai-sdk/anthropic` | Native Anthropic provider | `siumai-provider-anthropic` | Owns native Anthropic client; re-exports protocol mapping under `standards`. |
 | `@ai-sdk/google` | Google provider | `siumai-provider-gemini` | Gemini (GenerateContent) mapping + client implementation. |

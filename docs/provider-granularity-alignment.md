@@ -22,6 +22,7 @@ mirror that direction using **protocol crates** that provider crates depend on.
 | `@ai-sdk/provider` | shared interfaces + types | `siumai-core::types`, `siumai-core::traits` |
 | `@ai-sdk/provider-utils` | HTTP/streaming/retry utilities | `siumai-core::execution`, `siumai-core::retry`, `siumai-core::streaming` |
 | `@ai-sdk/openai` | OpenAI provider | `siumai-provider-openai` |
+| `@ai-sdk/azure` | Azure OpenAI provider | `siumai-provider-azure` |
 | `@ai-sdk/anthropic` | Anthropic provider | `siumai-provider-anthropic` |
 | `@ai-sdk/google` | Gemini API (Generative Language API) | `siumai-provider-gemini` |
 | `@ai-sdk/google-vertex` | Vertex AI (incl. Imagen) | `siumai-provider-google-vertex` |

@@ -1,0 +1,43 @@
+[package]
+name = "siumai-provider-azure"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Azure OpenAI provider implementation for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-provider-azure"
+readme = "../README.md"
+keywords = ["llm", "ai", "azure", "openai"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
+
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+
+structured-messages = [
+    "siumai-core/structured-messages",
+    "siumai-protocol-openai/structured-messages",
+]
+
+# Enables OpenAI protocol types in `siumai-core` + protocol mapping in `siumai-protocol-openai`.
+azure-standard = [
+    "siumai-core/openai",
+    "siumai-protocol-openai/openai-standard",
+]
+
+# Azure OpenAI provider (Responses API default).
+azure = ["azure-standard", "siumai-protocol-openai/openai-responses"]
+

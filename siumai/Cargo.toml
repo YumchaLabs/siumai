@@ -39,6 +39,7 @@ siumai-registry = { workspace = true, default-features = false }
 
 # Provider crates (direct dependencies; breaking from the legacy umbrella `siumai-providers`)
 siumai-provider-openai = { version = "0.11.0-beta.5", path = "../siumai-provider-openai", default-features = false, optional = true }
+siumai-provider-azure = { version = "0.11.0-beta.5", path = "../siumai-provider-azure", default-features = false, optional = true }
 siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false, optional = true }
 siumai-provider-anthropic = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic", default-features = false, optional = true }
 siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false, optional = true }
@@ -112,6 +113,7 @@ structured-messages = [
     "siumai-core/structured-messages",
     "siumai-registry/structured-messages",
     "siumai-provider-openai/structured-messages",
+    "siumai-provider-azure/structured-messages",
     "siumai-provider-anthropic/structured-messages",
     "siumai-provider-gemini/structured-messages",
     "siumai-provider-google-vertex/structured-messages",
@@ -132,6 +134,11 @@ openai = [
     "siumai-provider-openai/openai",
     "dep:siumai-protocol-openai",
     "siumai-protocol-openai/openai-standard",
+]
+azure = [
+    "siumai-core/openai",
+    "dep:siumai-provider-azure",
+    "siumai-provider-azure/azure",
 ]
 anthropic = [
     "siumai-core/anthropic",

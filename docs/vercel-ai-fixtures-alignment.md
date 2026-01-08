@@ -248,6 +248,17 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 - [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
 - [x] Azure streaming fixtures (code_interpreter / image_generation / reasoning-encrypted-content) with `providerMetadata.azure`
 
+## Azure OpenAI Provider Request (URL + Headers)
+
+Provider id: `azure` (Vercel package: `@ai-sdk/azure`)
+
+### Done
+
+- [x] URL routing parity for `/openai/v1/responses` + `api-version` query (default + custom)
+- [x] Legacy deployment-based URL mode (`/openai/deployments/{deployment}/responses`)
+- [x] `api-key` auth header + provider/request header merge parity
+- [x] Fixture-driven request alignment tests under `siumai/tests/fixtures/azure/openai-provider/request/*`
+
 ## OpenAI Responses Reasoning (Streaming)
 
 Provider id: `openai` (Responses API)
