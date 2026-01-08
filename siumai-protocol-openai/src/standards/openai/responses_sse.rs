@@ -77,6 +77,10 @@ pub struct OpenAiResponsesEventConverter {
     /// Controls how the final `response.completed` payload is transformed into `ChatResponse`.
     responses_transform_style: super::transformers::ResponsesTransformStyle,
 
+    /// Controls the providerMetadata key used in Vercel-aligned stream parts
+    /// (e.g. "openai" vs "azure").
+    provider_metadata_key: String,
+
     /// Maps custom tool call names (e.g. xAI internal tool names) to the user-facing tool name.
     custom_tool_name_by_call_name: Arc<Mutex<HashMap<String, String>>>,
     custom_tool_call_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
@@ -128,6 +132,7 @@ impl Default for OpenAiResponsesEventConverter {
             emit_web_search_tool_result: true,
             stream_parts_style: StreamPartsStyle::OpenAi,
             responses_transform_style: super::transformers::ResponsesTransformStyle::OpenAi,
+            provider_metadata_key: "openai".to_string(),
             custom_tool_name_by_call_name: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_call_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_tool_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
@@ -182,6 +187,17 @@ impl OpenAiResponsesEventConverter {
     ) -> Self {
         self.responses_transform_style = style;
         self
+    }
+
+    pub fn with_provider_metadata_key(mut self, key: impl Into<String>) -> Self {
+        self.provider_metadata_key = key.into();
+        self
+    }
+
+    fn provider_metadata_json(&self, value: serde_json::Value) -> serde_json::Value {
+        let mut out = serde_json::Map::new();
+        out.insert(self.provider_metadata_key.clone(), value);
+        serde_json::Value::Object(out)
     }
 
     fn text_stream_part_id(&self, item_id: &str) -> String {
@@ -1044,11 +1060,9 @@ impl OpenAiResponsesEventConverter {
                 data: serde_json::json!({
                     "type": "text-start",
                     "id": id,
-                    "providerMetadata": {
-                        "openai": {
-                            "itemId": item_id,
-                        },
-                    },
+                    "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                        "itemId": item_id,
+                    })),
                 }),
             }),
             StreamPartsStyle::Xai => Some(crate::streaming::ChatStreamEvent::Custom {
@@ -1088,11 +1102,9 @@ impl OpenAiResponsesEventConverter {
                         data: serde_json::json!({
                             "type": "text-start",
                             "id": id,
-                            "providerMetadata": {
-                                "openai": {
-                                    "itemId": item_id,
-                                },
-                            },
+                            "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                                "itemId": item_id,
+                            })),
                         }),
                     });
                 }
@@ -1194,9 +1206,7 @@ impl OpenAiResponsesEventConverter {
             data: serde_json::json!({
                 "type": "text-end",
                 "id": id,
-                "providerMetadata": {
-                    "openai": provider_metadata_openai,
-                },
+                "providerMetadata": self.provider_metadata_json(provider_metadata_openai),
             }),
         })
     }
@@ -1297,31 +1307,38 @@ impl OpenAiResponsesEventConverter {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let provider_metadata_openai = match (response_id, service_tier) {
-            (Some(id), Some(tier)) => serde_json::json!({
-                "responseId": id,
-                "serviceTier": tier,
-            }),
-            (Some(id), None) => serde_json::json!({
-                "responseId": id,
-            }),
-            (None, Some(tier)) => serde_json::json!({
-                "serviceTier": tier,
-            }),
-            (None, None) => serde_json::json!({}),
-        };
+        let raw_finish_reason = completed_json
+            .get("response")
+            .and_then(|r| r.get("incomplete_details"))
+            .and_then(|d| d.get("reason"))
+            .and_then(|v| v.as_str())
+            .map(|s| serde_json::Value::String(s.to_string()))
+            .unwrap_or(serde_json::Value::Null);
+
+        let mut provider_metadata = serde_json::Map::new();
+        if let Some(id) = response_id {
+            provider_metadata.insert("responseId".to_string(), serde_json::Value::String(id));
+        }
+        if let Some(tier) = service_tier {
+            provider_metadata.insert("serviceTier".to_string(), serde_json::Value::String(tier));
+        }
+        if let Some(resp) = completed_json.get("response")
+            && let Some(logprobs) =
+                super::transformers::response::extract_responses_output_text_logprobs(resp)
+        {
+            provider_metadata.insert("logprobs".to_string(), logprobs);
+        }
+        let provider_metadata = serde_json::Value::Object(provider_metadata);
 
         Some(crate::streaming::ChatStreamEvent::Custom {
             event_type: "openai:finish".to_string(),
             data: serde_json::json!({
                 "type": "finish",
                 "finishReason": {
-                    "raw": serde_json::Value::Null,
+                    "raw": raw_finish_reason,
                     "unified": unified,
                 },
-                "providerMetadata": {
-                    "openai": provider_metadata_openai,
-                },
+                "providerMetadata": self.provider_metadata_json(provider_metadata),
                 "usage": {
                     "inputTokens": {
                         "total": input_tokens,
@@ -1377,13 +1394,11 @@ impl OpenAiResponsesEventConverter {
                 data: serde_json::json!({
                     "type": "reasoning-start",
                     "id": id,
-                    "providerMetadata": {
-                        "openai": {
-                            "itemId": item_id,
-                            // Vercel alignment: always include the key for start events.
-                            "reasoningEncryptedContent": encrypted_content,
-                        },
-                    },
+                    "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                        "itemId": item_id,
+                        // Vercel alignment: always include the key for start events.
+                        "reasoningEncryptedContent": encrypted_content,
+                    })),
                 }),
             }),
             StreamPartsStyle::Xai => Some(crate::streaming::ChatStreamEvent::Custom {
@@ -1440,13 +1455,11 @@ impl OpenAiResponsesEventConverter {
             data: serde_json::json!({
                 "type": "reasoning-start",
                 "id": id,
-                "providerMetadata": {
-                    "openai": {
-                        "itemId": item_id,
-                        // Vercel alignment: always include the key for start events.
-                        "reasoningEncryptedContent": encrypted_content,
-                    },
-                },
+                "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                    "itemId": item_id,
+                    // Vercel alignment: always include the key for start events.
+                    "reasoningEncryptedContent": encrypted_content,
+                })),
             }),
         })
     }
@@ -1484,11 +1497,9 @@ impl OpenAiResponsesEventConverter {
                         "type": "reasoning-delta",
                         "id": id,
                         "delta": delta,
-                        "providerMetadata": {
-                            "openai": {
-                                "itemId": item_id,
-                            },
-                        },
+                        "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                            "itemId": item_id,
+                        })),
                     }),
                 })
             }
@@ -1563,18 +1574,14 @@ impl OpenAiResponsesEventConverter {
 
             // Vercel alignment: omit reasoningEncryptedContent when it is null/absent.
             let provider_metadata = if let Some(enc) = encrypted_content.as_ref() {
-                serde_json::json!({
-                    "openai": {
-                        "itemId": item_id,
-                        "reasoningEncryptedContent": enc,
-                    }
-                })
+                self.provider_metadata_json(serde_json::json!({
+                    "itemId": item_id,
+                    "reasoningEncryptedContent": enc,
+                }))
             } else {
-                serde_json::json!({
-                    "openai": {
-                        "itemId": item_id,
-                    }
-                })
+                self.provider_metadata_json(serde_json::json!({
+                    "itemId": item_id,
+                }))
             };
 
             events.push(crate::streaming::ChatStreamEvent::Custom {
@@ -1647,20 +1654,18 @@ impl OpenAiResponsesEventConverter {
                 .unwrap_or_else(|| format!("ann:doc:{file_id}"));
 
             let provider_metadata = match ann_type {
-                "file_citation" => serde_json::json!({ "openai": { "fileId": file_id } }),
-                "container_file_citation" => serde_json::json!({
-                    "openai": {
-                        "fileId": file_id,
-                        "containerId": annotation.get("container_id").cloned().unwrap_or(serde_json::Value::Null),
-                        "index": annotation.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                    }
-                }),
-                "file_path" => serde_json::json!({
-                    "openai": {
-                        "fileId": file_id,
-                        "index": annotation.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                    }
-                }),
+                "file_citation" => {
+                    self.provider_metadata_json(serde_json::json!({ "fileId": file_id }))
+                }
+                "container_file_citation" => self.provider_metadata_json(serde_json::json!({
+                    "fileId": file_id,
+                    "containerId": annotation.get("container_id").cloned().unwrap_or(serde_json::Value::Null),
+                    "index": annotation.get("index").cloned().unwrap_or(serde_json::Value::Null),
+                })),
+                "file_path" => self.provider_metadata_json(serde_json::json!({
+                    "fileId": file_id,
+                    "index": annotation.get("index").cloned().unwrap_or(serde_json::Value::Null),
+                })),
                 _ => serde_json::Value::Null,
             };
 
@@ -1845,11 +1850,9 @@ impl OpenAiResponsesEventConverter {
                 "toolCallId": call_id,
                 "toolName": tool_name,
                 "input": args,
-                "providerMetadata": {
-                    "openai": {
-                        "itemId": item_id,
-                    },
-                },
+                "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                    "itemId": item_id,
+                })),
             }),
         });
 
@@ -2429,7 +2432,9 @@ impl OpenAiResponsesEventConverter {
                         },
                         "providerExecuted": true,
                         "outputIndex": output_index,
-                        "providerMetadata": { "openai": { "itemId": tool_call_id } },
+                        "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                            "itemId": tool_call_id,
+                        })),
                         "rawItem": serde_json::Value::Object(item.clone()),
                     }),
                 }]);
@@ -2792,7 +2797,9 @@ impl OpenAiResponsesEventConverter {
                                 "output": output,
                             },
                             "providerExecuted": true,
-                            "providerMetadata": { "openai": { "itemId": tool_call_id } },
+                            "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                                "itemId": tool_call_id,
+                            })),
                         }),
                     });
                     self.mark_mcp_result_emitted(tool_call_id);
@@ -2931,13 +2938,17 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 return out.into_iter().map(Ok).collect();
             }
 
-            if chunk_type == "response.completed" {
+            if chunk_type == "response.completed"
+                || chunk_type == "response.incomplete"
+                || chunk_type == "response.failed"
+            {
                 let extra_events = self.convert_mcp_items_from_completed(&json);
 
                 // The completed event often contains the full response payload.
                 // Delegate to centralized ResponseTransformer for final ChatResponse.
                 let resp_tx = super::transformers::OpenAiResponsesResponseTransformer::new()
-                    .with_style(self.responses_transform_style);
+                    .with_style(self.responses_transform_style)
+                    .with_provider_metadata_key(self.provider_metadata_key.clone());
                 match crate::execution::transformers::response::ResponseTransformer::transform_chat_response(
                     &resp_tx, &json,
                 ) {

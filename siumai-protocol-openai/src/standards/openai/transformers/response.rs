@@ -240,6 +240,7 @@ pub fn extract_thinking_from_multiple_fields(value: &serde_json::Value) -> Optio
 #[derive(Clone)]
 pub struct OpenAiResponsesResponseTransformer {
     style: ResponsesTransformStyle,
+    provider_metadata_key: String,
 }
 
 #[cfg(feature = "openai-responses")]
@@ -261,12 +262,111 @@ impl OpenAiResponsesResponseTransformer {
     pub fn new() -> Self {
         Self {
             style: ResponsesTransformStyle::OpenAi,
+            provider_metadata_key: "openai".to_string(),
         }
     }
 
     pub fn with_style(mut self, style: ResponsesTransformStyle) -> Self {
         self.style = style;
         self
+    }
+
+    pub fn with_provider_metadata_key(mut self, key: impl Into<String>) -> Self {
+        self.provider_metadata_key = key.into();
+        self
+    }
+
+    fn single_provider_metadata_map(
+        &self,
+        value: serde_json::Value,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        let mut out = std::collections::HashMap::new();
+        out.insert(self.provider_metadata_key.clone(), value);
+        out
+    }
+
+    fn single_provider_metadata_value(&self, value: serde_json::Value) -> serde_json::Value {
+        let mut out = serde_json::Map::new();
+        out.insert(self.provider_metadata_key.clone(), value);
+        serde_json::Value::Object(out)
+    }
+}
+
+#[cfg(feature = "openai-responses")]
+pub(crate) fn extract_responses_output_text_logprobs(
+    root: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let output = root.get("output")?.as_array()?;
+
+    let mut outer: Vec<serde_json::Value> = Vec::new();
+    for item in output {
+        if item.get("type").and_then(|v| v.as_str()) != Some("message") {
+            continue;
+        }
+
+        let content = item.get("content").and_then(|v| v.as_array());
+        let Some(content) = content else { continue };
+
+        for part in content {
+            if part.get("type").and_then(|v| v.as_str()) != Some("output_text") {
+                continue;
+            }
+
+            let logprobs = part.get("logprobs").and_then(|v| v.as_array());
+            let Some(logprobs) = logprobs else { continue };
+
+            let mut inner: Vec<serde_json::Value> = Vec::new();
+            for entry in logprobs {
+                let token = entry.get("token").and_then(|v| v.as_str()).unwrap_or("");
+                if token.is_empty() {
+                    continue;
+                }
+
+                let logprob = entry
+                    .get("logprob")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+
+                let mut out_entry = serde_json::Map::new();
+                out_entry.insert(
+                    "token".to_string(),
+                    serde_json::Value::String(token.to_string()),
+                );
+                out_entry.insert("logprob".to_string(), logprob);
+
+                let top = entry.get("top_logprobs").and_then(|v| v.as_array());
+                if let Some(top) = top {
+                    let mut tops: Vec<serde_json::Value> = Vec::new();
+                    for t in top {
+                        let t_token = t.get("token").and_then(|v| v.as_str()).unwrap_or("");
+                        if t_token.is_empty() {
+                            continue;
+                        }
+                        let t_logprob =
+                            t.get("logprob").cloned().unwrap_or(serde_json::Value::Null);
+                        tops.push(serde_json::json!({
+                            "token": t_token,
+                            "logprob": t_logprob,
+                        }));
+                    }
+                    out_entry.insert("top_logprobs".to_string(), serde_json::Value::Array(tops));
+                } else {
+                    out_entry.insert("top_logprobs".to_string(), serde_json::Value::Array(vec![]));
+                }
+
+                inner.push(serde_json::Value::Object(out_entry));
+            }
+
+            if !inner.is_empty() {
+                outer.push(serde_json::Value::Array(inner));
+            }
+        }
+    }
+
+    if outer.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Array(outer))
     }
 }
 
@@ -333,13 +433,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .unwrap_or(serde_json::Value::Null),
                     );
 
-                    let mut provider_metadata: std::collections::HashMap<
-                        String,
-                        serde_json::Value,
-                    > = std::collections::HashMap::new();
-                    provider_metadata
-                        .insert("openai".to_string(), serde_json::Value::Object(openai_meta));
-                    let provider_metadata = Some(provider_metadata);
+                    let provider_metadata = Some(
+                        self.single_provider_metadata_map(serde_json::Value::Object(openai_meta)),
+                    );
 
                     let mut emitted = 0usize;
                     if let Some(summary) = item.get("summary").and_then(|v| v.as_array()) {
@@ -623,9 +719,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         );
 
                         let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
-                            let mut all = std::collections::HashMap::new();
-                            all.insert("openai".to_string(), serde_json::json!({ "itemId": id }));
-                            all
+                            self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
                         });
 
                         content_parts.push(ContentPart::ToolCall {
@@ -653,9 +747,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         let input_str = format!("{{\"action\":{{\"commands\":{commands}}}}}");
 
                         let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
-                            let mut all = std::collections::HashMap::new();
-                            all.insert("openai".to_string(), serde_json::json!({ "itemId": id }));
-                            all
+                            self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
                         });
 
                         content_parts.push(ContentPart::ToolCall {
@@ -695,9 +787,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         );
 
                         let provider_metadata = item.get("id").and_then(|v| v.as_str()).map(|id| {
-                            let mut all = std::collections::HashMap::new();
-                            all.insert("openai".to_string(), serde_json::json!({ "itemId": id }));
-                            all
+                            self.single_provider_metadata_map(serde_json::json!({ "itemId": id }))
                         });
 
                         content_parts.push(ContentPart::ToolCall {
@@ -734,12 +824,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             std::collections::HashMap<String, serde_json::Value>,
                         > = None;
                         if let Some(item_id) = item.get("id").and_then(|v| v.as_str()) {
-                            let mut all = std::collections::HashMap::new();
-                            all.insert(
-                                "openai".to_string(),
-                                serde_json::json!({ "itemId": item_id }),
-                            );
-                            provider_metadata = Some(all);
+                            provider_metadata =
+                                Some(self.single_provider_metadata_map(serde_json::json!({
+                                    "itemId": item_id
+                                })));
                         }
 
                         content_parts.push(ContentPart::ToolCall {
@@ -973,16 +1061,18 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     })
                 });
 
-        let finish_reason = finish_reason.or_else(|| {
-            if root.get("status").and_then(|v| v.as_str()) != Some("completed") {
-                return None;
+        let status = root.get("status").and_then(|v| v.as_str());
+        let finish_reason = finish_reason.or_else(|| match status {
+            Some("completed") => {
+                if has_pending_tool_calls {
+                    Some(FinishReason::ToolCalls)
+                } else {
+                    Some(FinishReason::Stop)
+                }
             }
-
-            if has_pending_tool_calls {
-                Some(FinishReason::ToolCalls)
-            } else {
-                Some(FinishReason::Stop)
-            }
+            Some("incomplete") => Some(FinishReason::Length),
+            Some("failed") => Some(FinishReason::Error),
+            _ => None,
         });
 
         // Determine final content
@@ -1176,22 +1266,22 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                 };
 
                                 let provider_metadata = match ann_type {
-                                    "file_citation" => Some(serde_json::json!({
-                                        "openai": { "fileId": file_id }
-                                    })),
-                                    "container_file_citation" => Some(serde_json::json!({
-                                        "openai": {
+                                    "file_citation" => Some(self.single_provider_metadata_value(
+                                        serde_json::json!({ "fileId": file_id }),
+                                    )),
+                                    "container_file_citation" => Some(self.single_provider_metadata_value(
+                                        serde_json::json!({
                                             "fileId": file_id,
                                             "containerId": ann.get("container_id").cloned().unwrap_or(serde_json::Value::Null),
                                             "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                                        }
-                                    })),
-                                    "file_path" => Some(serde_json::json!({
-                                        "openai": {
+                                        }),
+                                    )),
+                                    "file_path" => Some(self.single_provider_metadata_value(
+                                        serde_json::json!({
                                             "fileId": file_id,
                                             "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                                        }
-                                    })),
+                                        }),
+                                    )),
                                     _ => None,
                                 };
 
@@ -1242,11 +1332,15 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 openai_meta.insert("sources".to_string(), serde_json::Value::Array(sources));
             }
 
+            if let Some(logprobs) = extract_responses_output_text_logprobs(root) {
+                openai_meta.insert("logprobs".to_string(), logprobs);
+            }
+
             if openai_meta.is_empty() {
                 None
             } else {
                 let mut all = std::collections::HashMap::new();
-                all.insert("openai".to_string(), openai_meta);
+                all.insert(self.provider_metadata_key.clone(), openai_meta);
                 Some(all)
             }
         };

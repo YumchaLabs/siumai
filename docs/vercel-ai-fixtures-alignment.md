@@ -175,6 +175,16 @@ Provider id: `openai` (Responses API)
 - [x] Streaming SSE `response.completed` backfills missing MCP tool-call/results (fixture contains 2 `mcp_call` items)
 - [x] Prompt tool approval response input mapping (`tool-approval-response` -> `mcp_approval_response` + `item_reference` by default)
 
+## OpenAI Responses Streaming (Misc)
+
+Provider id: `openai` (Responses API)
+
+### Done
+
+- [x] Finish reason for incomplete responses (`finishReason.raw` from `incomplete_details.reason`, `unified: "length"`)
+- [x] Logprobs aggregation into finish `providerMetadata.*.logprobs` (normalized token/logprob + top_logprobs)
+- [x] Configurable `providerMetadata` key for stream parts (`openai` vs `azure`)
+
 ## OpenAI Responses Input (Fixtures)
 
 Provider id: `openai` (Responses API)
