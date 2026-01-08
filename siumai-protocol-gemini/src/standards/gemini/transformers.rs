@@ -1014,6 +1014,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                                 data: inline_data.data.clone(),
                             },
                             detail: None,
+                            provider_metadata: None,
                         });
                     } else if inline_data.mime_type.starts_with("audio/") {
                         content_parts.push(crate::types::ContentPart::Audio {
@@ -1021,6 +1022,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                                 data: inline_data.data.clone(),
                             },
                             media_type: Some(inline_data.mime_type.clone()),
+                            provider_metadata: None,
                         });
                     } else {
                         // Other file types
@@ -1030,6 +1032,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             },
                             media_type: inline_data.mime_type.clone(),
                             filename: None,
+                            provider_metadata: None,
                         });
                     }
                 }
@@ -1045,6 +1048,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                                 url: file_data.file_uri.clone(),
                             },
                             detail: None,
+                            provider_metadata: None,
                         });
                     } else if mime_type.starts_with("audio/") {
                         content_parts.push(crate::types::ContentPart::Audio {
@@ -1052,6 +1056,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                                 url: file_data.file_uri.clone(),
                             },
                             media_type: Some(mime_type.to_string()),
+                            provider_metadata: None,
                         });
                     } else {
                         // Other file types
@@ -1061,6 +1066,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             },
                             media_type: mime_type.to_string(),
                             filename: None,
+                            provider_metadata: None,
                         });
                     }
                 }

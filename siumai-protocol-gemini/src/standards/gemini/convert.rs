@@ -321,7 +321,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         MessageContent::MultiModal(content_parts) => {
             for content_part in content_parts {
                 match content_part {
-                    crate::types::ContentPart::Text { text } => {
+                    crate::types::ContentPart::Text { text, .. } => {
                         if !text.is_empty() {
                             parts.push(Part::Text {
                                 text: text.clone(),
@@ -901,7 +901,7 @@ pub fn build_request_body(
                     MessageContent::MultiModal(parts) => parts
                         .iter()
                         .filter_map(|part| {
-                            if let crate::types::ContentPart::Text { text } = part {
+                            if let crate::types::ContentPart::Text { text, .. } = part {
                                 Some(text.as_str())
                             } else {
                                 None
