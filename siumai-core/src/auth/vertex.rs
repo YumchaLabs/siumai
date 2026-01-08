@@ -46,6 +46,29 @@ pub fn vertex_base_url(project: &str, location: &str, publisher: &str) -> String
     )
 }
 
+/// Build a Google Vertex provider base URL (Vercel AI SDK aligned).
+///
+/// This uses the `v1beta1` API prefix and the Google publisher namespace:
+/// `https://{host}/v1beta1/projects/{project}/locations/{location}/publishers/google`
+///
+/// Note: Vertex also supports an "express mode" base URL that does not require project/location:
+/// `https://aiplatform.googleapis.com/v1/publishers/google`.
+pub fn google_vertex_base_url(project: &str, location: &str) -> String {
+    let host = if location == "global" {
+        "aiplatform.googleapis.com".to_string()
+    } else {
+        format!("{location}-aiplatform.googleapis.com")
+    };
+    format!(
+        "https://{}/v1beta1/projects/{}/locations/{}/publishers/google",
+        host, project, location
+    )
+}
+
+/// Express mode base URL for the Google Vertex provider (Vercel AI SDK aligned).
+pub const GOOGLE_VERTEX_EXPRESS_BASE_URL: &str =
+    "https://aiplatform.googleapis.com/v1/publishers/google";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,6 +84,21 @@ mod tests {
         assert_eq!(
             url2,
             "https://aiplatform.googleapis.com/v1/projects/myproj/locations/global/publishers/anthropic"
+        );
+    }
+
+    #[test]
+    fn test_google_vertex_base_url_v1beta1() {
+        let url = google_vertex_base_url("test-project", "us-central1");
+        assert_eq!(
+            url,
+            "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/test-project/locations/us-central1/publishers/google"
+        );
+
+        let url2 = google_vertex_base_url("test-project", "global");
+        assert_eq!(
+            url2,
+            "https://aiplatform.googleapis.com/v1beta1/projects/test-project/locations/global/publishers/google"
         );
     }
 }

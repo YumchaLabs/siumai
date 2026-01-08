@@ -345,6 +345,13 @@ impl SiumaiBuilder {
         self.base_url = Some(base);
         self
     }
+
+    /// Build a Google Vertex provider base URL aligned with Vercel AI SDK (`v1beta1`).
+    pub fn base_url_for_google_vertex(mut self, project: &str, location: &str) -> Self {
+        let base = crate::utils::vertex::google_vertex_base_url(project, location);
+        self.base_url = Some(base);
+        self
+    }
     #[cfg(any(feature = "google", feature = "google-vertex"))]
     pub fn with_gemini_token_provider(
         mut self,

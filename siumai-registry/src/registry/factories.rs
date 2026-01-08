@@ -686,15 +686,49 @@ impl ProviderFactory for GoogleVertexProviderFactory {
             build_http_client_from_config(&http_config)?
         };
 
+        let api_key = ctx.api_key.clone().or_else(|| {
+            std::env::var("GOOGLE_VERTEX_API_KEY").ok().and_then(|k| {
+                let trimmed = k.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            })
+        });
+
         let base_url = if let Some(b) = ctx.base_url.clone() {
             b
-        } else if ctx.api_key.is_some() {
-            // Vercel AI SDK express mode base URL.
-            "https://aiplatform.googleapis.com/v1/publishers/google".to_string()
+        } else if api_key.is_some() {
+            crate::utils::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL.to_string()
         } else {
-            return Err(LlmError::ConfigurationError(
-                "Google Vertex requires `base_url` (use base_url_for_vertex(...) or .base_url(...)), or an API key for express mode".to_string(),
-            ));
+            let project = std::env::var("GOOGLE_VERTEX_PROJECT").ok().and_then(|v| {
+                let trimmed = v.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            });
+            let location = std::env::var("GOOGLE_VERTEX_LOCATION").ok().and_then(|v| {
+                let trimmed = v.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            });
+
+            let (project, location) = match (project, location) {
+                (Some(p), Some(l)) => (p, l),
+                _ => {
+                    return Err(LlmError::ConfigurationError(
+                        "Google Vertex requires `base_url`, `api_key` (express mode), or env vars GOOGLE_VERTEX_PROJECT + GOOGLE_VERTEX_LOCATION".to_string(),
+                    ))
+                }
+            };
+
+            crate::utils::vertex::google_vertex_base_url(&project, &location)
         };
 
         // Resolve common parameters.
@@ -705,7 +739,7 @@ impl ProviderFactory for GoogleVertexProviderFactory {
 
         crate::registry::factory::build_google_vertex_client(
             base_url,
-            ctx.api_key.clone(),
+            api_key,
             http_client,
             common_params,
             http_config,

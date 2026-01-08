@@ -15,9 +15,13 @@ that align with the Vercel AI SDK model and tool boundaries.
 
 - **Google AI Gemini API** (default base URL: `https://generativelanguage.googleapis.com/v1beta`)
   - Auth: `x-goog-api-key` (set via `.api_key(...)` or `SIUMAI_API_KEY`)
-- **Vertex AI** (recommended base URL: `https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google`)
-  - Set base URL via `SiumaiBuilder::base_url_for_vertex(project, location, "google")`
-  - Auth: `Authorization: Bearer <token>` via:
+- **Vertex AI**
+  - Enterprise base URL (Vercel-aligned): `https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/publishers/google`
+    - Set via `SiumaiBuilder::base_url_for_google_vertex(project, location)`
+    - Or via env vars: `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`
+  - Express mode base URL (Vercel-aligned): `https://aiplatform.googleapis.com/v1/publishers/google`
+    - Set API key via `.api_key(...)` or env `GOOGLE_VERTEX_API_KEY` (requests append `?key=...`)
+  - Auth (enterprise mode): `Authorization: Bearer <token>` via:
     - `.with_gemini_token_provider(Arc<dyn TokenProvider>)` (`feature = "google"` or `feature = "google-vertex"`)
     - `.with_gemini_adc()` (`feature = "gcp"` + (`google` or `google-vertex`))
   - ADC env vars (current implementation): `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, `ADC_METADATA_URL` (test override)

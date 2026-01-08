@@ -154,33 +154,28 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         _ => true,
     };
 
-    // Vertex uses Bearer auth, not API keys.
+    // Vertex supports:
+    // - Express mode: API key passed as query parameter (`?key=...`).
+    // - Enterprise mode: Bearer auth via Authorization header or TokenProvider (recommended).
+    //
+    // We intentionally do not hard-require auth at build-time because users may supply auth
+    // via external interceptors, proxies, or per-request headers.
     #[cfg(feature = "google-vertex")]
+    let vertex_api_key = if matches!(provider_type, ProviderType::Custom(ref id) if id == "vertex")
     {
-        if matches!(provider_type, ProviderType::Custom(ref id) if id == "vertex") {
-            let has_auth_header = builder
-                .http_config
-                .headers
-                .keys()
-                .any(|k| k.eq_ignore_ascii_case("authorization"));
-            let has_token_provider = {
-                #[cfg(any(feature = "google", feature = "google-vertex"))]
-                {
-                    builder.gemini_token_provider.is_some()
-                }
-                #[cfg(not(any(feature = "google", feature = "google-vertex")))]
-                {
-                    false
-                }
-            };
-            if !(has_auth_header || has_token_provider) {
-                return Err(LlmError::ConfigurationError(
-                    "Google Vertex requires Bearer auth (set Authorization header or configure a TokenProvider via with_gemini_token_provider / with_gemini_adc)"
-                        .to_string(),
-                ));
+        let from_builder = builder.api_key.clone();
+        let from_env = std::env::var("GOOGLE_VERTEX_API_KEY").ok();
+        from_builder.or(from_env).and_then(|k| {
+            let trimmed = k.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
             }
-        }
-    }
+        })
+    } else {
+        None
+    };
 
     let api_key = if requires_api_key {
         // Try to get API key from builder first, then from environment variable
@@ -646,26 +641,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "vertex" => {
-            let resolved_base = if let Some(b) = base_url.clone() {
-                b
-            } else if !api_key.is_empty() {
-                // Vercel AI SDK express mode base URL.
-                "https://aiplatform.googleapis.com/v1/publishers/google".to_string()
-            } else {
-                return Err(LlmError::ConfigurationError(
-                    "Google Vertex requires `base_url` (use SiumaiBuilder::base_url_for_vertex(...) or .base_url(...)), or an API key for express mode".to_string(),
-                ));
-            };
-
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
                 http_config: Some(http_config.clone()),
-                api_key: if api_key.is_empty() {
-                    None
-                } else {
-                    Some(api_key.clone())
-                },
-                base_url: Some(resolved_base),
+                api_key: vertex_api_key.clone(),
+                base_url: base_url.clone(),
                 tracing_config: builder.tracing_config.clone(),
                 http_interceptors: interceptors.clone(),
                 model_middlewares: user_model_middlewares.clone(),

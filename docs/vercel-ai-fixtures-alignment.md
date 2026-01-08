@@ -55,6 +55,7 @@ Provider id: `vertex`
 ### Done
 
 - [x] Express mode: API key appended as `?key=...` (no `x-goog-api-key` header)
+- [x] Base URL defaults: `GOOGLE_VERTEX_API_KEY` => express base URL; `GOOGLE_VERTEX_PROJECT` + `GOOGLE_VERTEX_LOCATION` => `v1beta1` projects base URL
 - [x] Enterprise mode: `Authorization: Bearer ...` disables `key` query param
 - [x] Chat URL routing via `:generateContent` / `:streamGenerateContent?alt=sse`
 - [x] Text embedding URL routing via `:predict`

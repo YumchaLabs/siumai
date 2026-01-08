@@ -88,6 +88,10 @@ impl GoogleVertexClient {
         self
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.config.base_url
+    }
+
     pub fn with_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
         self
