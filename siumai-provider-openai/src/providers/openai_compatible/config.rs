@@ -18,7 +18,11 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
             name: "DeepSeek".to_string(),
             base_url: "https://api.deepseek.com/v1".to_string(),
             field_mappings: ProviderFieldMappings {
-                thinking_fields: vec!["reasoning_content".to_string(), "thinking".to_string()],
+                thinking_fields: vec![
+                    "reasoning_content".to_string(),
+                    "thinking".to_string(),
+                    "reasoning".to_string(),
+                ],
                 content_field: "content".to_string(),
                 tool_calls_field: "tool_calls".to_string(),
                 role_field: "role".to_string(),
@@ -43,7 +47,11 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
             name: "SiliconFlow".to_string(),
             base_url: "https://api.siliconflow.cn/v1".to_string(),
             field_mappings: ProviderFieldMappings {
-                thinking_fields: vec!["reasoning_content".to_string(), "thinking".to_string()],
+                thinking_fields: vec![
+                    "reasoning_content".to_string(),
+                    "thinking".to_string(),
+                    "reasoning".to_string(),
+                ],
                 content_field: "content".to_string(),
                 tool_calls_field: "tool_calls".to_string(),
                 role_field: "role".to_string(),

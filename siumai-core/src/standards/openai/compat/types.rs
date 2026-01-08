@@ -50,7 +50,11 @@ pub trait FieldAccessor {
 impl Default for FieldMappings {
     fn default() -> Self {
         Self {
-            thinking_fields: vec![Cow::Borrowed("thinking")],
+            thinking_fields: vec![
+                Cow::Borrowed("reasoning_content"),
+                Cow::Borrowed("thinking"),
+                Cow::Borrowed("reasoning"),
+            ],
             content_field: Cow::Borrowed("content"),
             tool_calls_field: Cow::Borrowed("tool_calls"),
             role_field: Cow::Borrowed("role"),
@@ -172,6 +176,7 @@ impl FieldMappings {
             thinking_fields: vec![
                 Cow::Borrowed("reasoning_content"),
                 Cow::Borrowed("thinking"),
+                Cow::Borrowed("reasoning"),
             ],
             content_field: Cow::Borrowed("content"),
             tool_calls_field: Cow::Borrowed("tool_calls"),
@@ -259,7 +264,7 @@ mod tests {
             .iter()
             .map(|s| s.as_ref())
             .collect();
-        assert_eq!(tf, vec!["thinking"]);
+        assert_eq!(tf, vec!["reasoning_content", "thinking", "reasoning"]);
         assert_eq!(mappings.content_field.as_ref(), "content");
     }
 
@@ -271,7 +276,7 @@ mod tests {
             .iter()
             .map(|s| s.as_ref())
             .collect();
-        assert_eq!(tf, vec!["reasoning_content", "thinking"]);
+        assert_eq!(tf, vec!["reasoning_content", "thinking", "reasoning"]);
         assert_eq!(mappings.content_field.as_ref(), "content");
     }
 

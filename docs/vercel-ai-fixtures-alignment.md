@@ -87,6 +87,15 @@ Provider id: `openai_compatible` (runtime provider id varies, e.g. `deepseek`, `
 - [x] Provider-defined tools are omitted from Chat Completions requests and emit warnings
 - [x] Fixture-driven alignment tests under `siumai/tests/fixtures/openai-compatible/prepare-tools/*`
 
+## OpenAI-Compatible Chat Response (Reasoning)
+
+Provider id: `openai_compatible` (Chat Completions)
+
+### Done
+
+- [x] Reasoning extraction parity (`reasoning_content` > `thinking` > `reasoning`)
+- [x] Fixture-driven response alignment tests under `siumai/tests/fixtures/openai-compatible/chat-response/*`
+
 ## OpenAI Responses Web Search
 
 Provider id: `openai` (Responses API)

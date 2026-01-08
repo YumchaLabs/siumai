@@ -53,7 +53,11 @@ pub struct ProviderFieldMappings {
 impl Default for ProviderFieldMappings {
     fn default() -> Self {
         Self {
-            thinking_fields: vec!["thinking".to_string()],
+            thinking_fields: vec![
+                "reasoning_content".to_string(),
+                "thinking".to_string(),
+                "reasoning".to_string(),
+            ],
             content_field: "content".to_string(),
             tool_calls_field: "tool_calls".to_string(),
             role_field: "role".to_string(),
