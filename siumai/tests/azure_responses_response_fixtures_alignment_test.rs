@@ -1,8 +1,8 @@
-#![cfg(feature = "openai")]
+#![cfg(feature = "azure")]
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use siumai::experimental::execution::transformers::response::ResponseTransformer;
+use siumai::experimental::core::{ProviderContext, ProviderSpec};
 use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {
@@ -79,9 +79,27 @@ fn run_case(root: &Path) {
     let response: Value = read_json(root.join("response.json"));
     let expected: Value = read_json(root.join("expected_response.json"));
 
-    let tx = siumai::experimental::standards::openai::transformers::response::OpenAiResponsesResponseTransformer::new()
-        .with_provider_metadata_key("azure");
-    let resp = tx.transform_chat_response(&response).expect("transform");
+    let spec =
+        siumai::experimental::providers::azure::providers::azure_openai::AzureOpenAiSpec::default();
+    let ctx = ProviderContext::new(
+        "azure",
+        "https://test-resource.openai.azure.com/openai",
+        Some("test-api-key".to_string()),
+        std::collections::HashMap::new(),
+    );
+    let req = siumai::prelude::unified::ChatRequest {
+        common_params: siumai::prelude::unified::CommonParams {
+            model: "test-deployment".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let resp = bundle
+        .response
+        .transform_chat_response(&response)
+        .expect("transform");
 
     let mut got_value = serde_json::to_value(resp).expect("serialize");
     let mut expected_value = expected;

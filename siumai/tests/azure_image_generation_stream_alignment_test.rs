@@ -1,5 +1,6 @@
-#![cfg(feature = "openai")]
+#![cfg(feature = "azure")]
 
+use siumai::experimental::core::{ProviderContext, ProviderSpec};
 use siumai::prelude::unified::*;
 use std::path::Path;
 
@@ -44,8 +45,23 @@ fn azure_image_generation_stream_emits_vercel_aligned_tool_names() {
     let lines = read_fixture_lines(&path);
     assert!(!lines.is_empty(), "fixture empty");
 
-    let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new()
-        .with_provider_metadata_key("azure");
+    let spec =
+        siumai::experimental::providers::azure::providers::azure_openai::AzureOpenAiSpec::default();
+    let ctx = ProviderContext::new(
+        "azure",
+        "https://test-resource.openai.azure.com/openai",
+        Some("test-api-key".to_string()),
+        std::collections::HashMap::new(),
+    );
+    let req = ChatRequest {
+        common_params: CommonParams {
+            model: "test-deployment".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let stream = bundle.stream.expect("expected stream transformer");
 
     let mut events: Vec<ChatStreamEvent> = Vec::new();
     for (i, line) in lines.into_iter().enumerate() {
@@ -56,7 +72,7 @@ fn azure_image_generation_stream_emits_vercel_aligned_tool_names() {
             retry: None,
         };
 
-        let out = futures::executor::block_on(conv.convert_event(ev));
+        let out = futures::executor::block_on(stream.convert_event(ev));
         for item in out {
             match item {
                 Ok(evt) => events.push(evt),
@@ -65,7 +81,7 @@ fn azure_image_generation_stream_emits_vercel_aligned_tool_names() {
         }
     }
 
-    while let Some(item) = conv.handle_stream_end() {
+    while let Some(item) = stream.handle_stream_end() {
         match item {
             Ok(evt) => events.push(evt),
             Err(err) => panic!("failed to finalize stream: {err:?}"),

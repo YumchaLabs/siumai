@@ -1,5 +1,6 @@
-#![cfg(feature = "openai")]
+#![cfg(feature = "azure")]
 
+use siumai::experimental::core::{ProviderContext, ProviderSpec};
 use siumai::prelude::unified::*;
 use std::path::Path;
 
@@ -35,8 +36,24 @@ fn azure_web_search_preview_stream_emits_custom_tool_name_when_provided() {
         "myPreviewSearch",
     ))];
 
-    let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new()
-        .with_request_tools(&tools);
+    let spec =
+        siumai::experimental::providers::azure::providers::azure_openai::AzureOpenAiSpec::default();
+    let ctx = ProviderContext::new(
+        "azure",
+        "https://test-resource.openai.azure.com/openai",
+        Some("test-api-key".to_string()),
+        std::collections::HashMap::new(),
+    );
+    let req = ChatRequest {
+        tools: Some(tools),
+        common_params: CommonParams {
+            model: "test-deployment".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let stream = bundle.stream.expect("expected stream transformer");
 
     let mut events: Vec<ChatStreamEvent> = Vec::new();
     for (i, line) in lines.into_iter().enumerate() {
@@ -47,7 +64,7 @@ fn azure_web_search_preview_stream_emits_custom_tool_name_when_provided() {
             retry: None,
         };
 
-        let out = futures::executor::block_on(conv.convert_event(ev));
+        let out = futures::executor::block_on(stream.convert_event(ev));
         for item in out {
             match item {
                 Ok(evt) => events.push(evt),

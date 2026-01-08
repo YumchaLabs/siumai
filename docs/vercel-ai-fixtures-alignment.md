@@ -238,6 +238,7 @@ Provider id: `azure` (Vercel provider string: `azure.responses`)
 ### Done
 
 - [x] Response parsing fixtures aligned with Vercel `@ai-sdk/azure` (web search preview, code interpreter, image generation, reasoning)
+- [x] Fixtures validated via `AzureOpenAiSpec` transformer selection (locks provider split behavior)
 
 ## Azure OpenAI Responses Web Search Preview (Streaming)
 
@@ -247,6 +248,7 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 
 - [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
 - [x] Azure streaming fixtures (code_interpreter / image_generation / reasoning-encrypted-content) with `providerMetadata.azure`
+- [x] Streaming alignment tests run via `AzureOpenAiSpec` (locks provider split behavior)
 
 ## Azure OpenAI Provider Request (URL + Headers)
 
