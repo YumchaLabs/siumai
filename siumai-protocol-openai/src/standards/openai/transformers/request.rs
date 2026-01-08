@@ -872,11 +872,79 @@ impl OpenAiResponsesRequestTransformer {
                                     }));
                                 }
                             }
-                            ContentPart::Reasoning { text, .. } => {
-                                content_parts.push(serde_json::json!({
-                                    "type": "output_text",
-                                    "text": format!("<thinking>{}</thinking>", text)
-                                }));
+                            ContentPart::Reasoning {
+                                text,
+                                provider_metadata,
+                            } => {
+                                flush_assistant(&mut out, &mut content_parts);
+
+                                let openai_meta = provider_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.get("openai"))
+                                    .and_then(|v| v.as_object());
+
+                                let item_id = openai_meta
+                                    .and_then(|m| m.get("itemId").or_else(|| m.get("item_id")))
+                                    .and_then(|v| v.as_str());
+
+                                let encrypted = openai_meta.and_then(|m| {
+                                    m.get("reasoningEncryptedContent")
+                                        .or_else(|| m.get("reasoning_encrypted_content"))
+                                });
+
+                                if store {
+                                    if let Some(id) = item_id {
+                                        out.push(serde_json::json!({
+                                            "type": "item_reference",
+                                            "id": id,
+                                        }));
+                                    } else if !text.is_empty() {
+                                        out.push(serde_json::json!({
+                                            "role": "assistant",
+                                            "content": [{
+                                                "type": "output_text",
+                                                "text": format!("<thinking>{}</thinking>", text),
+                                            }],
+                                        }));
+                                    }
+                                    continue;
+                                }
+
+                                let Some(id) = item_id else {
+                                    if !text.is_empty() {
+                                        out.push(serde_json::json!({
+                                            "role": "assistant",
+                                            "content": [{
+                                                "type": "output_text",
+                                                "text": format!("<thinking>{}</thinking>", text),
+                                            }],
+                                        }));
+                                    }
+                                    continue;
+                                };
+
+                                let mut obj = serde_json::Map::new();
+                                obj.insert("type".to_string(), serde_json::json!("reasoning"));
+                                obj.insert("id".to_string(), serde_json::json!(id));
+
+                                if let Some(enc) = encrypted {
+                                    obj.insert("encrypted_content".to_string(), enc.clone());
+                                }
+
+                                let summary = if text.is_empty() {
+                                    Vec::new()
+                                } else {
+                                    vec![serde_json::json!({
+                                        "type": "summary_text",
+                                        "text": text,
+                                    })]
+                                };
+                                obj.insert(
+                                    "summary".to_string(),
+                                    serde_json::Value::Array(summary),
+                                );
+
+                                out.push(serde_json::Value::Object(obj));
                             }
                             ContentPart::ToolApprovalResponse { .. }
                             | ContentPart::Image { .. }
