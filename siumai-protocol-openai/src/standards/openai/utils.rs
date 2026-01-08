@@ -33,24 +33,7 @@ pub fn convert_tools_to_openai_format(
 
                 openai_tools.push(tool);
             }
-            crate::types::Tool::ProviderDefined(provider_tool) => {
-                if provider_tool.provider() == Some("openai") {
-                    let tool_type = provider_tool.tool_type().unwrap_or("unknown");
-                    let mut openai_tool = serde_json::json!({
-                        "type": tool_type,
-                    });
-
-                    if let serde_json::Value::Object(args_map) = &provider_tool.args
-                        && let serde_json::Value::Object(tool_map) = &mut openai_tool
-                    {
-                        for (k, v) in args_map {
-                            tool_map.insert(k.clone(), v.clone());
-                        }
-                    }
-
-                    openai_tools.push(openai_tool);
-                }
-            }
+            crate::types::Tool::ProviderDefined(_) => {}
         }
     }
 

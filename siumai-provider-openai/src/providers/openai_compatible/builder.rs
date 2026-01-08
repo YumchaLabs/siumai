@@ -544,8 +544,11 @@ impl OpenAiCompatibleBuilder {
         }
 
         // Install automatic middlewares based on provider and model
-        let middlewares =
+        let mut middlewares =
             crate::execution::middleware::build_auto_middlewares_vec(&self.provider_id, &model_id);
+        middlewares.push(Arc::new(
+            crate::providers::openai_compatible::OpenAiCompatibleToolWarningsMiddleware::new(),
+        ));
         client = client.with_model_middlewares(middlewares);
 
         Ok(client)

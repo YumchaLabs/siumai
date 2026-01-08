@@ -76,6 +76,17 @@ Provider id: `gemini` (tools use `google.*` ids)
 
 - [ ] Add tool warning parity for additional unsupported tools
 
+## OpenAI-Compatible Chat Prepare Tools
+
+Provider id: `openai_compatible` (runtime provider id varies, e.g. `deepseek`, `openrouter`)
+
+### Done
+
+- [x] Function tools mapping to Chat Completions `tools[]` (incl. `strict` passthrough)
+- [x] `tool_choice` mapping parity (`auto`/`required`/`none`/specific tool)
+- [x] Provider-defined tools are omitted from Chat Completions requests and emit warnings
+- [x] Fixture-driven alignment tests under `siumai/tests/fixtures/openai-compatible/prepare-tools/*`
+
 ## OpenAI Responses Web Search
 
 Provider id: `openai` (Responses API)
