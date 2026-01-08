@@ -30,7 +30,8 @@ fn azure_web_search_preview_stream_emits_vercel_aligned_tool_names() {
     let lines = read_fixture_lines(&path);
     assert!(!lines.is_empty(), "fixture empty");
 
-    let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new();
+    let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new()
+        .with_provider_metadata_key("azure");
 
     let mut events: Vec<ChatStreamEvent> = Vec::new();
     for (i, line) in lines.into_iter().enumerate() {
@@ -74,8 +75,21 @@ fn azure_web_search_preview_stream_emits_vercel_aligned_tool_names() {
         })
         .collect();
 
+    let text_starts: Vec<serde_json::Value> = events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::json!("text-start")) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
     assert!(!tool_calls.is_empty(), "expected tool-call events");
     assert!(!tool_results.is_empty(), "expected tool-result events");
+    assert!(!text_starts.is_empty(), "expected text-start events");
 
     for ev in tool_calls.iter().chain(tool_results.iter()) {
         assert_eq!(
@@ -83,6 +97,21 @@ fn azure_web_search_preview_stream_emits_vercel_aligned_tool_names() {
             Some("web_search_preview")
         );
         assert!(ev.get("toolCallId").and_then(|v| v.as_str()).is_some());
+        assert!(ev.get("providerMetadata").is_none());
+    }
+
+    for ev in text_starts.iter() {
+        assert!(
+            ev.get("providerMetadata")
+                .and_then(|m| m.get("azure"))
+                .is_some(),
+            "expected providerMetadata.azure"
+        );
+        assert!(
+            ev.get("providerMetadata")
+                .and_then(|m| m.get("openai"))
+                .is_none()
+        );
     }
 
     let has_url_sources = events.iter().any(|e| match e {

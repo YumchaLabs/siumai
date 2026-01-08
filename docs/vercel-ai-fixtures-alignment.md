@@ -246,6 +246,7 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 ### Done
 
 - [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
+- [x] Azure streaming fixtures (code_interpreter / image_generation / reasoning-encrypted-content) with `providerMetadata.azure`
 
 ## OpenAI Responses Reasoning (Streaming)
 
