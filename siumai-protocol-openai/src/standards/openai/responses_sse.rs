@@ -2938,10 +2938,60 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 return out.into_iter().map(Ok).collect();
             }
 
-            if chunk_type == "response.completed"
-                || chunk_type == "response.incomplete"
-                || chunk_type == "response.failed"
-            {
+            if chunk_type == "response.failed" {
+                // Vercel alignment: failed responses should not error out the converter;
+                // instead they emit an error part (from the preceding `error` chunk) and
+                // then a finish part with `unified: "other"` and `providerMetadata.responseId`.
+                //
+                // The OpenAI Responses API does not provide stable usage totals on failures.
+                // Mirror the Vercel stream shape by emitting `null` token fields.
+                let extra_events = self.convert_mcp_items_from_completed(&json);
+
+                let response_id = self.created_response_id().or_else(|| {
+                    json.get("response")?
+                        .get("id")?
+                        .as_str()
+                        .map(|s| s.to_string())
+                });
+
+                let mut provider_metadata = serde_json::Map::new();
+                if let Some(id) = response_id {
+                    provider_metadata
+                        .insert("responseId".to_string(), serde_json::Value::String(id));
+                }
+
+                let finish_evt = crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:finish".to_string(),
+                    data: serde_json::json!({
+                        "type": "finish",
+                        "finishReason": {
+                            "raw": serde_json::Value::Null,
+                            "unified": "other",
+                        },
+                        "providerMetadata": self.provider_metadata_json(serde_json::Value::Object(provider_metadata)),
+                        "usage": {
+                            "inputTokens": {
+                                "total": serde_json::Value::Null,
+                                "cacheRead": serde_json::Value::Null,
+                                "cacheWrite": serde_json::Value::Null,
+                                "noCache": serde_json::Value::Null,
+                            },
+                            "outputTokens": {
+                                "total": serde_json::Value::Null,
+                                "reasoning": serde_json::Value::Null,
+                                "text": serde_json::Value::Null,
+                            },
+                            "raw": serde_json::Value::Null,
+                        },
+                    }),
+                };
+
+                self.replace_pending_stream_end_events(vec![finish_evt]);
+
+                return extra_events.into_iter().map(Ok).collect();
+            }
+
+            if chunk_type == "response.completed" || chunk_type == "response.incomplete" {
                 let extra_events = self.convert_mcp_items_from_completed(&json);
 
                 // The completed event often contains the full response payload.
@@ -2994,15 +3044,30 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         return vec![Ok(evt)];
                     }
                 }
-                "response.error" => {
-                    // Normalize provider error into ChatStreamEvent::Error
+                "response.error" | "error" => {
+                    // Vercel alignment: some fixtures use a legacy top-level `"type": "error"` chunk,
+                    // while newer streams use `"type": "response.error"`.
+                    //
+                    // Emit both:
+                    // - a structured custom error part (matches Vercel stream parts)
+                    // - a standard ChatStreamEvent::Error for generic consumers
                     let msg = json
                         .get("error")
                         .and_then(|e| e.get("message"))
                         .and_then(|m| m.as_str())
                         .unwrap_or("Unknown error")
                         .to_string();
-                    return vec![Ok(crate::streaming::ChatStreamEvent::Error { error: msg })];
+
+                    return vec![
+                        Ok(crate::streaming::ChatStreamEvent::Custom {
+                            event_type: "openai:error".to_string(),
+                            data: serde_json::json!({
+                                "type": "error",
+                                "error": json,
+                            }),
+                        }),
+                        Ok(crate::streaming::ChatStreamEvent::Error { error: msg }),
+                    ];
                 }
                 "response.function_call_arguments.delta" => {
                     let mut out: Vec<crate::streaming::ChatStreamEvent> = Vec::new();

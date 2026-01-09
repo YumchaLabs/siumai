@@ -206,6 +206,7 @@ Provider id: `openai` (Responses API)
 - [x] Finish reason for incomplete responses (`finishReason.raw` from `incomplete_details.reason`, `unified: "length"`)
 - [x] Logprobs aggregation into finish `providerMetadata.*.logprobs` (normalized token/logprob + top_logprobs)
 - [x] Configurable `providerMetadata` key for stream parts (`openai` vs `azure`)
+- [x] Error stream parts parity (`error` + `response.failed` -> `ChatStreamEvent::Error` + `finish`)
 
 ## OpenAI Responses Input (Fixtures)
 

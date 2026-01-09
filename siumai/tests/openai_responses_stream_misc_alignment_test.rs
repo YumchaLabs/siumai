@@ -98,6 +98,74 @@ fn openai_responses_incomplete_stream_emits_finish_reason_raw() {
 }
 
 #[test]
+fn openai_responses_error_stream_emits_error_and_finish() {
+    let path = fixtures_dir("misc").join("openai-error.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new();
+    let events = run_converter(conv, lines);
+
+    let starts = custom_events_by_type(&events, "stream-start");
+    assert_eq!(starts.len(), 1, "expected exactly one stream-start");
+
+    let meta = custom_events_by_type(&events, "response-metadata");
+    assert_eq!(meta.len(), 1, "expected exactly one response-metadata");
+    assert_eq!(
+        meta[0].get("id").and_then(|v| v.as_str()),
+        Some("resp_05500b38c2cd9bfc00691c7c9d222481a3b595421266dab424")
+    );
+
+    let custom_error = custom_events_by_type(&events, "error");
+    assert_eq!(custom_error.len(), 1, "expected exactly one error part");
+    assert_eq!(
+        custom_error[0]
+            .get("error")
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str()),
+        Some("error")
+    );
+
+    let errors: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::Error { error } => Some(error.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected exactly one ChatStreamEvent::Error"
+    );
+    assert!(
+        errors[0].contains("You exceeded your current quota"),
+        "unexpected error: {}",
+        errors[0]
+    );
+
+    let finishes = custom_events_by_type(&events, "finish");
+    assert_eq!(finishes.len(), 1, "expected exactly one finish");
+    assert_eq!(
+        finishes[0]
+            .get("finishReason")
+            .and_then(|r| r.get("unified"))
+            .and_then(|v| v.as_str()),
+        Some("other")
+    );
+    assert_eq!(
+        finishes[0]
+            .get("providerMetadata")
+            .and_then(|m| m.get("openai"))
+            .and_then(|o| o.get("responseId"))
+            .and_then(|v| v.as_str()),
+        Some("resp_05500b38c2cd9bfc00691c7c9d222481a3b595421266dab424")
+    );
+}
+
+#[test]
 fn openai_responses_logprobs_stream_emits_finish_provider_metadata_logprobs() {
     let path = fixtures_dir("misc").join("openai-logprobs.1.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);
