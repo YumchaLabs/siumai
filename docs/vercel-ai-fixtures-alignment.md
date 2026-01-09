@@ -334,6 +334,14 @@ Provider id: `openai` (Responses API)
 - [x] Emit `response-metadata` for each `response.created`, but only one final `finish` + `StreamEnd` for the last response (e.g., `responses-stream/shell/openai-shell-tool.1`)
 - [x] Emits `response-metadata` per `response.created` (multi-response streams)
 
+## OpenAI Chat Completions (Streaming)
+
+Provider id: `openai` (Chat Completions API)
+
+### Done
+
+- [x] Azure model router: initial chunk can emit empty `id`/`model` (fall back to request model); aligned via `azure-model-router.1`
+
 ## OpenAI Responses Tool Input (Streaming)
 
 Provider id: `openai` (Responses API)
@@ -420,3 +428,7 @@ Provider id: `xai`
 
 - [x] `xai-web-search-tool.1` (provider tool; tool-input-delta from `arguments`, no tool-result when payload missing)
 - [x] `xai-x-search-tool` (x_search triggers `custom_tool_call` items; `x_keyword_search` maps to `x_search`, web_search calls use empty tool-input-delta, no tool-result)
+
+## Upstream Fixture Coverage Notes
+
+- The Vercel repo (`repo-ref/ai`) also contains `__fixtures__` for providers that are not implemented in Siumai yet (e.g., Amazon Bedrock, DeepSeek). To fully align those fixtures, we need to add the corresponding provider crates and protocol mappings first.

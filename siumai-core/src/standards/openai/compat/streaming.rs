@@ -276,11 +276,22 @@ impl OpenAiCompatibleEventConverter {
         let id = json
             .get("id")
             .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
             .map(|s| s.to_string());
         let model = json
             .get("model")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string())
+            // Vercel parity: some model routers emit an initial chunk with an empty `model`.
+            // Fall back to the configured request model to avoid surfacing empty model ids.
+            .or_else(|| {
+                if self.config.model.trim().is_empty() {
+                    None
+                } else {
+                    Some(self.config.model.clone())
+                }
+            });
         let created = json.get("created").and_then(|v| v.as_u64()).map(|ts| {
             chrono::DateTime::from_timestamp(ts as i64, 0).unwrap_or_else(chrono::Utc::now)
         });
