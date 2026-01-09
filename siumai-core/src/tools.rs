@@ -15,12 +15,15 @@ pub mod openai {
     pub const FILE_SEARCH_ID: &str = "openai.file_search";
     pub const CODE_INTERPRETER_ID: &str = "openai.code_interpreter";
     pub const IMAGE_GENERATION_ID: &str = "openai.image_generation";
+    pub const LOCAL_SHELL_ID: &str = "openai.local_shell";
+    pub const SHELL_ID: &str = "openai.shell";
     pub const COMPUTER_USE_ID: &str = "openai.computer_use";
     pub const MCP_ID: &str = "openai.mcp";
     pub const APPLY_PATCH_ID: &str = "openai.apply_patch";
 
     pub fn web_search() -> Tool {
-        web_search_named("web_search")
+        // Vercel AI SDK default key: `webSearch`
+        web_search_named("webSearch")
     }
 
     pub fn web_search_named(name: impl Into<String>) -> Tool {
@@ -36,7 +39,8 @@ pub mod openai {
     }
 
     pub fn file_search() -> Tool {
-        file_search_named("file_search")
+        // Vercel AI SDK default key: `fileSearch`
+        file_search_named("fileSearch")
     }
 
     pub fn file_search_named(name: impl Into<String>) -> Tool {
@@ -44,7 +48,8 @@ pub mod openai {
     }
 
     pub fn code_interpreter() -> Tool {
-        code_interpreter_named("code_interpreter")
+        // Vercel fixtures commonly use `codeExecution` as the custom tool name.
+        code_interpreter_named("codeExecution")
     }
 
     pub fn code_interpreter_named(name: impl Into<String>) -> Tool {
@@ -52,11 +57,28 @@ pub mod openai {
     }
 
     pub fn image_generation() -> Tool {
-        image_generation_named("image_generation")
+        // Vercel fixtures commonly use `generateImage` as the custom tool name.
+        image_generation_named("generateImage")
     }
 
     pub fn image_generation_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(IMAGE_GENERATION_ID, name)
+    }
+
+    pub fn local_shell() -> Tool {
+        local_shell_named("shell")
+    }
+
+    pub fn local_shell_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(LOCAL_SHELL_ID, name)
+    }
+
+    pub fn shell() -> Tool {
+        shell_named("shell")
+    }
+
+    pub fn shell_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(SHELL_ID, name)
     }
 
     pub fn computer_use() -> Tool {
@@ -68,7 +90,8 @@ pub mod openai {
     }
 
     pub fn mcp() -> Tool {
-        mcp_named("mcp")
+        // Vercel fixtures commonly use `MCP` as the custom tool name.
+        mcp_named("MCP")
     }
 
     pub fn mcp_named(name: impl Into<String>) -> Tool {
@@ -351,7 +374,61 @@ mod tests {
             panic!("expected provider-defined tool");
         };
         assert_eq!(pd.id, openai::WEB_SEARCH_ID);
-        assert_eq!(pd.name, "web_search");
+        assert_eq!(pd.name, "webSearch");
+    }
+
+    #[test]
+    fn openai_file_search_tool_has_expected_id_and_name() {
+        let t = openai::file_search();
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, openai::FILE_SEARCH_ID);
+        assert_eq!(pd.name, "fileSearch");
+    }
+
+    #[test]
+    fn openai_code_interpreter_tool_has_expected_id_and_name() {
+        let t = openai::code_interpreter();
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, openai::CODE_INTERPRETER_ID);
+        assert_eq!(pd.name, "codeExecution");
+    }
+
+    #[test]
+    fn openai_image_generation_tool_has_expected_id_and_name() {
+        let t = openai::image_generation();
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, openai::IMAGE_GENERATION_ID);
+        assert_eq!(pd.name, "generateImage");
+    }
+
+    #[test]
+    fn openai_shell_tools_have_expected_ids_and_names() {
+        for (tool, id) in [
+            (openai::local_shell(), openai::LOCAL_SHELL_ID),
+            (openai::shell(), openai::SHELL_ID),
+        ] {
+            let crate::types::Tool::ProviderDefined(pd) = tool else {
+                panic!("expected provider-defined tool");
+            };
+            assert_eq!(pd.id, id);
+            assert_eq!(pd.name, "shell");
+        }
+    }
+
+    #[test]
+    fn openai_mcp_tool_has_expected_id_and_name() {
+        let t = openai::mcp();
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, openai::MCP_ID);
+        assert_eq!(pd.name, "MCP");
     }
 
     #[test]
