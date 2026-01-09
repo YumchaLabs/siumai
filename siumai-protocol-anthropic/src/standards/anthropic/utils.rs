@@ -1587,68 +1587,27 @@ pub fn convert_tools_to_anthropic_format(
             crate::types::Tool::ProviderDefined(provider_tool) => {
                 // Check if this is an Anthropic provider-defined tool
                 if provider_tool.provider() == Some("anthropic") {
-                    let tool_type = provider_tool.tool_type().unwrap_or("unknown");
-                    let is_supported = matches!(
-                        tool_type,
-                        "code_execution_20250522"
-                            | "code_execution_20250825"
-                            | "computer_20241022"
-                            | "computer_20250124"
-                            | "text_editor_20241022"
-                            | "text_editor_20250124"
-                            | "text_editor_20250429"
-                            | "text_editor_20250728"
-                            | "bash_20241022"
-                            | "bash_20250124"
-                            | "tool_search_regex_20251119"
-                            | "tool_search_bm25_20251119"
-                            | "web_fetch_20250910"
-                            | "web_search_20250305"
-                            | "memory_20250818"
-                    );
-                    if !is_supported {
+                    let Some(spec) = crate::tools::anthropic::server_tool_spec(&provider_tool.id)
+                    else {
                         continue;
-                    }
+                    };
+
+                    let tool_type = provider_tool.tool_type().unwrap_or("unknown");
 
                     // Vercel alignment:
                     // - provider tool args live in SDK-shaped camelCase (e.g., maxUses),
                     //   while Anthropic Messages API expects snake_case fields in the tool object.
                     // - Accept both shapes for backward compatibility.
                     let mut anthropic_tool = serde_json::json!({
-                        "type": tool_type,
-                        "name": provider_tool.name,
+                        "type": spec.tool_type,
+                        "name": spec.tool_name,
                     });
 
                     if let serde_json::Value::Object(args_map) = &provider_tool.args
                         && let serde_json::Value::Object(tool_map) = &mut anthropic_tool
                     {
                         match tool_type {
-                            "code_execution_20250522" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("code_execution_20250522"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("code_execution"),
-                                );
-                            }
-                            "code_execution_20250825" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("code_execution_20250825"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("code_execution"),
-                                );
-                            }
-                            "computer_20241022" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("computer_20241022"),
-                                );
-                                tool_map.insert("name".to_string(), serde_json::json!("computer"));
+                            "computer_20241022" | "computer_20250124" => {
                                 if let Some(v) = args_map
                                     .get("displayWidthPx")
                                     .or_else(|| args_map.get("display_width_px"))
@@ -1667,71 +1626,8 @@ pub fn convert_tools_to_anthropic_format(
                                 {
                                     tool_map.insert("display_number".to_string(), v.clone());
                                 }
-                            }
-                            "computer_20250124" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("computer_20250124"),
-                                );
-                                tool_map.insert("name".to_string(), serde_json::json!("computer"));
-                                if let Some(v) = args_map
-                                    .get("displayWidthPx")
-                                    .or_else(|| args_map.get("display_width_px"))
-                                {
-                                    tool_map.insert("display_width_px".to_string(), v.clone());
-                                }
-                                if let Some(v) = args_map
-                                    .get("displayHeightPx")
-                                    .or_else(|| args_map.get("display_height_px"))
-                                {
-                                    tool_map.insert("display_height_px".to_string(), v.clone());
-                                }
-                                if let Some(v) = args_map
-                                    .get("displayNumber")
-                                    .or_else(|| args_map.get("display_number"))
-                                {
-                                    tool_map.insert("display_number".to_string(), v.clone());
-                                }
-                            }
-                            "text_editor_20241022" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("text_editor_20241022"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("str_replace_editor"),
-                                );
-                            }
-                            "text_editor_20250124" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("text_editor_20250124"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("str_replace_editor"),
-                                );
-                            }
-                            "text_editor_20250429" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("text_editor_20250429"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("str_replace_based_edit_tool"),
-                                );
                             }
                             "text_editor_20250728" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("text_editor_20250728"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("str_replace_based_edit_tool"),
-                                );
                                 if let Some(v) = args_map
                                     .get("maxCharacters")
                                     .or_else(|| args_map.get("max_characters"))
@@ -1739,38 +1635,7 @@ pub fn convert_tools_to_anthropic_format(
                                     tool_map.insert("max_characters".to_string(), v.clone());
                                 }
                             }
-                            "bash_20241022" => {
-                                tool_map
-                                    .insert("type".to_string(), serde_json::json!("bash_20241022"));
-                                tool_map.insert("name".to_string(), serde_json::json!("bash"));
-                            }
-                            "bash_20250124" => {
-                                tool_map
-                                    .insert("type".to_string(), serde_json::json!("bash_20250124"));
-                                tool_map.insert("name".to_string(), serde_json::json!("bash"));
-                            }
-                            "tool_search_regex_20251119" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("tool_search_tool_regex_20251119"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("tool_search_tool_regex"),
-                                );
-                            }
-                            "tool_search_bm25_20251119" => {
-                                tool_map.insert(
-                                    "type".to_string(),
-                                    serde_json::json!("tool_search_tool_bm25_20251119"),
-                                );
-                                tool_map.insert(
-                                    "name".to_string(),
-                                    serde_json::json!("tool_search_tool_bm25"),
-                                );
-                            }
                             "web_fetch_20250910" => {
-                                tool_map.insert("name".to_string(), serde_json::json!("web_fetch"));
                                 if let Some(v) =
                                     args_map.get("maxUses").or_else(|| args_map.get("max_uses"))
                                 {
@@ -1799,8 +1664,6 @@ pub fn convert_tools_to_anthropic_format(
                                 }
                             }
                             "web_search_20250305" => {
-                                tool_map
-                                    .insert("name".to_string(), serde_json::json!("web_search"));
                                 if let Some(v) =
                                     args_map.get("maxUses").or_else(|| args_map.get("max_uses"))
                                 {
@@ -1826,7 +1689,6 @@ pub fn convert_tools_to_anthropic_format(
                                 }
                             }
                             "memory_20250818" => {
-                                tool_map.insert("name".to_string(), serde_json::json!("memory"));
                                 for (k, v) in args_map {
                                     tool_map.insert(k.clone(), v.clone());
                                 }

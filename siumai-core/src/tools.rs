@@ -249,12 +249,106 @@ pub mod anthropic {
         (TEXT_EDITOR_20250728_ID, "str_replace_based_edit_tool"),
         (BASH_20241022_ID, "bash"),
         (BASH_20250124_ID, "bash"),
-        (TOOL_SEARCH_REGEX_20251119_ID, "tool_search"),
-        (TOOL_SEARCH_BM25_20251119_ID, "tool_search"),
+        (TOOL_SEARCH_REGEX_20251119_ID, "tool_search_tool_regex"),
+        (TOOL_SEARCH_BM25_20251119_ID, "tool_search_tool_bm25"),
         (CODE_EXECUTION_20250522_ID, "code_execution"),
         (CODE_EXECUTION_20250825_ID, "code_execution"),
         (MEMORY_20250818_ID, "memory"),
     ];
+
+    /// Anthropic server tool spec for provider-defined tool IDs.
+    ///
+    /// Anthropic tool calls in Messages API use:
+    /// - `type`: versioned tool identifier (e.g. `web_search_20250305`)
+    /// - `name`: unversioned provider-native name (e.g. `web_search`)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ServerToolSpec {
+        pub id: &'static str,
+        pub tool_type: &'static str,
+        pub tool_name: &'static str,
+    }
+
+    pub const SERVER_TOOL_SPECS: &[ServerToolSpec] = &[
+        ServerToolSpec {
+            id: WEB_SEARCH_20250305_ID,
+            tool_type: "web_search_20250305",
+            tool_name: "web_search",
+        },
+        ServerToolSpec {
+            id: WEB_FETCH_20250910_ID,
+            tool_type: "web_fetch_20250910",
+            tool_name: "web_fetch",
+        },
+        ServerToolSpec {
+            id: COMPUTER_20241022_ID,
+            tool_type: "computer_20241022",
+            tool_name: "computer",
+        },
+        ServerToolSpec {
+            id: COMPUTER_20250124_ID,
+            tool_type: "computer_20250124",
+            tool_name: "computer",
+        },
+        ServerToolSpec {
+            id: TEXT_EDITOR_20241022_ID,
+            tool_type: "text_editor_20241022",
+            tool_name: "str_replace_editor",
+        },
+        ServerToolSpec {
+            id: TEXT_EDITOR_20250124_ID,
+            tool_type: "text_editor_20250124",
+            tool_name: "str_replace_editor",
+        },
+        ServerToolSpec {
+            id: TEXT_EDITOR_20250429_ID,
+            tool_type: "text_editor_20250429",
+            tool_name: "str_replace_based_edit_tool",
+        },
+        ServerToolSpec {
+            id: TEXT_EDITOR_20250728_ID,
+            tool_type: "text_editor_20250728",
+            tool_name: "str_replace_based_edit_tool",
+        },
+        ServerToolSpec {
+            id: BASH_20241022_ID,
+            tool_type: "bash_20241022",
+            tool_name: "bash",
+        },
+        ServerToolSpec {
+            id: BASH_20250124_ID,
+            tool_type: "bash_20250124",
+            tool_name: "bash",
+        },
+        ServerToolSpec {
+            id: TOOL_SEARCH_REGEX_20251119_ID,
+            tool_type: "tool_search_tool_regex_20251119",
+            tool_name: "tool_search_tool_regex",
+        },
+        ServerToolSpec {
+            id: TOOL_SEARCH_BM25_20251119_ID,
+            tool_type: "tool_search_tool_bm25_20251119",
+            tool_name: "tool_search_tool_bm25",
+        },
+        ServerToolSpec {
+            id: CODE_EXECUTION_20250522_ID,
+            tool_type: "code_execution_20250522",
+            tool_name: "code_execution",
+        },
+        ServerToolSpec {
+            id: CODE_EXECUTION_20250825_ID,
+            tool_type: "code_execution_20250825",
+            tool_name: "code_execution",
+        },
+        ServerToolSpec {
+            id: MEMORY_20250818_ID,
+            tool_type: "memory_20250818",
+            tool_name: "memory",
+        },
+    ];
+
+    pub fn server_tool_spec(id: &str) -> Option<&'static ServerToolSpec> {
+        SERVER_TOOL_SPECS.iter().find(|s| s.id == id)
+    }
 
     pub const WEB_SEARCH_20250305_ID: &str = "anthropic.web_search_20250305";
     pub const WEB_FETCH_20250910_ID: &str = "anthropic.web_fetch_20250910";
