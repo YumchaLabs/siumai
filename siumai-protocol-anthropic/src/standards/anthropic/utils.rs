@@ -2,6 +2,7 @@
 //!
 //! Common utility functions for Anthropic Claude API interactions.
 
+use super::server_tools;
 use super::types::*;
 use crate::error::LlmError;
 use crate::execution::http::headers::HttpHeaderBuilder;
@@ -1187,42 +1188,10 @@ pub fn parse_response_content_and_tools(
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
-                    fn wrap_code_execution_input(
-                        name: &str,
-                        input: &serde_json::Value,
-                    ) -> serde_json::Value {
-                        let mut obj = serde_json::Map::new();
-                        let kind = if name == "code_execution" {
-                            "programmatic-tool-call"
-                        } else {
-                            name
-                        };
-                        obj.insert("type".to_string(), serde_json::json!(kind));
-
-                        if let serde_json::Value::Object(m) = input {
-                            for (k, v) in m {
-                                obj.insert(k.clone(), v.clone());
-                            }
-                        }
-
-                        serde_json::Value::Object(obj)
-                    }
-
-                    let tool_name = match name.as_str() {
-                        "tool_search_tool_regex" | "tool_search_tool_bm25" => "tool_search",
-                        "text_editor_code_execution" | "bash_code_execution" | "code_execution" => {
-                            "code_execution"
-                        }
-                        other => other,
-                    }
-                    .to_string();
-
-                    let input = match name.as_str() {
-                        "text_editor_code_execution" | "bash_code_execution" | "code_execution" => {
-                            wrap_code_execution_input(name, input)
-                        }
-                        _ => input.clone(),
-                    };
+                    let tool_name =
+                        server_tools::normalize_server_tool_name(name.as_str()).to_string();
+                    let input =
+                        server_tools::normalize_server_tool_input(name.as_str(), input.clone());
                     tool_names_by_id.insert(id.clone(), tool_name.clone());
                     parts.push(ContentPart::tool_call(
                         id.clone(),
@@ -2052,7 +2021,7 @@ mod tests {
                 assert_eq!(parts.len(), 2);
 
                 // First part should be text
-                if let ContentPart::Text { text } = &parts[0] {
+                if let ContentPart::Text { text, .. } = &parts[0] {
                     assert_eq!(text, "I'll help you get the weather.");
                 } else {
                     panic!("Expected text content part");
@@ -2212,7 +2181,7 @@ mod tests {
                 }
 
                 // text content
-                if let ContentPart::Text { text } = &parts[2] {
+                if let ContentPart::Text { text, .. } = &parts[2] {
                     assert_eq!(text, "Here is what I found.");
                 } else {
                     panic!("Expected text content part");

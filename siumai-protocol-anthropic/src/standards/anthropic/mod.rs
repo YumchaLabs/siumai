@@ -10,6 +10,7 @@ pub mod chat;
 pub mod errors;
 pub mod params;
 pub mod provider_metadata;
+pub mod server_tools;
 pub mod streaming;
 pub mod thinking;
 pub mod transformers;

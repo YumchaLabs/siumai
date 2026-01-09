@@ -6,6 +6,7 @@
 use super::params::AnthropicParams;
 use super::params::StructuredOutputMode;
 use super::provider_metadata::AnthropicSource;
+use super::server_tools;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{ChatStreamEvent, StreamStateTracker};
@@ -638,42 +639,10 @@ impl AnthropicEventConverter {
                         }
 
                         // Vercel-aligned: map provider tool names back to stable custom names.
-                        let tool_name = match tool_name_raw.as_str() {
-                            "tool_search_tool_regex" | "tool_search_tool_bm25" => "tool_search",
-                            "text_editor_code_execution"
-                            | "bash_code_execution"
-                            | "code_execution" => "code_execution",
-                            other => other,
-                        }
-                        .to_string();
-
-                        fn wrap_code_execution_input(
-                            name: &str,
-                            input: serde_json::Value,
-                        ) -> serde_json::Value {
-                            let mut obj = serde_json::Map::new();
-                            let kind = if name == "code_execution" {
-                                "programmatic-tool-call"
-                            } else {
-                                name
-                            };
-                            obj.insert("type".to_string(), serde_json::json!(kind));
-
-                            if let serde_json::Value::Object(m) = input {
-                                for (k, v) in m {
-                                    obj.insert(k, v);
-                                }
-                            }
-
-                            serde_json::Value::Object(obj)
-                        }
-
-                        let input = match tool_name_raw.as_str() {
-                            "text_editor_code_execution"
-                            | "bash_code_execution"
-                            | "code_execution" => wrap_code_execution_input(&tool_name_raw, input),
-                            _ => input,
-                        };
+                        let tool_name =
+                            server_tools::normalize_server_tool_name(&tool_name_raw).to_string();
+                        let input =
+                            server_tools::normalize_server_tool_input(&tool_name_raw, input);
 
                         vec![ChatStreamEvent::Custom {
                             event_type: "anthropic:tool-call".to_string(),
