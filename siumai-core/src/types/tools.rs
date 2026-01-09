@@ -177,6 +177,17 @@ impl ProviderDefinedTool {
     pub fn tool_type(&self) -> Option<&str> {
         self.id.split('.').nth(1)
     }
+
+    /// Create a provider-defined tool from a known tool id using a Vercel-aligned default name.
+    ///
+    /// Prefer `siumai::tools::{openai, anthropic, google, xai}::*` when you can; this helper is
+    /// useful for config-driven/dynamic tool selection.
+    pub fn from_id(id: &str) -> Option<Self> {
+        match crate::tools::provider_defined_tool(id)? {
+            Tool::ProviderDefined(pd) => Some(pd),
+            _ => None,
+        }
+    }
 }
 
 /// Tool definition for function calling
@@ -209,7 +220,11 @@ impl ProviderDefinedTool {
 /// ```rust
 /// use siumai::types::Tool;
 ///
-/// let tool = Tool::provider_defined("openai.web_search", "web_search");
+/// // Preferred: use Vercel-aligned factories.
+/// let tool = siumai::tools::openai::web_search();
+///
+/// // Or: config-driven selection by tool id (uses Vercel-aligned default name).
+/// let tool = Tool::provider_defined_id("openai.web_search").unwrap();
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -275,6 +290,14 @@ impl Tool {
     /// ```
     pub fn provider_defined(id: impl Into<String>, name: impl Into<String>) -> Self {
         Self::ProviderDefined(ProviderDefinedTool::new(id, name))
+    }
+
+    /// Create a provider-defined tool from a known tool id using a Vercel-aligned default name.
+    ///
+    /// This is equivalent to calling the corresponding factory in `siumai::tools::<provider>`,
+    /// but works when you only have the tool id as a string.
+    pub fn provider_defined_id(id: &str) -> Option<Self> {
+        crate::tools::provider_defined_tool(id)
     }
 
     /// Add arguments to a provider-defined tool

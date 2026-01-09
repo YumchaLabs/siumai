@@ -6,6 +6,60 @@
 
 use crate::types::Tool;
 
+/// Create a provider-defined tool with a Vercel-aligned default custom name by tool id.
+///
+/// This is useful when you only have a string id (e.g. config-driven), but still want to
+/// reuse the same default custom tool names as the convenience constructors in this module.
+pub fn provider_defined_tool(id: &str) -> Option<Tool> {
+    match id {
+        // OpenAI
+        openai::WEB_SEARCH_ID => Some(openai::web_search()),
+        openai::WEB_SEARCH_PREVIEW_ID => Some(openai::web_search_preview()),
+        openai::FILE_SEARCH_ID => Some(openai::file_search()),
+        openai::CODE_INTERPRETER_ID => Some(openai::code_interpreter()),
+        openai::IMAGE_GENERATION_ID => Some(openai::image_generation()),
+        openai::LOCAL_SHELL_ID => Some(openai::local_shell()),
+        openai::SHELL_ID => Some(openai::shell()),
+        openai::COMPUTER_USE_ID => Some(openai::computer_use()),
+        openai::MCP_ID => Some(openai::mcp()),
+        openai::APPLY_PATCH_ID => Some(openai::apply_patch()),
+
+        // Anthropic
+        anthropic::WEB_SEARCH_20250305_ID => Some(anthropic::web_search_20250305()),
+        anthropic::WEB_FETCH_20250910_ID => Some(anthropic::web_fetch_20250910()),
+        anthropic::COMPUTER_20250124_ID => Some(anthropic::computer_20250124()),
+        anthropic::COMPUTER_20241022_ID => Some(anthropic::computer_20241022()),
+        anthropic::TEXT_EDITOR_20250124_ID => Some(anthropic::text_editor_20250124()),
+        anthropic::TEXT_EDITOR_20241022_ID => Some(anthropic::text_editor_20241022()),
+        anthropic::TEXT_EDITOR_20250429_ID => Some(anthropic::text_editor_20250429()),
+        anthropic::TEXT_EDITOR_20250728_ID => Some(anthropic::text_editor_20250728()),
+        anthropic::BASH_20241022_ID => Some(anthropic::bash_20241022()),
+        anthropic::BASH_20250124_ID => Some(anthropic::bash_20250124()),
+        anthropic::TOOL_SEARCH_REGEX_20251119_ID => Some(anthropic::tool_search_regex_20251119()),
+        anthropic::TOOL_SEARCH_BM25_20251119_ID => Some(anthropic::tool_search_bm25_20251119()),
+        anthropic::CODE_EXECUTION_20250522_ID => Some(anthropic::code_execution_20250522()),
+        anthropic::CODE_EXECUTION_20250825_ID => Some(anthropic::code_execution_20250825()),
+        anthropic::MEMORY_20250818_ID => Some(anthropic::memory_20250818()),
+
+        // Google (Gemini)
+        google::CODE_EXECUTION_ID => Some(google::code_execution()),
+        google::GOOGLE_SEARCH_ID => Some(google::google_search()),
+        google::GOOGLE_SEARCH_RETRIEVAL_ID => Some(google::google_search_retrieval()),
+        google::URL_CONTEXT_ID => Some(google::url_context()),
+        google::ENTERPRISE_WEB_SEARCH_ID => Some(google::enterprise_web_search()),
+        google::GOOGLE_MAPS_ID => Some(google::google_maps()),
+        google::VERTEX_RAG_STORE_ID => Some(google::vertex_rag_store()),
+        google::FILE_SEARCH_ID => Some(google::file_search()),
+
+        // xAI
+        xai::WEB_SEARCH_ID => Some(xai::web_search()),
+        xai::X_SEARCH_ID => Some(xai::x_search()),
+        xai::CODE_EXECUTION_ID => Some(xai::code_execution()),
+
+        _ => None,
+    }
+}
+
 /// OpenAI provider-defined tools.
 pub mod openai {
     use super::Tool;
@@ -469,5 +523,20 @@ mod tests {
         };
         assert_eq!(pd.id, xai::CODE_EXECUTION_ID);
         assert_eq!(pd.name, "code_execution");
+    }
+
+    #[test]
+    fn provider_defined_tool_by_id_uses_vercel_aligned_default_name() {
+        let t = provider_defined_tool(openai::WEB_SEARCH_ID).expect("known tool id");
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, openai::WEB_SEARCH_ID);
+        assert_eq!(pd.name, "webSearch");
+    }
+
+    #[test]
+    fn provider_defined_tool_by_id_returns_none_for_unknown_id() {
+        assert!(provider_defined_tool("openai.unknown_tool").is_none());
     }
 }
