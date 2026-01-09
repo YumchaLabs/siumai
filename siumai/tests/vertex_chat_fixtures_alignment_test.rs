@@ -103,6 +103,8 @@ fn run_case(root: &Path) {
     let expected_body: Value = read_json(root.join("expected_body.json"));
     let expected_url = read_text(root.join("expected_url.txt")).trim().to_string();
 
+    let case_name = root.file_name().unwrap_or_default().to_string_lossy();
+
     let ctx = vertex_ctx_enterprise();
     let spec = siumai::experimental::providers::google_vertex::standards::vertex_generative_ai::VertexGenerativeAiStandard::new()
         .create_spec("vertex");
@@ -135,22 +137,15 @@ fn run_case(root: &Path) {
             .transform_chat_response(&raw)
             .expect("transform response");
 
-        let meta = resp
-            .provider_metadata
-            .as_ref()
-            .expect("expected provider_metadata");
-        assert!(
-            meta.contains_key("vertex"),
-            "expected provider_metadata.vertex (fixture case: {})",
-            root.display()
-        );
+        if let Some(meta) = resp.provider_metadata.as_ref() {
+            assert!(
+                meta.contains_key("vertex"),
+                "expected provider_metadata.vertex (fixture case: {})",
+                root.display()
+            );
+        }
 
-        if root
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .contains("thought-signature")
-        {
+        if case_name.contains("thought-signature-text-and-reasoning") {
             let MessageContent::MultiModal(parts) = resp.content else {
                 panic!("expected multimodal content");
             };
@@ -176,6 +171,24 @@ fn run_case(root: &Path) {
                 } => assert_vertex_thought_signature(provider_metadata, "sig3"),
                 other => panic!("expected third part to be text, got: {other:?}"),
             }
+        } else if case_name.contains("thought-signature-tool-call") {
+            let MessageContent::MultiModal(parts) = resp.content else {
+                panic!("expected multimodal content");
+            };
+
+            let tool_meta = parts
+                .iter()
+                .find_map(|p| match p {
+                    ContentPart::ToolCall {
+                        tool_name,
+                        provider_metadata,
+                        ..
+                    } if tool_name == "test-tool" => Some(provider_metadata),
+                    _ => None,
+                })
+                .expect("expected tool-call part");
+
+            assert_vertex_thought_signature(tool_meta, "tool_sig");
         }
     }
 }

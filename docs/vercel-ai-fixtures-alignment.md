@@ -65,7 +65,7 @@ Provider id: `vertex`
 - [x] Provider options fallback for embeddings (`providerOptions["vertex"]` then `providerOptions["google"]`)
 - [x] Custom fetch parity via `HttpTransport` injection (non-stream JSON)
 - [x] Fixture-driven embedding alignment tests under `siumai/tests/fixtures/vertex/embedding/*`
-- [x] Fixture-driven chat alignment tests under `siumai/tests/fixtures/vertex/chat/*` (subset)
+- [x] Fixture-driven chat alignment tests under `siumai/tests/fixtures/vertex/chat/*` (mirrors `google/generative-ai` suite)
 
 ## Google Generative AI (Gemini)
 
