@@ -46,7 +46,7 @@ Provider id: `vertex`
 
 ### Next
 
-- [ ] Add fixture coverage for future response metadata fields
+- [x] Add fixture coverage for future response metadata fields
 
 ## Google Vertex (Chat & Embedding)
 
