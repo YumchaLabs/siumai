@@ -96,7 +96,7 @@ Provider id: `gemini` (tools use `google.*` ids)
 
 ### Next
 
-- [ ] Add tool warning parity for additional unsupported tools
+- [x] Add tool warning parity for additional unsupported tools (see `siumai/tests/gemini_tool_warnings_parity_test.rs`)
 
 ## OpenAI-Compatible Chat Prepare Tools
 
@@ -408,7 +408,7 @@ Provider id: `anthropic`
 
 ### Next
 
-- [ ] Bring `providerMetadata.dynamic` parity for streaming tool parts (optional)
+- [x] Bring `providerMetadata.dynamic` parity for streaming tool parts (MCP tool-call/result)
 
 ## XAI Responses (Streaming)
 

@@ -1,5 +1,7 @@
 //! Tool warning parity tests for Gemini (Vercel AI SDK aligned).
 
+#![cfg(feature = "google")]
+
 use serde_json::json;
 use siumai::prelude::*;
 use siumai_core::types::Warning;
