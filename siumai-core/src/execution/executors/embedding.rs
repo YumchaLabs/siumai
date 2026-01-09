@@ -1,6 +1,7 @@
 //! Embedding executor traits
 
 use crate::error::LlmError;
+use crate::execution::http::headers::headermap_to_hashmap;
 use crate::execution::transformers::{request::RequestTransformer, response::ResponseTransformer};
 use crate::types::{EmbeddingRequest, EmbeddingResponse};
 use std::sync::Arc;
@@ -77,8 +78,18 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
                 .await?;
 
                 // 6. Transform response
-                self.response_transformer
-                    .transform_embedding_response(&result.json)
+                let mut out = self
+                    .response_transformer
+                    .transform_embedding_response(&result.json)?;
+
+                // 7. Attach HTTP response envelope (Vercel-style `response.headers` parity).
+                out.response = Some(crate::types::HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: req.model.clone().or_else(|| Some(out.model.clone())),
+                    headers: headermap_to_hashmap(&result.headers),
+                });
+
+                Ok(out)
             }
         };
 

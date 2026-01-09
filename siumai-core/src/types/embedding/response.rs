@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::common::EmbeddingUsage;
+use crate::types::HttpResponseInfo;
 
 /// Embedding response containing vectors and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +18,9 @@ pub struct EmbeddingResponse {
     /// Provider-specific metadata
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
+    /// HTTP response envelope (timestamp, model id, headers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<HttpResponseInfo>,
 }
 
 impl EmbeddingResponse {
@@ -27,6 +31,7 @@ impl EmbeddingResponse {
             model,
             usage: None,
             metadata: HashMap::new(),
+            response: None,
         }
     }
 
@@ -59,6 +64,12 @@ impl EmbeddingResponse {
     /// Set usage information
     pub fn with_usage(mut self, usage: EmbeddingUsage) -> Self {
         self.usage = Some(usage);
+        self
+    }
+
+    /// Attach an HTTP response envelope (timestamp, model id, headers).
+    pub fn with_response(mut self, response: HttpResponseInfo) -> Self {
+        self.response = Some(response);
         self
     }
 }
