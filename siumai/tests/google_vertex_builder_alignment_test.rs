@@ -87,3 +87,74 @@ fn provider_vertex_builder_custom_base_url_overrides_defaults() {
 
     assert_eq!(client.base_url(), "https://custom.example.com");
 }
+
+#[test]
+fn provider_vertex_builder_requires_model_id() {
+    let _g1 = EnvGuard::remove("GOOGLE_VERTEX_API_KEY");
+    let _g2 = EnvGuard::remove("GOOGLE_VERTEX_PROJECT");
+    let _g3 = EnvGuard::remove("GOOGLE_VERTEX_LOCATION");
+
+    let result = Provider::vertex().api_key("test-api-key").build();
+    assert!(result.is_err(), "missing model should be an error");
+
+    let msg = result.err().unwrap().to_string();
+    assert!(
+        msg.contains("requires a non-empty model id"),
+        "unexpected error: {msg}"
+    );
+}
+
+#[test]
+fn provider_vertex_builder_language_model_alias_sets_model() {
+    let _g1 = EnvGuard::remove("GOOGLE_VERTEX_API_KEY");
+    let _g2 = EnvGuard::remove("GOOGLE_VERTEX_PROJECT");
+    let _g3 = EnvGuard::remove("GOOGLE_VERTEX_LOCATION");
+
+    let client = Provider::vertex()
+        .api_key("test-api-key")
+        .language_model("gemini-2.5-pro")
+        .build()
+        .expect("build vertex client");
+
+    assert_eq!(
+        client.base_url(),
+        siumai::experimental::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+    );
+}
+
+#[test]
+fn provider_vertex_builder_embedding_model_alias_sets_model() {
+    let _g1 = EnvGuard::remove("GOOGLE_VERTEX_API_KEY");
+    let _g2 = EnvGuard::remove("GOOGLE_VERTEX_PROJECT");
+    let _g3 = EnvGuard::remove("GOOGLE_VERTEX_LOCATION");
+
+    let client = Provider::vertex()
+        .api_key("test-api-key")
+        .embedding_model("textembedding-gecko@001")
+        .build()
+        .expect("build vertex client");
+
+    assert_eq!(
+        client.base_url(),
+        siumai::experimental::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+    );
+}
+
+#[test]
+fn provider_vertex_builder_text_embedding_model_deprecated_alias_sets_model() {
+    let _g1 = EnvGuard::remove("GOOGLE_VERTEX_API_KEY");
+    let _g2 = EnvGuard::remove("GOOGLE_VERTEX_PROJECT");
+    let _g3 = EnvGuard::remove("GOOGLE_VERTEX_LOCATION");
+
+    #[allow(deprecated)]
+    let client = Provider::vertex()
+        .api_key("test-api-key")
+        .text_embedding_model("textembedding-gecko@001")
+        .build()
+        .expect("build vertex client");
+
+    assert_eq!(
+        client.base_url(),
+        siumai::experimental::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+    );
+}

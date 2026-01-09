@@ -73,6 +73,26 @@ impl GoogleVertexBuilder {
         self
     }
 
+    /// Alias for `model(...)` (Vercel-aligned naming: `languageModel(modelId)`).
+    pub fn language_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Set the embedding model id (Vercel-aligned naming: `embeddingModel(modelId)`).
+    ///
+    /// Note: Siumai's Vertex client is multi-capability; this method simply sets the
+    /// default model id used by `EmbeddingCapability::embed(...)` when the request does
+    /// not specify a model.
+    pub fn embedding_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Deprecated alias for `embedding_model(...)` (Vercel-aligned naming: `textEmbeddingModel`).
+    #[deprecated(note = "Use `embedding_model(...)` instead.")]
+    pub fn text_embedding_model<S: Into<String>>(self, model: S) -> Self {
+        self.embedding_model(model)
+    }
+
     // === Common configuration (delegated to ProviderCore) ===
 
     pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
