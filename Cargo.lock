@@ -2641,6 +2641,7 @@ dependencies = [
  "siumai-protocol-anthropic",
  "siumai-protocol-gemini",
  "siumai-protocol-openai",
+ "siumai-provider-amazon-bedrock",
  "siumai-provider-anthropic",
  "siumai-provider-azure",
  "siumai-provider-cohere",
@@ -2795,6 +2796,41 @@ dependencies = [
 
 [[package]]
 name = "siumai-protocol-openai"
+version = "0.11.0-beta.5"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "backoff",
+ "base64",
+ "chrono",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "infer",
+ "lru",
+ "mockito",
+ "once_cell",
+ "proptest",
+ "rand 0.8.5",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+ "tracing-test",
+ "urlencoding",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "siumai-provider-amazon-bedrock"
 version = "0.11.0-beta.5"
 dependencies = [
  "async-stream",
@@ -3241,6 +3277,7 @@ dependencies = [
  "serde_json",
  "siumai-core",
  "siumai-protocol-openai",
+ "siumai-provider-amazon-bedrock",
  "siumai-provider-anthropic",
  "siumai-provider-azure",
  "siumai-provider-cohere",

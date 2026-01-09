@@ -22,6 +22,7 @@ members = [
     "siumai-provider-deepseek",
     "siumai-provider-cohere",
     "siumai-provider-togetherai",
+    "siumai-provider-amazon-bedrock",
 ]
 
 [workspace.package]

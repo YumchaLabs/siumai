@@ -464,9 +464,25 @@ Provider id: `deepseek` (OpenAI-compatible Chat Completions)
 - [x] Streaming chunks parity for text / reasoning_content / tool_calls (`deepseek-*.chunks.txt`)
 - [x] Response parsing parity for `reasoning_content` and tool call message parts (`deepseek-*.json`)
 
+## Amazon Bedrock Converse (Fixtures)
+
+Provider id: `bedrock` (Vercel provider: `amazon-bedrock`)
+
+### Done
+
+- [x] Fixture files mirrored from upstream (`packages/amazon-bedrock/src/__fixtures__`) under `siumai/tests/fixtures/bedrock/chat`
+- [x] Response parsing parity for tool use (`toolUse`) -> `tool-call` parts (`bedrock-tool-call.1.json`, `bedrock-tool-no-args.json`)
+- [x] JSON responseFormat parity: `name: "json"` toolUse is surfaced as JSON *text* and finish reason maps to `stop`
+- [x] Streaming JSON-lines converter parity for tool use deltas (`*.chunks.txt`) -> `ToolCallDelta`
+- [x] Streaming JSON responseFormat parity: json tool input becomes `ContentDelta` + `StreamEnd` metadata flag (`isJsonResponseFromTool`)
+
+### Notes
+
+- Bedrock auth is not fully implemented yet (AWS SigV4). Fixtures/tests focus on request/response mapping; real HTTP calls currently rely on bearer token (`api_key`) or injected headers via `ProviderContext.http_extra_headers`.
+
 ## Upstream Fixture Coverage Notes
 
-- The Vercel repo (`repo-ref/ai`) also contains `__fixtures__` for providers that are not implemented in Siumai yet (e.g., Amazon Bedrock). To fully align those fixtures, we need to add the corresponding provider crates and protocol mappings first.
+- The Vercel repo (`repo-ref/ai`) also contains `__fixtures__` for providers that are not implemented in Siumai yet (e.g., LangChain). To fully align those fixtures, we need to add the corresponding provider crates and protocol mappings first.
 
 ## Coverage audit (repo-ref/ai vs siumai)
 
@@ -480,3 +496,4 @@ Note that Siumai stores most fixtures as *case directories* (e.g. `response.json
 - xAI (`packages/xai/src/responses/__fixtures__`): streaming chunk fixtures mirrored; response fixtures live under `siumai/tests/fixtures/xai/responses/response/*`.
 - Cohere (`packages/cohere/src/reranking/__fixtures__`): rerank fixture mirrored under `siumai/tests/fixtures/cohere/rerank/*`.
 - TogetherAI (`packages/togetherai/src/reranking/__fixtures__`): rerank fixture mirrored under `siumai/tests/fixtures/togetherai/rerank/*`.
+- Amazon Bedrock (`packages/amazon-bedrock/src/__fixtures__`): fixtures mirrored under `siumai/tests/fixtures/bedrock/chat`.

@@ -221,5 +221,20 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
         capabilities: ProviderCapabilities::new().with_rerank(),
     });
 
+    // Amazon Bedrock (Converse + Rerank)
+    #[cfg(feature = "bedrock")]
+    out.push(NativeProviderMetadata {
+        id: "bedrock",
+        name: "Amazon Bedrock",
+        description: "Amazon Bedrock models via Converse and Bedrock Agent Runtime reranking",
+        // Requires region + service selection (bedrock-runtime vs bedrock-agent-runtime).
+        default_base_url: None,
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_rerank(),
+    });
+
     out
 }

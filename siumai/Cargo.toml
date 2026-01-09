@@ -54,6 +54,7 @@ siumai-provider-minimaxi = { version = "0.11.0-beta.5", path = "../siumai-provid
 siumai-provider-deepseek = { version = "0.11.0-beta.5", path = "../siumai-provider-deepseek", default-features = false, optional = true }
 siumai-provider-cohere = { version = "0.11.0-beta.5", path = "../siumai-provider-cohere", default-features = false, optional = true }
 siumai-provider-togetherai = { version = "0.11.0-beta.5", path = "../siumai-provider-togetherai", default-features = false, optional = true }
+siumai-provider-amazon-bedrock = { version = "0.11.0-beta.5", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
 
 # Async traits
 async-trait.workspace = true
@@ -128,6 +129,7 @@ structured-messages = [
     "siumai-provider-deepseek/structured-messages",
     "siumai-provider-cohere/structured-messages",
     "siumai-provider-togetherai/structured-messages",
+    "siumai-provider-amazon-bedrock/structured-messages",
     "siumai-protocol-openai/structured-messages",
     "siumai-protocol-anthropic/structured-messages",
     "siumai-protocol-gemini/structured-messages",
@@ -192,6 +194,12 @@ togetherai = [
     "dep:siumai-provider-togetherai",
     "siumai-provider-togetherai/togetherai",
 ]
+bedrock = [
+    "siumai-core/bedrock",
+    "siumai-registry/bedrock",
+    "dep:siumai-provider-amazon-bedrock",
+    "siumai-provider-amazon-bedrock/bedrock",
+]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex"]
@@ -220,6 +228,7 @@ all-providers = [
     "deepseek",
     "cohere",
     "togetherai",
+    "bedrock",
 ]
 
 # Protocol-only facade (stable imports for protocol mapping).

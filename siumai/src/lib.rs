@@ -167,6 +167,8 @@ pub mod experimental {
     pub mod providers {
         pub use siumai_core as core;
 
+        #[cfg(feature = "bedrock")]
+        pub use siumai_provider_amazon_bedrock as amazon_bedrock;
         #[cfg(feature = "anthropic")]
         pub use siumai_provider_anthropic as anthropic;
         #[cfg(feature = "azure")]
@@ -197,6 +199,8 @@ pub mod experimental {
     ///
     /// Prefer `siumai::prelude::unified::*` unless you are building integrations or custom providers.
     pub mod standards {
+        #[cfg(feature = "bedrock")]
+        pub use siumai_provider_amazon_bedrock::standards::bedrock;
         #[cfg(feature = "anthropic")]
         pub use siumai_provider_anthropic::standards::anthropic;
         #[cfg(feature = "cohere")]
