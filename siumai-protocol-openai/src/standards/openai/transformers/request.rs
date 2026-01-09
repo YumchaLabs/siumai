@@ -511,77 +511,67 @@ impl OpenAiResponsesRequestTransformer {
 
                             // Vercel parity: provider tool outputs use dedicated output item types.
                             if resolved_tool_name == "local_shell"
-                                && matches!(output, crate::types::ToolResultOutput::Json { .. })
+                                && let crate::types::ToolResultOutput::Json { value } = output
+                                && let Some(s) = value.get("output").and_then(|v| v.as_str())
                             {
-                                if let crate::types::ToolResultOutput::Json { value } = output
-                                    && let Some(s) = value.get("output").and_then(|v| v.as_str())
-                                {
-                                    items.push(serde_json::json!({
-                                        "type": "local_shell_call_output",
-                                        "call_id": tool_call_id,
-                                        "output": s,
-                                    }));
-                                    continue;
-                                }
+                                items.push(serde_json::json!({
+                                    "type": "local_shell_call_output",
+                                    "call_id": tool_call_id,
+                                    "output": s,
+                                }));
+                                continue;
                             }
 
                             if resolved_tool_name == "shell"
-                                && matches!(output, crate::types::ToolResultOutput::Json { .. })
+                                && let crate::types::ToolResultOutput::Json { value } = output
+                                && let Some(arr) = value.get("output").and_then(|v| v.as_array())
                             {
-                                if let crate::types::ToolResultOutput::Json { value } = output
-                                    && let Some(arr) =
-                                        value.get("output").and_then(|v| v.as_array())
-                                {
-                                    let mapped: Vec<serde_json::Value> = arr
-                                        .iter()
-                                        .filter_map(|item| {
-                                            let stdout = item.get("stdout")?.clone();
-                                            let stderr = item.get("stderr")?.clone();
-                                            let outcome = item.get("outcome")?.as_object()?;
-                                            let outcome_type = outcome.get("type")?.as_str()?;
-                                            let mapped_outcome = match outcome_type {
-                                                "timeout" => serde_json::json!({ "type": "timeout" }),
-                                                "exit" => serde_json::json!({
-                                                    "type": "exit",
-                                                    "exit_code": outcome.get("exitCode").or_else(|| outcome.get("exit_code"))?.clone()
-                                                }),
-                                                _ => return None,
-                                            };
-                                            Some(serde_json::json!({
-                                                "stdout": stdout,
-                                                "stderr": stderr,
-                                                "outcome": mapped_outcome,
-                                            }))
-                                        })
-                                        .collect();
+                                let mapped: Vec<serde_json::Value> = arr
+                                    .iter()
+                                    .filter_map(|item| {
+                                        let stdout = item.get("stdout")?.clone();
+                                        let stderr = item.get("stderr")?.clone();
+                                        let outcome = item.get("outcome")?.as_object()?;
+                                        let outcome_type = outcome.get("type")?.as_str()?;
+                                        let mapped_outcome = match outcome_type {
+                                            "timeout" => serde_json::json!({ "type": "timeout" }),
+                                            "exit" => serde_json::json!({
+                                                "type": "exit",
+                                                "exit_code": outcome.get("exitCode").or_else(|| outcome.get("exit_code"))?.clone()
+                                            }),
+                                            _ => return None,
+                                        };
+                                        Some(serde_json::json!({
+                                            "stdout": stdout,
+                                            "stderr": stderr,
+                                            "outcome": mapped_outcome,
+                                        }))
+                                    })
+                                    .collect();
 
-                                    items.push(serde_json::json!({
-                                        "type": "shell_call_output",
-                                        "call_id": tool_call_id,
-                                        "output": mapped,
-                                    }));
-                                    continue;
-                                }
+                                items.push(serde_json::json!({
+                                    "type": "shell_call_output",
+                                    "call_id": tool_call_id,
+                                    "output": mapped,
+                                }));
+                                continue;
                             }
 
                             if resolved_tool_name == "apply_patch"
-                                && matches!(output, crate::types::ToolResultOutput::Json { .. })
+                                && let crate::types::ToolResultOutput::Json { value } = output
+                                && let Some(status) = value.get("status")
                             {
-                                if let crate::types::ToolResultOutput::Json { value } = output
-                                    && let Some(status) = value.get("status")
-                                {
-                                    let output_text = value
-                                        .get("output")
-                                        .cloned()
-                                        .unwrap_or(serde_json::Value::Null);
-                                    items.push(serde_json::json!({
-                                        "type": "apply_patch_call_output",
-                                        "call_id": tool_call_id,
-                                        "status": status,
-                                        "output": output_text,
-                                    }));
-                                    continue;
-                                }
+                                let output_text = value
+                                    .get("output")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                items.push(serde_json::json!({
+                                    "type": "apply_patch_call_output",
+                                    "call_id": tool_call_id,
+                                    "status": status,
+                                    "output": output_text,
+                                }));
+                                continue;
                             }
 
                             // OpenAI Responses expects `output` (string or output content list). Keep it stable by
@@ -1049,35 +1039,29 @@ impl OpenAiResponsesRequestTransformer {
 
                                 let idx = state.reasoning_item_index.get(id).copied();
                                 if let Some(idx) = idx {
-                                    if !text.is_empty() {
-                                        if let Some(obj) =
+                                    if !text.is_empty()
+                                        && let Some(obj) =
                                             input.get_mut(idx).and_then(|v| v.as_object_mut())
-                                        {
-                                            let arr = obj
-                                                .entry("summary")
-                                                .or_insert_with(|| serde_json::Value::Array(vec![]))
-                                                .as_array_mut();
-                                            if let Some(arr) = arr {
-                                                arr.push(serde_json::json!({
-                                                    "type": "summary_text",
-                                                    "text": text,
-                                                }));
-                                            }
+                                    {
+                                        let arr = obj
+                                            .entry("summary")
+                                            .or_insert_with(|| serde_json::Value::Array(vec![]))
+                                            .as_array_mut();
+                                        if let Some(arr) = arr {
+                                            arr.push(serde_json::json!({
+                                                "type": "summary_text",
+                                                "text": text,
+                                            }));
                                         }
                                     }
 
                                     // Vercel parity: only overwrite when the provider option is not nullish.
                                     if let Some(enc) = encrypted
                                         && !enc.is_null()
-                                    {
-                                        if let Some(obj) =
+                                        && let Some(obj) =
                                             input.get_mut(idx).and_then(|v| v.as_object_mut())
-                                        {
-                                            obj.insert(
-                                                "encrypted_content".to_string(),
-                                                enc.clone(),
-                                            );
-                                        }
+                                    {
+                                        obj.insert("encrypted_content".to_string(), enc.clone());
                                     }
 
                                     continue;

@@ -90,11 +90,11 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
             .args
             .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
 
-        if !de.extra.is_empty() {
-            if let serde_json::Value::Object(ref mut map) = args {
-                for (k, v) in de.extra.drain() {
-                    map.entry(k).or_insert(v);
-                }
+        if !de.extra.is_empty()
+            && let serde_json::Value::Object(ref mut map) = args
+        {
+            for (k, v) in de.extra.drain() {
+                map.entry(k).or_insert(v);
             }
         }
 

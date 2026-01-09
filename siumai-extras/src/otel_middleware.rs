@@ -105,11 +105,11 @@ impl OpenTelemetryMiddleware {
         }
 
         if let Some(temperature) = req.common_params.temperature {
-            attributes.push(KeyValue::new("llm.temperature", temperature as f64));
+            attributes.push(KeyValue::new("llm.temperature", temperature));
         }
 
         if let Some(top_p) = req.common_params.top_p {
-            attributes.push(KeyValue::new("llm.top_p", top_p as f64));
+            attributes.push(KeyValue::new("llm.top_p", top_p));
         }
 
         // Add message count

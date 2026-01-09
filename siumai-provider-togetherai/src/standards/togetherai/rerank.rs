@@ -141,10 +141,10 @@ impl RerankRequestTransformer for TogetherAiRerankRequestTransformer {
             body["top_n"] = serde_json::json!(top_n);
         }
 
-        if let Some(opts) = Self::togetherai_options(req) {
-            if let Some(fields) = Self::get_string_array(opts, "rankFields", "rank_fields") {
-                body["rank_fields"] = serde_json::json!(fields);
-            }
+        if let Some(opts) = Self::togetherai_options(req)
+            && let Some(fields) = Self::get_string_array(opts, "rankFields", "rank_fields")
+        {
+            body["rank_fields"] = serde_json::json!(fields);
         }
 
         Ok(body)

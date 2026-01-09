@@ -63,12 +63,8 @@ fn openai_chat_audio_format(media_type: &str) -> Result<&'static str, LlmError> 
 fn extract_openai_chat_image_detail(
     provider_metadata: Option<&HashMap<String, serde_json::Value>>,
 ) -> Option<String> {
-    let Some(provider_metadata) = provider_metadata else {
-        return None;
-    };
-    let Some(serde_json::Value::Object(openai)) = provider_metadata.get("openai") else {
-        return None;
-    };
+    let provider_metadata = provider_metadata?;
+    let openai = provider_metadata.get("openai")?.as_object()?;
 
     openai
         .get("imageDetail")
@@ -545,6 +541,28 @@ fn convert_messages_with_target(
     Ok(openai_messages)
 }
 
+/// Infer audio format from media type.
+pub(crate) fn infer_audio_format(media_type: Option<&str>) -> &'static str {
+    match media_type {
+        Some("audio/wav") | Some("audio/wave") | Some("audio/x-wav") => "wav",
+        Some("audio/mp3") | Some("audio/mpeg") => "mp3",
+        _ => "wav",
+    }
+}
+
+/// Parse OpenAI(-compatible) finish reason to unified `FinishReason`.
+pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
+    match reason {
+        Some("stop") => Some(FinishReason::Stop),
+        Some("length") => Some(FinishReason::Length),
+        Some("tool_calls") => Some(FinishReason::ToolCalls),
+        Some("content_filter") => Some(FinishReason::ContentFilter),
+        Some("function_call") => Some(FinishReason::ToolCalls),
+        Some(other) => Some(FinishReason::Other(other.to_string())),
+        None => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,27 +658,5 @@ mod tests {
 
         let err = convert_messages(&[msg]).unwrap_err();
         assert!(matches!(err, LlmError::UnsupportedOperation(_)));
-    }
-}
-
-/// Infer audio format from media type.
-pub(crate) fn infer_audio_format(media_type: Option<&str>) -> &'static str {
-    match media_type {
-        Some("audio/wav") | Some("audio/wave") | Some("audio/x-wav") => "wav",
-        Some("audio/mp3") | Some("audio/mpeg") => "mp3",
-        _ => "wav",
-    }
-}
-
-/// Parse OpenAI(-compatible) finish reason to unified `FinishReason`.
-pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
-    match reason {
-        Some("stop") => Some(FinishReason::Stop),
-        Some("length") => Some(FinishReason::Length),
-        Some("tool_calls") => Some(FinishReason::ToolCalls),
-        Some("content_filter") => Some(FinishReason::ContentFilter),
-        Some("function_call") => Some(FinishReason::ToolCalls),
-        Some(other) => Some(FinishReason::Other(other.to_string())),
-        None => None,
     }
 }

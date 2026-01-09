@@ -87,16 +87,14 @@ impl crate::traits::RerankCapability for TestProvRerankClient {
         &self,
         request: crate::types::RerankRequest,
     ) -> Result<crate::types::RerankResponse, LlmError> {
+        let doc_len = request.documents_len();
         Ok(crate::types::RerankResponse {
             id: "rerank-test".to_string(),
-            results: request
-                .documents
-                .iter()
-                .enumerate()
-                .map(|(i, _)| crate::types::RerankResult {
+            results: (0..doc_len)
+                .map(|i| crate::types::RerankResult {
                     document: None,
                     index: i as u32,
-                    relevance_score: (request.documents.len() - i) as f64,
+                    relevance_score: (doc_len - i) as f64,
                 })
                 .collect(),
             tokens: crate::types::RerankTokenUsage {

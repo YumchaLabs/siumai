@@ -654,6 +654,7 @@ impl OpenAiResponsesEventConverter {
         true
     }
 
+    #[allow(dead_code)]
     fn has_emitted_function_tool_input_start(&self, id: &str) -> bool {
         self.emitted_function_tool_input_start_ids
             .lock()
@@ -696,6 +697,7 @@ impl OpenAiResponsesEventConverter {
         map.get(item_id).cloned()
     }
 
+    #[allow(dead_code)]
     fn apply_patch_operation(&self, item_id: &str) -> Option<serde_json::Value> {
         let map = self.apply_patch_operation_by_item_id.lock().ok()?;
         map.get(item_id).cloned()

@@ -1498,14 +1498,13 @@ pub fn convert_tools_to_anthropic_format(
                         .or_else(|| obj.get("cache_control"))
                         .and_then(|v| v.as_object())
                     && let Some(map) = anthropic_tool.as_object_mut()
+                    && cache_control_breakpoints < 4
                 {
-                    if cache_control_breakpoints < 4 {
-                        map.insert(
-                            "cache_control".to_string(),
-                            serde_json::Value::Object(cache.clone()),
-                        );
-                        cache_control_breakpoints += 1;
-                    }
+                    map.insert(
+                        "cache_control".to_string(),
+                        serde_json::Value::Object(cache.clone()),
+                    );
+                    cache_control_breakpoints += 1;
                 }
 
                 // Vercel-aligned: allowed callers for programmatic tool calling.
@@ -1539,13 +1538,13 @@ pub fn convert_tools_to_anthropic_format(
                 {
                     let out: Vec<serde_json::Value> = examples
                         .iter()
-                        .filter_map(|v| {
+                        .map(|v| {
                             if let Some(obj) = v.as_object()
                                 && let Some(input) = obj.get("input")
                             {
-                                return Some(input.clone());
+                                return input.clone();
                             }
-                            Some(v.clone())
+                            v.clone()
                         })
                         .collect();
                     map.insert("input_examples".to_string(), serde_json::Value::Array(out));

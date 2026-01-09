@@ -1,7 +1,7 @@
 use crate::provider_options::vertex::VertexImagenOptions;
 
 fn upsert_vertex(map: &mut crate::types::ProviderOptionsMap, value: serde_json::Value) {
-    map.insert("vertex".to_string(), value);
+    map.insert("vertex", value);
 }
 
 pub trait VertexImagenRequestExt {

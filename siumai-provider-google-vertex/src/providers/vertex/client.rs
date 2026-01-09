@@ -75,8 +75,10 @@ pub struct GoogleVertexClient {
 
 impl GoogleVertexClient {
     pub fn new(config: GoogleVertexConfig, http_client: HttpClient) -> Self {
-        let mut common_params = crate::types::CommonParams::default();
-        common_params.model = config.model.clone();
+        let common_params = crate::types::CommonParams {
+            model: config.model.clone(),
+            ..Default::default()
+        };
         Self {
             http_client,
             config,

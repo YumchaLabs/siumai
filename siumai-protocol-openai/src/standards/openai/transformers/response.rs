@@ -1221,7 +1221,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 });
 
         let status = root.get("status").and_then(|v| v.as_str());
-        let finish_reason = finish_reason.or_else(|| match status {
+        let finish_reason = finish_reason.or(match status {
             Some("completed") => {
                 if has_pending_tool_calls {
                     Some(FinishReason::ToolCalls)

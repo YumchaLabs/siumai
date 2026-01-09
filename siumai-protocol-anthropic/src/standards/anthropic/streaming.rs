@@ -342,6 +342,7 @@ impl AnthropicEventConverter {
         }
     }
 
+    #[allow(dead_code)]
     fn vercel_text_delta_event(id: usize, delta: String) -> ChatStreamEvent {
         ChatStreamEvent::Custom {
             event_type: "anthropic:text-delta".to_string(),
@@ -1052,22 +1053,21 @@ impl AnthropicEventConverter {
                 if let Some(delta) = event.delta {
                     match delta.delta_type.as_deref() {
                         Some("text_delta") => {
-                            if let Some(text) = delta.text {
-                                if !self.should_stream_json_tool_as_text() {
-                                    builder = builder.add_content_delta(text.clone(), None);
-                                    if let Some(idx) = event.index
-                                        && self.get_content_block_type(idx).as_deref()
-                                            == Some("text")
-                                    {
-                                        builder = builder.add_custom_event(
-                                            "anthropic:text-delta".to_string(),
-                                            serde_json::json!({
-                                                "type": "text-delta",
-                                                "id": idx.to_string(),
-                                                "delta": text,
-                                            }),
-                                        );
-                                    }
+                            if let Some(text) = delta.text
+                                && !self.should_stream_json_tool_as_text()
+                            {
+                                builder = builder.add_content_delta(text.clone(), None);
+                                if let Some(idx) = event.index
+                                    && self.get_content_block_type(idx).as_deref() == Some("text")
+                                {
+                                    builder = builder.add_custom_event(
+                                        "anthropic:text-delta".to_string(),
+                                        serde_json::json!({
+                                            "type": "text-delta",
+                                            "id": idx.to_string(),
+                                            "delta": text,
+                                        }),
+                                    );
                                 }
                             }
                         }

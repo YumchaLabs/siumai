@@ -115,7 +115,10 @@ impl ProviderSpec for BedrockChatSpec {
         req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> ChatTransformers {
-        let uses_json_response_tool = matches!(req.response_format.as_ref(), Some(ResponseFormat::Json { .. }));
+        let uses_json_response_tool = matches!(
+            req.response_format.as_ref(),
+            Some(ResponseFormat::Json { .. })
+        );
         BedrockChatStandard::new().create_transformers(self.provider_id, uses_json_response_tool)
     }
 }
@@ -127,7 +130,10 @@ struct BedrockChatRequestTransformer {
 
 impl BedrockChatRequestTransformer {
     fn uses_json_response_tool(req: &ChatRequest) -> bool {
-        matches!(req.response_format.as_ref(), Some(ResponseFormat::Json { .. }))
+        matches!(
+            req.response_format.as_ref(),
+            Some(ResponseFormat::Json { .. })
+        )
     }
 
     fn build_tool_config(req: &ChatRequest) -> (Option<serde_json::Value>, Vec<Warning>) {
@@ -428,10 +434,10 @@ impl ResponseTransformer for BedrockChatResponseTransformer {
         let mut is_json_response_from_tool = false;
 
         for item in content_arr {
-            if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                if !text.is_empty() {
-                    parts.push(ContentPart::text(text.to_string()));
-                }
+            if let Some(text) = item.get("text").and_then(|v| v.as_str())
+                && !text.is_empty()
+            {
+                parts.push(ContentPart::text(text.to_string()));
             }
 
             if let Some(tool_use) = item.get("toolUse") {
@@ -692,40 +698,40 @@ impl JsonEventConverter for BedrockEventConverter {
                     builder = builder.add_content_delta(text.to_string(), None);
                 }
 
-                if let Some(rc) = delta.get("reasoningContent") {
-                    if let Some(text) = rc.get("text").and_then(|v| v.as_str()) {
-                        builder = builder.add_thinking_delta(text.to_string());
-                    }
+                if let Some(rc) = delta.get("reasoningContent")
+                    && let Some(text) = rc.get("text").and_then(|v| v.as_str())
+                {
+                    builder = builder.add_thinking_delta(text.to_string());
                 }
             }
 
             // Tool starts.
-            if let Some(start) = chunk.content_block_start.as_ref() {
-                if let (Some(block), Some(tool)) = (
+            if let Some(start) = chunk.content_block_start.as_ref()
+                && let (Some(block), Some(tool)) = (
                     start.content_block_index,
                     start.start.as_ref().and_then(|s| s.tool_use.as_ref()),
-                ) {
-                    let id = tool
-                        .tool_use_id
-                        .clone()
-                        .unwrap_or_else(|| "tool-use-id".to_string());
-                    let name = tool.name.clone().unwrap_or_else(|| "tool".to_string());
-                    let is_json = self.uses_json_response_tool && name == "json";
-                    let tool_acc = ToolAcc {
-                        id: id.clone(),
-                        name: name.clone(),
-                        args: String::new(),
-                        is_json,
-                    };
+                )
+            {
+                let id = tool
+                    .tool_use_id
+                    .clone()
+                    .unwrap_or_else(|| "tool-use-id".to_string());
+                let name = tool.name.clone().unwrap_or_else(|| "tool".to_string());
+                let is_json = self.uses_json_response_tool && name == "json";
+                let tool_acc = ToolAcc {
+                    id: id.clone(),
+                    name: name.clone(),
+                    args: String::new(),
+                    is_json,
+                };
 
-                    let mut acc = self.acc.lock().expect("lock");
-                    acc.tool_by_block.insert(block, tool_acc.clone());
-                    acc.tool_by_id.insert(id.clone(), tool_acc);
-                    drop(acc);
+                let mut acc = self.acc.lock().expect("lock");
+                acc.tool_by_block.insert(block, tool_acc.clone());
+                acc.tool_by_id.insert(id.clone(), tool_acc);
+                drop(acc);
 
-                    if !is_json {
-                        builder = builder.add_tool_call_delta(id, Some(name), None, None);
-                    }
+                if !is_json {
+                    builder = builder.add_tool_call_delta(id, Some(name), None, None);
                 }
             }
 
@@ -734,38 +740,32 @@ impl JsonEventConverter for BedrockEventConverter {
                 .content_block_delta
                 .as_ref()
                 .and_then(|d| d.delta.as_ref())
-            {
-                if let (Some(block), Some(tool_use)) = (
+                && let (Some(block), Some(tool_use)) = (
                     chunk
                         .content_block_delta
                         .as_ref()
                         .and_then(|d| d.content_block_index),
                     delta.get("toolUse"),
-                ) {
-                    if let Some(input) = tool_use.get("input").and_then(|v| v.as_str()) {
-                        let mut acc = self.acc.lock().expect("lock");
-                        let mut tool_id: Option<String> = None;
-                        let mut is_json = false;
-                        if let Some(t) = acc.tool_by_block.get_mut(&block) {
-                            t.args.push_str(input);
-                            tool_id = Some(t.id.clone());
-                            is_json = t.is_json;
-                        }
+                )
+                && let Some(input) = tool_use.get("input").and_then(|v| v.as_str())
+            {
+                let mut acc = self.acc.lock().expect("lock");
+                let mut tool_id: Option<String> = None;
+                let mut is_json = false;
+                if let Some(t) = acc.tool_by_block.get_mut(&block) {
+                    t.args.push_str(input);
+                    tool_id = Some(t.id.clone());
+                    is_json = t.is_json;
+                }
 
-                        if let Some(id) = tool_id {
-                            if let Some(t2) = acc.tool_by_id.get_mut(&id) {
-                                t2.args.push_str(input);
-                            }
-                            if !is_json {
-                                drop(acc);
-                                builder = builder.add_tool_call_delta(
-                                    id,
-                                    None,
-                                    Some(input.to_string()),
-                                    None,
-                                );
-                            }
-                        }
+                if let Some(id) = tool_id {
+                    if let Some(t2) = acc.tool_by_id.get_mut(&id) {
+                        t2.args.push_str(input);
+                    }
+                    if !is_json {
+                        drop(acc);
+                        builder =
+                            builder.add_tool_call_delta(id, None, Some(input.to_string()), None);
                     }
                 }
             }
@@ -777,32 +777,32 @@ impl JsonEventConverter for BedrockEventConverter {
                 .and_then(|s| s.content_block_index)
             {
                 let mut acc = self.acc.lock().expect("lock");
-                if let Some(tool) = acc.tool_by_block.remove(&stop) {
-                    if tool.is_json && !tool.args.is_empty() {
-                        acc.is_json_response_from_tool = true;
-                        acc.content.push_str(&tool.args);
-                        let text = tool.args;
-                        drop(acc);
-                        builder = builder.add_content_delta(text, None);
-                    }
+                if let Some(tool) = acc.tool_by_block.remove(&stop)
+                    && tool.is_json
+                    && !tool.args.is_empty()
+                {
+                    acc.is_json_response_from_tool = true;
+                    acc.content.push_str(&tool.args);
+                    let text = tool.args;
+                    drop(acc);
+                    builder = builder.add_content_delta(text, None);
                 }
             }
 
             // Usage.
-            if let Some(meta) = chunk.metadata.as_ref().and_then(|m| m.usage.as_ref()) {
-                if let (Some(prompt), Some(completion), Some(total)) =
+            if let Some(meta) = chunk.metadata.as_ref().and_then(|m| m.usage.as_ref())
+                && let (Some(prompt), Some(completion), Some(total)) =
                     (meta.input_tokens, meta.output_tokens, meta.total_tokens)
-                {
-                    let usage = Usage::builder()
-                        .prompt_tokens(prompt)
-                        .completion_tokens(completion)
-                        .total_tokens(total)
-                        .build();
-                    let mut acc = self.acc.lock().expect("lock");
-                    acc.usage = Some(usage.clone());
-                    drop(acc);
-                    builder = builder.add_usage_update(usage);
-                }
+            {
+                let usage = Usage::builder()
+                    .prompt_tokens(prompt)
+                    .completion_tokens(completion)
+                    .total_tokens(total)
+                    .build();
+                let mut acc = self.acc.lock().expect("lock");
+                acc.usage = Some(usage.clone());
+                drop(acc);
+                builder = builder.add_usage_update(usage);
             }
 
             // Finish.

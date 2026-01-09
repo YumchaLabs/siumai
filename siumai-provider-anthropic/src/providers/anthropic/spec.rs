@@ -431,47 +431,6 @@ impl ProviderSpec for AnthropicSpec {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn merge_request_headers_unions_anthropic_beta_features() {
-        let mut ctx_headers = HashMap::new();
-        ctx_headers.insert(
-            "anthropic-beta".to_string(),
-            "web-fetch-2025-09-10,advanced-tool-use-2025-11-20".to_string(),
-        );
-
-        let ctx = ProviderContext::new(
-            "anthropic",
-            "https://api.anthropic.com",
-            Some("k".to_string()),
-            ctx_headers,
-        );
-
-        let spec = AnthropicSpec::new();
-        let base = spec.build_headers(&ctx).unwrap();
-
-        let mut extra = HashMap::new();
-        extra.insert(
-            "Anthropic-Beta".to_string(),
-            "advanced-tool-use-2025-11-20,code-execution-2025-05-22".to_string(),
-        );
-
-        let merged = spec.merge_request_headers(base, &extra);
-        let value = merged
-            .get("anthropic-beta")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-
-        assert_eq!(
-            value,
-            "web-fetch-2025-09-10,advanced-tool-use-2025-11-20,code-execution-2025-05-22"
-        );
-    }
-}
-
 impl AnthropicSpec {
     fn anthropic_options_from_provider_options_map(
         &self,
@@ -517,36 +476,32 @@ impl AnthropicSpec {
                     for (k, v) in map {
                         // Vercel-aligned: `providerOptions.anthropic.thinking`
                         // shape -> our `thinking_mode`.
-                        if k == "thinking" {
-                            if let Some(obj) = v.as_object() {
-                                let enabled = obj
-                                    .get("type")
-                                    .and_then(|t| t.as_str())
-                                    .map(|t| t == "enabled")
-                                    .unwrap_or(false);
-                                let budget = obj
-                                    .get("budgetTokens")
-                                    .or_else(|| obj.get("budget_tokens"))
-                                    .and_then(|b| b.as_u64())
-                                    .and_then(|b| u32::try_from(b).ok());
+                        if k == "thinking"
+                            && let Some(obj) = v.as_object()
+                        {
+                            let enabled = obj
+                                .get("type")
+                                .and_then(|t| t.as_str())
+                                .map(|t| t == "enabled")
+                                .unwrap_or(false);
+                            let budget = obj
+                                .get("budgetTokens")
+                                .or_else(|| obj.get("budget_tokens"))
+                                .and_then(|b| b.as_u64())
+                                .and_then(|b| u32::try_from(b).ok());
 
-                                let mut thinking_mode = serde_json::Map::new();
-                                thinking_mode.insert(
-                                    "enabled".to_string(),
-                                    serde_json::Value::Bool(enabled),
-                                );
-                                if let Some(b) = budget {
-                                    thinking_mode.insert(
-                                        "thinking_budget".to_string(),
-                                        serde_json::json!(b),
-                                    );
-                                }
-                                out.insert(
-                                    "thinking_mode".to_string(),
-                                    serde_json::Value::Object(thinking_mode),
-                                );
-                                continue;
+                            let mut thinking_mode = serde_json::Map::new();
+                            thinking_mode
+                                .insert("enabled".to_string(), serde_json::Value::Bool(enabled));
+                            if let Some(b) = budget {
+                                thinking_mode
+                                    .insert("thinking_budget".to_string(), serde_json::json!(b));
                             }
+                            out.insert(
+                                "thinking_mode".to_string(),
+                                serde_json::Value::Object(thinking_mode),
+                            );
+                            continue;
                         }
 
                         let nk = normalize_key(k).unwrap_or(k);
@@ -605,5 +560,46 @@ impl AnthropicSpec {
         } else {
             Some(normalized)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_request_headers_unions_anthropic_beta_features() {
+        let mut ctx_headers = HashMap::new();
+        ctx_headers.insert(
+            "anthropic-beta".to_string(),
+            "web-fetch-2025-09-10,advanced-tool-use-2025-11-20".to_string(),
+        );
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com",
+            Some("k".to_string()),
+            ctx_headers,
+        );
+
+        let spec = AnthropicSpec::new();
+        let base = spec.build_headers(&ctx).unwrap();
+
+        let mut extra = HashMap::new();
+        extra.insert(
+            "Anthropic-Beta".to_string(),
+            "advanced-tool-use-2025-11-20,code-execution-2025-05-22".to_string(),
+        );
+
+        let merged = spec.merge_request_headers(base, &extra);
+        let value = merged
+            .get("anthropic-beta")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        assert_eq!(
+            value,
+            "web-fetch-2025-09-10,advanced-tool-use-2025-11-20,code-execution-2025-05-22"
+        );
     }
 }

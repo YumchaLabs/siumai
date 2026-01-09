@@ -371,8 +371,8 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
                 "remove" => req
                     .messages
                     .iter()
-                    .cloned()
                     .filter(|m| !matches!(m.role, crate::types::MessageRole::System))
+                    .cloned()
                     .collect::<Vec<_>>(),
                 _ => req.messages.clone(),
             };

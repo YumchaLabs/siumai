@@ -112,33 +112,33 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 }
 
                 let disable_parallel = disable_parallel_tool_use(req);
-                if let Some(tools) = &req.tools {
-                    if !matches!(req.tool_choice, Some(crate::types::ToolChoice::None)) {
-                        let arr = convert_tools_to_anthropic_format(tools)?;
-                        if !arr.is_empty() {
-                            body["tools"] = serde_json::Value::Array(arr);
+                if let Some(tools) = &req.tools
+                    && !matches!(req.tool_choice, Some(crate::types::ToolChoice::None))
+                {
+                    let arr = convert_tools_to_anthropic_format(tools)?;
+                    if !arr.is_empty() {
+                        body["tools"] = serde_json::Value::Array(arr);
 
-                            // Add tool_choice if specified
-                            if let Some(choice) = &req.tool_choice
-                                && let Some(anthropic_choice) =
-                                    super::utils::convert_tool_choice(choice)
-                            {
-                                let mut tool_choice = anthropic_choice;
-                                if disable_parallel && let Some(obj) = tool_choice.as_object_mut() {
-                                    obj.insert(
-                                        "disable_parallel_tool_use".to_string(),
-                                        serde_json::json!(true),
-                                    );
-                                }
-                                body["tool_choice"] = tool_choice;
-                            } else if disable_parallel {
-                                // Vercel alignment: `disableParallelToolUse` forces a tool_choice
-                                // even when no explicit toolChoice is provided.
-                                body["tool_choice"] = serde_json::json!({
-                                    "type": "auto",
-                                    "disable_parallel_tool_use": true
-                                });
+                        // Add tool_choice if specified
+                        if let Some(choice) = &req.tool_choice
+                            && let Some(anthropic_choice) =
+                                super::utils::convert_tool_choice(choice)
+                        {
+                            let mut tool_choice = anthropic_choice;
+                            if disable_parallel && let Some(obj) = tool_choice.as_object_mut() {
+                                obj.insert(
+                                    "disable_parallel_tool_use".to_string(),
+                                    serde_json::json!(true),
+                                );
                             }
+                            body["tool_choice"] = tool_choice;
+                        } else if disable_parallel {
+                            // Vercel alignment: `disableParallelToolUse` forces a tool_choice
+                            // even when no explicit toolChoice is provided.
+                            body["tool_choice"] = serde_json::json!({
+                                "type": "auto",
+                                "disable_parallel_tool_use": true
+                            });
                         }
                     }
                 }

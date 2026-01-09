@@ -61,9 +61,7 @@ fn convert_json_schema_to_openapi_schema(
         return Some(serde_json::json!({ "type": "boolean", "properties": {} }));
     }
 
-    let Some(obj) = json_schema.as_object() else {
-        return None;
-    };
+    let obj = json_schema.as_object()?;
 
     let mut result = serde_json::Map::new();
 
@@ -197,11 +195,11 @@ fn convert_json_schema_to_openapi_schema(
             let non_null_schemas: Vec<&serde_json::Value> = any_of
                 .iter()
                 .filter(|schema| {
-                    !schema
+                    schema
                         .as_object()
                         .and_then(|o| o.get("type"))
                         .and_then(|v| v.as_str())
-                        .is_some_and(|t| t == "null")
+                        .is_none_or(|t| t != "null")
                 })
                 .collect();
 
@@ -950,14 +948,14 @@ pub fn build_request_body(
 
     // Common params take precedence over generation_config defaults
     if let Some(temp) = config.common_params.temperature {
-        let v = (temp as f64 * 1_000_000.0).round() / 1_000_000.0;
+        let v = (temp * 1_000_000.0).round() / 1_000_000.0;
         merged_generation_config.temperature = Some(v);
     }
     if let Some(max_tokens) = config.common_params.max_tokens {
         merged_generation_config.max_output_tokens = Some(max_tokens as i32);
     }
     if let Some(top_p) = config.common_params.top_p {
-        let v = (top_p as f64 * 1_000_000.0).round() / 1_000_000.0;
+        let v = (top_p * 1_000_000.0).round() / 1_000_000.0;
         merged_generation_config.top_p = Some(v);
     }
     if let Some(stops) = &config.common_params.stop_sequences {

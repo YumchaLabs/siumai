@@ -143,12 +143,11 @@ async fn vertex_chat_stream_uses_custom_transport_and_passes_request_content() {
     assert_eq!(
         {
             let mut v = call.body.clone();
-            if let Some(obj) = v.as_object_mut() {
-                if let Some(gc) = obj.get("generationConfig")
-                    && gc.as_object().is_some_and(|o| o.is_empty())
-                {
-                    obj.remove("generationConfig");
-                }
+            if let Some(obj) = v.as_object_mut()
+                && let Some(gc) = obj.get("generationConfig")
+                && gc.as_object().is_some_and(|o| o.is_empty())
+            {
+                obj.remove("generationConfig");
             }
             v
         },

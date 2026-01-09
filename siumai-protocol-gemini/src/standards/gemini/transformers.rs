@@ -92,18 +92,10 @@ enum LegacyDynamicRetrievalMode {
     ModeDynamic,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 struct LegacyFileSearchConfig {
     file_search_store_names: Vec<String>,
-}
-
-impl Default for LegacyFileSearchConfig {
-    fn default() -> Self {
-        Self {
-            file_search_store_names: Vec::new(),
-        }
-    }
 }
 
 fn normalize_gemini_provider_options_json(value: &serde_json::Value) -> serde_json::Value {
@@ -196,11 +188,11 @@ impl RequestTransformer for GeminiRequestTransformer {
 
                 // Put common params at top-level for rule-based moving into generationConfig
                 if let Some(t) = req.common_params.temperature {
-                    let v = (t as f64 * 1_000_000.0).round() / 1_000_000.0;
+                    let v = (t * 1_000_000.0).round() / 1_000_000.0;
                     body["temperature"] = serde_json::json!(v);
                 }
                 if let Some(tp) = req.common_params.top_p {
-                    let v = (tp as f64 * 1_000_000.0).round() / 1_000_000.0;
+                    let v = (tp * 1_000_000.0).round() / 1_000_000.0;
                     body["top_p"] = serde_json::json!(v);
                 }
                 if let Some(max) = req.common_params.max_tokens {

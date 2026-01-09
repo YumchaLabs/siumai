@@ -169,18 +169,17 @@ impl AnthropicToolWarningsMiddleware {
             crate::providers::anthropic::model_constants::try_get_max_output_tokens(
                 req.common_params.model.as_str(),
             )
+            && let Some(max_tokens) = req.common_params.max_tokens
         {
-            if let Some(max_tokens) = req.common_params.max_tokens {
-                let effective = max_tokens.saturating_add(thinking_budget.unwrap_or(0));
-                if effective > max_out {
-                    warnings.push(Warning::unsupported_setting(
-                        "maxOutputTokens",
-                        Some(format!(
-                            "{effective} (maxOutputTokens + thinkingBudget) is greater than {} {max_out} max output tokens. The max output tokens have been limited to {max_out}.",
-                            req.common_params.model
-                        )),
-                    ));
-                }
+            let effective = max_tokens.saturating_add(thinking_budget.unwrap_or(0));
+            if effective > max_out {
+                warnings.push(Warning::unsupported_setting(
+                    "maxOutputTokens",
+                    Some(format!(
+                        "{effective} (maxOutputTokens + thinkingBudget) is greater than {} {max_out} max output tokens. The max output tokens have been limited to {max_out}.",
+                        req.common_params.model
+                    )),
+                ));
             }
         }
 

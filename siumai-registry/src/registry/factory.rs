@@ -245,13 +245,13 @@ pub async fn build_gemini_client(
     // Build base config
     let mut gcfg = GenerationConfig::new();
     if let Some(temp) = common_params.temperature {
-        gcfg = gcfg.with_temperature(temp as f64);
+        gcfg = gcfg.with_temperature(temp);
     }
     if let Some(max_tokens) = common_params.max_tokens {
         gcfg = gcfg.with_max_output_tokens(max_tokens as i32);
     }
     if let Some(top_p) = common_params.top_p {
-        gcfg = gcfg.with_top_p(top_p as f64);
+        gcfg = gcfg.with_top_p(top_p);
     }
     if let Some(stop) = common_params.stop_sequences.clone() {
         gcfg = gcfg.with_stop_sequences(stop);
