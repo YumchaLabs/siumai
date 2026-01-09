@@ -398,6 +398,14 @@ pub mod provider_ext {
             GoogleVertexClient, GoogleVertexConfig,
         };
 
+        /// Provider-hosted tools (Vercel-aligned `googleVertexTools`).
+        pub mod tools {
+            pub use siumai_provider_google_vertex::tools::{
+                VertexRagStoreConfig, code_execution, enterprise_web_search, file_search,
+                google_maps, google_search, url_context, vertex_rag_store,
+            };
+        }
+
         /// Typed provider options (`provider_options_map["vertex"]`).
         pub mod options {
             pub use siumai_provider_google_vertex::provider_options::vertex::{
