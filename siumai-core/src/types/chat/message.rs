@@ -29,6 +29,11 @@ pub enum MessageRole {
 /// // Simple text message
 /// let msg = ChatMessage::user("Hello!").build();
 ///
+/// // Message with a file attachment (e.g. PDF)
+/// let msg = ChatMessage::user("Please summarize this document")
+///     .with_file_base64("AAECAw==", "application/pdf", Some("doc.pdf".to_string()))
+///     .build();
+///
 /// // Message with tool call
 /// let msg = ChatMessage::assistant_with_content(vec![
 ///     ContentPart::text("Let me search for that..."),
@@ -663,6 +668,121 @@ impl ChatMessageBuilder {
         self
     }
 
+    /// Adds file content (URL source).
+    pub fn with_file_url(mut self, url: impl Into<String>, media_type: impl Into<String>) -> Self {
+        let file_part = ContentPart::File {
+            source: MediaSource::Url { url: url.into() },
+            media_type: media_type.into(),
+            filename: None,
+            provider_metadata: None,
+        };
+
+        match self.content {
+            Some(MessageContent::Text(text)) => {
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            Some(MessageContent::MultiModal(ref mut parts)) => {
+                parts.push(file_part);
+            }
+            #[cfg(feature = "structured-messages")]
+            Some(MessageContent::Json(v)) => {
+                let text = serde_json::to_string(&v).unwrap_or_default();
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            None => {
+                self.content = Some(MessageContent::MultiModal(vec![file_part]));
+            }
+        }
+
+        self
+    }
+
+    /// Adds file content (base64 source).
+    pub fn with_file_base64(
+        mut self,
+        data: impl Into<String>,
+        media_type: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        let file_part = ContentPart::File {
+            source: MediaSource::Base64 { data: data.into() },
+            media_type: media_type.into(),
+            filename,
+            provider_metadata: None,
+        };
+
+        match self.content {
+            Some(MessageContent::Text(text)) => {
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            Some(MessageContent::MultiModal(ref mut parts)) => {
+                parts.push(file_part);
+            }
+            #[cfg(feature = "structured-messages")]
+            Some(MessageContent::Json(v)) => {
+                let text = serde_json::to_string(&v).unwrap_or_default();
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            None => {
+                self.content = Some(MessageContent::MultiModal(vec![file_part]));
+            }
+        }
+
+        self
+    }
+
+    /// Adds file content (binary source).
+    pub fn with_file_binary(
+        mut self,
+        data: Vec<u8>,
+        media_type: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        let file_part = ContentPart::File {
+            source: MediaSource::Binary { data },
+            media_type: media_type.into(),
+            filename,
+            provider_metadata: None,
+        };
+
+        match self.content {
+            Some(MessageContent::Text(text)) => {
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            Some(MessageContent::MultiModal(ref mut parts)) => {
+                parts.push(file_part);
+            }
+            #[cfg(feature = "structured-messages")]
+            Some(MessageContent::Json(v)) => {
+                let text = serde_json::to_string(&v).unwrap_or_default();
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            None => {
+                self.content = Some(MessageContent::MultiModal(vec![file_part]));
+            }
+        }
+
+        self
+    }
+
     // Deprecated with_tool_calls removed. Use with_content_parts or assistant_with_content instead.
 
     /// Adds content parts to the message
@@ -687,5 +807,40 @@ impl ChatMessageBuilder {
             content: self.content.unwrap_or(MessageContent::Text(String::new())),
             metadata: self.metadata,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_builder_with_file_promotes_text_to_multimodal() {
+        let msg = ChatMessage::user("hello")
+            .with_file_base64("AAECAw==", "application/pdf", Some("doc.pdf".to_string()))
+            .build();
+
+        assert_eq!(msg.role, MessageRole::User);
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(parts[0], ContentPart::Text { .. }));
+        assert!(matches!(parts[1], ContentPart::File { .. }));
+    }
+
+    #[test]
+    fn file_is_appended_to_existing_multimodal_parts() {
+        let msg = ChatMessage::assistant_with_content(vec![ContentPart::text("hi")])
+            .with_file_url("https://example.com/doc.pdf", "application/pdf")
+            .build();
+
+        assert_eq!(msg.role, MessageRole::Assistant);
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(parts[0], ContentPart::Text { .. }));
+        assert!(matches!(parts[1], ContentPart::File { .. }));
     }
 }
