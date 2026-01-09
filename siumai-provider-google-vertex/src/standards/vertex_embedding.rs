@@ -93,6 +93,8 @@ fn opt_task_type(value: Option<&serde_json::Value>) -> Option<String> {
     value.and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
+const VERTEX_EMBEDDING_MAX_VALUES_PER_CALL: usize = 2048;
+
 #[derive(Clone, Default)]
 pub struct VertexEmbeddingStandard;
 
@@ -179,6 +181,14 @@ impl RequestTransformer for VertexEmbeddingRequestTransformer {
     }
 
     fn transform_embedding(&self, req: &EmbeddingRequest) -> Result<serde_json::Value, LlmError> {
+        if req.input.len() > VERTEX_EMBEDDING_MAX_VALUES_PER_CALL {
+            return Err(LlmError::InvalidInput(format!(
+                "Too many embedding values for a single call: {} (max {})",
+                req.input.len(),
+                VERTEX_EMBEDDING_MAX_VALUES_PER_CALL
+            )));
+        }
+
         let provider_opts = extract_embedding_provider_options(&req.provider_options_map)
             .and_then(|v| v.as_object());
 
@@ -310,5 +320,27 @@ impl ResponseTransformer for VertexEmbeddingResponseTransformer {
             out = out.with_usage(EmbeddingUsage::new(token_count, token_count));
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vertex_embedding_rejects_too_many_values() {
+        let transformer = VertexEmbeddingRequestTransformer {
+            provider_id: "vertex".to_string(),
+        };
+
+        let input = vec!["test".to_string(); VERTEX_EMBEDDING_MAX_VALUES_PER_CALL + 1];
+        let req = EmbeddingRequest::new(input);
+        let err = transformer
+            .transform_embedding(&req)
+            .expect_err("expected error");
+        assert!(
+            matches!(err, LlmError::InvalidInput(_)),
+            "expected InvalidInput, got: {err:?}"
+        );
     }
 }
