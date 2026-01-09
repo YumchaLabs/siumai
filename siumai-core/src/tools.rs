@@ -81,6 +81,58 @@ pub mod openai {
         (APPLY_PATCH_ID, "apply_patch"),
     ];
 
+    /// OpenAI Responses built-in tool types that we support for `tool_choice`.
+    ///
+    /// Note: `openai.computer_use` maps to the Responses API tool type `computer_use_preview`.
+    pub const RESPONSES_BUILTIN_TOOL_TYPES: &[&str] = &[
+        "code_interpreter",
+        "file_search",
+        "image_generation",
+        "web_search_preview",
+        "web_search",
+        "mcp",
+        "apply_patch",
+        "computer_use_preview",
+    ];
+
+    /// Convert a stable provider tool type (from `openai.<tool_type>`) into a Responses API tool type.
+    ///
+    /// Returns `None` for unsupported tool types.
+    pub fn responses_builtin_type_for_tool_type(tool_type: &str) -> Option<&'static str> {
+        match tool_type {
+            // Vercel alignment: `openai.computer_use` is sent as `computer_use_preview`.
+            "computer_use" => Some("computer_use_preview"),
+            "code_interpreter" => Some("code_interpreter"),
+            "file_search" => Some("file_search"),
+            "image_generation" => Some("image_generation"),
+            "web_search_preview" => Some("web_search_preview"),
+            "web_search" => Some("web_search"),
+            "mcp" => Some("mcp"),
+            "apply_patch" => Some("apply_patch"),
+            _ => None,
+        }
+    }
+
+    /// Convert a tool choice name into a Responses API built-in tool type.
+    ///
+    /// This supports both:
+    /// - built-in type names (e.g. `web_search`)
+    /// - a compatibility alias (`computer_use` -> `computer_use_preview`)
+    pub fn responses_builtin_type_for_choice_name(name: &str) -> Option<&'static str> {
+        match name {
+            "computer_use" => Some("computer_use_preview"),
+            "computer_use_preview" => Some("computer_use_preview"),
+            "code_interpreter" => Some("code_interpreter"),
+            "file_search" => Some("file_search"),
+            "image_generation" => Some("image_generation"),
+            "web_search_preview" => Some("web_search_preview"),
+            "web_search" => Some("web_search"),
+            "mcp" => Some("mcp"),
+            "apply_patch" => Some("apply_patch"),
+            _ => None,
+        }
+    }
+
     pub const WEB_SEARCH_ID: &str = "openai.web_search";
     pub const WEB_SEARCH_PREVIEW_ID: &str = "openai.web_search_preview";
     pub const FILE_SEARCH_ID: &str = "openai.file_search";

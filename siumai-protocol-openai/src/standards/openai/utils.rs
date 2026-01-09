@@ -423,17 +423,10 @@ pub fn convert_responses_tool_choice(
         ToolChoice::None => serde_json::json!("none"),
         ToolChoice::Tool { name } => {
             // Vercel parity: recognize built-in responses tools by name.
-            if matches!(
-                name.as_str(),
-                "code_interpreter"
-                    | "file_search"
-                    | "image_generation"
-                    | "web_search_preview"
-                    | "web_search"
-                    | "mcp"
-                    | "apply_patch"
-            ) {
-                return serde_json::json!({ "type": name });
+            if let Some(t) =
+                siumai_core::tools::openai::responses_builtin_type_for_choice_name(name.as_str())
+            {
+                return serde_json::json!({ "type": t });
             }
 
             // Optional: resolve custom tool names (e.g. "generateImage") to the built-in type
@@ -451,14 +444,13 @@ pub fn convert_responses_tool_choice(
                         continue;
                     }
 
-                    match provider_tool.tool_type() {
-                        Some(
-                            "code_interpreter" | "file_search" | "image_generation"
-                            | "web_search_preview" | "web_search" | "mcp" | "apply_patch",
-                        ) => {
-                            return serde_json::json!({ "type": provider_tool.tool_type().unwrap() });
-                        }
-                        _ => {}
+                    if let Some(tool_type) = provider_tool.tool_type()
+                        && let Some(t) =
+                            siumai_core::tools::openai::responses_builtin_type_for_tool_type(
+                                tool_type,
+                            )
+                    {
+                        return serde_json::json!({ "type": t });
                     }
                 }
             }
@@ -552,6 +544,13 @@ mod tests {
     }
 
     #[test]
+    fn responses_tool_choice_maps_computer_use_alias_to_preview_type() {
+        let choice = crate::types::ToolChoice::tool("computer_use");
+        let out = convert_responses_tool_choice(&choice, None);
+        assert_eq!(out, serde_json::json!({ "type": "computer_use_preview" }));
+    }
+
+    #[test]
     fn responses_tool_choice_maps_function_by_name() {
         let choice = crate::types::ToolChoice::tool("testFunction");
         let out = convert_responses_tool_choice(&choice, None);
@@ -569,5 +568,13 @@ mod tests {
         )];
         let out = convert_responses_tool_choice(&choice, Some(&tools));
         assert_eq!(out, serde_json::json!({ "type": "image_generation" }));
+    }
+
+    #[test]
+    fn responses_tool_choice_resolves_custom_provider_tool_name_for_computer_use() {
+        let choice = crate::types::ToolChoice::tool("myComputer");
+        let tools = vec![crate::tools::openai::computer_use_named("myComputer")];
+        let out = convert_responses_tool_choice(&choice, Some(&tools));
+        assert_eq!(out, serde_json::json!({ "type": "computer_use_preview" }));
     }
 }
