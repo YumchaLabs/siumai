@@ -85,13 +85,7 @@ impl OpenAiResponsesInputWarningsMiddleware {
         let store_enabled = Self::store_enabled(req);
 
         let tool_name_mapping = req.tools.as_deref().map(|tools| {
-            create_tool_name_mapping(
-                tools,
-                &[
-                    ("openai.web_search", "web_search"),
-                    ("openai.web_search_preview", "web_search_preview"),
-                ],
-            )
+            create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
         });
         let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 

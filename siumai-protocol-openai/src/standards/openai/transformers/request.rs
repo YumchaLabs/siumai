@@ -453,14 +453,7 @@ impl OpenAiResponsesRequestTransformer {
         if matches!(msg.role, MessageRole::Tool) {
             let store = Self::should_include_item_reference(req);
             let tool_name_mapping = req.tools.as_deref().map(|tools| {
-                create_tool_name_mapping(
-                    tools,
-                    &[
-                        ("openai.local_shell", "local_shell"),
-                        ("openai.shell", "shell"),
-                        ("openai.apply_patch", "apply_patch"),
-                    ],
-                )
+                create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
             });
             let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 
@@ -777,14 +770,7 @@ impl OpenAiResponsesRequestTransformer {
         // Assistant messages (Vercel-aligned: expand to message + tool call items).
         if matches!(msg.role, MessageRole::Assistant) {
             let tool_name_mapping = req.tools.as_deref().map(|tools| {
-                create_tool_name_mapping(
-                    tools,
-                    &[
-                        ("openai.local_shell", "local_shell"),
-                        ("openai.shell", "shell"),
-                        ("openai.apply_patch", "apply_patch"),
-                    ],
-                )
+                create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
             });
             let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 

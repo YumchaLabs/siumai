@@ -64,6 +64,23 @@ pub fn provider_defined_tool(id: &str) -> Option<Tool> {
 pub mod openai {
     use super::Tool;
 
+    /// Mapping of provider tool ids to OpenAI Responses tool names (provider-native).
+    ///
+    /// This is primarily used to map custom tool names back to provider tool names when
+    /// serializing certain tool call / tool result message items (Vercel-aligned).
+    pub const PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
+        (WEB_SEARCH_ID, "web_search"),
+        (WEB_SEARCH_PREVIEW_ID, "web_search_preview"),
+        (FILE_SEARCH_ID, "file_search"),
+        (CODE_INTERPRETER_ID, "code_interpreter"),
+        (IMAGE_GENERATION_ID, "image_generation"),
+        (LOCAL_SHELL_ID, "local_shell"),
+        (SHELL_ID, "shell"),
+        (COMPUTER_USE_ID, "computer_use"),
+        (MCP_ID, "mcp"),
+        (APPLY_PATCH_ID, "apply_patch"),
+    ];
+
     pub const WEB_SEARCH_ID: &str = "openai.web_search";
     pub const WEB_SEARCH_PREVIEW_ID: &str = "openai.web_search_preview";
     pub const FILE_SEARCH_ID: &str = "openai.file_search";
@@ -164,6 +181,28 @@ pub mod openai {
 /// Anthropic provider-defined tools.
 pub mod anthropic {
     use super::Tool;
+
+    /// Mapping of provider tool ids to Anthropic tool names (provider-native).
+    ///
+    /// Note: Anthropic "versioned tools" (e.g. `web_search_20250305`) still map to
+    /// unversioned provider-native names (e.g. `web_search`) in request/response surfaces.
+    pub const PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
+        (WEB_SEARCH_20250305_ID, "web_search"),
+        (WEB_FETCH_20250910_ID, "web_fetch"),
+        (COMPUTER_20250124_ID, "computer"),
+        (COMPUTER_20241022_ID, "computer"),
+        (TEXT_EDITOR_20250124_ID, "str_replace_editor"),
+        (TEXT_EDITOR_20241022_ID, "str_replace_editor"),
+        (TEXT_EDITOR_20250429_ID, "str_replace_based_edit_tool"),
+        (TEXT_EDITOR_20250728_ID, "str_replace_based_edit_tool"),
+        (BASH_20241022_ID, "bash"),
+        (BASH_20250124_ID, "bash"),
+        (TOOL_SEARCH_REGEX_20251119_ID, "tool_search"),
+        (TOOL_SEARCH_BM25_20251119_ID, "tool_search"),
+        (CODE_EXECUTION_20250522_ID, "code_execution"),
+        (CODE_EXECUTION_20250825_ID, "code_execution"),
+        (MEMORY_20250818_ID, "memory"),
+    ];
 
     pub const WEB_SEARCH_20250305_ID: &str = "anthropic.web_search_20250305";
     pub const WEB_FETCH_20250910_ID: &str = "anthropic.web_fetch_20250910";
@@ -310,6 +349,18 @@ pub mod anthropic {
 pub mod google {
     use super::Tool;
 
+    /// Mapping of provider tool ids to Google Gemini tool names (provider-native).
+    pub const PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
+        (CODE_EXECUTION_ID, "code_execution"),
+        (GOOGLE_SEARCH_ID, "google_search"),
+        (GOOGLE_SEARCH_RETRIEVAL_ID, "google_search_retrieval"),
+        (URL_CONTEXT_ID, "url_context"),
+        (ENTERPRISE_WEB_SEARCH_ID, "enterprise_web_search"),
+        (GOOGLE_MAPS_ID, "google_maps"),
+        (VERTEX_RAG_STORE_ID, "vertex_rag_store"),
+        (FILE_SEARCH_ID, "file_search"),
+    ];
+
     pub const CODE_EXECUTION_ID: &str = "google.code_execution";
     pub const GOOGLE_SEARCH_ID: &str = "google.google_search";
     pub const GOOGLE_SEARCH_RETRIEVAL_ID: &str = "google.google_search_retrieval";
@@ -387,6 +438,13 @@ pub mod google {
 /// xAI provider-defined tools (OpenAI-like family).
 pub mod xai {
     use super::Tool;
+
+    /// Mapping of provider tool ids to xAI tool names (provider-native).
+    pub const PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
+        (WEB_SEARCH_ID, "web_search"),
+        (X_SEARCH_ID, "x_search"),
+        (CODE_EXECUTION_ID, "code_execution"),
+    ];
 
     pub const WEB_SEARCH_ID: &str = "xai.web_search";
     pub const X_SEARCH_ID: &str = "xai.x_search";
