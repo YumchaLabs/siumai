@@ -463,3 +463,14 @@ Provider id: `deepseek` (OpenAI-compatible Chat Completions)
 ## Upstream Fixture Coverage Notes
 
 - The Vercel repo (`repo-ref/ai`) also contains `__fixtures__` for providers that are not implemented in Siumai yet (e.g., Amazon Bedrock). To fully align those fixtures, we need to add the corresponding provider crates and protocol mappings first.
+
+## Coverage audit (repo-ref/ai vs siumai)
+
+This section is a quick sanity checklist of upstream fixture sets that are file-based in `repo-ref/ai`.
+Note that Siumai stores most fixtures as *case directories* (e.g. `response.json`, `expected_response.json`), so the raw upstream filenames may not exist 1:1.
+
+- DeepSeek (`packages/deepseek/src/chat/__fixtures__`): fully mirrored under `siumai/tests/fixtures/deepseek/chat` (exact filenames match).
+- Azure (`packages/azure/src/__fixtures__`): streaming chunk fixtures mirrored; response fixtures live under `siumai/tests/fixtures/azure/responses/*`.
+- OpenAI Responses (`packages/openai/src/responses/__fixtures__`): streaming chunk fixtures mirrored; response fixtures live under `siumai/tests/fixtures/openai/responses/response/*`.
+- Anthropic (`packages/anthropic/src/__fixtures__`): streaming chunk fixtures mirrored; request/response fixtures live under `siumai/tests/fixtures/anthropic/messages/*`.
+- xAI (`packages/xai/src/responses/__fixtures__`): streaming chunk fixtures mirrored; response fixtures live under `siumai/tests/fixtures/xai/responses/response/*`.

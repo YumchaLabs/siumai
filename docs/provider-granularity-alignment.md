@@ -23,6 +23,7 @@ mirror that direction using **protocol crates** that provider crates depend on.
 | `@ai-sdk/provider-utils` | HTTP/streaming/retry utilities | `siumai-core::execution`, `siumai-core::retry`, `siumai-core::streaming` |
 | `@ai-sdk/openai` | OpenAI provider | `siumai-provider-openai` |
 | `@ai-sdk/azure` | Azure OpenAI provider | `siumai-provider-azure` |
+| `@ai-sdk/openai-compatible` | OpenAI-like vendor presets | `siumai-provider-openai-compatible` (re-exports `siumai-protocol-openai`) |
 | `@ai-sdk/anthropic` | Anthropic provider | `siumai-provider-anthropic` |
 | `@ai-sdk/google` | Gemini API (Generative Language API) | `siumai-provider-gemini` |
 | `@ai-sdk/google-vertex` | Vertex AI (incl. Imagen) | `siumai-provider-google-vertex` |
@@ -36,7 +37,7 @@ Notes:
 - Some protocols are already factored into protocol crates:
   - Gemini: `siumai-protocol-gemini`
 - Some protocols are factored as protocol family crates:
-  - OpenAI-like: `siumai-protocol-openai` (legacy crate name: `siumai-provider-openai-compatible`)
+  - OpenAI-like: `siumai-protocol-openai` (the protocol mapping; `siumai-provider-openai-compatible` hosts presets + re-exports this surface)
   - Anthropic Messages: `siumai-protocol-anthropic` (legacy crate name: `siumai-provider-anthropic-compatible`)
 
 ## Target split: provider vs protocol

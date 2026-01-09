@@ -17,7 +17,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 | `@ai-sdk/provider-utils` | Shared helpers (HTTP, streaming, tooling) | `siumai-core`, `siumai-registry` | `siumai-registry` owns the Vercel-style `"provider:model"` registry handle. |
 | `@ai-sdk/openai` | Native OpenAI provider | `siumai-provider-openai` | Owns native OpenAI endpoints; re-exports protocol mapping under `standards`. |
 | `@ai-sdk/azure` | Azure OpenAI provider | `siumai-provider-azure` | Owns Azure OpenAI URL + header quirks; reuses `siumai-protocol-openai` mapping. |
-| `@ai-sdk/openai-compatible` | OpenAI-like family adapter | `siumai-protocol-openai` | Preferred name; legacy compatibility crate: `siumai-provider-openai-compatible`. |
+| `@ai-sdk/openai-compatible` | OpenAI-like family adapter | `siumai-provider-openai-compatible` + `siumai-protocol-openai` | `siumai-provider-openai-compatible` hosts the vendor preset layer (DeepSeek/OpenRouter/etc) and re-exports the protocol surface from `siumai-protocol-openai`. |
 | `@ai-sdk/anthropic` | Native Anthropic provider | `siumai-provider-anthropic` | Owns native Anthropic client; re-exports protocol mapping under `standards`. |
 | `@ai-sdk/google` | Google provider | `siumai-provider-gemini` | Gemini (GenerateContent) mapping + client implementation. |
 | `@ai-sdk/google-vertex` (conceptually) | Vertex AI provider | `siumai-provider-google-vertex` | Provider-owned standards live under this crate for now. |
@@ -36,7 +36,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - Protocol facade is available at `siumai::protocol::*` to keep downstream imports stable.
 - `siumai-protocol-openai` exists as the preferred OpenAI-like protocol crate name (now the real implementation).
 - `siumai-protocol-anthropic` exists as the preferred Anthropic protocol crate name (now the real implementation).
-- OpenAI-like dependent providers (`groq`, `xai`, `minimaxi`, and `siumai-registry`) are migrated to `siumai-protocol-openai`.
+- OpenAI-compatible vendor presets are hosted by `siumai-provider-openai-compatible` (migrated out of `siumai-protocol-openai`).
 - `siumai::tools::openai::*` defaults match Vercel fixtures for tool names (`webSearch`, `fileSearch`, `generateImage`, `codeExecution`, `MCP`, etc.).
 - Google Vertex builder surface includes Vercel-aligned aliases: `language_model(...)`, `embedding_model(...)` (deprecated: `text_embedding_model(...)`).
 - Provider-defined tool factories are available under `siumai::tools::*` (implemented in `siumai-core::tools`) and serialize to the Vercel `{ type: "provider", id, name, args }` shape; `Tool::provider_defined(id, name)` remains the escape hatch for unknown tools.
