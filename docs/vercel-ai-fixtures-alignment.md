@@ -117,6 +117,7 @@ Provider id: `openai_compatible` (Chat Completions)
 
 - [x] Reasoning extraction parity (`reasoning_content` > `thinking` > `reasoning`)
 - [x] Compatibility: if `finish_reason` indicates tool calls but `tool_calls` is missing, parse `{ "name", "arguments" }` JSON from `message.content` into a tool-call part
+- [x] SiliconFlow/SiliconCloud compatibility: also parse tool-call JSON from `message.content` even when `finish_reason` is `stop` (vendor quirk; issue #11)
 - [x] Fixture-driven response alignment tests under `siumai/tests/fixtures/openai-compatible/chat-response/*`
 
 ## OpenAI-Compatible Chat Messages
@@ -352,8 +353,11 @@ Provider id: `openai` / `azure` (Chat Completions)
 - [x] PDF user file parts map to `{ type: "file", file: { file_id | filename + file_data } }` (Vercel `@ai-sdk/openai` parity)
 - [x] Audio user file parts map to `{ type: "input_audio", input_audio: { data, format } }` for wav/mp3 (URL inputs are rejected; Vercel parity)
 - [x] System message modes (`system`/`developer`/`remove`) in Chat Completions message conversion (Vercel parity)
+- [x] User messages with a single text part map to string `content` (Vercel parity)
+- [x] User messages with mixed text + image parts map to `[{ type: "text" }, { type: "image_url" }]` (Vercel parity)
 - [x] Image detail via `providerMetadata.openai.imageDetail` on image file parts
 - [x] Assistant tool-call parts map to `tool_calls[]`; tool results map to `role: tool` messages (Vercel parity)
+- [x] Tool output type stringification parity (`text`/`error-text`/`execution-denied`/`json`/`error-json`/`content`) in `role: tool` messages (Vercel parity)
 - [x] Fixture-driven message alignment tests under `siumai/tests/fixtures/openai/chat-messages/*`
 
 ### Next

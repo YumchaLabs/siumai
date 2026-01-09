@@ -317,9 +317,14 @@ impl ResponseTransformer for CompatResponseTransformer {
         } else if matches!(
             choice.finish_reason.as_deref(),
             Some("tool_calls" | "function_call")
-        ) {
-            // Compatibility: some providers return tool-call payloads as plain JSON text
-            // while still reporting `finish_reason: "tool_calls"`.
+        ) || provider_allows_tool_call_json_in_text_fallback(&self.config.provider_id)
+        {
+            // Compatibility: some OpenAI-compatible providers return tool-call payloads as
+            // plain JSON text while still reporting `finish_reason: "tool_calls"`.
+            //
+            // Additionally, a handful of vendors (e.g. SiliconFlow) may return the tool-call JSON
+            // in `message.content` while using `finish_reason: "stop"`. We keep the Vercel-aligned
+            // behavior by default, but enable the fallback for known providers that behave this way.
             if parts.len() == 1
                 && let Some(text) = parts[0].as_text()
                 && let Ok(v) = serde_json::from_str::<serde_json::Value>(text)
@@ -494,6 +499,11 @@ impl StreamChunkTransformer for CompatStreamChunkTransformer {
     }
 }
 
+fn provider_allows_tool_call_json_in_text_fallback(provider_id: &str) -> bool {
+    provider_id.eq_ignore_ascii_case("siliconflow")
+        || provider_id.eq_ignore_ascii_case("siliconcloud")
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::adapter::ProviderAdapter;
@@ -631,6 +641,40 @@ mod tests {
                     "content": "{\"name\":\"weather$weather#get_weather\",\"arguments\":{\"addr\":\"Guangzhou\",\"date\":\"2026-01-09\"}}"
                 },
                 "finish_reason": "tool_calls"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        assert!(resp.has_tool_calls());
+        let calls = resp.tool_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].as_tool_name(), Some("weather$weather#get_weather"));
+    }
+
+    #[test]
+    fn siliconflow_tool_call_json_in_text_is_parsed_even_when_finish_reason_is_stop() {
+        let adapter = Arc::new(DummyAdapter);
+        let config = OpenAiCompatibleConfig::new(
+            "siliconflow",
+            "test-key",
+            "https://api.siliconflow.cn/v1",
+            adapter.clone(),
+        )
+        .with_model("test-model");
+
+        let tx = CompatResponseTransformer { config, adapter };
+
+        let raw = serde_json::json!( {
+            "id": "gen-123",
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"name\":\"weather$weather#get_weather\",\"arguments\":{\"addr\":\"Guangzhou\",\"date\":\"2026-01-09\"}}"
+                },
+                "finish_reason": "stop"
             }],
             "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
         });

@@ -1,0 +1,21 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    { "role": "tool", "tool_call_id": "json-tool", "content": "{\"step\":1}" },
+    {
+      "role": "tool",
+      "tool_call_id": "error-json-tool",
+      "content": "{\"error\":\"bad\"}"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "content-tool",
+      "content": "[{\"type\":\"text\",\"text\":\"ok\"}]"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "denied-tool",
+      "content": "Tool execution denied."
+    }
+  ]
+}
