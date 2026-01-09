@@ -8,12 +8,16 @@ mod chat_stream_cancel_test;
 mod chat_stream_connect_retry_test;
 #[path = "streaming/factory_injection_tests.rs"]
 mod factory_injection_tests;
+#[cfg(feature = "openai")]
 #[path = "streaming/factory_non_sse_fallback_test.rs"]
 mod factory_non_sse_fallback_test;
+#[cfg(feature = "openai")]
 #[path = "streaming/http_connect_timeout_retry_test.rs"]
 mod http_connect_timeout_retry_test;
+#[cfg(feature = "openai")]
 #[path = "streaming/http_partial_disconnect_cancel_interaction_test.rs"]
 mod http_partial_disconnect_cancel_interaction_test;
+#[cfg(feature = "openai")]
 #[path = "streaming/http_partial_disconnect_no_done_test.rs"]
 mod http_partial_disconnect_no_done_test;
 #[path = "streaming/siumai_interceptor_request_assert_test.rs"]

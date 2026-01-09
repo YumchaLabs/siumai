@@ -3,6 +3,8 @@
 //! This test verifies that malformed JSON in HTTP responses is automatically
 //! repaired when the `json-repair` feature is enabled.
 
+#![cfg(feature = "openai")]
+
 #[cfg(feature = "json-repair")]
 #[tokio::test]
 async fn test_json_repair_in_non_streaming_response() {

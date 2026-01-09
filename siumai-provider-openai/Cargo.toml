@@ -21,6 +21,9 @@ siumai-core = { workspace = true, default-features = false }
 # This keeps provider-owned typed metadata available via re-exports.
 siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
 
+# OpenAI-compatible providers (vendor presets + adapter registry) live in a dedicated crate.
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
+
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
 serde.workspace = true
@@ -57,6 +60,8 @@ structured-messages = ["siumai-core/structured-messages", "siumai-protocol-opena
 openai-standard = [
     "siumai-core/openai",
     "siumai-protocol-openai/openai-standard",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
 ]
 
 # Matches the feature name used by downstream crates.

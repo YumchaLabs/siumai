@@ -1,4 +1,4 @@
-#![cfg(feature = "anthropic")]
+#![cfg(feature = "google-vertex")]
 use serde_json::json;
 use siumai::extensions::ModelListingCapability;
 use siumai::prelude::unified::HttpConfig;

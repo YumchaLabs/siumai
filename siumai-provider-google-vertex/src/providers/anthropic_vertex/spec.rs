@@ -6,11 +6,12 @@ use std::sync::Arc;
 
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::standards::anthropic;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
 use std::collections::{HashMap, HashSet};
+
+use siumai_protocol_anthropic::standards::anthropic;
 
 /// Vertex Anthropic provider specification
 #[derive(Clone)]

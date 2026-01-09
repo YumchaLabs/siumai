@@ -297,7 +297,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "openai"))]
 mod builder_tests {
     use super::*;
     use siumai::experimental::client::LlmClient;

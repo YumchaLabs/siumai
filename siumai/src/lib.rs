@@ -479,9 +479,9 @@ pub mod provider_ext {
         }
     }
 
-    #[cfg(feature = "anthropic")]
+    #[cfg(feature = "google-vertex")]
     pub mod anthropic_vertex {
-        pub use siumai_provider_anthropic::providers::anthropic_vertex::client::{
+        pub use siumai_provider_google_vertex::providers::anthropic_vertex::client::{
             VertexAnthropicClient, VertexAnthropicConfig,
         };
     }

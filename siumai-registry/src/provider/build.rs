@@ -132,6 +132,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             }
         }
         #[cfg(feature = "google-vertex")]
+        ProviderType::Custom(ref id) if id == "anthropic-vertex" => false,
+        #[cfg(feature = "google-vertex")]
         ProviderType::Custom(ref id) if id == "vertex" => false,
         ProviderType::Gemini => {
             let has_auth_header = builder
@@ -306,6 +308,10 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             #[cfg(feature = "google")]
             ProviderType::Gemini => siumai_provider_gemini::providers::gemini::model_constants::gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
             #[cfg(feature = "google-vertex")]
+            ProviderType::Custom(ref provider_id) if provider_id == "anthropic-vertex" => {
+                "claude-3-5-sonnet-20241022".to_string()
+            }
+            #[cfg(feature = "google-vertex")]
             ProviderType::Custom(ref provider_id) if provider_id == "vertex" => {
                 "imagen-3.0-generate-002".to_string()
             }
@@ -454,29 +460,39 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     .map(|u| u.contains("aiplatform.googleapis.com"))
                     .unwrap_or(false);
             if is_vertex {
-                let base = base_url.ok_or_else(|| {
-                    LlmError::ConfigurationError(
-                        "Anthropic on Vertex requires an explicit base_url (aiplatform.googleapis.com)".to_string(),
-                    )
-                })?;
+                #[cfg(feature = "google-vertex")]
+                {
+                    let base = base_url.clone().ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "Anthropic on Vertex requires an explicit base_url (aiplatform.googleapis.com)".to_string(),
+                        )
+                    })?;
 
-                // Build unified context and delegate to AnthropicVertexProviderFactory.
-                let ctx = BuildContext {
-                    http_client: Some(built_http_client.clone()),
-                    http_config: Some(http_config.clone()),
-                    base_url: Some(base),
-                    tracing_config: builder.tracing_config.clone(),
-                    http_interceptors: interceptors.clone(),
-                    model_middlewares: user_model_middlewares.clone(),
-                    retry_options: builder.retry_options.clone(),
-                    common_params: Some(common_params.clone()),
-                    ..Default::default()
-                };
+                    // Build unified context and delegate to AnthropicVertexProviderFactory.
+                    let ctx = BuildContext {
+                        http_client: Some(built_http_client.clone()),
+                        http_config: Some(http_config.clone()),
+                        base_url: Some(base),
+                        tracing_config: builder.tracing_config.clone(),
+                        http_interceptors: interceptors.clone(),
+                        model_middlewares: user_model_middlewares.clone(),
+                        retry_options: builder.retry_options.clone(),
+                        common_params: Some(common_params.clone()),
+                        ..Default::default()
+                    };
 
-                let factory = crate::registry::factories::AnthropicVertexProviderFactory;
-                factory
-                    .language_model_with_ctx(&common_params.model, &ctx)
-                    .await?
+                    let factory = crate::registry::factories::AnthropicVertexProviderFactory;
+                    factory
+                        .language_model_with_ctx(&common_params.model, &ctx)
+                        .await?
+                }
+                #[cfg(not(feature = "google-vertex"))]
+                {
+                    return Err(LlmError::UnsupportedOperation(
+                        "Anthropic on Vertex requires the 'google-vertex' feature to be enabled"
+                            .to_string(),
+                    ));
+                }
             } else {
                 let default_base = "https://api.anthropic.com".to_string();
                 let anthropic_base_url =
@@ -640,6 +656,25 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             ));
         }
         #[cfg(feature = "google-vertex")]
+        ProviderType::Custom(name) if name == "anthropic-vertex" => {
+            let ctx = BuildContext {
+                http_client: Some(built_http_client.clone()),
+                http_config: Some(http_config.clone()),
+                base_url: base_url.clone(),
+                tracing_config: builder.tracing_config.clone(),
+                http_interceptors: interceptors.clone(),
+                model_middlewares: user_model_middlewares.clone(),
+                retry_options: builder.retry_options.clone(),
+                common_params: Some(common_params.clone()),
+                ..Default::default()
+            };
+
+            let factory = crate::registry::factories::AnthropicVertexProviderFactory;
+            factory
+                .language_model_with_ctx(&common_params.model, &ctx)
+                .await?
+        }
+        #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "vertex" => {
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
@@ -780,6 +815,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     feature = "azure",
     feature = "anthropic",
     feature = "google",
+    feature = "google-vertex",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -787,7 +823,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 )))]
 pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     Err(LlmError::UnsupportedOperation(
-        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, ollama, xai, groq, minimaxi)".to_string(),
+        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi)".to_string(),
     ))
 }
 

@@ -302,7 +302,7 @@ pub async fn build_gemini_client(
 }
 
 /// Build Anthropic on Vertex AI client
-#[cfg(feature = "anthropic")]
+#[cfg(feature = "google-vertex")]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_anthropic_vertex_client(
     base_url: String,
@@ -315,13 +315,13 @@ pub async fn build_anthropic_vertex_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let cfg =
-        siumai_provider_anthropic::providers::anthropic_vertex::client::VertexAnthropicConfig {
+        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicConfig {
             base_url,
             model: common_params.model.clone(),
             http_config,
         };
     let mut client =
-        siumai_provider_anthropic::providers::anthropic_vertex::client::VertexAnthropicClient::new(
+        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient::new(
             cfg,
             http_client,
         );

@@ -90,18 +90,6 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
                 .with_vision()
                 .with_custom_feature("thinking", true),
         });
-
-        // Anthropic on Vertex AI (wrapper around Anthropic served via Vertex).
-        out.push(NativeProviderMetadata {
-            id: "anthropic-vertex",
-            name: "Anthropic on Vertex",
-            description: "Anthropic Claude models served via Google Vertex AI",
-            default_base_url: None,
-            capabilities: ProviderCapabilities::new()
-                .with_chat()
-                .with_streaming()
-                .with_tools(),
-        });
     }
 
     // Google Gemini
@@ -124,20 +112,34 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
 
     // Google Vertex AI (Imagen via Vertex).
     #[cfg(feature = "google-vertex")]
-    out.push(NativeProviderMetadata {
-        id: "vertex",
-        name: "Google Vertex AI",
-        description: "Google Vertex AI models (e.g., Imagen) served via Vertex endpoints",
-        // Requires project/location; use `base_url_for_vertex` or explicit `base_url`.
-        default_base_url: None,
-        capabilities: ProviderCapabilities::new()
-            .with_chat()
-            .with_streaming()
-            .with_tools()
-            .with_vision()
-            .with_embedding()
-            .with_image_generation(),
-    });
+    {
+        // Anthropic on Vertex AI (wrapper around Anthropic served via Vertex).
+        out.push(NativeProviderMetadata {
+            id: "anthropic-vertex",
+            name: "Anthropic on Vertex",
+            description: "Anthropic Claude models served via Google Vertex AI",
+            default_base_url: None,
+            capabilities: ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools(),
+        });
+
+        out.push(NativeProviderMetadata {
+            id: "vertex",
+            name: "Google Vertex AI",
+            description: "Google Vertex AI models (e.g., Imagen) served via Vertex endpoints",
+            // Requires project/location; use `base_url_for_vertex` or explicit `base_url`.
+            default_base_url: None,
+            capabilities: ProviderCapabilities::new()
+                .with_chat()
+                .with_streaming()
+                .with_tools()
+                .with_vision()
+                .with_embedding()
+                .with_image_generation(),
+        });
+    }
 
     // Groq
     #[cfg(feature = "groq")]

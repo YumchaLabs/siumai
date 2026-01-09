@@ -64,11 +64,6 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
             Arc::new(crate::registry::factories::AnthropicProviderFactory)
                 as Arc<dyn ProviderFactory>,
         );
-        providers.insert(
-            "anthropic-vertex".to_string(),
-            Arc::new(crate::registry::factories::AnthropicVertexProviderFactory)
-                as Arc<dyn ProviderFactory>,
-        );
     }
 
     #[cfg(feature = "google")]
@@ -81,6 +76,11 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
 
     #[cfg(feature = "google-vertex")]
     {
+        providers.insert(
+            "anthropic-vertex".to_string(),
+            Arc::new(crate::registry::factories::AnthropicVertexProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
         providers.insert(
             "vertex".to_string(),
             Arc::new(crate::registry::factories::GoogleVertexProviderFactory)

@@ -125,7 +125,7 @@ mod builtins {
             }
 
             // Anthropic on Vertex AI (native wrapper around Anthropic via Vertex).
-            #[cfg(feature = "anthropic")]
+            #[cfg(feature = "google-vertex")]
             {
                 if let Some(rec) = self.resolve("anthropic-vertex").cloned() {
                     let rec = rec

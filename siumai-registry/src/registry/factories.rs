@@ -432,10 +432,10 @@ impl ProviderFactory for AnthropicProviderFactory {
 /// This factory builds `anthropic-vertex` clients that communicate with
 /// Anthropic models hosted on Vertex AI. Authentication is handled via
 /// `Authorization: Bearer` headers configured on the HTTP client.
-#[cfg(feature = "anthropic")]
+#[cfg(feature = "google-vertex")]
 pub struct AnthropicVertexProviderFactory;
 
-#[cfg(feature = "anthropic")]
+#[cfg(feature = "google-vertex")]
 #[async_trait::async_trait]
 impl ProviderFactory for AnthropicVertexProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {

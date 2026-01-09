@@ -1,5 +1,7 @@
 //! Tests for the unified `SiumaiBuilder` HTTP client configuration (basic subset)
 
+#![cfg(feature = "openai")]
+
 use siumai::provider::Siumai;
 use std::time::Duration;
 

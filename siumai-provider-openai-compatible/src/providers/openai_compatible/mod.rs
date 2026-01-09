@@ -55,6 +55,7 @@ pub mod providers;
 pub mod builder;
 pub mod config;
 pub mod default_models;
+pub mod middleware;
 pub mod openai_client;
 pub mod spec;
 // Macro list for generating builder methods across modules
@@ -95,6 +96,7 @@ pub use builder::OpenAiCompatibleBuilder;
 pub use config::{
     get_builtin_providers, get_provider_config, list_provider_ids, provider_supports_capability,
 };
+pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use types::{FieldMappings, ModelConfig, RequestType};

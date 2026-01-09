@@ -154,7 +154,7 @@ async fn siumai_anthropic_streaming_headers() {
     assert!(enc.is_empty() || enc == "identity");
 }
 
-#[cfg(all(feature = "anthropic", feature = "google"))]
+#[cfg(feature = "google-vertex")]
 #[tokio::test]
 async fn siumai_anthropic_vertex_streaming_headers() {
     let (it, captured) = TestInterceptor::new();

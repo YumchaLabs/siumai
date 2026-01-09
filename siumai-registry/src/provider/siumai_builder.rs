@@ -99,6 +99,7 @@ impl SiumaiBuilder {
         let name = match raw.as_str() {
             "google" => "gemini",
             "google-vertex" => "vertex",
+            "google-vertex-anthropic" => "anthropic-vertex",
             other => other,
         }
         .to_string();
@@ -113,7 +114,7 @@ impl SiumaiBuilder {
             "azure" => ProviderType::Custom("azure".to_string()),
             "azure-chat" => ProviderType::Custom("azure".to_string()),
             "anthropic" => ProviderType::Anthropic,
-            "anthropic-vertex" => ProviderType::Anthropic,
+            "anthropic-vertex" => ProviderType::Custom("anthropic-vertex".to_string()),
             "gemini" => ProviderType::Gemini,
             "vertex" => ProviderType::Custom("vertex".to_string()),
             "ollama" => ProviderType::Ollama,

@@ -407,7 +407,7 @@ fn create_registry_with_defaults_registers_native_factories() {
         assert!(_reg.language_model("azure:any-model").is_ok());
         assert!(_reg.language_model("azure-chat:any-model").is_ok());
     }
-    #[cfg(feature = "anthropic")]
+    #[cfg(feature = "google-vertex")]
     {
         assert!(_reg.language_model("anthropic-vertex:any-model").is_ok());
     }
