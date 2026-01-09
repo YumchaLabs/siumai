@@ -1123,6 +1123,7 @@ impl OpenAiResponsesRequestTransformer {
                                 state.reasoning_item_index.insert(id.to_string(), idx);
                             }
                             ContentPart::ToolApprovalResponse { .. }
+                            | ContentPart::ToolApprovalRequest { .. }
                             | ContentPart::Image { .. }
                             | ContentPart::Audio { .. }
                             | ContentPart::File { .. }
@@ -1419,6 +1420,7 @@ impl OpenAiResponsesRequestTransformer {
                             }));
                         }
                         ContentPart::ToolApprovalResponse { .. } => {}
+                        ContentPart::ToolApprovalRequest { .. } => {}
                         ContentPart::Source { .. } => {}
                     }
                 }

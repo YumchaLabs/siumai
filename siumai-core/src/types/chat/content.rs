@@ -401,6 +401,21 @@ pub enum ContentPart {
         approved: bool,
     },
 
+    /// Tool approval request (for MCP approval workflows)
+    ///
+    /// This represents a model request to obtain user/system approval for a pending tool call,
+    /// aligned with Vercel AI SDK's `tool-approval-request` part.
+    #[serde(rename = "tool-approval-request")]
+    ToolApprovalRequest {
+        /// The approval request ID (MCP approval request item id)
+        #[serde(rename = "approvalId")]
+        approval_id: String,
+
+        /// The tool call ID associated with this approval request.
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+    },
+
     /// Tool result (function execution result)
     ///
     /// This represents the result of executing a tool/function.
@@ -822,6 +837,17 @@ impl ContentPart {
         Self::ToolApprovalResponse {
             approval_id: approval_id.into(),
             approved,
+        }
+    }
+
+    /// Create a tool approval request content part.
+    pub fn tool_approval_request(
+        approval_id: impl Into<String>,
+        tool_call_id: impl Into<String>,
+    ) -> Self {
+        Self::ToolApprovalRequest {
+            approval_id: approval_id.into(),
+            tool_call_id: tool_call_id.into(),
         }
     }
 

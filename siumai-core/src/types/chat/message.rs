@@ -289,6 +289,10 @@ impl ChatMessage {
                         approval_id,
                         approved,
                     } => approval_id.len() + if *approved { 4 } else { 5 },
+                    ContentPart::ToolApprovalRequest {
+                        approval_id,
+                        tool_call_id,
+                    } => approval_id.len() + tool_call_id.len(),
                     ContentPart::Source { id, url, title, .. } => {
                         id.len() + url.len() + title.len()
                     }

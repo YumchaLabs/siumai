@@ -1,0 +1,41 @@
+{
+  "id": "resp_04f6b17429cf2b02006949a66d56088196a2d1b86e820556ce",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "rs_04f6b17429cf2b02006949a66f4df88196a44362d8a21f9cea",
+            "reasoningEncryptedContent": null
+          }
+        }
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "id-0",
+        "toolName": "mcp.create_short_url",
+        "input": "{\"alias\":\"\",\"description\":\"\",\"max_clicks\":100,\"password\":\"\",\"url\":\"https://ai-sdk.dev/\"}",
+        "providerExecuted": true
+      },
+      {
+        "type": "tool-approval-request",
+        "approvalId": "mcpr_04f6b17429cf2b02006949a6712b1081968b3c7a72dec695d8",
+        "toolCallId": "id-0"
+      }
+    ]
+  },
+  "model": "gpt-5-mini-2025-08-07",
+  "usage": {
+    "prompt_tokens": 422,
+    "completion_tokens": 104,
+    "total_tokens": 526,
+    "cached_tokens": 0,
+    "reasoning_tokens": 64,
+    "prompt_tokens_details": { "cached_tokens": 0 },
+    "completion_tokens_details": { "reasoning_tokens": 64 }
+  },
+  "finish_reason": "stop",
+  "service_tier": "default"
+}

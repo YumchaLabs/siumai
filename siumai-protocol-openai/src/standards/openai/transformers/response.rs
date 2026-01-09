@@ -394,15 +394,169 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         //
         // We translate them into `ContentPart::ToolCall` + `ContentPart::ToolResult` with
         // `provider_executed = Some(true)`.
+        let mut mcp_approval_tool_call_id_by_approval_id: std::collections::HashMap<
+            String,
+            String,
+        > = std::collections::HashMap::new();
+        let mut next_mcp_approval_tool_call_index: usize = 0;
+
+        let mut mcp_approval_tool_call_id = |approval_id: &str| -> String {
+            if approval_id.is_empty() {
+                return "id-0".to_string();
+            }
+
+            if let Some(id) = mcp_approval_tool_call_id_by_approval_id.get(approval_id) {
+                return id.clone();
+            }
+
+            let idx = next_mcp_approval_tool_call_index;
+            next_mcp_approval_tool_call_index = next_mcp_approval_tool_call_index.saturating_add(1);
+
+            let id = format!("id-{idx}");
+            mcp_approval_tool_call_id_by_approval_id.insert(approval_id.to_string(), id.clone());
+            id
+        };
+
         if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
             for item in output {
                 let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                let tool_call_id = item
+                let item_id = item
                     .get("id")
                     .and_then(|v| v.as_str())
                     .or_else(|| item.get("call_id").and_then(|v| v.as_str()))
                     .unwrap_or("")
                     .to_string();
+
+                // Vercel alignment: MCP listTools items are internal and should not be surfaced.
+                if item_type == "mcp_list_tools" {
+                    continue;
+                }
+
+                // Vercel alignment: MCP approval requests are emitted as a tool-call plus a
+                // separate tool-approval-request part, with a deterministic synthetic toolCallId.
+                if item_type == "mcp_approval_request" {
+                    let approval_id = item
+                        .get("approval_request_id")
+                        .or_else(|| item.get("id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    if approval_id.is_empty() {
+                        continue;
+                    }
+
+                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    if name.is_empty() {
+                        continue;
+                    }
+
+                    let args_str = item
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}");
+
+                    let tool_call_id = mcp_approval_tool_call_id(approval_id);
+                    let tool_name = format!("mcp.{name}");
+
+                    content_parts.push(ContentPart::tool_call(
+                        tool_call_id.clone(),
+                        tool_name,
+                        serde_json::Value::String(args_str.to_string()),
+                        Some(true),
+                    ));
+                    content_parts.push(ContentPart::tool_approval_request(
+                        approval_id.to_string(),
+                        tool_call_id,
+                    ));
+                    continue;
+                }
+
+                // Vercel alignment: MCP calls are surfaced as dynamic provider-executed tool
+                // calls/results, and results carry itemId provider metadata.
+                if item_type == "mcp_call" {
+                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    if name.is_empty() {
+                        continue;
+                    }
+
+                    let server_label = item
+                        .get("server_label")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let args_str = item
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}");
+
+                    let tool_call_id = if let Some(approval_id) =
+                        item.get("approval_request_id").and_then(|v| v.as_str())
+                        && !approval_id.is_empty()
+                    {
+                        mcp_approval_tool_call_id(approval_id)
+                    } else {
+                        item_id.clone()
+                    };
+
+                    if tool_call_id.is_empty() {
+                        continue;
+                    }
+
+                    let tool_name = format!("mcp.{name}");
+
+                    let mut result_obj = serde_json::Map::new();
+                    result_obj.insert("type".to_string(), serde_json::json!("call"));
+                    result_obj.insert(
+                        "serverLabel".to_string(),
+                        serde_json::Value::String(server_label.to_string()),
+                    );
+                    result_obj.insert(
+                        "name".to_string(),
+                        serde_json::Value::String(name.to_string()),
+                    );
+                    result_obj.insert(
+                        "arguments".to_string(),
+                        serde_json::Value::String(args_str.to_string()),
+                    );
+
+                    if let Some(output) = item.get("output")
+                        && !output.is_null()
+                    {
+                        result_obj.insert("output".to_string(), output.clone());
+                    }
+                    if let Some(error) = item.get("error")
+                        && !error.is_null()
+                    {
+                        result_obj.insert("error".to_string(), error.clone());
+                    }
+
+                    content_parts.push(ContentPart::tool_call(
+                        tool_call_id.clone(),
+                        tool_name.clone(),
+                        serde_json::Value::String(args_str.to_string()),
+                        Some(true),
+                    ));
+
+                    let provider_metadata = if item_id.is_empty() {
+                        None
+                    } else {
+                        Some(self.single_provider_metadata_map(serde_json::json!({
+                            "itemId": item_id,
+                        })))
+                    };
+
+                    content_parts.push(ContentPart::ToolResult {
+                        tool_call_id,
+                        tool_name,
+                        output: crate::types::ToolResultOutput::json(serde_json::Value::Object(
+                            result_obj,
+                        )),
+                        provider_executed: Some(true),
+                        provider_metadata,
+                    });
+
+                    continue;
+                }
+
+                let tool_call_id = item_id;
 
                 // Reasoning items (o1/o3/gpt-5 reasoning models).
                 //

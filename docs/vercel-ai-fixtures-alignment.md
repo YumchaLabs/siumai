@@ -238,6 +238,7 @@ Provider id: `openai` (Responses API)
 - [x] Logprobs extraction into `providerMetadata.*.logprobs` (normalized token/logprob + top_logprobs)
 - [x] Function tool calls parsing (`function_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
 - [x] Hosted tool calls parsing (`local_shell_call` / `shell_call` / `apply_patch_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
+- [x] MCP output parity (`mcp_call` -> `tool-call` + `tool-result`, `mcp_approval_request` -> `tool-call` + `tool-approval-request`, skip `mcp_list_tools`)
 - [x] Provider tool calls parsing (`file_search_call` -> `tool-call` + `tool-result` parts, `toolName: "fileSearch"`, empty input)
 - [x] Provider tool calls parsing (`web_search_call` -> `tool-call` + `tool-result` parts, action type normalization, `toolName: "webSearch"`, empty input)
 - [x] Provider tool calls parsing (`code_interpreter_call` -> `tool-call` + `tool-result` parts, `toolName: "codeExecution"`, `{ code, containerId }` input)
@@ -273,6 +274,7 @@ Provider id: `openai` (tool id `openai.web_search_preview`, Azure Responses SSE 
 - [x] Streaming SSE converter emits `toolName: "web_search_preview"` (Vercel snapshot-aligned)
 - [x] Azure streaming fixtures (code_interpreter / image_generation / reasoning-encrypted-content) with `providerMetadata.azure`
 - [x] Streaming alignment tests run via `AzureOpenAiSpec` (locks provider split behavior)
+- [x] Streaming SSE emits `toolName: "file_search"` when request tool name is `file_search` (Vercel `@ai-sdk/azure` parity)
 
 ## Azure OpenAI Provider Request (URL + Headers)
 
