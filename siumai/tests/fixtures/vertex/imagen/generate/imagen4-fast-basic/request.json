@@ -1,0 +1,9 @@
+{
+  "prompt": "A quick sketch of a cat",
+  "count": 1,
+  "model": "imagen-4.0-fast-generate-preview-06-06",
+  "extra_params": {
+    "aspectRatio": "3:4"
+  }
+}
+

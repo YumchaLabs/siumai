@@ -1,0 +1,12 @@
+{
+  "instances": [
+    {
+      "prompt": "A quick sketch of a cat"
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "3:4",
+    "sampleCount": 1
+  }
+}
+
