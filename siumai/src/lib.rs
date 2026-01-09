@@ -724,6 +724,14 @@ impl Provider {
         )
     }
 
+    /// Create a Google Vertex client builder
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder {
+        siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
+    }
+
     // Provider convenience functions live on `LlmBuilder` / `Siumai::builder()` / `Provider::*`.
 }
 

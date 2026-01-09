@@ -1,0 +1,207 @@
+//! Google Vertex provider builder.
+//!
+//! This builder aims to mirror Vercel AI SDK's `createVertex()` base URL behavior:
+//! - Express mode (API key): `https://aiplatform.googleapis.com/v1/publishers/google`
+//! - Enterprise mode (project+location): `https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/publishers/google`
+
+use crate::auth::TokenProvider;
+use crate::builder::{BuilderBase, ProviderCore};
+use crate::error::LlmError;
+use crate::retry_api::RetryOptions;
+use crate::types::{CommonParams, HttpConfig};
+use std::sync::Arc;
+
+use super::{GoogleVertexClient, GoogleVertexConfig};
+
+#[derive(Clone)]
+pub struct GoogleVertexBuilder {
+    pub(crate) core: ProviderCore,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    project: Option<String>,
+    location: Option<String>,
+    token_provider: Option<Arc<dyn TokenProvider>>,
+    common_params: CommonParams,
+}
+
+impl GoogleVertexBuilder {
+    pub fn new(base: BuilderBase) -> Self {
+        Self {
+            core: ProviderCore::new(base),
+            api_key: None,
+            base_url: None,
+            project: None,
+            location: None,
+            token_provider: None,
+            common_params: CommonParams::default(),
+        }
+    }
+
+    /// Express mode API key (query param `?key=...`).
+    pub fn api_key<S: Into<String>>(mut self, key: S) -> Self {
+        self.api_key = Some(key.into());
+        self
+    }
+
+    /// Override base URL (full prefix).
+    pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.base_url = Some(base_url.into());
+        self
+    }
+
+    /// Set Vertex project (enterprise mode base URL).
+    pub fn project<S: Into<String>>(mut self, project: S) -> Self {
+        self.project = Some(project.into());
+        self
+    }
+
+    /// Set Vertex location (enterprise mode base URL; supports `global`).
+    pub fn location<S: Into<String>>(mut self, location: S) -> Self {
+        self.location = Some(location.into());
+        self
+    }
+
+    /// Set Bearer token provider (enterprise mode).
+    pub fn token_provider(mut self, provider: Arc<dyn TokenProvider>) -> Self {
+        self.token_provider = Some(provider);
+        self
+    }
+
+    /// Set the model id (unified via common_params).
+    pub fn model<S: Into<String>>(mut self, model: S) -> Self {
+        self.common_params.model = model.into();
+        self
+    }
+
+    // === Common configuration (delegated to ProviderCore) ===
+
+    pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.timeout(timeout);
+        self
+    }
+
+    pub fn connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.core = self.core.connect_timeout(timeout);
+        self
+    }
+
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.core = self.core.with_http_client(client);
+        self
+    }
+
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.core = self.core.http_stream_disable_compression(disable);
+        self
+    }
+
+    pub fn with_retry(mut self, options: RetryOptions) -> Self {
+        self.core = self.core.with_retry(options);
+        self
+    }
+
+    pub fn with_http_interceptor(
+        mut self,
+        interceptor: Arc<dyn crate::execution::http::interceptor::HttpInterceptor>,
+    ) -> Self {
+        self.core = self.core.with_http_interceptor(interceptor);
+        self
+    }
+
+    pub fn http_debug(mut self, enabled: bool) -> Self {
+        self.core = self.core.http_debug(enabled);
+        self
+    }
+
+    pub fn tracing(mut self, config: crate::observability::tracing::TracingConfig) -> Self {
+        self.core = self.core.tracing(config);
+        self
+    }
+
+    pub fn debug_tracing(mut self) -> Self {
+        self.core = self.core.debug_tracing();
+        self
+    }
+
+    pub fn minimal_tracing(mut self) -> Self {
+        self.core = self.core.minimal_tracing();
+        self
+    }
+
+    pub fn json_tracing(mut self) -> Self {
+        self.core = self.core.json_tracing();
+        self
+    }
+
+    pub fn build(self) -> Result<GoogleVertexClient, LlmError> {
+        let api_key = self
+            .api_key
+            .or_else(|| std::env::var("GOOGLE_VERTEX_API_KEY").ok())
+            .and_then(|k| {
+                let trimmed = k.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            });
+
+        let base_url = if let Some(b) = self.base_url {
+            b
+        } else if api_key.is_some() {
+            crate::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL.to_string()
+        } else {
+            let project = self
+                .project
+                .or_else(|| std::env::var("GOOGLE_VERTEX_PROJECT").ok());
+            let location = self
+                .location
+                .or_else(|| std::env::var("GOOGLE_VERTEX_LOCATION").ok());
+            let Some(project) = project else {
+                return Err(LlmError::ConfigurationError(
+                    "Google Vertex requires `base_url`, `api_key` (express mode), or a `project` (GOOGLE_VERTEX_PROJECT)".to_string(),
+                ));
+            };
+            let Some(location) = location else {
+                return Err(LlmError::ConfigurationError(
+                    "Google Vertex requires `base_url`, `api_key` (express mode), or a `location` (GOOGLE_VERTEX_LOCATION)".to_string(),
+                ));
+            };
+            crate::auth::vertex::google_vertex_base_url(project.trim(), location.trim())
+        };
+
+        let model_id = if self.common_params.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Google Vertex requires a non-empty model id".to_string(),
+            ));
+        } else {
+            self.common_params.model.clone()
+        };
+
+        let http_client = self.core.build_http_client()?;
+
+        let cfg = GoogleVertexConfig {
+            base_url,
+            model: model_id.clone(),
+            api_key,
+            http_config: HttpConfig {
+                ..self.core.http_config.clone()
+            },
+            token_provider: self.token_provider,
+        };
+
+        let mut client =
+            GoogleVertexClient::new(cfg, http_client).with_common_params(self.common_params);
+
+        if let Some(opts) = self.core.retry_options.clone() {
+            client = client.with_retry_options(opts);
+        }
+
+        let interceptors = self.core.get_http_interceptors();
+        if !interceptors.is_empty() {
+            client = client.with_interceptors(interceptors);
+        }
+
+        Ok(client)
+    }
+}
