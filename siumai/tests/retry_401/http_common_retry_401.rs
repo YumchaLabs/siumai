@@ -59,6 +59,7 @@ async fn json_request_retries_on_401() {
     let config = HttpExecutionConfig {
         provider_id: "test".into(),
         http_client: http,
+        transport: None,
         provider_spec: spec,
         provider_context: ctx,
         interceptors: vec![interceptor],
@@ -108,6 +109,7 @@ async fn multipart_request_retries_on_401_and_rebuilds_form() {
     let config = HttpExecutionConfig {
         provider_id: "test".into(),
         http_client: http,
+        transport: None,
         provider_spec: spec,
         provider_context: ctx,
         interceptors: vec![interceptor],
@@ -164,6 +166,7 @@ async fn get_request_retries_on_401() {
     let config = HttpExecutionConfig {
         provider_id: "test".into(),
         http_client: http,
+        transport: None,
         provider_spec: spec,
         provider_context: ctx,
         interceptors: vec![interceptor],
@@ -210,6 +213,7 @@ async fn delete_request_retries_on_401() {
     let config = HttpExecutionConfig {
         provider_id: "test".into(),
         http_client: http,
+        transport: None,
         provider_spec: spec,
         provider_context: ctx,
         interceptors: vec![interceptor],
@@ -256,6 +260,7 @@ async fn get_binary_retries_on_401() {
     let config = HttpExecutionConfig {
         provider_id: "test".into(),
         http_client: http,
+        transport: None,
         provider_spec: spec,
         provider_context: ctx,
         interceptors: vec![interceptor],

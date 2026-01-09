@@ -138,6 +138,7 @@ impl AudioExecutor for HttpAudioExecutor {
         let before_send = self.policy.before_send.clone();
         let retry_wrapper_opts = self.policy.retry_options.clone();
         let retry_options_for_http = self.policy.retry_options.clone();
+        let transport = self.policy.transport.clone();
 
         let req_for_attempts = req;
 
@@ -150,6 +151,7 @@ impl AudioExecutor for HttpAudioExecutor {
             let interceptors = interceptors.clone();
             let before_send = before_send.clone();
             let retry_options_for_http = retry_options_for_http.clone();
+            let transport = transport.clone();
             let url = url.clone();
             let req = req_for_attempts.clone();
 
@@ -158,6 +160,7 @@ impl AudioExecutor for HttpAudioExecutor {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id,
                     http_client,
+                    transport,
                     provider_spec,
                     provider_context,
                     interceptors,
@@ -270,6 +273,7 @@ impl AudioExecutor for HttpAudioExecutor {
         let before_send = self.policy.before_send.clone();
         let retry_wrapper_opts = self.policy.retry_options.clone();
         let retry_options_for_http = self.policy.retry_options.clone();
+        let transport = self.policy.transport.clone();
 
         let req_for_attempts = req;
 
@@ -282,6 +286,7 @@ impl AudioExecutor for HttpAudioExecutor {
             let interceptors = interceptors.clone();
             let before_send = before_send.clone();
             let retry_options_for_http = retry_options_for_http.clone();
+            let transport = transport.clone();
             let url = url.clone();
             let req = req_for_attempts.clone();
 
@@ -289,6 +294,7 @@ impl AudioExecutor for HttpAudioExecutor {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id,
                     http_client,
+                    transport,
                     provider_spec,
                     provider_context,
                     interceptors,

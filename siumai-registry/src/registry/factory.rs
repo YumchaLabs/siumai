@@ -362,6 +362,7 @@ pub async fn build_google_vertex_client(
         model: common_params.model.clone(),
         api_key,
         http_config,
+        http_transport: None,
         token_provider,
     };
 

@@ -23,6 +23,7 @@
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
@@ -43,6 +44,8 @@ pub struct HttpExecutionConfig {
     pub provider_id: String,
     /// HTTP client
     pub http_client: reqwest::Client,
+    /// Optional custom transport (Vercel-style "custom fetch" parity).
+    pub transport: Option<Arc<dyn HttpTransport>>,
     /// Provider spec for header building
     pub provider_spec: Arc<dyn ProviderSpec>,
     /// Provider context

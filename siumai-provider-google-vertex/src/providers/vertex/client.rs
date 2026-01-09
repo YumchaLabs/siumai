@@ -37,6 +37,9 @@ pub struct GoogleVertexConfig {
     pub api_key: Option<String>,
     /// Per-request HTTP config (headers, timeouts, etc.).
     pub http_config: crate::types::HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport:
+        Option<std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>>,
     /// Optional Bearer token provider (e.g., ADC). When present, an `Authorization` header
     /// will be injected automatically if one is not already set.
     pub token_provider: Option<Arc<dyn TokenProvider>>,
@@ -325,10 +328,14 @@ impl EmbeddingCapability for GoogleVertexClient {
                 .create_spec("vertex"),
         );
 
-        let exec = EmbeddingExecutorBuilder::new("vertex", self.http_client.clone())
+        let mut exec = EmbeddingExecutorBuilder::new("vertex", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            exec = exec.with_transport(transport);
+        }
 
         let exec = if let Some(retry) = self.retry_options.clone() {
             exec.with_retry_options(retry).build_for_request(&req)

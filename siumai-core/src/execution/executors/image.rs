@@ -174,6 +174,7 @@ impl ImageExecutor for HttpImageExecutor {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id: self.provider_id.clone(),
                     http_client: self.http_client.clone(),
+                    transport: self.policy.transport.clone(),
                     provider_spec: self.provider_spec.clone(),
                     provider_context: self.provider_context.clone(),
                     interceptors: self.policy.interceptors.clone(),
@@ -233,6 +234,7 @@ impl ImageExecutor for HttpImageExecutor {
         let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
+            transport: self.policy.transport.clone(),
             provider_spec: self.provider_spec.clone(),
             provider_context: self.provider_context.clone(),
             interceptors: self.policy.interceptors.clone(),
@@ -311,6 +313,7 @@ impl ImageExecutor for HttpImageExecutor {
         let config = crate::execution::executors::common::HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
+            transport: self.policy.transport.clone(),
             provider_spec: self.provider_spec.clone(),
             provider_context: self.provider_context.clone(),
             interceptors: self.policy.interceptors.clone(),

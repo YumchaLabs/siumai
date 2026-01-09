@@ -128,6 +128,22 @@ impl GoogleVertexBuilder {
         self
     }
 
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.core = self.core.with_http_transport(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(
+        self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
+    }
+
     pub fn http_debug(mut self, enabled: bool) -> Self {
         self.core = self.core.http_debug(enabled);
         self
@@ -207,6 +223,7 @@ impl GoogleVertexBuilder {
             http_config: HttpConfig {
                 ..self.core.http_config.clone()
             },
+            http_transport: self.core.http_transport.clone(),
             token_provider: self.token_provider,
         };
 

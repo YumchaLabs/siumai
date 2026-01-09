@@ -56,6 +56,7 @@ fn test_config(
     HttpExecutionConfig {
         provider_id: "test".to_string(),
         http_client: client.clone(),
+        transport: None,
         provider_spec: Arc::new(StaticHeadersSpec { headers }),
         provider_context: crate::core::ProviderContext::new(
             "test",

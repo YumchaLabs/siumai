@@ -6,6 +6,7 @@
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::execution::executors::common::HttpExecutionConfig;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 use std::sync::Arc;
 
@@ -22,6 +23,7 @@ pub struct HttpExecutionWiring {
     pub provider_context: ProviderContext,
     pub interceptors: Vec<Arc<dyn HttpInterceptor>>,
     pub retry_options: Option<RetryOptions>,
+    pub transport: Option<Arc<dyn HttpTransport>>,
 }
 
 impl std::fmt::Debug for HttpExecutionWiring {
@@ -48,6 +50,7 @@ impl HttpExecutionWiring {
             provider_context,
             interceptors: Vec::new(),
             retry_options: None,
+            transport: None,
         }
     }
 
@@ -61,11 +64,17 @@ impl HttpExecutionWiring {
         self
     }
 
+    pub fn with_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
     /// Build an `HttpExecutionConfig` for common HTTP helpers (JSON/multipart/bytes GET).
     pub fn config(&self, provider_spec: Arc<dyn ProviderSpec>) -> HttpExecutionConfig {
         HttpExecutionConfig {
             provider_id: self.provider_id.clone(),
             http_client: self.http_client.clone(),
+            transport: self.transport.clone(),
             provider_spec,
             provider_context: self.provider_context.clone(),
             interceptors: self.interceptors.clone(),

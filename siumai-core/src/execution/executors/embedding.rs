@@ -60,6 +60,7 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id: self.provider_id.clone(),
                     http_client: self.http_client.clone(),
+                    transport: self.policy.transport.clone(),
                     provider_spec: self.provider_spec.clone(),
                     provider_context: self.provider_context.clone(),
                     interceptors: self.policy.interceptors.clone(),
@@ -170,6 +171,15 @@ impl EmbeddingExecutorBuilder {
     /// Set retry options
     pub fn with_retry_options(mut self, retry_options: crate::retry_api::RetryOptions) -> Self {
         self.policy.retry_options = Some(retry_options);
+        self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.policy.transport = Some(transport);
         self
     }
 

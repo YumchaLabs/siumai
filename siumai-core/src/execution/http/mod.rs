@@ -10,6 +10,7 @@ pub mod client;
 pub mod headers;
 pub mod interceptor;
 pub mod retry;
+pub mod transport;
 
 // Re-export main types
 pub use client::*;

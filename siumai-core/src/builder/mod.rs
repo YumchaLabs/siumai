@@ -13,6 +13,7 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::{
     HttpInterceptor, HttpTracingInterceptor, LoggingInterceptor,
 };
+use crate::execution::http::transport::HttpTransport;
 use crate::observability::tracing::TracingConfig;
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
@@ -61,6 +62,8 @@ pub struct ProviderCore {
     pub tracing_config: Option<TracingConfig>,
     /// Retry options for chat operations.
     pub retry_options: Option<RetryOptions>,
+    /// Optional custom HTTP transport.
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
     /// HTTP interceptors applied to requests.
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Enable built-in logging interceptor for debugging.
@@ -91,6 +94,7 @@ impl ProviderCore {
             http_config,
             tracing_config: None,
             retry_options: None,
+            http_transport: None,
             http_interceptors: inherited_interceptors,
             http_debug: inherited_debug,
         }
@@ -178,6 +182,12 @@ impl ProviderCore {
     /// Set unified retry options for chat operations.
     pub fn with_retry(mut self, options: RetryOptions) -> Self {
         self.retry_options = Some(options);
+        self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.http_transport = Some(transport);
         self
     }
 

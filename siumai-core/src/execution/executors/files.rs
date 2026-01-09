@@ -127,6 +127,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let before_send = self.policy.before_send.clone();
         let retry_wrapper_opts = self.policy.retry_options.clone();
         let retry_options_for_http = self.policy.retry_options.clone();
+        let transport = self.policy.transport.clone();
 
         let req_for_attempts = req;
 
@@ -139,6 +140,7 @@ impl FilesExecutor for HttpFilesExecutor {
             let interceptors = interceptors.clone();
             let before_send = before_send.clone();
             let retry_options_for_http = retry_options_for_http.clone();
+            let transport = transport.clone();
             let url = url.clone();
             let req = req_for_attempts.clone();
 
@@ -147,6 +149,7 @@ impl FilesExecutor for HttpFilesExecutor {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id,
                     http_client,
+                    transport,
                     provider_spec,
                     provider_context,
                     interceptors,
@@ -224,6 +227,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let interceptors = self.policy.interceptors.clone();
         let retry_wrapper_opts = self.policy.retry_options.clone();
         let retry_options_for_http = self.policy.retry_options.clone();
+        let transport = self.policy.transport.clone();
 
         let query_for_attempts = query;
 
@@ -235,6 +239,7 @@ impl FilesExecutor for HttpFilesExecutor {
             let provider_context = provider_context.clone();
             let interceptors = interceptors.clone();
             let retry_options_for_http = retry_options_for_http.clone();
+            let transport = transport.clone();
             let url = url.clone();
             let query = query_for_attempts.clone();
 
@@ -242,6 +247,7 @@ impl FilesExecutor for HttpFilesExecutor {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id,
                     http_client,
+                    transport,
                     provider_spec,
                     provider_context,
                     interceptors,
@@ -291,6 +297,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let interceptors = self.policy.interceptors.clone();
         let retry_wrapper_opts = self.policy.retry_options.clone();
         let retry_options_for_http = self.policy.retry_options.clone();
+        let transport = self.policy.transport.clone();
 
         let run_once = move || {
             let provider_id = provider_id.clone();
@@ -300,12 +307,14 @@ impl FilesExecutor for HttpFilesExecutor {
             let provider_context = provider_context.clone();
             let interceptors = interceptors.clone();
             let retry_options_for_http = retry_options_for_http.clone();
+            let transport = transport.clone();
             let url = url.clone();
 
             async move {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id,
                     http_client,
+                    transport,
                     provider_spec,
                     provider_context,
                     interceptors,
@@ -348,6 +357,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let interceptors = self.policy.interceptors.clone();
         let retry_wrapper_opts = self.policy.retry_options.clone();
         let retry_options_for_http = self.policy.retry_options.clone();
+        let transport = self.policy.transport.clone();
 
         let run_once = move || {
             let provider_id = provider_id.clone();
@@ -356,6 +366,7 @@ impl FilesExecutor for HttpFilesExecutor {
             let provider_context = provider_context.clone();
             let interceptors = interceptors.clone();
             let retry_options_for_http = retry_options_for_http.clone();
+            let transport = transport.clone();
             let url = url.clone();
             let id = id.clone();
 
@@ -363,6 +374,7 @@ impl FilesExecutor for HttpFilesExecutor {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id,
                     http_client,
+                    transport,
                     provider_spec,
                     provider_context,
                     interceptors,
@@ -400,6 +412,7 @@ impl FilesExecutor for HttpFilesExecutor {
         let interceptors = self.policy.interceptors.clone();
         let retry_wrapper_opts = self.policy.retry_options.clone();
         let retry_options_for_http = self.policy.retry_options.clone();
+        let transport = self.policy.transport.clone();
 
         let file_id_for_attempts = file_id;
 
@@ -411,12 +424,14 @@ impl FilesExecutor for HttpFilesExecutor {
             let provider_context = provider_context.clone();
             let interceptors = interceptors.clone();
             let retry_options_for_http = retry_options_for_http.clone();
+            let transport = transport.clone();
             let file_id = file_id_for_attempts.clone();
 
             async move {
                 let config = crate::execution::executors::common::HttpExecutionConfig {
                     provider_id,
                     http_client,
+                    transport,
                     provider_spec: provider_spec.clone(),
                     provider_context: provider_context.clone(),
                     interceptors,

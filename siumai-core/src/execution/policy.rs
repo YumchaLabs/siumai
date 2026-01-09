@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 
 /// Unified execution policy for HTTP-based executors.
@@ -18,6 +19,8 @@ pub struct ExecutionPolicy {
     pub before_send: Option<crate::execution::executors::BeforeSendHook>,
     /// Streaming-specific: whether to disable compression on streaming requests
     pub stream_disable_compression: bool,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub transport: Option<Arc<dyn HttpTransport>>,
 }
 
 impl ExecutionPolicy {
@@ -42,6 +45,11 @@ impl ExecutionPolicy {
 
     pub fn with_stream_disable_compression(mut self, disable: bool) -> Self {
         self.stream_disable_compression = disable;
+        self
+    }
+
+    pub fn with_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.transport = Some(transport);
         self
     }
 }

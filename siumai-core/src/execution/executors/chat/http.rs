@@ -78,6 +78,7 @@ impl ChatExecutor for HttpChatExecutor {
         let request_tx = self.request_transformer.clone();
         let response_tx = self.response_transformer.clone();
         let interceptors = self.policy.interceptors.clone();
+        let transport = self.policy.transport.clone();
         let before_send = self.policy.before_send.clone();
         let middlewares = self.middlewares.clone();
         // Pre-compute URL (provider/base-level). Request-level headers are merged later per-request.
@@ -95,6 +96,7 @@ impl ChatExecutor for HttpChatExecutor {
             let request_tx = request_tx.clone();
             let response_tx = response_tx.clone();
             let interceptors = interceptors.clone();
+            let transport = transport.clone();
             let before_send = before_send.clone();
             let provider_id = provider_id.clone();
             let provider_spec = provider_spec.clone();
@@ -111,6 +113,7 @@ impl ChatExecutor for HttpChatExecutor {
                         let request_tx = request_tx.clone();
                         let response_tx = response_tx.clone();
                         let interceptors = interceptors.clone();
+                        let transport = transport.clone();
                         let before_send = before_send.clone();
                         let provider_id = provider_id.clone();
                         let provider_spec = provider_spec.clone();
@@ -131,6 +134,7 @@ impl ChatExecutor for HttpChatExecutor {
                             let config = crate::execution::executors::common::HttpExecutionConfig {
                                 provider_id: provider_id.clone(),
                                 http_client: client.clone(),
+                                transport: transport.clone(),
                                 provider_spec: provider_spec.clone(),
                                 provider_context: provider_context.clone(),
                                 interceptors: interceptors.clone(),
