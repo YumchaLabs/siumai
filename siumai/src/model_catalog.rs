@@ -40,6 +40,10 @@ pub mod constants {
     /// Re-export MiniMaxi model constants (detailed structure).
     #[cfg(feature = "minimaxi")]
     pub use siumai_provider_minimaxi::providers::minimaxi::model_constants as minimaxi;
+
+    /// Re-export DeepSeek model constants (detailed structure).
+    #[cfg(feature = "deepseek")]
+    pub use siumai_provider_deepseek::providers::deepseek::models as deepseek;
 }
 
 /// Simplified model constants for easy access across providers.
@@ -219,6 +223,12 @@ pub mod model_constants {
     #[cfg(feature = "groq")]
     pub mod groq {
         pub use siumai_provider_groq::providers::groq::models::*;
+    }
+
+    /// DeepSeek models with simplified access.
+    #[cfg(feature = "deepseek")]
+    pub mod deepseek {
+        pub use siumai_provider_deepseek::providers::deepseek::models::*;
     }
 
     /// MiniMaxi models with simplified access.

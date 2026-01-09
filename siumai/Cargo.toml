@@ -50,6 +50,7 @@ siumai-provider-ollama = { version = "0.11.0-beta.5", path = "../siumai-provider
 siumai-provider-groq = { version = "0.11.0-beta.5", path = "../siumai-provider-groq", default-features = false, optional = true }
 siumai-provider-xai = { version = "0.11.0-beta.5", path = "../siumai-provider-xai", default-features = false, optional = true }
 siumai-provider-minimaxi = { version = "0.11.0-beta.5", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
+siumai-provider-deepseek = { version = "0.11.0-beta.5", path = "../siumai-provider-deepseek", default-features = false, optional = true }
 
 # Async traits
 async-trait.workspace = true
@@ -121,6 +122,7 @@ structured-messages = [
     "siumai-provider-groq/structured-messages",
     "siumai-provider-xai/structured-messages",
     "siumai-provider-minimaxi/structured-messages",
+    "siumai-provider-deepseek/structured-messages",
     "siumai-protocol-openai/structured-messages",
     "siumai-protocol-anthropic/structured-messages",
     "siumai-protocol-gemini/structured-messages",
@@ -167,6 +169,7 @@ ollama = ["siumai-core/ollama", "siumai-registry/ollama", "dep:siumai-provider-o
 xai = ["siumai-core/xai", "siumai-registry/xai", "dep:siumai-provider-xai", "siumai-provider-xai/xai"]
 groq = ["siumai-core/groq", "siumai-registry/groq", "dep:siumai-provider-groq", "siumai-provider-groq/groq"]
 minimaxi = ["siumai-core/minimaxi", "siumai-registry/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
+deepseek = ["siumai-core/openai", "dep:siumai-provider-deepseek", "siumai-provider-deepseek/deepseek", "dep:siumai-protocol-openai", "siumai-protocol-openai/openai-standard"]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex"]
@@ -184,7 +187,7 @@ gzip = ["siumai-core/gzip", "siumai-registry/gzip"]
 brotli = ["siumai-core/brotli", "siumai-registry/brotli"]
 
 # Convenience features for common combinations
-all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
+all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi", "deepseek"]
 
 # Protocol-only facade (stable imports for protocol mapping).
 protocol-openai = ["siumai-core/openai", "dep:siumai-protocol-openai", "siumai-protocol-openai/openai-standard"]

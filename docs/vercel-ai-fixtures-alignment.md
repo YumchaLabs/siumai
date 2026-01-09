@@ -429,6 +429,15 @@ Provider id: `xai`
 - [x] `xai-web-search-tool.1` (provider tool; tool-input-delta from `arguments`, no tool-result when payload missing)
 - [x] `xai-x-search-tool` (x_search triggers `custom_tool_call` items; `x_keyword_search` maps to `x_search`, web_search calls use empty tool-input-delta, no tool-result)
 
+## DeepSeek Chat Completions (Fixtures)
+
+Provider id: `deepseek` (OpenAI-compatible Chat Completions)
+
+### Done
+
+- [x] Streaming chunks parity for text / reasoning_content / tool_calls (`deepseek-*.chunks.txt`)
+- [x] Response parsing parity for `reasoning_content` and tool call message parts (`deepseek-*.json`)
+
 ## Upstream Fixture Coverage Notes
 
-- The Vercel repo (`repo-ref/ai`) also contains `__fixtures__` for providers that are not implemented in Siumai yet (e.g., Amazon Bedrock, DeepSeek). To fully align those fixtures, we need to add the corresponding provider crates and protocol mappings first.
+- The Vercel repo (`repo-ref/ai`) also contains `__fixtures__` for providers that are not implemented in Siumai yet (e.g., Amazon Bedrock). To fully align those fixtures, we need to add the corresponding provider crates and protocol mappings first.

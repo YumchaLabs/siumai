@@ -584,6 +584,9 @@ impl OpenAiCompatibleEventConverter {
     /// Extract usage info from raw JSON
     fn extract_usage_from_json(&self, json: &serde_json::Value) -> Option<Usage> {
         let usage = json.get("usage")?;
+        if usage.is_null() {
+            return None;
+        }
 
         let mut builder = Usage::builder()
             .prompt_tokens(

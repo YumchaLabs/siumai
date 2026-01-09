@@ -171,6 +171,8 @@ pub mod experimental {
         pub use siumai_provider_anthropic as anthropic;
         #[cfg(feature = "azure")]
         pub use siumai_provider_azure as azure;
+        #[cfg(feature = "deepseek")]
+        pub use siumai_provider_deepseek as deepseek;
         #[cfg(feature = "google")]
         pub use siumai_provider_gemini as gemini;
         #[cfg(feature = "google-vertex")]
@@ -728,6 +730,14 @@ impl Provider {
     #[cfg(feature = "google-vertex")]
     pub fn vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder {
         siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
+    }
+
+    /// Create a DeepSeek client builder
+    #[cfg(feature = "deepseek")]
+    pub fn deepseek() -> siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder {
+        siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
             crate::builder::BuilderBase::default(),
         )
     }
