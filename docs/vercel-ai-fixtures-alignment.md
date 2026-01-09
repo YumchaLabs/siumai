@@ -57,6 +57,7 @@ Provider id: `vertex`
 - [x] Express mode: API key appended as `?key=...` (no `x-goog-api-key` header)
 - [x] Base URL defaults: `GOOGLE_VERTEX_API_KEY` => express base URL; `GOOGLE_VERTEX_PROJECT` + `GOOGLE_VERTEX_LOCATION` => `v1beta1` projects base URL
 - [x] Enterprise mode: `Authorization: Bearer ...` disables `key` query param
+- [x] ADC auth resolution + caching tests (env token / metadata / service account)
 - [x] Chat URL routing via `:generateContent` / `:streamGenerateContent?alt=sse`
 - [x] Text embedding URL routing via `:predict`
 - [x] Vercel-aligned embedding request body (`instances[*].task_type/title`, `parameters.outputDimensionality/autoTruncate`)
