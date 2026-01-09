@@ -1,0 +1,12 @@
+{
+  "model": "rerank-english-v3.0",
+  "query": "rainy day",
+  "documents": [
+    { "example": "sunny day at the beach" },
+    { "example": "rainy day in the city" }
+  ],
+  "top_n": 2,
+  "providerOptions": {
+    "cohere": { "maxTokensPerDoc": 1000, "priority": 1 }
+  }
+}

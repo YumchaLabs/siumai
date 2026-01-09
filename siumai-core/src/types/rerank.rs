@@ -7,6 +7,60 @@ use serde::{Deserialize, Serialize};
 
 use super::ProviderOptionsMap;
 
+/// Rerank documents (Vercel-aligned).
+///
+/// Some reranking providers accept either plain text documents or structured JSON objects.
+/// This enum keeps the unified request provider-agnostic while allowing provider transformers
+/// to apply provider-specific conversion rules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RerankDocuments {
+    /// Plain text documents.
+    Text(Vec<String>),
+    /// Structured documents (JSON objects, or any JSON value).
+    Object(Vec<serde_json::Value>),
+}
+
+impl RerankDocuments {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Text(values) => values.len(),
+            Self::Object(values) => values.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the underlying text documents, if the request uses text documents.
+    pub fn as_text(&self) -> Option<&[String]> {
+        match self {
+            Self::Text(values) => Some(values.as_slice()),
+            Self::Object(_) => None,
+        }
+    }
+
+    /// Returns the underlying structured documents, if the request uses object documents.
+    pub fn as_object(&self) -> Option<&[serde_json::Value]> {
+        match self {
+            Self::Object(values) => Some(values.as_slice()),
+            Self::Text(_) => None,
+        }
+    }
+
+    /// Converts documents to a list of strings by JSON stringifying structured entries.
+    pub fn to_strings_lossy(&self) -> Vec<String> {
+        match self {
+            Self::Text(values) => values.clone(),
+            Self::Object(values) => values
+                .iter()
+                .map(|v| serde_json::to_string(v).unwrap_or_default())
+                .collect(),
+        }
+    }
+}
+
 /// Request for reranking documents based on a query
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RerankRequest {
@@ -17,7 +71,7 @@ pub struct RerankRequest {
     pub query: String,
 
     /// List of documents to rerank
-    pub documents: Vec<String>,
+    pub documents: RerankDocuments,
 
     /// Optional instruction for the reranker (supported by some models)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -98,7 +152,26 @@ impl RerankRequest {
         Self {
             model,
             query,
-            documents,
+            documents: RerankDocuments::Text(documents),
+            instruction: None,
+            top_n: None,
+            return_documents: None,
+            max_chunks_per_doc: None,
+            overlap_tokens: None,
+            provider_options_map: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a new rerank request with structured (JSON) documents.
+    pub fn new_object_documents(
+        model: String,
+        query: String,
+        documents: Vec<serde_json::Value>,
+    ) -> Self {
+        Self {
+            model,
+            query,
+            documents: RerankDocuments::Object(documents),
             instruction: None,
             top_n: None,
             return_documents: None,
@@ -153,6 +226,10 @@ impl RerankRequest {
         self.overlap_tokens = Some(overlap);
         self
     }
+
+    pub fn documents_len(&self) -> usize {
+        self.documents.len()
+    }
 }
 
 impl RerankResponse {
@@ -186,7 +263,7 @@ mod tests {
 
         assert_eq!(request.model, "BAAI/bge-reranker-v2-m3");
         assert_eq!(request.query, "Apple");
-        assert_eq!(request.documents.len(), 2);
+        assert_eq!(request.documents_len(), 2);
         assert!(request.instruction.is_none());
     }
 

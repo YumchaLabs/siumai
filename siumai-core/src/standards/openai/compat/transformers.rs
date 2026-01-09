@@ -138,7 +138,7 @@ impl RequestTransformer for CompatRequestTransformer {
         let mut body = serde_json::json!({
             "model": req.model,
             "query": req.query,
-            "documents": req.documents,
+            "documents": req.documents.to_strings_lossy(),
         });
         if let Some(n) = req.top_n {
             body["top_n"] = serde_json::json!(n);

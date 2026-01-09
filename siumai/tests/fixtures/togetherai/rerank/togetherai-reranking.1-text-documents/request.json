@@ -1,0 +1,9 @@
+{
+  "model": "Salesforce/Llama-Rank-v1",
+  "query": "rainy day",
+  "documents": ["sunny day at the beach", "rainy day in the city"],
+  "top_n": 2,
+  "providerOptions": {
+    "togetherai": { "rankFields": ["example"] }
+  }
+}

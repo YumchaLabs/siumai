@@ -295,7 +295,7 @@ mod unit_tests {
 
         assert_eq!(request.model, "test-model");
         assert_eq!(request.query, "test query");
-        assert_eq!(request.documents.len(), 2);
+        assert_eq!(request.documents_len(), 2);
         assert_eq!(request.instruction, Some("test instruction".to_string()));
         assert_eq!(request.top_n, Some(5));
         assert_eq!(request.return_documents, Some(true));

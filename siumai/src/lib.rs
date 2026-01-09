@@ -171,6 +171,8 @@ pub mod experimental {
         pub use siumai_provider_anthropic as anthropic;
         #[cfg(feature = "azure")]
         pub use siumai_provider_azure as azure;
+        #[cfg(feature = "cohere")]
+        pub use siumai_provider_cohere as cohere;
         #[cfg(feature = "deepseek")]
         pub use siumai_provider_deepseek as deepseek;
         #[cfg(feature = "google")]
@@ -185,6 +187,8 @@ pub mod experimental {
         pub use siumai_provider_ollama as ollama;
         #[cfg(feature = "openai")]
         pub use siumai_provider_openai as openai;
+        #[cfg(feature = "togetherai")]
+        pub use siumai_provider_togetherai as togetherai;
         #[cfg(feature = "xai")]
         pub use siumai_provider_xai as xai;
     }
@@ -195,12 +199,16 @@ pub mod experimental {
     pub mod standards {
         #[cfg(feature = "anthropic")]
         pub use siumai_provider_anthropic::standards::anthropic;
+        #[cfg(feature = "cohere")]
+        pub use siumai_provider_cohere::standards::cohere;
         #[cfg(feature = "google")]
         pub use siumai_provider_gemini::standards::gemini;
         #[cfg(feature = "ollama")]
         pub use siumai_provider_ollama::standards::ollama;
         #[cfg(feature = "openai")]
         pub use siumai_provider_openai::standards::openai;
+        #[cfg(feature = "togetherai")]
+        pub use siumai_provider_togetherai::standards::togetherai;
     }
 
     pub use siumai_core::{auth, client, defaults, execution, observability, params, retry, utils};

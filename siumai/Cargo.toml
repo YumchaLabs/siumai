@@ -52,6 +52,8 @@ siumai-provider-groq = { version = "0.11.0-beta.5", path = "../siumai-provider-g
 siumai-provider-xai = { version = "0.11.0-beta.5", path = "../siumai-provider-xai", default-features = false, optional = true }
 siumai-provider-minimaxi = { version = "0.11.0-beta.5", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
 siumai-provider-deepseek = { version = "0.11.0-beta.5", path = "../siumai-provider-deepseek", default-features = false, optional = true }
+siumai-provider-cohere = { version = "0.11.0-beta.5", path = "../siumai-provider-cohere", default-features = false, optional = true }
+siumai-provider-togetherai = { version = "0.11.0-beta.5", path = "../siumai-provider-togetherai", default-features = false, optional = true }
 
 # Async traits
 async-trait.workspace = true
@@ -124,6 +126,8 @@ structured-messages = [
     "siumai-provider-xai/structured-messages",
     "siumai-provider-minimaxi/structured-messages",
     "siumai-provider-deepseek/structured-messages",
+    "siumai-provider-cohere/structured-messages",
+    "siumai-provider-togetherai/structured-messages",
     "siumai-protocol-openai/structured-messages",
     "siumai-protocol-anthropic/structured-messages",
     "siumai-protocol-gemini/structured-messages",
@@ -181,6 +185,13 @@ deepseek = [
     "dep:siumai-protocol-openai",
     "siumai-protocol-openai/openai-standard",
 ]
+cohere = ["siumai-core/cohere", "siumai-registry/cohere", "dep:siumai-provider-cohere", "siumai-provider-cohere/cohere"]
+togetherai = [
+    "siumai-core/togetherai",
+    "siumai-registry/togetherai",
+    "dep:siumai-provider-togetherai",
+    "siumai-provider-togetherai/togetherai",
+]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex"]
@@ -198,7 +209,18 @@ gzip = ["siumai-core/gzip", "siumai-registry/gzip"]
 brotli = ["siumai-core/brotli", "siumai-registry/brotli"]
 
 # Convenience features for common combinations
-all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi", "deepseek"]
+all-providers = [
+    "openai",
+    "anthropic",
+    "google",
+    "ollama",
+    "xai",
+    "groq",
+    "minimaxi",
+    "deepseek",
+    "cohere",
+    "togetherai",
+]
 
 # Protocol-only facade (stable imports for protocol mapping).
 protocol-openai = ["siumai-core/openai", "dep:siumai-protocol-openai", "siumai-protocol-openai/openai-standard"]

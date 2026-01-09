@@ -2643,6 +2643,7 @@ dependencies = [
  "siumai-protocol-openai",
  "siumai-provider-anthropic",
  "siumai-provider-azure",
+ "siumai-provider-cohere",
  "siumai-provider-deepseek",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
@@ -2651,6 +2652,7 @@ dependencies = [
  "siumai-provider-ollama",
  "siumai-provider-openai",
  "siumai-provider-openai-compatible",
+ "siumai-provider-togetherai",
  "siumai-provider-xai",
  "siumai-registry",
  "thiserror",
@@ -2874,6 +2876,41 @@ dependencies = [
  "siumai-core",
  "siumai-protocol-openai",
  "thiserror",
+]
+
+[[package]]
+name = "siumai-provider-cohere"
+version = "0.11.0-beta.5"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "backoff",
+ "base64",
+ "chrono",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "infer",
+ "lru",
+ "mockito",
+ "once_cell",
+ "proptest",
+ "rand 0.8.5",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+ "tracing-test",
+ "urlencoding",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -3125,6 +3162,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "siumai-provider-togetherai"
+version = "0.11.0-beta.5"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "backoff",
+ "base64",
+ "chrono",
+ "eventsource-stream",
+ "futures",
+ "futures-util",
+ "infer",
+ "lru",
+ "mockito",
+ "once_cell",
+ "proptest",
+ "rand 0.8.5",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "siumai-core",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+ "tracing-test",
+ "urlencoding",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "siumai-provider-xai"
 version = "0.11.0-beta.5"
 dependencies = [
@@ -3171,6 +3243,7 @@ dependencies = [
  "siumai-protocol-openai",
  "siumai-provider-anthropic",
  "siumai-provider-azure",
+ "siumai-provider-cohere",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",
@@ -3178,6 +3251,7 @@ dependencies = [
  "siumai-provider-ollama",
  "siumai-provider-openai",
  "siumai-provider-openai-compatible",
+ "siumai-provider-togetherai",
  "siumai-provider-xai",
  "tempfile",
  "thiserror",

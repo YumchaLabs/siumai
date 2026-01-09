@@ -1,0 +1,11 @@
+{
+  "model": "rerank-english-v3.0",
+  "query": "rainy day",
+  "documents": [
+    "{\"example\":\"sunny day at the beach\"}",
+    "{\"example\":\"rainy day in the city\"}"
+  ],
+  "top_n": 2,
+  "max_tokens_per_doc": 1000,
+  "priority": 1
+}

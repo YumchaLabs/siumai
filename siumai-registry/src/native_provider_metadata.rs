@@ -201,5 +201,25 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_custom_feature("music", true),
     });
 
+    // Cohere (rerank)
+    #[cfg(feature = "cohere")]
+    out.push(NativeProviderMetadata {
+        id: "cohere",
+        name: "Cohere",
+        description: "Cohere reranking via the v2 rerank endpoint",
+        default_base_url: Some("https://api.cohere.com/v2"),
+        capabilities: ProviderCapabilities::new().with_rerank(),
+    });
+
+    // TogetherAI (rerank)
+    #[cfg(feature = "togetherai")]
+    out.push(NativeProviderMetadata {
+        id: "togetherai",
+        name: "TogetherAI",
+        description: "TogetherAI reranking via the /v1/rerank endpoint",
+        default_base_url: Some("https://api.together.xyz/v1"),
+        capabilities: ProviderCapabilities::new().with_rerank(),
+    });
+
     out
 }

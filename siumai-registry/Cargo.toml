@@ -33,6 +33,8 @@ siumai-provider-ollama = { version = "0.11.0-beta.5", path = "../siumai-provider
 siumai-provider-groq = { version = "0.11.0-beta.5", path = "../siumai-provider-groq", default-features = false, optional = true }
 siumai-provider-xai = { version = "0.11.0-beta.5", path = "../siumai-provider-xai", default-features = false, optional = true }
 siumai-provider-minimaxi = { version = "0.11.0-beta.5", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
+siumai-provider-cohere = { version = "0.11.0-beta.5", path = "../siumai-provider-cohere", default-features = false, optional = true }
+siumai-provider-togetherai = { version = "0.11.0-beta.5", path = "../siumai-provider-togetherai", default-features = false, optional = true }
 
 async-trait.workspace = true
 serde.workspace = true
@@ -91,6 +93,13 @@ ollama = ["builtins", "siumai-core/ollama", "dep:siumai-provider-ollama", "siuma
 xai = ["builtins", "siumai-core/xai", "dep:siumai-provider-xai", "siumai-provider-xai/xai"]
 groq = ["builtins", "siumai-core/groq", "dep:siumai-provider-groq", "siumai-provider-groq/groq"]
 minimaxi = ["builtins", "siumai-core/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
+cohere = ["builtins", "siumai-core/cohere", "dep:siumai-provider-cohere", "siumai-provider-cohere/cohere"]
+togetherai = [
+    "builtins",
+    "siumai-core/togetherai",
+    "dep:siumai-provider-togetherai",
+    "siumai-provider-togetherai/togetherai",
+]
 
 gcp = ["builtins", "siumai-core/gcp", "google", "google-vertex"]
 json-repair = ["builtins", "siumai-core/json-repair", "google", "siumai-provider-gemini/json-repair"]
@@ -98,7 +107,18 @@ json-repair = ["builtins", "siumai-core/json-repair", "google", "siumai-provider
 gzip = ["builtins", "siumai-core/gzip"]
 brotli = ["builtins", "siumai-core/brotli"]
 
-all-providers = ["openai", "azure", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
+all-providers = [
+    "openai",
+    "azure",
+    "anthropic",
+    "google",
+    "ollama",
+    "xai",
+    "groq",
+    "minimaxi",
+    "cohere",
+    "togetherai",
+]
 
 [dev-dependencies]
 tokio-test.workspace = true

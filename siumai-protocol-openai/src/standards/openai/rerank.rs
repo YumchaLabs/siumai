@@ -189,7 +189,7 @@ impl RerankRequestTransformer for OpenAiRerankRequestTransformer {
         let mut body = serde_json::json!({
             "model": req.model,
             "query": req.query,
-            "documents": req.documents,
+            "documents": req.documents.to_strings_lossy(),
         });
 
         // Add optional parameters
@@ -321,7 +321,10 @@ mod tests {
         let req = RerankRequest {
             model: "test-model".to_string(),
             query: "test query".to_string(),
-            documents: vec!["doc1".to_string(), "doc2".to_string()],
+            documents: crate::types::RerankDocuments::Text(vec![
+                "doc1".to_string(),
+                "doc2".to_string(),
+            ]),
             instruction: None,
             top_n: Some(5),
             return_documents: Some(true),

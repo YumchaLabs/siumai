@@ -478,3 +478,5 @@ Note that Siumai stores most fixtures as *case directories* (e.g. `response.json
 - OpenAI Responses (`packages/openai/src/responses/__fixtures__`): streaming chunk fixtures mirrored; response fixtures live under `siumai/tests/fixtures/openai/responses/response/*`.
 - Anthropic (`packages/anthropic/src/__fixtures__`): streaming chunk fixtures mirrored; request/response fixtures live under `siumai/tests/fixtures/anthropic/messages/*`.
 - xAI (`packages/xai/src/responses/__fixtures__`): streaming chunk fixtures mirrored; response fixtures live under `siumai/tests/fixtures/xai/responses/response/*`.
+- Cohere (`packages/cohere/src/reranking/__fixtures__`): rerank fixture mirrored under `siumai/tests/fixtures/cohere/rerank/*`.
+- TogetherAI (`packages/togetherai/src/reranking/__fixtures__`): rerank fixture mirrored under `siumai/tests/fixtures/togetherai/rerank/*`.
