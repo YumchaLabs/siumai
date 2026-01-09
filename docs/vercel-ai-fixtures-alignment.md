@@ -59,11 +59,13 @@ Provider id: `vertex`
 - [x] Enterprise mode: `Authorization: Bearer ...` disables `key` query param
 - [x] ADC auth resolution + caching tests (env token / metadata / service account)
 - [x] Chat URL routing via `:generateContent` / `:streamGenerateContent?alt=sse`
+- [x] Chat headers include `User-Agent` (Vercel-aligned suffix)
 - [x] Text embedding URL routing via `:predict`
 - [x] Vercel-aligned embedding request body (`instances[*].task_type/title`, `parameters.outputDimensionality/autoTruncate`)
 - [x] Provider options fallback for embeddings (`providerOptions["vertex"]` then `providerOptions["google"]`)
 - [x] Custom fetch parity via `HttpTransport` injection (non-stream JSON)
 - [x] Fixture-driven embedding alignment tests under `siumai/tests/fixtures/vertex/embedding/*`
+- [x] Fixture-driven chat alignment tests under `siumai/tests/fixtures/vertex/chat/*` (subset)
 
 ## Google Generative AI (Gemini)
 

@@ -43,6 +43,16 @@ fn vertex_express_chat_url_appends_key_query_param() {
     let headers = spec.build_headers(&ctx).unwrap();
     assert_eq!(headers.get("content-type").unwrap(), "application/json");
     assert!(headers.get("x-goog-api-key").is_none());
+
+    let ua = headers
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let expected = format!("siumai/google-vertex/{}", env!("CARGO_PKG_VERSION"));
+    assert!(
+        ua.contains(&expected),
+        "expected user-agent to contain {expected}, got {ua}"
+    );
 }
 
 #[test]
