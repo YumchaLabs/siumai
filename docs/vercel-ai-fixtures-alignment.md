@@ -63,7 +63,7 @@ Provider id: `vertex`
 - [x] Text embedding URL routing via `:predict`
 - [x] Vercel-aligned embedding request body (`instances[*].task_type/title`, `parameters.outputDimensionality/autoTruncate`)
 - [x] Provider options fallback for embeddings (`providerOptions["vertex"]` then `providerOptions["google"]`)
-- [x] Custom fetch parity via `HttpTransport` injection (non-stream JSON)
+- [x] Custom fetch parity via `HttpTransport` injection (JSON + streaming)
 - [x] Fixture-driven embedding alignment tests under `siumai/tests/fixtures/vertex/embedding/*`
 - [x] Fixture-driven chat alignment tests under `siumai/tests/fixtures/vertex/chat/*` (mirrors `google/generative-ai` suite)
 

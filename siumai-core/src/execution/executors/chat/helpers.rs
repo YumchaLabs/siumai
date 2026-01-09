@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::error::LlmError;
+use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::execution::transformers::request::RequestTransformer;
 use crate::streaming::adapters::{
@@ -61,6 +62,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
     headers_base: reqwest::header::HeaderMap,
     transformed: serde_json::Value,
     sse_tx: Arc<dyn crate::execution::transformers::stream::StreamChunkTransformer>,
+    transport: Option<Arc<dyn HttpTransport>>,
     interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     req_in: crate::types::ChatRequest,
@@ -98,6 +100,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
         build_effective_chat_request_headers(&provider_spec, &provider_context, true, &req_in),
         intercepting,
         disable_compression,
+        transport,
     )
     .await
 }
@@ -112,6 +115,7 @@ pub(super) async fn create_json_stream_with_middlewares(
     headers_base: reqwest::header::HeaderMap,
     transformed: serde_json::Value,
     json_conv: Arc<dyn crate::streaming::JsonEventConverter>,
+    transport: Option<Arc<dyn HttpTransport>>,
     interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     req_in: crate::types::ChatRequest,
@@ -137,6 +141,7 @@ pub(super) async fn create_json_stream_with_middlewares(
         per_req_headers,
         mw,
         disable_compression,
+        transport,
     )
     .await
 }

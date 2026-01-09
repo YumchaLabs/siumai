@@ -6,6 +6,7 @@ use crate::error::LlmError;
 use crate::execution::executors::errors as exec_errors;
 use crate::execution::executors::helpers::apply_before_send_interceptors;
 use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
@@ -25,6 +26,7 @@ pub async fn execute_json_stream_request_with_headers<C>(
     per_request_headers: Option<&std::collections::HashMap<String, String>>,
     json_converter: C,
     disable_compression: bool,
+    _transport: Option<Arc<dyn HttpTransport>>,
 ) -> Result<crate::streaming::ChatStream, LlmError>
 where
     C: crate::streaming::JsonEventConverter + Clone + 'static,
@@ -40,6 +42,13 @@ where
         headers_base.clone()
     };
 
+    let ctx = HttpRequestContext {
+        request_id: crate::execution::http::interceptor::generate_request_id(),
+        provider_id: provider_id.to_string(),
+        url: url.to_string(),
+        stream: true,
+    };
+
     // Build request
     let mut rb = http_client
         .post(url)
@@ -50,12 +59,6 @@ where
     }
 
     // Before-send interceptors
-    let ctx = HttpRequestContext {
-        request_id: crate::execution::http::interceptor::generate_request_id(),
-        provider_id: provider_id.to_string(),
-        url: url.to_string(),
-        stream: true,
-    };
     rb = apply_before_send_interceptors(interceptors, &ctx, rb, &body, &effective_headers)?;
 
     // Send request

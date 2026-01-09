@@ -264,6 +264,7 @@ impl ChatExecutor for HttpChatExecutor {
         let sse_tx = sse_tx_opt.clone();
         let json_tx = json_tx_opt.clone();
         let interceptors = self.policy.interceptors.clone();
+        let transport = self.policy.transport.clone();
         let before_send = self.policy.before_send.clone();
         let url = self
             .provider_spec
@@ -283,6 +284,7 @@ impl ChatExecutor for HttpChatExecutor {
             let sse_tx = sse_tx.clone();
             let json_tx = json_tx.clone();
             let interceptors = interceptors.clone();
+            let transport = transport.clone();
             let before_send = before_send.clone();
             let url = url.clone();
             let headers_base = headers_base.clone();
@@ -313,6 +315,7 @@ impl ChatExecutor for HttpChatExecutor {
                         headers_base.clone(),
                         transformed.clone(),
                         stream_tx.clone(),
+                        transport.clone(),
                         interceptors.clone(),
                         middlewares.clone(),
                         req_in.clone(),
@@ -330,6 +333,7 @@ impl ChatExecutor for HttpChatExecutor {
                         headers_base.clone(),
                         transformed.clone(),
                         jsonc.clone(),
+                        transport.clone(),
                         interceptors.clone(),
                         middlewares.clone(),
                         req_in.clone(),
