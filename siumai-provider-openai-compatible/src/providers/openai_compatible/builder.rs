@@ -1,7 +1,7 @@
 use crate::LlmError;
+use crate::builder::BuilderBase;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::retry_api::RetryOptions;
-use siumai_core::builder::BuilderBase;
 use std::sync::Arc;
 
 /// OpenAI-compatible builder for configuring OpenAI-compatible providers.

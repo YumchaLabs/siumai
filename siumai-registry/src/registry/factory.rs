@@ -121,7 +121,7 @@ pub async fn build_openai_compatible_client(
 
     // Build config
     let mut config =
-        siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleConfig::new(
+        siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
             &resolved_id,
             &api_key,
             &resolved_base,
@@ -142,10 +142,11 @@ pub async fn build_openai_compatible_client(
     }
 
     // Create client via provided HTTP client
-    let mut client = siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
-        config,
-        http_client,
-    )
+    let mut client =
+        siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
+            config,
+            http_client,
+        )
         .await?;
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));

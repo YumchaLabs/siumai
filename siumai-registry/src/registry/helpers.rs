@@ -130,7 +130,9 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     // OpenAI-compatible provider factories (DeepSeek, SiliconFlow, OpenRouter, etc.)
     #[cfg(feature = "openai")]
     {
-        let builtin = siumai_protocol_openai::providers::openai_compatible::get_builtin_providers();
+        let builtin =
+            siumai_provider_openai_compatible::providers::openai_compatible::get_builtin_providers(
+            );
         for (_id, cfg) in builtin {
             let id_str = cfg.id.clone();
             // Skip providers that already have native factories registered (e.g., groq, minimaxi).

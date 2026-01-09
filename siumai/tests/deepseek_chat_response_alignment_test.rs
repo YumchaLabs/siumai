@@ -5,8 +5,8 @@
 use serde_json::Value;
 use siumai::prelude::unified::*;
 use siumai_protocol_openai::execution::transformers::response::ResponseTransformer;
-use siumai_protocol_openai::providers::openai_compatible::transformers::CompatResponseTransformer;
-use siumai_protocol_openai::providers::openai_compatible::{
+use siumai_provider_openai_compatible::providers::openai_compatible::transformers::CompatResponseTransformer;
+use siumai_provider_openai_compatible::providers::openai_compatible::{
     ConfigurableAdapter, OpenAiCompatibleConfig, get_provider_config,
 };
 use std::path::Path;

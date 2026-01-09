@@ -4,8 +4,8 @@
 
 use eventsource_stream::Event;
 use siumai::prelude::unified::*;
-use siumai_protocol_openai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
-use siumai_protocol_openai::providers::openai_compatible::{
+use siumai_provider_openai_compatible::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
+use siumai_provider_openai_compatible::providers::openai_compatible::{
     ConfigurableAdapter, OpenAiCompatibleConfig, get_provider_config,
 };
 use std::path::Path;

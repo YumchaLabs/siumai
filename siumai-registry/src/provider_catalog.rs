@@ -337,7 +337,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 #[cfg(feature = "openai")]
                 {
                     if let Some(cfg) =
-                        siumai_protocol_openai::providers::openai_compatible::get_provider_config(
+                        siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
                             &rec.id,
                         )
                     {
@@ -347,7 +347,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                         }
 
                         // Add a few curated model ids when we have stable constants.
-                        use siumai_protocol_openai::providers::openai_compatible::providers::models as oai_models;
+                        use siumai_provider_openai_compatible::providers::openai_compatible::providers::models as oai_models;
                         match rec.id.as_str() {
                             "deepseek" => {
                                 models.push(Cow::Borrowed(oai_models::deepseek::CHAT));

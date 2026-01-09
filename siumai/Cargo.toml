@@ -39,6 +39,7 @@ siumai-registry = { workspace = true, default-features = false }
 
 # Provider crates (direct dependencies; breaking from the legacy umbrella `siumai-providers`)
 siumai-provider-openai = { version = "0.11.0-beta.5", path = "../siumai-provider-openai", default-features = false, optional = true }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
 siumai-provider-azure = { version = "0.11.0-beta.5", path = "../siumai-provider-azure", default-features = false, optional = true }
 siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false, optional = true }
 siumai-provider-anthropic = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic", default-features = false, optional = true }
@@ -134,6 +135,8 @@ openai = [
     "siumai-registry/openai",
     "dep:siumai-provider-openai",
     "siumai-provider-openai/openai",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
     "dep:siumai-protocol-openai",
     "siumai-protocol-openai/openai-standard",
 ]
@@ -169,7 +172,15 @@ ollama = ["siumai-core/ollama", "siumai-registry/ollama", "dep:siumai-provider-o
 xai = ["siumai-core/xai", "siumai-registry/xai", "dep:siumai-provider-xai", "siumai-provider-xai/xai"]
 groq = ["siumai-core/groq", "siumai-registry/groq", "dep:siumai-provider-groq", "siumai-provider-groq/groq"]
 minimaxi = ["siumai-core/minimaxi", "siumai-registry/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
-deepseek = ["siumai-core/openai", "dep:siumai-provider-deepseek", "siumai-provider-deepseek/deepseek", "dep:siumai-protocol-openai", "siumai-protocol-openai/openai-standard"]
+deepseek = [
+    "siumai-core/openai",
+    "dep:siumai-provider-deepseek",
+    "siumai-provider-deepseek/deepseek",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+    "dep:siumai-protocol-openai",
+    "siumai-protocol-openai/openai-standard",
+]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
 gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex"]

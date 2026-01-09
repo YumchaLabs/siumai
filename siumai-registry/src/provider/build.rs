@@ -192,7 +192,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 #[cfg(all(feature = "builtins", feature = "openai"))]
                 {
                     if let Some(cfg) =
-                        siumai_protocol_openai::providers::openai_compatible::get_provider_config(
+                        siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
                             provider_id,
                         )
                     {

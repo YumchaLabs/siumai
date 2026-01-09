@@ -6,7 +6,7 @@
 use crate::builder::BuilderBase;
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
-use siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleBuilder;
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder;
 use std::collections::HashMap;
 use std::sync::Arc;
 

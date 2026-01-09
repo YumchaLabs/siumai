@@ -4,11 +4,12 @@
 //!
 //! This crate owns the vendor-agnostic protocol layer for the OpenAI family:
 //! - OpenAI-like protocol mapping (Chat/Embedding/Image/Rerank)
-//! - OpenAI-compatible adapters + vendor routing utilities
+//! - OpenAI-compatible protocol building blocks (types + transformers)
 //! - OpenAI Responses API mapping (feature-gated)
 //!
-//! Provider crates (e.g. `siumai-provider-openai`, `siumai-provider-xai`) should depend on this
-//! crate, and keep provider-specific quirks behind provider-owned presets/wrappers.
+//! Provider crates (e.g. `siumai-provider-openai`, `siumai-provider-xai`,
+//! `siumai-provider-openai-compatible`) should depend on this crate, and keep provider-specific
+//! quirks behind provider-owned presets/wrappers.
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the standard implementation.
@@ -26,5 +27,4 @@ pub mod builder {
 /// Protocol-owned typed metadata views.
 pub mod provider_metadata;
 
-pub mod providers;
 pub mod standards;

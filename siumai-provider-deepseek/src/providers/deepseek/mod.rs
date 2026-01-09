@@ -32,4 +32,4 @@ pub mod models;
 pub use builder::DeepSeekBuilder;
 
 pub type DeepSeekClient =
-    siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleClient;
+    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;

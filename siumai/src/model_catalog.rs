@@ -23,7 +23,7 @@ pub mod constants {
 
     /// Re-export OpenAI-compatible provider model constants.
     #[cfg(feature = "openai")]
-    pub use siumai_protocol_openai::providers::openai_compatible::providers::models as openai_compatible;
+    pub use siumai_provider_openai_compatible::providers::openai_compatible::providers::models as openai_compatible;
 
     /// Re-export Ollama model constants (detailed structure).
     #[cfg(feature = "ollama")]
@@ -177,7 +177,7 @@ pub mod model_constants {
     /// the legacy umbrella crate.
     #[cfg(feature = "openai")]
     pub mod openai_compatible {
-        pub use siumai_protocol_openai::providers::openai_compatible::providers::models::*;
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::providers::models::*;
     }
 
     /// Ollama models with simplified access.

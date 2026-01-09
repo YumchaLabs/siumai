@@ -12,7 +12,7 @@ use crate::traits::{
 };
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo, Tool};
 use async_trait::async_trait;
-use siumai_protocol_openai::providers::openai_compatible::OpenAiCompatibleClient;
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
 
 mod audio;
 
