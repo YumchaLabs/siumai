@@ -37,6 +37,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - `siumai-protocol-openai` exists as the preferred OpenAI-like protocol crate name (now the real implementation).
 - `siumai-protocol-anthropic` exists as the preferred Anthropic protocol crate name (now the real implementation).
 - OpenAI-like dependent providers (`groq`, `xai`, `minimaxi`, and `siumai-registry`) are migrated to `siumai-protocol-openai`.
+- Google Vertex builder surface includes Vercel-aligned aliases: `language_model(...)`, `embedding_model(...)` (deprecated: `text_embedding_model(...)`).
 - Provider-defined tool factories are available under `siumai::tools::*` (implemented in `siumai-core::tools`) and serialize to the Vercel `{ type: "provider", id, name, args }` shape; `Tool::provider_defined(id, name)` remains the escape hatch for unknown tools.
 
 ## Fixture/test parity checklist
