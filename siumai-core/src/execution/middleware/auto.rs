@@ -4,8 +4,9 @@
 //! and model being used, similar to Cherry Studio's approach.
 
 use super::{
-    builder::MiddlewareBuilder, language_model::LanguageModelMiddleware,
-    presets::ExtractReasoningMiddleware,
+    builder::MiddlewareBuilder,
+    language_model::LanguageModelMiddleware,
+    presets::{ExtractReasoningMiddleware, SystemMessageModeWarningMiddleware},
 };
 use std::sync::Arc;
 
@@ -128,6 +129,11 @@ fn add_default_middlewares(builder: &mut MiddlewareBuilder, config: &MiddlewareC
             Arc::new(ExtractReasoningMiddleware::for_model(&config.model_id)),
         );
     }
+
+    builder.add(
+        "system-message-mode-warning",
+        Arc::new(SystemMessageModeWarningMiddleware::new()),
+    );
 }
 
 /// Add model-specific middlewares.
@@ -152,7 +158,8 @@ mod tests {
         let builder = build_auto_middlewares(&config);
 
         assert!(builder.has("extract-reasoning"));
-        assert_eq!(builder.len(), 1);
+        assert!(builder.has("system-message-mode-warning"));
+        assert_eq!(builder.len(), 2);
     }
 
     #[test]
@@ -161,7 +168,8 @@ mod tests {
         let builder = build_auto_middlewares(&config);
 
         assert!(builder.has("extract-reasoning"));
-        assert_eq!(builder.len(), 1);
+        assert!(builder.has("system-message-mode-warning"));
+        assert_eq!(builder.len(), 2);
     }
 
     #[test]
@@ -170,7 +178,8 @@ mod tests {
         let builder = build_auto_middlewares(&config);
 
         assert!(!builder.has("extract-reasoning"));
-        assert_eq!(builder.len(), 0);
+        assert!(builder.has("system-message-mode-warning"));
+        assert_eq!(builder.len(), 1);
     }
 
     #[test]

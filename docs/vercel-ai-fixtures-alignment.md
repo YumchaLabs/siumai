@@ -362,7 +362,7 @@ Provider id: `openai` / `azure` (Chat Completions)
 
 ### Next
 
-- [ ] Warning parity for `systemMessageMode: "remove"` (Vercel emits a warning)
+- [x] Warning parity for `systemMessageMode: "remove"` (Vercel emits a warning)
 
 ## OpenAI Responses Tool Input (Streaming)
 

@@ -3,7 +3,9 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
+use siumai::experimental::execution::middleware::LanguageModelMiddleware;
 use siumai::prelude::unified::LlmError;
+use siumai::prelude::unified::{ChatResponse, MessageContent, Warning};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -116,6 +118,15 @@ fn run_case(root: &Path) {
     normalize_json(&mut got_value);
     normalize_json(&mut expected_value);
     assert_eq!(got_value, expected_value);
+
+    let expected_warnings_path = root.join("expected_warnings.json");
+    if expected_warnings_path.exists() {
+        let expected_warnings: Vec<Warning> = read_json(expected_warnings_path);
+        let mw = siumai::experimental::execution::middleware::presets::SystemMessageModeWarningMiddleware::new();
+        let base = ChatResponse::new(MessageContent::Text("ok".to_string()));
+        let out = mw.post_generate(&req, base).expect("post_generate");
+        assert_eq!(out.warnings.unwrap_or_default(), expected_warnings);
+    }
 }
 
 #[test]
