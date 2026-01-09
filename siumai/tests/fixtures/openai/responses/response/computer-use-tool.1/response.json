@@ -1,0 +1,52 @@
+{
+  "id": "resp_computer_test",
+  "object": "response",
+  "created_at": 1764712894,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "instructions": null,
+  "max_output_tokens": null,
+  "model": "gpt-4o-mini",
+  "output": [
+    {
+      "type": "computer_call",
+      "id": "computer_67cf2b3051e88190b006770db6fdb13d",
+      "status": "completed"
+    },
+    {
+      "type": "message",
+      "id": "msg_computer_test",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I've completed the computer task.",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": { "effort": null, "summary": null },
+  "store": true,
+  "temperature": 0,
+  "text": { "format": { "type": "text" } },
+  "tool_choice": "auto",
+  "tools": [{ "type": "computer_use_preview" }],
+  "top_p": 1,
+  "truncation": "disabled",
+  "service_tier": "default",
+  "usage": {
+    "input_tokens": 100,
+    "input_tokens_details": { "cached_tokens": 0 },
+    "output_tokens": 50,
+    "output_tokens_details": { "reasoning_tokens": 0 },
+    "total_tokens": 150
+  },
+  "user": null,
+  "metadata": {}
+}
+

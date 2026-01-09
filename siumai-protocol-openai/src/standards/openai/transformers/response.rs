@@ -683,7 +683,12 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             "type": "computer_use_tool_result",
                             "status": status,
                         });
-                        ("computer_use", serde_json::json!({}), result)
+                        // Vercel alignment: computer use tool calls have an empty input string.
+                        (
+                            "computer_use",
+                            serde_json::Value::String(String::new()),
+                            result,
+                        )
                     }
                     "local_shell_call" => {
                         // Vercel alignment: map OpenAI hosted local shell tool call to `toolName: "shell"`,

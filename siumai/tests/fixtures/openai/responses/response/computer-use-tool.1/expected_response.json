@@ -1,0 +1,44 @@
+{
+  "id": "resp_computer_test",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "computer_67cf2b3051e88190b006770db6fdb13d",
+        "toolName": "computer_use",
+        "input": "",
+        "providerExecuted": true
+      },
+      {
+        "type": "tool-result",
+        "toolCallId": "computer_67cf2b3051e88190b006770db6fdb13d",
+        "toolName": "computer_use",
+        "output": {
+          "type": "json",
+          "value": {
+            "type": "computer_use_tool_result",
+            "status": "completed"
+          }
+        },
+        "providerExecuted": true
+      },
+      {
+        "type": "text",
+        "text": "I've completed the computer task."
+      }
+    ]
+  },
+  "model": "gpt-4o-mini",
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "total_tokens": 150,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "prompt_tokens_details": { "cached_tokens": 0 },
+    "completion_tokens_details": { "reasoning_tokens": 0 }
+  },
+  "finish_reason": "stop",
+  "service_tier": "default",
+  "provider_metadata": { "openai": { "itemId": "msg_computer_test" } }
+}
