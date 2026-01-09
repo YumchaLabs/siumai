@@ -116,6 +116,7 @@ Provider id: `openai_compatible` (Chat Completions)
 ### Done
 
 - [x] Reasoning extraction parity (`reasoning_content` > `thinking` > `reasoning`)
+- [x] Compatibility: if `finish_reason` indicates tool calls but `tool_calls` is missing, parse `{ "name", "arguments" }` JSON from `message.content` into a tool-call part
 - [x] Fixture-driven response alignment tests under `siumai/tests/fixtures/openai-compatible/chat-response/*`
 
 ## OpenAI-Compatible Chat Messages
@@ -341,6 +342,15 @@ Provider id: `openai` (Chat Completions API)
 ### Done
 
 - [x] Azure model router: initial chunk can emit empty `id`/`model` (fall back to request model); aligned via `azure-model-router.1`
+
+## OpenAI Chat Messages (Files)
+
+Provider id: `openai` / `azure` (Chat Completions)
+
+### Done
+
+- [x] PDF user file parts map to `{ type: "file", file: { file_id | filename + file_data } }` (Vercel `@ai-sdk/openai` parity)
+- [x] Audio user file parts map to `{ type: "input_audio", input_audio: { data, format } }` for wav/mp3 (URL inputs are rejected; Vercel parity)
 
 ## OpenAI Responses Tool Input (Streaming)
 

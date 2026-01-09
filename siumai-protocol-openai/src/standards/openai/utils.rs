@@ -369,9 +369,27 @@ pub fn convert_message_content_to_openai_value(
     siumai_core::standards::openai::utils::convert_message_content_to_openai_value(content)
 }
 
+/// Convert a message content value to the OpenAI Chat Completions wire format.
+///
+/// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).
+pub fn convert_message_content_to_openai_chat_value(
+    content: &MessageContent,
+) -> Result<serde_json::Value, LlmError> {
+    siumai_core::standards::openai::utils::convert_message_content_to_openai_chat_value(content)
+}
+
 /// Convert Siumai messages into OpenAI(-compatible) wire format.
 pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, LlmError> {
     siumai_core::standards::openai::utils::convert_messages(messages)
+}
+
+/// Convert Siumai messages into OpenAI Chat Completions wire format.
+///
+/// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).
+pub fn convert_messages_openai_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    siumai_core::standards::openai::utils::convert_messages_openai_chat(messages)
 }
 
 /// Convert Siumai tool choice to OpenAI wire format.

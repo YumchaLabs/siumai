@@ -746,12 +746,14 @@ mod tests {
             content: crate::types::MessageContent::MultiModal(vec![
                 crate::types::ContentPart::Text {
                     text: "Hello".to_string(),
+                    provider_metadata: None,
                 },
                 crate::types::ContentPart::Image {
                     source: crate::types::chat::MediaSource::Url {
                         url: "image1".to_string(),
                     },
                     detail: None,
+                    provider_metadata: None,
                 },
             ]),
             metadata: crate::types::MessageMetadata::default(),

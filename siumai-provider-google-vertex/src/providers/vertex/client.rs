@@ -231,6 +231,7 @@ impl ImageExtras for GoogleVertexClient {
     }
 }
 
+#[cfg(feature = "google-vertex")]
 #[async_trait]
 impl ChatCapability for GoogleVertexClient {
     async fn chat_with_tools(

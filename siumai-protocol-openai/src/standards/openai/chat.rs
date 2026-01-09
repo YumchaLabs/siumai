@@ -321,6 +321,14 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
         let openai_tx = crate::standards::openai::transformers::OpenAiRequestTransformer;
         let mut body = openai_tx.transform_chat(req)?;
 
+        // Vercel parity: OpenAI/Azure OpenAI support PDF/audio file parts in Chat Completions,
+        // while generic OpenAI-compatible vendors stay on the stricter message converter.
+        if self.provider_id == "openai" || self.provider_id == "azure" {
+            let messages =
+                crate::standards::openai::utils::convert_messages_openai_chat(&req.messages)?;
+            body["messages"] = serde_json::to_value(messages)?;
+        }
+
         // Apply adapter transformations if present
         if let Some(adapter) = &self.adapter {
             adapter.transform_request(req, &mut body)?;

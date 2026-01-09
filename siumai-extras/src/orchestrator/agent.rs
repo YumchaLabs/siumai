@@ -244,7 +244,7 @@ where
     /// ```
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         let mut params = self.common_params.take().unwrap_or_default();
-        params.temperature = Some(temperature);
+        params.temperature = Some(temperature.into());
         self.common_params = Some(params);
         self
     }
@@ -272,7 +272,7 @@ where
     /// ```
     pub fn with_top_p(mut self, top_p: f32) -> Self {
         let mut params = self.common_params.take().unwrap_or_default();
-        params.top_p = Some(top_p);
+        params.top_p = Some(top_p.into());
         self.common_params = Some(params);
         self
     }

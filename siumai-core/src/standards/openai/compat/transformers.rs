@@ -199,6 +199,7 @@ impl ResponseTransformer for CompatResponseTransformer {
             role: String,
             content: Option<serde_json::Value>,
             tool_calls: Option<Vec<CompatToolCall>>,
+            function_call: Option<CompatFunction>,
         }
         #[allow(dead_code)]
         #[derive(serde::Deserialize)]
@@ -302,6 +303,42 @@ impl ResponseTransformer for CompatResponseTransformer {
                         None,
                     ));
                 }
+            }
+        } else if let Some(function) = choice.message.function_call {
+            // Legacy OpenAI-compatible field: `message.function_call`.
+            let arguments = serde_json::from_str(&function.arguments)
+                .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
+            parts.push(ContentPart::tool_call(
+                "call_0".to_string(),
+                function.name,
+                arguments,
+                None,
+            ));
+        } else if matches!(
+            choice.finish_reason.as_deref(),
+            Some("tool_calls" | "function_call")
+        ) {
+            // Compatibility: some providers return tool-call payloads as plain JSON text
+            // while still reporting `finish_reason: "tool_calls"`.
+            if parts.len() == 1
+                && let Some(text) = parts[0].as_text()
+                && let Ok(v) = serde_json::from_str::<serde_json::Value>(text)
+                && let Some(obj) = v.as_object()
+                && let Some(name) = obj.get("name").and_then(|n| n.as_str())
+            {
+                let args = obj
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+
+                // Replace the raw JSON text with a structured tool call.
+                parts.clear();
+                parts.push(ContentPart::tool_call(
+                    "call_0".to_string(),
+                    name.to_string(),
+                    args,
+                    None,
+                ));
             }
         }
 
@@ -533,5 +570,74 @@ mod tests {
             .expect("perplexity namespace should exist");
         assert!(perplexity.contains_key("search_results"));
         assert!(perplexity.contains_key("videos"));
+    }
+
+    #[test]
+    fn legacy_function_call_is_exposed_as_tool_call_part() {
+        let adapter = Arc::new(DummyAdapter);
+        let config = OpenAiCompatibleConfig::new(
+            "dummy",
+            "test-key",
+            "https://api.test.com/v1",
+            adapter.clone(),
+        )
+        .with_model("test-model");
+
+        let tx = CompatResponseTransformer { config, adapter };
+
+        let raw = serde_json::json!({
+            "id": "gen-123",
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "function_call": { "name": "weather", "arguments": "{\"location\":\"Rome\"}" }
+                },
+                "finish_reason": "function_call"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        assert!(resp.has_tool_calls());
+        let calls = resp.tool_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].as_tool_name(), Some("weather"));
+    }
+
+    #[test]
+    fn tool_call_json_in_text_is_parsed_when_finish_reason_indicates_tool_calls() {
+        let adapter = Arc::new(DummyAdapter);
+        let config = OpenAiCompatibleConfig::new(
+            "dummy",
+            "test-key",
+            "https://api.test.com/v1",
+            adapter.clone(),
+        )
+        .with_model("test-model");
+
+        let tx = CompatResponseTransformer { config, adapter };
+
+        let raw = serde_json::json!({
+            "id": "gen-123",
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"name\":\"weather$weather#get_weather\",\"arguments\":{\"addr\":\"Guangzhou\",\"date\":\"2026-01-09\"}}"
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        assert!(resp.has_tool_calls());
+        let calls = resp.tool_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].as_tool_name(), Some("weather$weather#get_weather"));
     }
 }

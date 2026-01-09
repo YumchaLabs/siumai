@@ -422,6 +422,7 @@ mod tests {
             tool_calls: vec![],
             tool_results: vec![ContentPart::Text {
                 text: "result".to_string(),
+                provider_metadata: None,
             }],
             warnings: None,
         };

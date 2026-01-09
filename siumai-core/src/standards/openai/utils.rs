@@ -42,7 +42,28 @@ fn merge_openai_compatible_json(
     }
 }
 
-fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MessageConversionTarget {
+    /// Match Vercel `@ai-sdk/openai-compatible` behavior.
+    OpenAiCompatible,
+    /// Match Vercel `@ai-sdk/openai` chat message conversion behavior.
+    OpenAiChat,
+}
+
+fn openai_chat_audio_format(media_type: &str) -> Result<&'static str, LlmError> {
+    match media_type {
+        "audio/wav" | "audio/wave" | "audio/x-wav" => Ok("wav"),
+        "audio/mp3" | "audio/mpeg" => Ok("mp3"),
+        _ => Err(LlmError::UnsupportedOperation(format!(
+            "OpenAI chat does not support audio file part media type {media_type}"
+        ))),
+    }
+}
+
+fn convert_message_content_with_target(
+    content: &MessageContent,
+    target: MessageConversionTarget,
+) -> Result<serde_json::Value, LlmError> {
     match content {
         MessageContent::Text(text) => Ok(serde_json::Value::String(text.clone())),
         MessageContent::MultiModal(parts) => {
@@ -54,7 +75,7 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
 
             let mut content_parts = Vec::new();
 
-            for part in parts {
+            for (index, part) in parts.iter().enumerate() {
                 match part {
                     ContentPart::Text {
                         text,
@@ -134,7 +155,7 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
                         source,
                         media_type,
                         provider_metadata,
-                        ..
+                        filename,
                     } => {
                         if media_type.starts_with("image/") {
                             let normalized_media_type = if media_type == "image/*" {
@@ -169,6 +190,65 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
                             }
 
                             content_parts.push(image_obj);
+                        } else if target == MessageConversionTarget::OpenAiChat
+                            && media_type.starts_with("audio/")
+                        {
+                            let format = openai_chat_audio_format(media_type)?;
+                            match source {
+                                crate::types::chat::MediaSource::Url { .. } => {
+                                    return Err(LlmError::UnsupportedOperation(
+                                        "OpenAI chat does not support audio file parts with URLs"
+                                            .to_string(),
+                                    ));
+                                }
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    content_parts.push(serde_json::json!({
+                                        "type": "input_audio",
+                                        "input_audio": { "data": data, "format": format }
+                                    }));
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    content_parts.push(serde_json::json!({
+                                        "type": "input_audio",
+                                        "input_audio": { "data": encoded, "format": format }
+                                    }));
+                                }
+                            }
+                        } else if target == MessageConversionTarget::OpenAiChat
+                            && media_type == "application/pdf"
+                        {
+                            match source {
+                                crate::types::chat::MediaSource::Url { .. } => {
+                                    return Err(LlmError::UnsupportedOperation(
+                                        "OpenAI chat does not support PDF file parts with URLs"
+                                            .to_string(),
+                                    ));
+                                }
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    let file = if data.starts_with("file-") {
+                                        serde_json::json!({ "file_id": data })
+                                    } else {
+                                        serde_json::json!({
+                                            "filename": filename.clone().unwrap_or_else(|| format!("part-{}.pdf", index)),
+                                            "file_data": format!("data:application/pdf;base64,{}", data),
+                                        })
+                                    };
+                                    content_parts
+                                        .push(serde_json::json!({ "type": "file", "file": file }));
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    let file = serde_json::json!({
+                                        "filename": filename.clone().unwrap_or_else(|| format!("part-{}.pdf", index)),
+                                        "file_data": format!("data:application/pdf;base64,{}", encoded),
+                                    });
+                                    content_parts
+                                        .push(serde_json::json!({ "type": "file", "file": file }));
+                                }
+                            }
                         } else {
                             return Err(LlmError::UnsupportedOperation(format!(
                                 "OpenAI-compatible chat does not support file part media type {media_type}"
@@ -193,6 +273,10 @@ fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value
     }
 }
 
+fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
+    convert_message_content_with_target(content, MessageConversionTarget::OpenAiCompatible)
+}
+
 /// Convert a message content value to the OpenAI(-compatible) wire format.
 pub fn convert_message_content_to_openai_value(
     content: &MessageContent,
@@ -200,8 +284,33 @@ pub fn convert_message_content_to_openai_value(
     convert_message_content(content)
 }
 
+/// Convert a message content value to the OpenAI Chat Completions wire format.
+///
+/// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).
+pub fn convert_message_content_to_openai_chat_value(
+    content: &MessageContent,
+) -> Result<serde_json::Value, LlmError> {
+    convert_message_content_with_target(content, MessageConversionTarget::OpenAiChat)
+}
+
 /// Convert Siumai messages into OpenAI(-compatible) wire format.
 pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, LlmError> {
+    convert_messages_with_target(messages, MessageConversionTarget::OpenAiCompatible)
+}
+
+/// Convert Siumai messages into OpenAI Chat Completions wire format.
+///
+/// This is aligned with Vercel `@ai-sdk/openai` behavior (PDF/audio file parts).
+pub fn convert_messages_openai_chat(
+    messages: &[ChatMessage],
+) -> Result<Vec<OpenAiMessage>, LlmError> {
+    convert_messages_with_target(messages, MessageConversionTarget::OpenAiChat)
+}
+
+fn convert_messages_with_target(
+    messages: &[ChatMessage],
+    target: MessageConversionTarget,
+) -> Result<Vec<OpenAiMessage>, LlmError> {
     let mut openai_messages = Vec::new();
 
     for message in messages {
@@ -223,14 +332,20 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
         let mut openai_message = match message.role {
             MessageRole::System => OpenAiMessage {
                 role: "system".to_string(),
-                content: Some(convert_message_content(&message.content)?),
+                content: Some(convert_message_content_with_target(
+                    &message.content,
+                    target,
+                )?),
                 tool_calls: None,
                 tool_call_id: None,
                 extra: HashMap::new(),
             },
             MessageRole::User => OpenAiMessage {
                 role: "user".to_string(),
-                content: Some(convert_message_content(&message.content)?),
+                content: Some(convert_message_content_with_target(
+                    &message.content,
+                    target,
+                )?),
                 tool_calls: None,
                 tool_call_id: None,
                 extra: HashMap::new(),
@@ -383,7 +498,10 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
             }
             MessageRole::Developer => OpenAiMessage {
                 role: "developer".to_string(),
-                content: Some(convert_message_content(&message.content)?),
+                content: Some(convert_message_content_with_target(
+                    &message.content,
+                    target,
+                )?),
                 tool_calls: None,
                 tool_call_id: None,
                 extra: HashMap::new(),
@@ -398,6 +516,104 @@ pub fn convert_messages(messages: &[ChatMessage]) -> Result<Vec<OpenAiMessage>, 
     }
 
     Ok(openai_messages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::chat::MediaSource;
+    use crate::types::{ChatMessage, MessageMetadata};
+
+    #[test]
+    fn openai_chat_pdf_file_part_maps_to_file_content_part() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: MediaSource::Base64 {
+                    data: "Zm9v".to_string(),
+                },
+                media_type: "application/pdf".to_string(),
+                filename: None,
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+        };
+
+        let out = convert_messages_openai_chat(&[msg]).expect("convert messages");
+        assert_eq!(out.len(), 1);
+        let content = out[0].content.clone().expect("content");
+        let parts = content.as_array().expect("array");
+        assert_eq!(parts[0]["type"], "file");
+        assert_eq!(parts[0]["file"]["filename"], "part-0.pdf");
+        assert_eq!(
+            parts[0]["file"]["file_data"],
+            "data:application/pdf;base64,Zm9v"
+        );
+    }
+
+    #[test]
+    fn openai_chat_pdf_file_id_maps_to_file_id() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: MediaSource::Base64 {
+                    data: "file-abc".to_string(),
+                },
+                media_type: "application/pdf".to_string(),
+                filename: None,
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+        };
+
+        let out = convert_messages_openai_chat(&[msg]).expect("convert messages");
+        let content = out[0].content.clone().expect("content");
+        let parts = content.as_array().expect("array");
+        assert_eq!(parts[0]["type"], "file");
+        assert_eq!(parts[0]["file"]["file_id"], "file-abc");
+    }
+
+    #[test]
+    fn openai_chat_audio_file_part_maps_to_input_audio() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: MediaSource::Base64 {
+                    data: "AAEC".to_string(),
+                },
+                media_type: "audio/mpeg".to_string(),
+                filename: None,
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+        };
+
+        let out = convert_messages_openai_chat(&[msg]).expect("convert messages");
+        let content = out[0].content.clone().expect("content");
+        let parts = content.as_array().expect("array");
+        assert_eq!(parts[0]["type"], "input_audio");
+        assert_eq!(parts[0]["input_audio"]["data"], "AAEC");
+        assert_eq!(parts[0]["input_audio"]["format"], "mp3");
+    }
+
+    #[test]
+    fn openai_compatible_pdf_file_part_is_still_unsupported() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: MediaSource::Base64 {
+                    data: "Zm9v".to_string(),
+                },
+                media_type: "application/pdf".to_string(),
+                filename: None,
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+        };
+
+        let err = convert_messages(&[msg]).unwrap_err();
+        assert!(matches!(err, LlmError::UnsupportedOperation(_)));
+    }
 }
 
 /// Infer audio format from media type.
