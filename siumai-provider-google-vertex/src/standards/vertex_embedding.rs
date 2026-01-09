@@ -16,6 +16,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+const VERTEX_USER_AGENT: &str = concat!("siumai/google-vertex/", env!("CARGO_PKG_VERSION"));
+
 fn has_auth_header(headers: &HashMap<String, String>) -> bool {
     headers
         .keys()
@@ -34,6 +36,7 @@ fn append_api_key_query(url: String, api_key: &str) -> String {
 fn build_vertex_headers(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
     let builder = HttpHeaderBuilder::new()
         .with_json_content_type()
+        .with_user_agent(VERTEX_USER_AGENT)?
         .with_custom_headers(custom_headers)?;
     Ok(builder.build())
 }

@@ -16,6 +16,8 @@ use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+const VERTEX_USER_AGENT: &str = concat!("siumai/google-vertex/", env!("CARGO_PKG_VERSION"));
+
 fn normalize_vertex_model_id(model: &str) -> String {
     let trimmed = model.trim().trim_matches('/');
     if trimmed.is_empty() {
@@ -37,6 +39,7 @@ fn looks_like_vertex_base_url(base_url: &str) -> bool {
 fn build_vertex_headers(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
     let builder = HttpHeaderBuilder::new()
         .with_json_content_type()
+        .with_user_agent(VERTEX_USER_AGENT)?
         .with_custom_headers(custom_headers)?;
     Ok(builder.build())
 }
