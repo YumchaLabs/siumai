@@ -5,9 +5,9 @@
     }
   ],
   "parameters": {
+    "addWatermark": false,
     "aspectRatio": "16:9",
     "sampleCount": 1,
     "seed": 42
   }
 }
-

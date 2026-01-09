@@ -1,0 +1,15 @@
+{
+  "instances": [
+    {
+      "prompt": "A highly detailed photorealistic portrait"
+    }
+  ],
+  "parameters": {
+    "addWatermark": true,
+    "aspectRatio": "4:3",
+    "negativePrompt": "blurry, low quality",
+    "sampleCount": 1,
+    "seed": 999
+  }
+}
+
