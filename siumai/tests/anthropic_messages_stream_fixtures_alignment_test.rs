@@ -94,6 +94,27 @@ fn anthropic_stream_mcp_emits_tool_call_and_result() {
 
     for ev in calls.iter().chain(results.iter()) {
         assert!(ev.get("toolCallId").and_then(|v| v.as_str()).is_some());
+        assert_eq!(
+            ev.get("dynamic").and_then(|v| v.as_bool()),
+            Some(true),
+            "expected dynamic tool part for MCP"
+        );
+        assert_eq!(
+            ev.get("providerMetadata")
+                .and_then(|m| m.get("anthropic"))
+                .and_then(|m| m.get("type"))
+                .and_then(|v| v.as_str()),
+            Some("mcp-tool-use"),
+            "expected providerMetadata.anthropic.type for MCP"
+        );
+        assert_eq!(
+            ev.get("providerMetadata")
+                .and_then(|m| m.get("anthropic"))
+                .and_then(|m| m.get("serverName"))
+                .and_then(|v| v.as_str()),
+            Some("echo"),
+            "expected providerMetadata.anthropic.serverName for MCP"
+        );
     }
 }
 

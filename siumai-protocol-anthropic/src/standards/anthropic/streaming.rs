@@ -729,6 +729,12 @@ impl AnthropicEventConverter {
                             map.insert(tool_call_id.clone(), server_name.clone());
                         }
 
+                        let server_name_json = if server_name.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::json!(server_name)
+                        };
+
                         vec![ChatStreamEvent::Custom {
                             event_type: "anthropic:tool-call".to_string(),
                             data: serde_json::json!({
@@ -737,9 +743,18 @@ impl AnthropicEventConverter {
                                 "toolName": tool_name,
                                 "input": input,
                                 "providerExecuted": true,
+                                // Vercel-aligned: MCP tool parts are emitted as dynamic.
+                                "dynamic": true,
+                                "providerMetadata": {
+                                    "anthropic": {
+                                        "type": "mcp-tool-use",
+                                        "serverName": server_name_json,
+                                    }
+                                },
                                 "contentBlockIndex": event.index.map(|i| i as u64),
                                 "rawContentBlock": content_block,
-                                "serverName": if server_name.is_empty() { serde_json::Value::Null } else { serde_json::json!(server_name) },
+                                // Back-compat shim (preferred shape is providerMetadata.anthropic.serverName).
+                                "serverName": server_name_json,
                             }),
                         }]
                     }
@@ -969,19 +984,43 @@ impl AnthropicEventConverter {
                             None
                         };
 
+                        let server_name_json = if t == "mcp_tool_result" {
+                            serde_json::json!(server_name.clone())
+                        } else {
+                            serde_json::Value::Null
+                        };
+
+                        let mut data = serde_json::Map::new();
+                        data.insert("type".to_string(), serde_json::json!("tool-result"));
+                        data.insert("toolCallId".to_string(), serde_json::json!(tool_call_id));
+                        data.insert("toolName".to_string(), serde_json::json!(tool_name));
+                        data.insert("result".to_string(), result);
+                        data.insert("providerExecuted".to_string(), serde_json::json!(true));
+                        data.insert("isError".to_string(), serde_json::json!(is_error));
+                        data.insert(
+                            "contentBlockIndex".to_string(),
+                            serde_json::json!(event.index.map(|i| i as u64)),
+                        );
+                        data.insert("rawContentBlock".to_string(), content_block.clone());
+                        // Back-compat shim (preferred shape is providerMetadata.anthropic.serverName).
+                        data.insert("serverName".to_string(), server_name_json.clone());
+
+                        if t == "mcp_tool_result" {
+                            data.insert("dynamic".to_string(), serde_json::json!(true));
+                            data.insert(
+                                "providerMetadata".to_string(),
+                                serde_json::json!({
+                                    "anthropic": {
+                                        "type": "mcp-tool-use",
+                                        "serverName": server_name_json,
+                                    }
+                                }),
+                            );
+                        }
+
                         let mut events = vec![ChatStreamEvent::Custom {
                             event_type: "anthropic:tool-result".to_string(),
-                            data: serde_json::json!({
-                                "type": "tool-result",
-                                "toolCallId": tool_call_id,
-                                "toolName": tool_name,
-                                "result": result,
-                                "providerExecuted": true,
-                                "isError": is_error,
-                                "contentBlockIndex": event.index.map(|i| i as u64),
-                                "rawContentBlock": content_block,
-                                "serverName": server_name,
-                            }),
+                            data: serde_json::Value::Object(data),
                         }];
 
                         // Vercel-aligned: emit sources for web search results

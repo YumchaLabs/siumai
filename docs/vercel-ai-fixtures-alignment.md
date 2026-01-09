@@ -408,7 +408,7 @@ Provider id: `anthropic`
 
 ### Next
 
-- [ ] Bring `providerMetadata.dynamic` parity for streaming tool parts (optional)
+- [x] Bring `providerMetadata.dynamic` parity for streaming tool parts (MCP tool-call/result)
 
 ## XAI Responses (Streaming)
 
