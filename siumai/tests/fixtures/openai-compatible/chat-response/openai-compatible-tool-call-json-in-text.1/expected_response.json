@@ -1,0 +1,18 @@
+{
+  "id": "chatcmpl-test",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "call_0",
+        "toolName": "weather$weather#get_weather",
+        "input": { "addr": "Guangzhou", "date": "2026-01-09" }
+      }
+    ]
+  },
+  "model": "grok-beta",
+  "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 },
+  "finish_reason": "tool_calls",
+  "audio": null
+}
+

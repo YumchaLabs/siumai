@@ -400,6 +400,7 @@ impl ResponseTransformer for CompatResponseTransformer {
             "stop" => FinishReason::Stop,
             "length" => FinishReason::Length,
             "tool_calls" => FinishReason::ToolCalls,
+            "function_call" => FinishReason::ToolCalls,
             "content_filter" => FinishReason::ContentFilter,
             _ => FinishReason::Other(r),
         });

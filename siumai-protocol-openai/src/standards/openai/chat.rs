@@ -317,17 +317,95 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        // Reuse the existing OpenAI request transformer logic
-        let openai_tx = crate::standards::openai::transformers::OpenAiRequestTransformer;
-        let mut body = openai_tx.transform_chat(req)?;
+        // Vercel parity: OpenAI/Azure OpenAI support PDF/audio file parts in Chat Completions.
+        // We must build the base body with the OpenAI-chat message converter, otherwise the
+        // OpenAI-compatible converter errors before we can override the `messages` field.
+        let mut body = if self.provider_id == "openai" || self.provider_id == "azure" {
+            if req.common_params.model.is_empty() {
+                return Err(LlmError::InvalidParameter(
+                    "Model must be specified".to_string(),
+                ));
+            }
 
-        // Vercel parity: OpenAI/Azure OpenAI support PDF/audio file parts in Chat Completions,
-        // while generic OpenAI-compatible vendors stay on the stricter message converter.
-        if self.provider_id == "openai" || self.provider_id == "azure" {
+            let system_message_mode = req
+                .provider_option("openai")
+                .or_else(|| req.provider_option("azure"))
+                .or_else(|| req.provider_option(&self.provider_id))
+                .and_then(|v| v.as_object())
+                .and_then(|obj| {
+                    obj.get("systemMessageMode")
+                        .or_else(|| obj.get("system_message_mode"))
+                        .and_then(|v| v.as_str())
+                })
+                .unwrap_or("system");
+
+            let mut body = serde_json::json!({ "model": req.common_params.model });
+
+            if let Some(t) = req.common_params.temperature {
+                body["temperature"] = serde_json::json!(t);
+            }
+            if let Some(tp) = req.common_params.top_p {
+                body["top_p"] = serde_json::json!(tp);
+            }
+            if let Some(max) = req.common_params.max_completion_tokens {
+                body["max_completion_tokens"] = serde_json::json!(max);
+            } else if let Some(max) = req.common_params.max_tokens {
+                body["max_tokens"] = serde_json::json!(max);
+            }
+            if let Some(stops) = &req.common_params.stop_sequences {
+                body["stop"] = serde_json::json!(stops);
+            }
+
+            let messages_input = match system_message_mode {
+                "developer" => req
+                    .messages
+                    .iter()
+                    .cloned()
+                    .map(|mut m| {
+                        if matches!(m.role, crate::types::MessageRole::System) {
+                            m.role = crate::types::MessageRole::Developer;
+                        }
+                        m
+                    })
+                    .collect::<Vec<_>>(),
+                "remove" => req
+                    .messages
+                    .iter()
+                    .cloned()
+                    .filter(|m| !matches!(m.role, crate::types::MessageRole::System))
+                    .collect::<Vec<_>>(),
+                _ => req.messages.clone(),
+            };
+
             let messages =
-                crate::standards::openai::utils::convert_messages_openai_chat(&req.messages)?;
+                crate::standards::openai::utils::convert_messages_openai_chat(&messages_input)?;
             body["messages"] = serde_json::to_value(messages)?;
-        }
+
+            if let Some(tools) = &req.tools
+                && !tools.is_empty()
+            {
+                let openai_tools =
+                    crate::standards::openai::utils::convert_tools_to_openai_format(tools)?;
+                if !openai_tools.is_empty() {
+                    body["tools"] = serde_json::Value::Array(openai_tools);
+                    if let Some(choice) = &req.tool_choice {
+                        body["tool_choice"] =
+                            crate::standards::openai::utils::convert_tool_choice(choice);
+                    }
+                }
+            }
+
+            if req.stream {
+                body["stream"] = serde_json::Value::Bool(true);
+                body["stream_options"] = serde_json::json!({ "include_usage": true });
+            }
+
+            body
+        } else {
+            // Reuse the existing OpenAI request transformer logic for OpenAI-compatible vendors.
+            let openai_tx = crate::standards::openai::transformers::OpenAiRequestTransformer;
+            openai_tx.transform_chat(req)?
+        };
 
         // Apply adapter transformations if present
         if let Some(adapter) = &self.adapter {

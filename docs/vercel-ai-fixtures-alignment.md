@@ -351,6 +351,14 @@ Provider id: `openai` / `azure` (Chat Completions)
 
 - [x] PDF user file parts map to `{ type: "file", file: { file_id | filename + file_data } }` (Vercel `@ai-sdk/openai` parity)
 - [x] Audio user file parts map to `{ type: "input_audio", input_audio: { data, format } }` for wav/mp3 (URL inputs are rejected; Vercel parity)
+- [x] System message modes (`system`/`developer`/`remove`) in Chat Completions message conversion (Vercel parity)
+- [x] Image detail via `providerMetadata.openai.imageDetail` on image file parts
+- [x] Assistant tool-call parts map to `tool_calls[]`; tool results map to `role: tool` messages (Vercel parity)
+- [x] Fixture-driven message alignment tests under `siumai/tests/fixtures/openai/chat-messages/*`
+
+### Next
+
+- [ ] Warning parity for `systemMessageMode: "remove"` (Vercel emits a warning)
 
 ## OpenAI Responses Tool Input (Streaming)
 

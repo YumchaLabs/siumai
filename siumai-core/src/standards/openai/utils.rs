@@ -55,9 +55,26 @@ fn openai_chat_audio_format(media_type: &str) -> Result<&'static str, LlmError> 
         "audio/wav" | "audio/wave" | "audio/x-wav" => Ok("wav"),
         "audio/mp3" | "audio/mpeg" => Ok("mp3"),
         _ => Err(LlmError::UnsupportedOperation(format!(
-            "OpenAI chat does not support audio file part media type {media_type}"
+            "audio content parts with media type {media_type}"
         ))),
     }
+}
+
+fn extract_openai_chat_image_detail(
+    provider_metadata: Option<&HashMap<String, serde_json::Value>>,
+) -> Option<String> {
+    let Some(provider_metadata) = provider_metadata else {
+        return None;
+    };
+    let Some(serde_json::Value::Object(openai)) = provider_metadata.get("openai") else {
+        return None;
+    };
+
+    openai
+        .get("imageDetail")
+        .or_else(|| openai.get("image_detail"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn convert_message_content_with_target(
@@ -185,6 +202,13 @@ fn convert_message_content_with_target(
                                 "image_url": { "url": url }
                             });
 
+                            if target == MessageConversionTarget::OpenAiChat
+                                && let Some(detail) =
+                                    extract_openai_chat_image_detail(provider_metadata.as_ref())
+                            {
+                                image_obj["image_url"]["detail"] = serde_json::json!(detail);
+                            }
+
                             if let serde_json::Value::Object(ref mut obj) = image_obj {
                                 merge_openai_compatible_json(obj, provider_metadata.as_ref());
                             }
@@ -197,8 +221,7 @@ fn convert_message_content_with_target(
                             match source {
                                 crate::types::chat::MediaSource::Url { .. } => {
                                     return Err(LlmError::UnsupportedOperation(
-                                        "OpenAI chat does not support audio file parts with URLs"
-                                            .to_string(),
+                                        "audio file parts with URLs".to_string(),
                                     ));
                                 }
                                 crate::types::chat::MediaSource::Base64 { data } => {
@@ -222,8 +245,7 @@ fn convert_message_content_with_target(
                             match source {
                                 crate::types::chat::MediaSource::Url { .. } => {
                                     return Err(LlmError::UnsupportedOperation(
-                                        "OpenAI chat does not support PDF file parts with URLs"
-                                            .to_string(),
+                                        "PDF file parts with URLs".to_string(),
                                     ));
                                 }
                                 crate::types::chat::MediaSource::Base64 { data } => {
@@ -250,6 +272,11 @@ fn convert_message_content_with_target(
                                 }
                             }
                         } else {
+                            if target == MessageConversionTarget::OpenAiChat {
+                                return Err(LlmError::UnsupportedOperation(format!(
+                                    "file part media type {media_type}"
+                                )));
+                            }
                             return Err(LlmError::UnsupportedOperation(format!(
                                 "OpenAI-compatible chat does not support file part media type {media_type}"
                             )));

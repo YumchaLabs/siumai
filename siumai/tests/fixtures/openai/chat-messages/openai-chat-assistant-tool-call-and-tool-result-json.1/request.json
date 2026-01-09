@@ -1,0 +1,48 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-call",
+            "input": { "foo": "bar123" },
+            "toolCallId": "quux",
+            "toolName": "thwomp"
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "quux",
+            "toolName": "thwomp",
+            "output": { "type": "json", "value": { "oof": "321rab" } }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "gpt-4o-mini",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

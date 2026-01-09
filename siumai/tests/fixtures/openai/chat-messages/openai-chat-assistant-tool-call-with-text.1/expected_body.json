@@ -1,0 +1,18 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    { "role": "user", "content": "Hi" },
+    {
+      "role": "assistant",
+      "content": "Hello",
+      "tool_calls": [
+        {
+          "id": "call_1",
+          "type": "function",
+          "function": { "name": "testFunction", "arguments": "{\"input\":\"x\"}" }
+        }
+      ]
+    }
+  ]
+}
+

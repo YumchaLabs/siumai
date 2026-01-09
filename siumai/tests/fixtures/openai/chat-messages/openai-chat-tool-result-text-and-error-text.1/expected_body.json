@@ -1,0 +1,8 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    { "role": "tool", "content": "Hello world", "tool_call_id": "text-tool" },
+    { "role": "tool", "content": "Something went wrong", "tool_call_id": "error-tool" }
+  ]
+}
+
