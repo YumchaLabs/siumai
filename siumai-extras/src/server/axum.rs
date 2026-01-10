@@ -477,6 +477,16 @@ pub fn to_openai_responses_sse_response_with_options(
 /// backed by a non-OpenAI provider.
 #[cfg(feature = "openai")]
 pub fn to_openai_chat_completions_sse_response(stream: ChatStream) -> Response<Body> {
+    to_openai_chat_completions_sse_response_with_options(stream, TranscodeSseOptions::default())
+}
+
+/// Convert a `ChatStream` into an OpenAI-compatible Chat Completions SSE response with configurable
+/// v3 fallback options.
+#[cfg(feature = "openai")]
+pub fn to_openai_chat_completions_sse_response_with_options(
+    stream: ChatStream,
+    opts: TranscodeSseOptions,
+) -> Response<Body> {
     use siumai::experimental::streaming::encode_chat_stream_as_sse;
     use siumai::protocol::openai::compat::openai_config::OpenAiCompatibleConfig;
     use siumai::protocol::openai::compat::provider_registry::{
@@ -504,7 +514,8 @@ pub fn to_openai_chat_completions_sse_response(stream: ChatStream) -> Response<B
     )
     .with_model("gpt-4o-mini");
 
-    let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+    let converter = OpenAiCompatibleEventConverter::new(cfg, adapter)
+        .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
 
     let bytes = encode_chat_stream_as_sse(stream, converter);
     let body = Body::from_stream(bytes.map(|item| {
@@ -643,43 +654,7 @@ pub fn to_transcoded_sse_response(
         TargetSseFormat::OpenAiChatCompletions => {
             #[cfg(feature = "openai")]
             {
-                if opts.v3_unsupported_part_behavior
-                    == siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText
-                {
-                    use siumai::experimental::streaming::{
-                        LanguageModelV3StreamPart, transform_chat_event_stream,
-                    };
-
-                    let stream = transform_chat_event_stream(stream, move |ev| match ev {
-                        ChatStreamEvent::Custom { event_type, data } => {
-                            let Some(part) = LanguageModelV3StreamPart::parse_loose_json(&data)
-                            else {
-                                return vec![ChatStreamEvent::Custom { event_type, data }];
-                            };
-
-                            let mut out = part.to_best_effort_chat_events();
-                            if out.is_empty()
-                                && let Some(text) = part.to_lossy_text()
-                            {
-                                out.push(ChatStreamEvent::ContentDelta {
-                                    delta: text,
-                                    index: None,
-                                });
-                            }
-
-                            if out.is_empty() {
-                                vec![ChatStreamEvent::Custom { event_type, data }]
-                            } else {
-                                out
-                            }
-                        }
-                        other => vec![other],
-                    });
-
-                    return to_openai_chat_completions_sse_response(stream);
-                }
-
-                to_openai_chat_completions_sse_response(stream)
+                to_openai_chat_completions_sse_response_with_options(stream, opts)
             }
             #[cfg(not(feature = "openai"))]
             {

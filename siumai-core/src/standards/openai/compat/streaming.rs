@@ -5,7 +5,9 @@
 
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker};
+use crate::streaming::{
+    ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker, V3UnsupportedPartBehavior,
+};
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use eventsource_stream::Event;
 use serde::{Deserialize, Serialize};
@@ -95,6 +97,7 @@ pub struct OpenAiCompatibleEventConverter {
 
     // Serialize state for reverse SSE encoding (ChatStreamEvent -> OpenAI-compatible SSE).
     serialize_state: Arc<std::sync::Mutex<OpenAiCompatSerializeState>>,
+    v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
 }
 
 impl OpenAiCompatibleEventConverter {
@@ -107,7 +110,16 @@ impl OpenAiCompatibleEventConverter {
             accumulated_content: Arc::new(tokio::sync::Mutex::new(String::new())),
             emitted_content: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             serialize_state: Arc::new(std::sync::Mutex::new(OpenAiCompatSerializeState::default())),
+            v3_unsupported_part_behavior: V3UnsupportedPartBehavior::Drop,
         }
+    }
+
+    pub fn with_v3_unsupported_part_behavior(
+        mut self,
+        behavior: V3UnsupportedPartBehavior,
+    ) -> Self {
+        self.v3_unsupported_part_behavior = behavior;
+        self
     }
 
     /// Convert OpenAI-compatible stream event to multiple ChatStreamEvents
@@ -945,7 +957,17 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 };
 
                 let mut out = Vec::new();
-                for ev in part.to_best_effort_chat_events() {
+                let mut events = part.to_best_effort_chat_events();
+                if events.is_empty()
+                    && self.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                    && let Some(text) = part.to_lossy_text()
+                {
+                    events.push(ChatStreamEvent::ContentDelta {
+                        delta: text,
+                        index: None,
+                    });
+                }
+                for ev in events {
                     out.extend_from_slice(&serialize_inner(&ev)?);
                 }
                 Ok(out)
