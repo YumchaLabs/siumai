@@ -9,7 +9,7 @@ use super::provider_metadata::AnthropicSource;
 use super::server_tools;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::streaming::{ChatStreamEvent, StreamStateTracker};
+use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker};
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use eventsource_stream::Event;
 use serde::Deserialize;
@@ -1577,201 +1577,223 @@ impl SseEventConverter for AnthropicEventConverter {
             }
         }
 
+        fn serialize_inner(
+            event: &ChatStreamEvent,
+            state: &mut AnthropicSerializeState,
+        ) -> Result<Vec<u8>, LlmError> {
+            match event {
+                ChatStreamEvent::StreamStart { metadata } => {
+                    *state = AnthropicSerializeState::default();
+                    state.message_id = metadata
+                        .id
+                        .clone()
+                        .or_else(|| Some("msg_siumai_0".to_string()));
+                    state.model = metadata.model.clone();
+
+                    let payload = serde_json::json!({
+                        "type": "message_start",
+                        "message": {
+                            "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
+                            "type": "message",
+                            "role": "assistant",
+                            "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
+                            "content": [],
+                            "stop_reason": serde_json::Value::Null,
+                            "stop_sequence": serde_json::Value::Null,
+                            "usage": { "input_tokens": 0, "output_tokens": 0 }
+                        }
+                    });
+                    sse_data_frame(&payload)
+                }
+                ChatStreamEvent::ContentDelta { delta, .. } => {
+                    let mut out = Vec::new();
+
+                    let idx = match state.text_block_index {
+                        Some(i) => i,
+                        None => {
+                            let i = state.next_block_index;
+                            state.next_block_index += 1;
+                            state.text_block_index = Some(i);
+                            i
+                        }
+                    };
+
+                    if !state.started_block_indices.contains(&idx) {
+                        state.started_block_indices.push(idx);
+                        let start = serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": { "type": "text", "text": "" }
+                        });
+                        out.extend_from_slice(&sse_data_frame(&start)?);
+                    }
+
+                    let delta_payload = serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": idx,
+                        "delta": { "type": "text_delta", "text": delta }
+                    });
+                    out.extend_from_slice(&sse_data_frame(&delta_payload)?);
+                    Ok(out)
+                }
+                ChatStreamEvent::ThinkingDelta { delta } => {
+                    let mut out = Vec::new();
+                    let idx = match state.thinking_block_index {
+                        Some(i) => i,
+                        None => {
+                            let i = state.next_block_index;
+                            state.next_block_index += 1;
+                            state.thinking_block_index = Some(i);
+                            i
+                        }
+                    };
+
+                    if !state.started_block_indices.contains(&idx) {
+                        state.started_block_indices.push(idx);
+                        let start = serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": { "type": "thinking", "thinking": "" }
+                        });
+                        out.extend_from_slice(&sse_data_frame(&start)?);
+                    }
+
+                    let delta_payload = serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": idx,
+                        "delta": { "type": "thinking_delta", "thinking": delta }
+                    });
+                    out.extend_from_slice(&sse_data_frame(&delta_payload)?);
+                    Ok(out)
+                }
+                ChatStreamEvent::ToolCallDelta {
+                    id,
+                    function_name,
+                    arguments_delta,
+                    ..
+                } => {
+                    let mut out = Vec::new();
+
+                    let idx = match state.tool_block_index_by_id.get(id).copied() {
+                        Some(i) => i,
+                        None => {
+                            let i = state.next_block_index;
+                            state.next_block_index += 1;
+                            state.tool_block_index_by_id.insert(id.clone(), i);
+                            i
+                        }
+                    };
+
+                    if !state.started_block_indices.contains(&idx) {
+                        state.started_block_indices.push(idx);
+                        let start = serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": {
+                                "type": "tool_use",
+                                "id": id,
+                                "name": function_name.clone().unwrap_or_else(|| "tool".to_string()),
+                                "input": {}
+                            }
+                        });
+                        out.extend_from_slice(&sse_data_frame(&start)?);
+                    }
+
+                    if let Some(delta) = arguments_delta.clone() {
+                        let delta_payload = serde_json::json!({
+                            "type": "content_block_delta",
+                            "index": idx,
+                            "delta": { "type": "input_json_delta", "partial_json": delta }
+                        });
+                        out.extend_from_slice(&sse_data_frame(&delta_payload)?);
+                    }
+
+                    Ok(out)
+                }
+                ChatStreamEvent::UsageUpdate { usage } => {
+                    state.latest_usage = Some(usage.clone());
+                    Ok(Vec::new())
+                }
+                ChatStreamEvent::StreamEnd { response } => {
+                    // Ensure we have a model/id even if StreamStart was not present.
+                    if state.model.is_none() {
+                        state.model = response.model.clone();
+                    }
+                    if state.message_id.is_none() {
+                        state.message_id = response
+                            .id
+                            .clone()
+                            .or_else(|| Some("msg_siumai_0".to_string()));
+                    }
+
+                    let mut out = Vec::new();
+
+                    // Close all opened content blocks (best-effort).
+                    let mut indices = state.started_block_indices.clone();
+                    indices.sort_unstable();
+                    for idx in indices {
+                        let stop =
+                            serde_json::json!({ "type": "content_block_stop", "index": idx });
+                        out.extend_from_slice(&sse_data_frame(&stop)?);
+                    }
+
+                    let stop_reason = response
+                        .finish_reason
+                        .as_ref()
+                        .and_then(map_stop_reason)
+                        .map(|s| serde_json::Value::String(s.to_string()))
+                        .unwrap_or(serde_json::Value::Null);
+
+                    let usage = response
+                        .usage
+                        .clone()
+                        .or_else(|| state.latest_usage.clone());
+                    let usage_obj = usage.as_ref().map(|u| {
+                    serde_json::json!({ "input_tokens": u.prompt_tokens, "output_tokens": u.completion_tokens })
+                }).unwrap_or_else(|| serde_json::json!({}));
+
+                    let msg_delta = serde_json::json!({
+                        "type": "message_delta",
+                        "delta": { "stop_reason": stop_reason, "stop_sequence": serde_json::Value::Null },
+                        "usage": usage_obj
+                    });
+                    out.extend_from_slice(&sse_data_frame(&msg_delta)?);
+
+                    let msg_stop = serde_json::json!({ "type": "message_stop" });
+                    out.extend_from_slice(&sse_data_frame(&msg_stop)?);
+
+                    Ok(out)
+                }
+                ChatStreamEvent::Error { error } => {
+                    let payload = serde_json::json!({
+                        "type": "error",
+                        "error": { "type": "api_error", "message": error }
+                    });
+                    sse_data_frame(&payload)
+                }
+                ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+            }
+        }
+
         let mut state = self
             .serialize_state
             .lock()
             .map_err(|_| LlmError::InternalError("serialize_state lock poisoned".to_string()))?;
 
         match event {
-            ChatStreamEvent::StreamStart { metadata } => {
-                *state = AnthropicSerializeState::default();
-                state.message_id = metadata
-                    .id
-                    .clone()
-                    .or_else(|| Some("msg_siumai_0".to_string()));
-                state.model = metadata.model.clone();
-
-                let payload = serde_json::json!({
-                    "type": "message_start",
-                    "message": {
-                        "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
-                        "type": "message",
-                        "role": "assistant",
-                        "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
-                        "content": [],
-                        "stop_reason": serde_json::Value::Null,
-                        "stop_sequence": serde_json::Value::Null,
-                        "usage": { "input_tokens": 0, "output_tokens": 0 }
-                    }
-                });
-                sse_data_frame(&payload)
-            }
-            ChatStreamEvent::ContentDelta { delta, .. } => {
-                let mut out = Vec::new();
-
-                let idx = match state.text_block_index {
-                    Some(i) => i,
-                    None => {
-                        let i = state.next_block_index;
-                        state.next_block_index += 1;
-                        state.text_block_index = Some(i);
-                        i
-                    }
+            ChatStreamEvent::Custom { data, .. } => {
+                let Ok(part) = serde_json::from_value::<LanguageModelV3StreamPart>(data.clone())
+                else {
+                    return Ok(Vec::new());
                 };
 
-                if !state.started_block_indices.contains(&idx) {
-                    state.started_block_indices.push(idx);
-                    let start = serde_json::json!({
-                        "type": "content_block_start",
-                        "index": idx,
-                        "content_block": { "type": "text", "text": "" }
-                    });
-                    out.extend_from_slice(&sse_data_frame(&start)?);
-                }
-
-                let delta_payload = serde_json::json!({
-                    "type": "content_block_delta",
-                    "index": idx,
-                    "delta": { "type": "text_delta", "text": delta }
-                });
-                out.extend_from_slice(&sse_data_frame(&delta_payload)?);
-                Ok(out)
-            }
-            ChatStreamEvent::ThinkingDelta { delta } => {
                 let mut out = Vec::new();
-                let idx = match state.thinking_block_index {
-                    Some(i) => i,
-                    None => {
-                        let i = state.next_block_index;
-                        state.next_block_index += 1;
-                        state.thinking_block_index = Some(i);
-                        i
-                    }
-                };
-
-                if !state.started_block_indices.contains(&idx) {
-                    state.started_block_indices.push(idx);
-                    let start = serde_json::json!({
-                        "type": "content_block_start",
-                        "index": idx,
-                        "content_block": { "type": "thinking", "thinking": "" }
-                    });
-                    out.extend_from_slice(&sse_data_frame(&start)?);
+                for ev in part.to_best_effort_chat_events() {
+                    out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
                 }
-
-                let delta_payload = serde_json::json!({
-                    "type": "content_block_delta",
-                    "index": idx,
-                    "delta": { "type": "thinking_delta", "thinking": delta }
-                });
-                out.extend_from_slice(&sse_data_frame(&delta_payload)?);
                 Ok(out)
             }
-            ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                ..
-            } => {
-                let mut out = Vec::new();
-
-                let idx = match state.tool_block_index_by_id.get(id).copied() {
-                    Some(i) => i,
-                    None => {
-                        let i = state.next_block_index;
-                        state.next_block_index += 1;
-                        state.tool_block_index_by_id.insert(id.clone(), i);
-                        i
-                    }
-                };
-
-                if !state.started_block_indices.contains(&idx) {
-                    state.started_block_indices.push(idx);
-                    let start = serde_json::json!({
-                        "type": "content_block_start",
-                        "index": idx,
-                        "content_block": {
-                            "type": "tool_use",
-                            "id": id,
-                            "name": function_name.clone().unwrap_or_else(|| "tool".to_string()),
-                            "input": {}
-                        }
-                    });
-                    out.extend_from_slice(&sse_data_frame(&start)?);
-                }
-
-                if let Some(delta) = arguments_delta.clone() {
-                    let delta_payload = serde_json::json!({
-                        "type": "content_block_delta",
-                        "index": idx,
-                        "delta": { "type": "input_json_delta", "partial_json": delta }
-                    });
-                    out.extend_from_slice(&sse_data_frame(&delta_payload)?);
-                }
-
-                Ok(out)
-            }
-            ChatStreamEvent::UsageUpdate { usage } => {
-                state.latest_usage = Some(usage.clone());
-                Ok(Vec::new())
-            }
-            ChatStreamEvent::StreamEnd { response } => {
-                // Ensure we have a model/id even if StreamStart was not present.
-                if state.model.is_none() {
-                    state.model = response.model.clone();
-                }
-                if state.message_id.is_none() {
-                    state.message_id = response
-                        .id
-                        .clone()
-                        .or_else(|| Some("msg_siumai_0".to_string()));
-                }
-
-                let mut out = Vec::new();
-
-                // Close all opened content blocks (best-effort).
-                let mut indices = state.started_block_indices.clone();
-                indices.sort_unstable();
-                for idx in indices {
-                    let stop = serde_json::json!({ "type": "content_block_stop", "index": idx });
-                    out.extend_from_slice(&sse_data_frame(&stop)?);
-                }
-
-                let stop_reason = response
-                    .finish_reason
-                    .as_ref()
-                    .and_then(map_stop_reason)
-                    .map(|s| serde_json::Value::String(s.to_string()))
-                    .unwrap_or(serde_json::Value::Null);
-
-                let usage = response
-                    .usage
-                    .clone()
-                    .or_else(|| state.latest_usage.clone());
-                let usage_obj = usage.as_ref().map(|u| {
-                    serde_json::json!({ "input_tokens": u.prompt_tokens, "output_tokens": u.completion_tokens })
-                }).unwrap_or_else(|| serde_json::json!({}));
-
-                let msg_delta = serde_json::json!({
-                    "type": "message_delta",
-                    "delta": { "stop_reason": stop_reason, "stop_sequence": serde_json::Value::Null },
-                    "usage": usage_obj
-                });
-                out.extend_from_slice(&sse_data_frame(&msg_delta)?);
-
-                let msg_stop = serde_json::json!({ "type": "message_stop" });
-                out.extend_from_slice(&sse_data_frame(&msg_stop)?);
-
-                Ok(out)
-            }
-            ChatStreamEvent::Error { error } => {
-                let payload = serde_json::json!({
-                    "type": "error",
-                    "error": { "type": "api_error", "message": error }
-                });
-                sse_data_frame(&payload)
-            }
-            ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+            other => serialize_inner(other, &mut state),
         }
     }
 }
@@ -2361,5 +2383,65 @@ mod tests {
         assert!(end_frames.iter().any(|v| v["type"] == "content_block_stop"));
         assert!(end_frames.iter().any(|v| v["type"] == "message_delta"));
         assert!(end_frames.iter().any(|v| v["type"] == "message_stop"));
+    }
+
+    #[test]
+    fn serializes_v3_custom_parts_to_anthropic_sse() {
+        let converter = AnthropicEventConverter::new(create_test_config());
+
+        let _ = converter
+            .serialize_event(&ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("msg_test".to_string()),
+                    model: Some("claude-test".to_string()),
+                    created: None,
+                    provider: "anthropic".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:text-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "0",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize custom text-delta");
+        let frames = parse_sse_json_frames(&bytes);
+        assert!(
+            frames.iter().any(|v| v["type"] == "content_block_delta"),
+            "expected content_block_delta from custom text-delta: {frames:?}"
+        );
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:tool-call".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": "call_1",
+                    "toolName": "get_weather",
+                    "input": r#"{"city":"Tokyo"}"#,
+                }),
+            })
+            .expect("serialize custom tool-call");
+        let frames = parse_sse_json_frames(&bytes);
+        assert!(
+            frames.iter().any(|v| v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["id"] == "call_1"
+                && v["content_block"]["name"] == "get_weather"),
+            "expected tool_use content_block_start from custom tool-call: {frames:?}"
+        );
+        assert!(
+            frames
+                .iter()
+                .any(|v| v["type"] == "content_block_delta"
+                    && v["delta"]["type"] == "input_json_delta"),
+            "expected input_json_delta from custom tool-call: {frames:?}"
+        );
     }
 }

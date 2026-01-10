@@ -5,7 +5,7 @@
 
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::streaming::{ChatStreamEvent, StreamStateTracker};
+use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker};
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use eventsource_stream::Event;
 use serde::{Deserialize, Serialize};
@@ -740,53 +740,71 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 state.id = Some("chatcmpl-siumai-0".to_string());
             }
             if state.model.is_none() {
-                state.model = Some("unknown".to_string());
+                state.model = Some(self.config.model.clone());
             }
             if state.created.is_none() {
                 state.created = Some(now_epoch_secs());
             }
         };
 
-        match event {
-            ChatStreamEvent::StreamStart { metadata } => {
-                *state = OpenAiCompatSerializeState::default();
-                state.id = metadata
-                    .id
-                    .clone()
-                    .or_else(|| Some("chatcmpl-siumai-0".to_string()));
-                state.model = metadata
-                    .model
-                    .clone()
-                    .or_else(|| Some(self.config.model.clone()));
-                state.created = metadata
-                    .created
-                    .map(|dt| dt.timestamp().max(0) as u64)
-                    .or_else(|| Some(now_epoch_secs()));
+        let mut serialize_inner = |event: &ChatStreamEvent| -> Result<Vec<u8>, LlmError> {
+            match event {
+                ChatStreamEvent::StreamStart { metadata } => {
+                    *state = OpenAiCompatSerializeState::default();
+                    state.id = metadata
+                        .id
+                        .clone()
+                        .or_else(|| Some("chatcmpl-siumai-0".to_string()));
+                    state.model = metadata
+                        .model
+                        .clone()
+                        .or_else(|| Some(self.config.model.clone()));
+                    state.created = metadata
+                        .created
+                        .map(|dt| dt.timestamp().max(0) as u64)
+                        .or_else(|| Some(now_epoch_secs()));
 
-                let payload = serde_json::json!({
-                    "id": state.id.clone(),
-                    "object": "chat.completion.chunk",
-                    "created": state.created,
-                    "model": state.model.clone(),
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": { "role": "assistant" },
-                            "finish_reason": serde_json::Value::Null
-                        }
-                    ]
-                });
-                state.emitted_role = true;
-                sse_data_frame(&payload)
-            }
-            ChatStreamEvent::ContentDelta { delta, index } => {
-                ensure_state(&mut state);
-                let choice_index = index.unwrap_or(0) as u32;
+                    let payload = serde_json::json!({
+                        "id": state.id.clone(),
+                        "object": "chat.completion.chunk",
+                        "created": state.created,
+                        "model": state.model.clone(),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": { "role": "assistant" },
+                                "finish_reason": serde_json::Value::Null
+                            }
+                        ]
+                    });
+                    state.emitted_role = true;
+                    sse_data_frame(&payload)
+                }
+                ChatStreamEvent::ContentDelta { delta, index } => {
+                    ensure_state(&mut state);
+                    let choice_index = index.unwrap_or(0) as u32;
 
-                // Some clients expect a role delta before the first content delta.
-                let mut out = Vec::new();
-                if !state.emitted_role {
-                    let role_payload = serde_json::json!({
+                    // Some clients expect a role delta before the first content delta.
+                    let mut out = Vec::new();
+                    if !state.emitted_role {
+                        let role_payload = serde_json::json!({
+                            "id": state.id.clone(),
+                            "object": "chat.completion.chunk",
+                            "created": state.created,
+                            "model": state.model.clone(),
+                            "choices": [
+                                {
+                                    "index": choice_index,
+                                    "delta": { "role": "assistant" },
+                                    "finish_reason": serde_json::Value::Null
+                                }
+                            ]
+                        });
+                        out.extend_from_slice(&sse_data_frame(&role_payload)?);
+                        state.emitted_role = true;
+                    }
+
+                    let payload = serde_json::json!({
                         "id": state.id.clone(),
                         "object": "chat.completion.chunk",
                         "created": state.created,
@@ -794,146 +812,146 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                         "choices": [
                             {
                                 "index": choice_index,
-                                "delta": { "role": "assistant" },
+                                "delta": { "content": delta },
                                 "finish_reason": serde_json::Value::Null
                             }
                         ]
                     });
-                    out.extend_from_slice(&sse_data_frame(&role_payload)?);
-                    state.emitted_role = true;
+                    out.extend_from_slice(&sse_data_frame(&payload)?);
+                    Ok(out)
                 }
+                ChatStreamEvent::ToolCallDelta {
+                    id,
+                    function_name,
+                    arguments_delta,
+                    index,
+                } => {
+                    ensure_state(&mut state);
+                    let choice_index = index.unwrap_or(0) as u32;
 
-                let payload = serde_json::json!({
-                    "id": state.id.clone(),
-                    "object": "chat.completion.chunk",
-                    "created": state.created,
-                    "model": state.model.clone(),
-                    "choices": [
-                        {
-                            "index": choice_index,
-                            "delta": { "content": delta },
-                            "finish_reason": serde_json::Value::Null
+                    let tool_call_index = match state.tool_call_index_by_id.get(id).copied() {
+                        Some(i) => i,
+                        None => {
+                            let i = state.next_tool_call_index;
+                            state.next_tool_call_index += 1;
+                            state.tool_call_index_by_id.insert(id.clone(), i);
+                            i
                         }
-                    ]
-                });
-                out.extend_from_slice(&sse_data_frame(&payload)?);
-                Ok(out)
-            }
-            ChatStreamEvent::ToolCallDelta {
-                id,
-                function_name,
-                arguments_delta,
-                index,
-            } => {
-                ensure_state(&mut state);
-                let choice_index = index.unwrap_or(0) as u32;
+                    };
 
-                let tool_call_index = match state.tool_call_index_by_id.get(id).copied() {
-                    Some(i) => i,
-                    None => {
-                        let i = state.next_tool_call_index;
-                        state.next_tool_call_index += 1;
-                        state.tool_call_index_by_id.insert(id.clone(), i);
-                        i
+                    let mut function = serde_json::Map::new();
+                    if let Some(name) = function_name.clone() {
+                        function.insert("name".to_string(), serde_json::Value::String(name));
                     }
+                    if let Some(args) = arguments_delta.clone() {
+                        function.insert("arguments".to_string(), serde_json::Value::String(args));
+                    }
+
+                    let payload = serde_json::json!({
+                        "id": state.id.clone(),
+                        "object": "chat.completion.chunk",
+                        "created": state.created,
+                        "model": state.model.clone(),
+                        "choices": [
+                            {
+                                "index": choice_index,
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": tool_call_index,
+                                            "id": id,
+                                            "type": "function",
+                                            "function": serde_json::Value::Object(function),
+                                        }
+                                    ]
+                                },
+                                "finish_reason": serde_json::Value::Null
+                            }
+                        ]
+                    });
+                    sse_data_frame(&payload)
+                }
+                ChatStreamEvent::UsageUpdate { usage } => {
+                    ensure_state(&mut state);
+                    let payload = serde_json::json!({
+                        "id": state.id.clone(),
+                        "object": "chat.completion.chunk",
+                        "created": state.created,
+                        "model": state.model.clone(),
+                        "choices": [],
+                        "usage": {
+                            "prompt_tokens": usage.prompt_tokens,
+                            "completion_tokens": usage.completion_tokens,
+                            "total_tokens": usage.total_tokens,
+                        }
+                    });
+                    sse_data_frame(&payload)
+                }
+                ChatStreamEvent::StreamEnd { response } => {
+                    ensure_state(&mut state);
+                    if state.model.is_none() {
+                        state.model = response.model.clone();
+                    }
+                    let finish_reason = response
+                        .finish_reason
+                        .as_ref()
+                        .and_then(finish_reason_str)
+                        .map(|s| serde_json::Value::String(s.to_string()))
+                        .unwrap_or(serde_json::Value::Null);
+
+                    let usage = response.usage.as_ref().map(|u| {
+                        serde_json::json!({
+                            "prompt_tokens": u.prompt_tokens,
+                            "completion_tokens": u.completion_tokens,
+                            "total_tokens": u.total_tokens,
+                        })
+                    });
+
+                    let payload = serde_json::json!({
+                        "id": state.id.clone(),
+                        "object": "chat.completion.chunk",
+                        "created": state.created,
+                        "model": state.model.clone(),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": finish_reason
+                            }
+                        ],
+                        "usage": usage.unwrap_or(serde_json::Value::Null),
+                    });
+
+                    let mut out = sse_data_frame(&payload)?;
+                    out.extend_from_slice(&done_frame());
+                    Ok(out)
+                }
+                ChatStreamEvent::Error { error } => {
+                    let payload = serde_json::json!({
+                        "error": { "message": error },
+                    });
+                    sse_data_frame(&payload)
+                }
+                ChatStreamEvent::ThinkingDelta { .. } | ChatStreamEvent::Custom { .. } => {
+                    Ok(Vec::new())
+                }
+            }
+        };
+
+        match event {
+            ChatStreamEvent::Custom { data, .. } => {
+                let Ok(part) = serde_json::from_value::<LanguageModelV3StreamPart>(data.clone())
+                else {
+                    return Ok(Vec::new());
                 };
 
-                let mut function = serde_json::Map::new();
-                if let Some(name) = function_name.clone() {
-                    function.insert("name".to_string(), serde_json::Value::String(name));
+                let mut out = Vec::new();
+                for ev in part.to_best_effort_chat_events() {
+                    out.extend_from_slice(&serialize_inner(&ev)?);
                 }
-                if let Some(args) = arguments_delta.clone() {
-                    function.insert("arguments".to_string(), serde_json::Value::String(args));
-                }
-
-                let payload = serde_json::json!({
-                    "id": state.id.clone(),
-                    "object": "chat.completion.chunk",
-                    "created": state.created,
-                    "model": state.model.clone(),
-                    "choices": [
-                        {
-                            "index": choice_index,
-                            "delta": {
-                                "tool_calls": [
-                                    {
-                                        "index": tool_call_index,
-                                        "id": id,
-                                        "type": "function",
-                                        "function": serde_json::Value::Object(function),
-                                    }
-                                ]
-                            },
-                            "finish_reason": serde_json::Value::Null
-                        }
-                    ]
-                });
-                sse_data_frame(&payload)
-            }
-            ChatStreamEvent::UsageUpdate { usage } => {
-                ensure_state(&mut state);
-                let payload = serde_json::json!({
-                    "id": state.id.clone(),
-                    "object": "chat.completion.chunk",
-                    "created": state.created,
-                    "model": state.model.clone(),
-                    "choices": [],
-                    "usage": {
-                        "prompt_tokens": usage.prompt_tokens,
-                        "completion_tokens": usage.completion_tokens,
-                        "total_tokens": usage.total_tokens,
-                    }
-                });
-                sse_data_frame(&payload)
-            }
-            ChatStreamEvent::StreamEnd { response } => {
-                ensure_state(&mut state);
-                if state.model.is_none() {
-                    state.model = response.model.clone();
-                }
-                let finish_reason = response
-                    .finish_reason
-                    .as_ref()
-                    .and_then(finish_reason_str)
-                    .map(|s| serde_json::Value::String(s.to_string()))
-                    .unwrap_or(serde_json::Value::Null);
-
-                let usage = response.usage.as_ref().map(|u| {
-                    serde_json::json!({
-                        "prompt_tokens": u.prompt_tokens,
-                        "completion_tokens": u.completion_tokens,
-                        "total_tokens": u.total_tokens,
-                    })
-                });
-
-                let payload = serde_json::json!({
-                    "id": state.id.clone(),
-                    "object": "chat.completion.chunk",
-                    "created": state.created,
-                    "model": state.model.clone(),
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {},
-                            "finish_reason": finish_reason
-                        }
-                    ],
-                    "usage": usage.unwrap_or(serde_json::Value::Null),
-                });
-
-                let mut out = sse_data_frame(&payload)?;
-                out.extend_from_slice(&done_frame());
                 Ok(out)
             }
-            ChatStreamEvent::Error { error } => {
-                let payload = serde_json::json!({
-                    "error": { "message": error },
-                });
-                sse_data_frame(&payload)
-            }
-            ChatStreamEvent::ThinkingDelta { .. } | ChatStreamEvent::Custom { .. } => {
-                Ok(Vec::new())
-            }
+            other => serialize_inner(other),
         }
     }
 }
@@ -974,6 +992,68 @@ mod tests {
                 serde_json::from_str::<serde_json::Value>(line).ok()
             })
             .collect()
+    }
+
+    #[test]
+    fn openai_compat_serializes_v3_custom_parts_best_effort() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["tools".to_string()],
+            default_model: Some("gpt-4o-mini".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-siumai-encoding-only",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-4o-mini");
+
+        let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:text-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "0",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize custom text-delta");
+        let frames = parse_sse_data_frames(&bytes);
+        assert!(
+            frames
+                .iter()
+                .any(|v| v["choices"][0]["delta"]["content"] == "Hello"),
+            "expected content delta from custom text-delta: {frames:?}"
+        );
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:tool-call".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": "call_1",
+                    "toolName": "get_weather",
+                    "input": r#"{"city":"Tokyo"}"#,
+                }),
+            })
+            .expect("serialize custom tool-call");
+        let frames = parse_sse_data_frames(&bytes);
+        assert!(
+            frames
+                .iter()
+                .any(|v| v["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_1"),
+            "expected tool_calls from custom tool-call: {frames:?}"
+        );
     }
 
     #[tokio::test]

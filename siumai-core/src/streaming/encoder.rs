@@ -14,6 +14,28 @@ use crate::streaming::{ChatStreamEvent, JsonEventConverter, SseEventConverter};
 /// Byte stream suitable for HTTP responses (SSE/JSONL).
 pub type ChatByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, LlmError>> + Send + Sync>>;
 
+/// Transform a unified chat event stream by expanding (or dropping) events.
+///
+/// This is useful for gateway/proxy use-cases where provider-specific `Custom`
+/// events need to be bridged into another provider's expected shape before
+/// re-serialization.
+pub fn transform_chat_event_stream<S, F>(
+    stream: S,
+    mut transform: F,
+) -> Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + Sync>>
+where
+    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + Sync + 'static,
+    F: FnMut(ChatStreamEvent) -> Vec<ChatStreamEvent> + Send + Sync + 'static,
+{
+    Box::pin(stream.flat_map(move |item| {
+        let out: Vec<Result<ChatStreamEvent, LlmError>> = match item {
+            Ok(ev) => transform(ev).into_iter().map(Ok).collect(),
+            Err(e) => vec![Err(e)],
+        };
+        futures_util::stream::iter(out)
+    }))
+}
+
 /// Encode a unified chat event stream into provider-native SSE frames.
 ///
 /// Each `ChatStreamEvent` is encoded via `SseEventConverter::serialize_event`.

@@ -384,6 +384,53 @@ impl LanguageModelV3StreamPart {
         Ok(format!("data: {json}\n\n").into_bytes())
     }
 
+    /// Convert this typed stream part into best-effort `ChatStreamEvent`s.
+    ///
+    /// This is primarily intended for protocol re-serialization, where a target
+    /// provider's encoder might not understand the source provider's custom events.
+    ///
+    /// Notes:
+    /// - Not all Vercel stream parts have a lossless representation in `ChatStreamEvent`.
+    /// - Unsupported parts are dropped (empty vec).
+    pub fn to_best_effort_chat_events(&self) -> Vec<ChatStreamEvent> {
+        match self {
+            LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+                vec![ChatStreamEvent::ContentDelta {
+                    delta: delta.clone(),
+                    index: None,
+                }]
+            }
+            LanguageModelV3StreamPart::ReasoningDelta { delta, .. } => {
+                vec![ChatStreamEvent::ThinkingDelta {
+                    delta: delta.clone(),
+                }]
+            }
+            LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
+                vec![ChatStreamEvent::ToolCallDelta {
+                    id: id.clone(),
+                    function_name: Some(tool_name.clone()),
+                    arguments_delta: None,
+                    index: None,
+                }]
+            }
+            LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+                vec![ChatStreamEvent::ToolCallDelta {
+                    id: id.clone(),
+                    function_name: None,
+                    arguments_delta: Some(delta.clone()),
+                    index: None,
+                }]
+            }
+            LanguageModelV3StreamPart::ToolCall(call) => vec![ChatStreamEvent::ToolCallDelta {
+                id: call.tool_call_id.clone(),
+                function_name: Some(call.tool_name.clone()),
+                arguments_delta: Some(call.input.clone()),
+                index: None,
+            }],
+            _ => Vec::new(),
+        }
+    }
+
     fn to_openai_custom_event_payload(&self) -> Option<(String, serde_json::Value)> {
         let data = serde_json::to_value(self).ok()?;
         let event_type = match self {

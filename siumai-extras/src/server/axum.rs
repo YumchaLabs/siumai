@@ -297,23 +297,14 @@ pub fn to_text_stream(
 pub fn to_openai_responses_sse_stream(
     stream: ChatStream,
 ) -> Pin<Box<dyn Stream<Item = Result<axum::body::Bytes, Infallible>> + Send>> {
-    use futures::stream;
     use siumai::experimental::streaming::{
-        OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse,
+        OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse, transform_chat_event_stream,
     };
     use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
 
     let mut bridge = OpenAiResponsesStreamPartsBridge::new();
 
-    let bridged = stream.flat_map(move |item| {
-        let events: Vec<Result<ChatStreamEvent, LlmError>> = match item {
-            Ok(ev) => bridge.bridge_event(ev).into_iter().map(Ok).collect(),
-            Err(e) => vec![Ok(ChatStreamEvent::Error {
-                error: e.user_message(),
-            })],
-        };
-        stream::iter(events)
-    });
+    let bridged = transform_chat_event_stream(stream, move |ev| bridge.bridge_event(ev));
 
     let converter = OpenAiResponsesEventConverter::new();
     let bytes_stream = encode_chat_stream_as_sse(bridged, converter);

@@ -6,7 +6,7 @@
 use super::types::GeminiConfig;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::streaming::{ChatStreamEvent, StreamStateTracker};
+use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker};
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use serde::Deserialize;
@@ -929,7 +929,18 @@ impl SseEventConverter for GeminiEventConverter {
                 });
                 sse_data_frame(&payload)
             }
-            ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+            ChatStreamEvent::Custom { data, .. } => {
+                let Ok(part) = serde_json::from_value::<LanguageModelV3StreamPart>(data.clone())
+                else {
+                    return Ok(Vec::new());
+                };
+
+                let mut out = Vec::new();
+                for ev in part.to_best_effort_chat_events() {
+                    out.extend_from_slice(&self.serialize_event(&ev)?);
+                }
+                Ok(out)
+            }
         }
     }
 }
@@ -1352,6 +1363,49 @@ mod tests {
         );
         assert_eq!(
             v["candidates"][0]["content"]["parts"][0]["functionCall"]["args"]["city"],
+            serde_json::json!("Tokyo")
+        );
+    }
+
+    #[test]
+    fn gemini_serializes_v3_custom_parts_best_effort() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:text-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "0",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize custom text-delta");
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(
+            frames[0]["candidates"][0]["content"]["parts"][0]["text"],
+            serde_json::json!("Hello")
+        );
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:tool-call".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": "call_1",
+                    "toolName": "get_weather",
+                    "input": r#"{"city":"Tokyo"}"#,
+                }),
+            })
+            .expect("serialize custom tool-call");
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(
+            frames[0]["candidates"][0]["content"]["parts"][0]["functionCall"]["name"],
+            serde_json::json!("get_weather")
+        );
+        assert_eq!(
+            frames[0]["candidates"][0]["content"]["parts"][0]["functionCall"]["args"]["city"],
             serde_json::json!("Tokyo")
         );
     }
