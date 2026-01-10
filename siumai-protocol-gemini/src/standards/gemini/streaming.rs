@@ -6,7 +6,10 @@
 use super::types::GeminiConfig;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker};
+use crate::streaming::{
+    ChatStreamEvent, LanguageModelV3Source, LanguageModelV3StreamPart, StreamStateTracker,
+    V3UnsupportedPartBehavior,
+};
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
 use serde::Deserialize;
@@ -123,6 +126,7 @@ pub struct GeminiEventConverter {
     current_reasoning_block_id: Arc<Mutex<Option<String>>>,
 
     serialize_state: Arc<Mutex<GeminiSerializeState>>,
+    v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
 }
 
 impl GeminiEventConverter {
@@ -136,7 +140,16 @@ impl GeminiEventConverter {
             pending_code_execution_id: Arc::new(Mutex::new(None)),
             current_reasoning_block_id: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(GeminiSerializeState::default())),
+            v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
         }
+    }
+
+    pub fn with_v3_unsupported_part_behavior(
+        mut self,
+        behavior: V3UnsupportedPartBehavior,
+    ) -> Self {
+        self.v3_unsupported_part_behavior = behavior;
+        self
     }
 
     fn provider_metadata_key(&self) -> &'static str {
@@ -935,11 +948,153 @@ impl SseEventConverter for GeminiEventConverter {
                     return Ok(Vec::new());
                 };
 
-                let mut out = Vec::new();
-                for ev in part.to_best_effort_chat_events() {
-                    out.extend_from_slice(&self.serialize_event(&ev)?);
+                match part {
+                    LanguageModelV3StreamPart::Source(source) => {
+                        let chunk = match source {
+                            LanguageModelV3Source::Url { url, title, .. } => {
+                                let mut web = serde_json::Map::new();
+                                web.insert("uri".to_string(), serde_json::Value::String(url));
+                                if let Some(title) = title {
+                                    web.insert(
+                                        "title".to_string(),
+                                        serde_json::Value::String(title),
+                                    );
+                                }
+                                serde_json::json!({ "web": serde_json::Value::Object(web) })
+                            }
+                            LanguageModelV3Source::Document {
+                                title,
+                                filename,
+                                media_type: _,
+                                ..
+                            } => {
+                                let mut retrieved = serde_json::Map::new();
+                                retrieved.insert(
+                                    "title".to_string(),
+                                    serde_json::Value::String(match filename {
+                                        Some(f) => format!("{title} ({f})"),
+                                        None => title,
+                                    }),
+                                );
+                                serde_json::json!({
+                                    "retrievedContext": serde_json::Value::Object(retrieved)
+                                })
+                            }
+                        };
+
+                        let payload = serde_json::json!({
+                            "candidates": [
+                                {
+                                    "groundingMetadata": {
+                                        "groundingChunks": [chunk]
+                                    }
+                                }
+                            ]
+                        });
+                        sse_data_frame(&payload)
+                    }
+                    LanguageModelV3StreamPart::Finish {
+                        usage,
+                        finish_reason,
+                        ..
+                    } => {
+                        let unified = finish_reason.unified.to_ascii_lowercase();
+                        let reason = if unified.contains("length") || unified.contains("max") {
+                            "MAX_TOKENS"
+                        } else if unified.contains("safety") || unified.contains("content") {
+                            "SAFETY"
+                        } else {
+                            "STOP"
+                        };
+
+                        let prompt =
+                            usage.input_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                        let completion =
+                            usage.output_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                        let total = prompt.saturating_add(completion);
+
+                        let payload = serde_json::json!({
+                            "candidates": [
+                                { "finishReason": reason }
+                            ],
+                            "usageMetadata": {
+                                "promptTokenCount": prompt,
+                                "candidatesTokenCount": completion,
+                                "totalTokenCount": total,
+                                "thoughtsTokenCount": usage.output_tokens.reasoning.map(|v| v.min(u32::MAX as u64) as u32),
+                            }
+                        });
+                        sse_data_frame(&payload)
+                    }
+                    LanguageModelV3StreamPart::ToolResult(tr) => {
+                        if tr.tool_name == "code_execution" {
+                            let outcome = tr
+                                .result
+                                .get("outcome")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("OUTCOME_OK");
+                            let output = tr.result.get("output").and_then(|v| v.as_str());
+
+                            let mut res = serde_json::Map::new();
+                            res.insert(
+                                "outcome".to_string(),
+                                serde_json::Value::String(outcome.to_string()),
+                            );
+                            if let Some(out) = output {
+                                res.insert(
+                                    "output".to_string(),
+                                    serde_json::Value::String(out.to_string()),
+                                );
+                            }
+
+                            let payload = serde_json::json!({
+                                "candidates": [
+                                    {
+                                        "content": {
+                                            "parts": [
+                                                { "codeExecutionResult": serde_json::Value::Object(res) }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            });
+                            return sse_data_frame(&payload);
+                        }
+
+                        if self.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                            && let Some(text) =
+                                LanguageModelV3StreamPart::ToolResult(tr).to_lossy_text()
+                        {
+                            return self.serialize_event(&ChatStreamEvent::ContentDelta {
+                                delta: text,
+                                index: None,
+                            });
+                        }
+
+                        Ok(Vec::new())
+                    }
+                    other => {
+                        let mut out = Vec::new();
+                        for ev in other.to_best_effort_chat_events() {
+                            out.extend_from_slice(&self.serialize_event(&ev)?);
+                        }
+
+                        if out.is_empty()
+                            && self.v3_unsupported_part_behavior
+                                == V3UnsupportedPartBehavior::AsText
+                            && let Some(text) = other.to_lossy_text()
+                        {
+                            out.extend_from_slice(&self.serialize_event(
+                                &ChatStreamEvent::ContentDelta {
+                                    delta: text,
+                                    index: None,
+                                },
+                            )?);
+                        }
+
+                        Ok(out)
+                    }
                 }
-                Ok(out)
             }
         }
     }
@@ -1407,6 +1562,89 @@ mod tests {
         assert_eq!(
             frames[0]["candidates"][0]["content"]["parts"][0]["functionCall"]["args"]["city"],
             serde_json::json!("Tokyo")
+        );
+    }
+
+    #[test]
+    fn gemini_serializes_v3_source_part_as_grounding_chunk() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "anthropic:source".to_string(),
+                data: serde_json::json!({
+                    "type": "source",
+                    "sourceType": "url",
+                    "id": "src_1",
+                    "url": "https://www.rust-lang.org/",
+                    "title": "Rust",
+                }),
+            })
+            .expect("serialize v3 source");
+
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(
+            frames[0]["candidates"][0]["groundingMetadata"]["groundingChunks"][0]["web"]["uri"],
+            serde_json::json!("https://www.rust-lang.org/")
+        );
+    }
+
+    #[test]
+    fn gemini_serializes_v3_finish_part_as_finish_reason_chunk() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:finish".to_string(),
+                data: serde_json::json!({
+                    "type": "finish",
+                    "usage": {
+                        "inputTokens": { "total": 3 },
+                        "outputTokens": { "total": 5 }
+                    },
+                    "finishReason": { "unified": "stop" }
+                }),
+            })
+            .expect("serialize v3 finish");
+
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(
+            frames[0]["candidates"][0]["finishReason"],
+            serde_json::json!("STOP")
+        );
+        assert_eq!(
+            frames[0]["usageMetadata"]["totalTokenCount"],
+            serde_json::json!(8)
+        );
+    }
+
+    #[test]
+    fn gemini_serializes_v3_code_execution_tool_result_as_code_execution_result_part() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:tool-result".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-result",
+                    "toolCallId": "call_1",
+                    "toolName": "code_execution",
+                    "result": { "outcome": "OUTCOME_OK", "output": "1" }
+                }),
+            })
+            .expect("serialize v3 tool-result");
+
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(
+            frames[0]["candidates"][0]["content"]["parts"][0]["codeExecutionResult"]["outcome"],
+            serde_json::json!("OUTCOME_OK")
+        );
+        assert_eq!(
+            frames[0]["candidates"][0]["content"]["parts"][0]["codeExecutionResult"]["output"],
+            serde_json::json!("1")
         );
     }
 }

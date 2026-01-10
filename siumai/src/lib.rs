@@ -162,8 +162,8 @@ pub mod experimental {
     pub mod streaming {
         pub use siumai_core::streaming::{
             ChatByteStream, LanguageModelV3StreamPart, OpenAiResponsesStreamPartsBridge,
-            StreamPartNamespace, encode_chat_stream_as_jsonl, encode_chat_stream_as_sse,
-            transform_chat_event_stream,
+            StreamPartNamespace, V3UnsupportedPartBehavior, encode_chat_stream_as_jsonl,
+            encode_chat_stream_as_sse, transform_chat_event_stream,
         };
     }
 

@@ -9,7 +9,9 @@ use super::provider_metadata::AnthropicSource;
 use super::server_tools;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
-use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker};
+use crate::streaming::{
+    ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker, V3UnsupportedPartBehavior,
+};
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
 use eventsource_stream::Event;
 use serde::Deserialize;
@@ -23,6 +25,7 @@ use std::sync::{Arc, Mutex};
 struct AnthropicSerializeState {
     message_id: Option<String>,
     model: Option<String>,
+    message_start_emitted: bool,
     next_block_index: usize,
     text_block_index: Option<usize>,
     thinking_block_index: Option<usize>,
@@ -150,6 +153,7 @@ pub struct AnthropicEventConverter {
     vercel_stop_sequence: Arc<Mutex<Option<String>>>,
     vercel_usage: Arc<Mutex<Option<serde_json::Value>>>,
     serialize_state: Arc<Mutex<AnthropicSerializeState>>,
+    v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
 }
 
 impl AnthropicEventConverter {
@@ -172,11 +176,20 @@ impl AnthropicEventConverter {
             vercel_stop_sequence: Arc::new(Mutex::new(None)),
             vercel_usage: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(AnthropicSerializeState::default())),
+            v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
         }
     }
 
     pub fn with_citation_documents(mut self, docs: Vec<AnthropicCitationDocument>) -> Self {
         self.citation_documents = docs;
+        self
+    }
+
+    pub fn with_v3_unsupported_part_behavior(
+        mut self,
+        behavior: V3UnsupportedPartBehavior,
+    ) -> Self {
+        self.v3_unsupported_part_behavior = behavior;
         self
     }
 
@@ -1577,6 +1590,26 @@ impl SseEventConverter for AnthropicEventConverter {
             }
         }
 
+        fn map_v3_finish_reason_unified(unified: &str) -> Option<&'static str> {
+            let u = unified.trim().to_ascii_lowercase();
+            if u.is_empty() {
+                return None;
+            }
+            if u.contains("length") || u.contains("max") {
+                return Some("max_tokens");
+            }
+            if u.contains("tool") {
+                return Some("tool_use");
+            }
+            if u.contains("stop") {
+                return Some("end_turn");
+            }
+            if u.contains("safety") || u.contains("content") || u.contains("refusal") {
+                return Some("refusal");
+            }
+            None
+        }
+
         fn serialize_inner(
             event: &ChatStreamEvent,
             state: &mut AnthropicSerializeState,
@@ -1589,19 +1622,20 @@ impl SseEventConverter for AnthropicEventConverter {
                         .clone()
                         .or_else(|| Some("msg_siumai_0".to_string()));
                     state.model = metadata.model.clone();
+                    state.message_start_emitted = true;
 
                     let payload = serde_json::json!({
                         "type": "message_start",
                         "message": {
-                            "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
-                            "type": "message",
-                            "role": "assistant",
-                            "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
-                            "content": [],
-                            "stop_reason": serde_json::Value::Null,
-                            "stop_sequence": serde_json::Value::Null,
-                            "usage": { "input_tokens": 0, "output_tokens": 0 }
-                        }
+                                "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
+                                "type": "message",
+                                "role": "assistant",
+                                "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
+                                "content": [],
+                                "stop_reason": serde_json::Value::Null,
+                                "stop_sequence": serde_json::Value::Null,
+                                "usage": { "input_tokens": 0, "output_tokens": 0 }
+                            }
                     });
                     sse_data_frame(&payload)
                 }
@@ -1788,10 +1822,95 @@ impl SseEventConverter for AnthropicEventConverter {
                 };
 
                 let mut out = Vec::new();
-                for ev in part.to_best_effort_chat_events() {
-                    out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                let mapped = part.to_best_effort_chat_events();
+                if !mapped.is_empty() {
+                    for ev in mapped {
+                        out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                    }
+                    return Ok(out);
                 }
-                Ok(out)
+
+                if let LanguageModelV3StreamPart::Finish {
+                    usage,
+                    finish_reason,
+                    ..
+                } = &part
+                {
+                    // Best-effort: synthesize an Anthropic message_stop sequence.
+                    if state.message_id.is_none() {
+                        state.message_id = Some("msg_siumai_0".to_string());
+                    }
+                    if state.model.is_none() {
+                        state.model = Some("unknown".to_string());
+                    }
+
+                    if !state.message_start_emitted {
+                        let payload = serde_json::json!({
+                            "type": "message_start",
+                            "message": {
+                                "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
+                                "type": "message",
+                                "role": "assistant",
+                                "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
+                                "content": [],
+                                "stop_reason": serde_json::Value::Null,
+                                "stop_sequence": serde_json::Value::Null,
+                                "usage": { "input_tokens": 0, "output_tokens": 0 }
+                            }
+                        });
+                        out.extend_from_slice(&sse_data_frame(&payload)?);
+                        state.message_start_emitted = true;
+                    }
+
+                    let mut indices = state.started_block_indices.clone();
+                    indices.sort_unstable();
+                    for idx in indices {
+                        let stop =
+                            serde_json::json!({ "type": "content_block_stop", "index": idx });
+                        out.extend_from_slice(&sse_data_frame(&stop)?);
+                    }
+                    state.started_block_indices.clear();
+                    state.text_block_index = None;
+                    state.thinking_block_index = None;
+                    state.tool_block_index_by_id.clear();
+
+                    let stop_reason = map_v3_finish_reason_unified(&finish_reason.unified)
+                        .map(|s| serde_json::Value::String(s.to_string()))
+                        .unwrap_or(serde_json::Value::Null);
+
+                    let prompt = usage.input_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                    let completion =
+                        usage.output_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                    let usage_obj = serde_json::json!({
+                        "input_tokens": prompt,
+                        "output_tokens": completion,
+                    });
+
+                    let msg_delta = serde_json::json!({
+                        "type": "message_delta",
+                        "delta": { "stop_reason": stop_reason, "stop_sequence": serde_json::Value::Null },
+                        "usage": usage_obj
+                    });
+                    out.extend_from_slice(&sse_data_frame(&msg_delta)?);
+
+                    let msg_stop = serde_json::json!({ "type": "message_stop" });
+                    out.extend_from_slice(&sse_data_frame(&msg_stop)?);
+                    return Ok(out);
+                }
+
+                if self.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                    && let Some(text) = part.to_lossy_text()
+                {
+                    return serialize_inner(
+                        &ChatStreamEvent::ContentDelta {
+                            delta: text,
+                            index: None,
+                        },
+                        &mut state,
+                    );
+                }
+
+                Ok(Vec::new())
             }
             other => serialize_inner(other, &mut state),
         }
@@ -2442,6 +2561,80 @@ mod tests {
                 .any(|v| v["type"] == "content_block_delta"
                     && v["delta"]["type"] == "input_json_delta"),
             "expected input_json_delta from custom tool-call: {frames:?}"
+        );
+    }
+
+    #[test]
+    fn serializes_v3_finish_part_as_message_stop_sequence() {
+        let converter = AnthropicEventConverter::new(create_test_config());
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "gemini:reasoning".to_string(),
+                data: serde_json::json!({
+                    "type": "finish",
+                    "usage": {
+                        "inputTokens": { "total": 3 },
+                        "outputTokens": { "total": 5 }
+                    },
+                    "finishReason": { "unified": "stop" }
+                }),
+            })
+            .expect("serialize v3 finish");
+
+        let frames = parse_sse_json_frames(&bytes);
+        assert!(
+            frames.iter().any(|v| v["type"] == "message_start"),
+            "expected message_start: {frames:?}"
+        );
+        assert!(
+            frames.iter().any(|v| v["type"] == "message_delta"
+                && v["delta"]["stop_reason"] == serde_json::json!("end_turn")),
+            "expected message_delta stop_reason end_turn: {frames:?}"
+        );
+        assert!(
+            frames.iter().any(|v| v["type"] == "message_stop"),
+            "expected message_stop: {frames:?}"
+        );
+    }
+
+    #[test]
+    fn serializes_v3_tool_result_as_text_when_configured() {
+        let converter = AnthropicEventConverter::new(create_test_config())
+            .with_v3_unsupported_part_behavior(crate::streaming::V3UnsupportedPartBehavior::AsText);
+
+        let _ = converter
+            .serialize_event(&ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("msg_test".to_string()),
+                    model: Some("claude-test".to_string()),
+                    created: None,
+                    provider: "anthropic".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "openai:tool-result".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-result",
+                    "toolCallId": "call_1",
+                    "toolName": "web_search",
+                    "result": [{ "type": "web_search_result", "url": "https://example.com" }]
+                }),
+            })
+            .expect("serialize v3 tool-result");
+
+        let frames = parse_sse_json_frames(&bytes);
+        assert!(
+            frames.iter().any(|v| v["type"] == "content_block_delta"
+                && v["delta"]["type"] == "text_delta"
+                && v["delta"]["text"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("[tool-result]"))),
+            "expected text_delta containing [tool-result]: {frames:?}"
         );
     }
 }

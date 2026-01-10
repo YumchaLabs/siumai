@@ -347,6 +347,17 @@ pub enum StreamPartNamespace {
     Gemini,
 }
 
+/// Controls how v3 stream parts that cannot be represented in `ChatStreamEvent`
+/// should be handled during protocol re-serialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum V3UnsupportedPartBehavior {
+    /// Drop the part (strictest behavior).
+    #[default]
+    Drop,
+    /// Convert the part into a text delta (lossy, but preserves information).
+    AsText,
+}
+
 impl LanguageModelV3StreamPart {
     /// Best-effort parse from a `ChatStreamEvent`.
     ///
@@ -428,6 +439,54 @@ impl LanguageModelV3StreamPart {
                 index: None,
             }],
             _ => Vec::new(),
+        }
+    }
+
+    /// Convert a v3 stream part into a lossy text representation.
+    pub fn to_lossy_text(&self) -> Option<String> {
+        match self {
+            LanguageModelV3StreamPart::Source(src) => match src {
+                LanguageModelV3Source::Url { url, title, .. } => Some(format!(
+                    "[source] {} {}",
+                    title.clone().unwrap_or_else(|| "url".to_string()),
+                    url
+                )),
+                LanguageModelV3Source::Document {
+                    title,
+                    filename,
+                    media_type,
+                    ..
+                } => Some(format!(
+                    "[source] {} ({}){}",
+                    title,
+                    media_type,
+                    filename
+                        .as_ref()
+                        .map(|f| format!(", {f}"))
+                        .unwrap_or_default()
+                )),
+            },
+            LanguageModelV3StreamPart::ToolResult(tr) => Some(format!(
+                "[tool-result] {}: {}",
+                tr.tool_name,
+                serde_json::to_string(&tr.result).unwrap_or_else(|_| "{}".to_string())
+            )),
+            LanguageModelV3StreamPart::ToolApprovalRequest(req) => Some(format!(
+                "[tool-approval-request] approvalId={} toolCallId={}",
+                req.approval_id, req.tool_call_id
+            )),
+            LanguageModelV3StreamPart::Finish { finish_reason, .. } => {
+                Some(format!("[finish] {}", finish_reason.unified))
+            }
+            LanguageModelV3StreamPart::Error { error } => Some(format!(
+                "[error] {}",
+                serde_json::to_string(error).unwrap_or_else(|_| "\"error\"".to_string())
+            )),
+            LanguageModelV3StreamPart::Raw { raw_value } => Some(format!(
+                "[raw] {}",
+                serde_json::to_string(raw_value).unwrap_or_else(|_| "\"raw\"".to_string())
+            )),
+            _ => None,
         }
     }
 
