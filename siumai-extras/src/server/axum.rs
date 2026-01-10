@@ -36,6 +36,56 @@ use futures::{Stream, StreamExt};
 
 use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmError};
 
+/// Target SSE wire format for stream transcoding helpers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetSseFormat {
+    /// OpenAI Responses API SSE (`response.*` events).
+    OpenAiResponses,
+    /// OpenAI Chat Completions SSE (`chat.completion.chunk` + `[DONE]`).
+    OpenAiChatCompletions,
+    /// Anthropic Messages API SSE (`message_*` events).
+    AnthropicMessages,
+    /// Gemini/Vertex GenerateContent SSE (`data: { candidates: ... }` frames).
+    GeminiGenerateContent,
+}
+
+/// Options for transcoding a `ChatStream` into a provider SSE wire format.
+#[derive(Debug, Clone)]
+pub struct TranscodeSseOptions {
+    /// Controls lossy fallback for v3 parts that do not have a native representation
+    /// in the target protocol stream.
+    pub v3_unsupported_part_behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    /// Whether to bridge multiplexed Vercel-aligned tool parts into richer OpenAI Responses
+    /// output_item frames (adds rawItem scaffolding when possible).
+    pub bridge_openai_responses_stream_parts: bool,
+}
+
+impl Default for TranscodeSseOptions {
+    fn default() -> Self {
+        Self {
+            v3_unsupported_part_behavior:
+                siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+            bridge_openai_responses_stream_parts: true,
+        }
+    }
+}
+
+impl TranscodeSseOptions {
+    /// Strict/default transcoding options (drops unsupported v3 parts).
+    pub fn strict() -> Self {
+        Self::default()
+    }
+
+    /// Lossy transcoding options (downgrades unsupported v3 parts to text deltas when possible).
+    pub fn lossy_text() -> Self {
+        Self {
+            v3_unsupported_part_behavior:
+                siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+            ..Self::default()
+        }
+    }
+}
+
 /// Options for SSE encoding.
 ///
 /// Controls which events are included in the SSE stream and how errors are handled.
@@ -449,6 +499,205 @@ pub fn to_gemini_generate_content_sse_response(stream: ChatStream) -> Response<B
         header::HeaderValue::from_static("text/event-stream"),
     );
     resp
+}
+
+/// Convert a `ChatStream` into a provider-native SSE response with a unified target selector.
+///
+/// This helper is meant for gateways/proxies that want to expose multiple protocol surfaces
+/// backed by the same upstream stream.
+pub fn to_transcoded_sse_response(
+    stream: ChatStream,
+    target: TargetSseFormat,
+    opts: TranscodeSseOptions,
+) -> Response<Body> {
+    match target {
+        TargetSseFormat::OpenAiResponses => {
+            #[cfg(feature = "openai")]
+            {
+                if opts.bridge_openai_responses_stream_parts {
+                    return to_openai_responses_sse_response(stream);
+                }
+                // Without bridge: serialize directly (best-effort).
+                use futures::StreamExt;
+                use siumai::experimental::streaming::encode_chat_stream_as_sse;
+                use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
+                let bytes = encode_chat_stream_as_sse(stream, OpenAiResponsesEventConverter::new());
+                let body = Body::from_stream(bytes.map(|item| {
+                    Ok::<axum::body::Bytes, Infallible>(match item {
+                        Ok(bytes) => bytes,
+                        Err(e) => axum::body::Bytes::from(format!(
+                            "event: response.error\ndata: {{\"type\":\"response.error\",\"error\":{{\"message\":{}}}}}\n\n",
+                            serde_json::json!(e.user_message())
+                        )),
+                    })
+                }));
+                let mut resp = Response::new(body);
+                resp.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    header::HeaderValue::from_static("text/event-stream"),
+                );
+                resp
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                let _ = opts;
+                let _ = stream;
+                Response::builder()
+                    .status(501)
+                    .body(Body::from("openai feature is disabled"))
+                    .unwrap()
+            }
+        }
+        TargetSseFormat::OpenAiChatCompletions => {
+            #[cfg(feature = "openai")]
+            {
+                if opts.v3_unsupported_part_behavior
+                    == siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText
+                {
+                    use siumai::experimental::streaming::{
+                        LanguageModelV3StreamPart, transform_chat_event_stream,
+                    };
+
+                    let stream = transform_chat_event_stream(stream, move |ev| match ev {
+                        ChatStreamEvent::Custom { event_type, data } => {
+                            let Some(part) = LanguageModelV3StreamPart::parse_loose_json(&data)
+                            else {
+                                return vec![ChatStreamEvent::Custom { event_type, data }];
+                            };
+
+                            let mut out = part.to_best_effort_chat_events();
+                            if out.is_empty()
+                                && let Some(text) = part.to_lossy_text()
+                            {
+                                out.push(ChatStreamEvent::ContentDelta {
+                                    delta: text,
+                                    index: None,
+                                });
+                            }
+
+                            if out.is_empty() {
+                                vec![ChatStreamEvent::Custom { event_type, data }]
+                            } else {
+                                out
+                            }
+                        }
+                        other => vec![other],
+                    });
+
+                    return to_openai_chat_completions_sse_response(stream);
+                }
+
+                to_openai_chat_completions_sse_response(stream)
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                let _ = opts;
+                let _ = stream;
+                Response::builder()
+                    .status(501)
+                    .body(Body::from("openai feature is disabled"))
+                    .unwrap()
+            }
+        }
+        TargetSseFormat::AnthropicMessages => {
+            #[cfg(feature = "anthropic")]
+            {
+                use futures::StreamExt;
+                use siumai::experimental::streaming::encode_chat_stream_as_sse;
+                use siumai::protocol::anthropic::params::AnthropicParams;
+                use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
+
+                let converter = AnthropicEventConverter::new(AnthropicParams::default())
+                    .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
+                let bytes = encode_chat_stream_as_sse(stream, converter);
+
+                let body = Body::from_stream(bytes.map(|item| {
+                    Ok::<axum::body::Bytes, Infallible>(match item {
+                        Ok(bytes) => bytes,
+                        Err(e) => axum::body::Bytes::from(format!(
+                            "data: {}\n\n",
+                            serde_json::json!({
+                                "type": "error",
+                                "error": { "type": "api_error", "message": e.user_message() }
+                            })
+                        )),
+                    })
+                }));
+
+                let mut resp = Response::new(body);
+                resp.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    header::HeaderValue::from_static("text/event-stream"),
+                );
+                resp
+            }
+            #[cfg(not(feature = "anthropic"))]
+            {
+                let _ = opts;
+                let _ = stream;
+                Response::builder()
+                    .status(501)
+                    .body(Body::from("anthropic feature is disabled"))
+                    .unwrap()
+            }
+        }
+        TargetSseFormat::GeminiGenerateContent => {
+            #[cfg(feature = "google")]
+            {
+                use futures::StreamExt;
+                use siumai::experimental::streaming::encode_chat_stream_as_sse;
+                use siumai::protocol::gemini::streaming::GeminiEventConverter;
+                use siumai::protocol::gemini::types::GeminiConfig;
+
+                let converter = GeminiEventConverter::new(GeminiConfig::default())
+                    .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
+                let bytes = encode_chat_stream_as_sse(stream, converter);
+
+                let body = Body::from_stream(bytes.map(|item| {
+                    Ok::<axum::body::Bytes, Infallible>(match item {
+                        Ok(bytes) => bytes,
+                        Err(e) => axum::body::Bytes::from(format!(
+                            "data: {}\n\n",
+                            serde_json::json!({
+                                "error": { "message": e.user_message() }
+                            })
+                        )),
+                    })
+                }));
+
+                let mut resp = Response::new(body);
+                resp.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    header::HeaderValue::from_static("text/event-stream"),
+                );
+                resp
+            }
+            #[cfg(not(feature = "google"))]
+            {
+                let _ = opts;
+                let _ = stream;
+                Response::builder()
+                    .status(501)
+                    .body(Body::from("google feature is disabled"))
+                    .unwrap()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod transcode_tests {
+    use super::*;
+
+    #[test]
+    fn transcode_options_defaults_are_stable() {
+        let opts = TranscodeSseOptions::default();
+        assert_eq!(
+            opts.v3_unsupported_part_behavior,
+            siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop
+        );
+        assert!(opts.bridge_openai_responses_stream_parts);
+    }
 }
 
 #[cfg(test)]

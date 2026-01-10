@@ -359,13 +359,60 @@ pub enum V3UnsupportedPartBehavior {
 }
 
 impl LanguageModelV3StreamPart {
+    /// Best-effort parse a v3 stream part from a JSON payload that is close to the
+    /// Vercel schema but may contain minor shape differences.
+    ///
+    /// This is mainly used for cross-provider stream transcoding, where some
+    /// providers emit `input` as a JSON object instead of a stringified JSON.
+    pub fn parse_loose_json(value: &serde_json::Value) -> Option<Self> {
+        let mut v = value.clone();
+
+        fn normalize_in_place(v: &mut serde_json::Value) {
+            let Some(obj) = v.as_object_mut() else {
+                return;
+            };
+            let Some(tpe) = obj.get("type").and_then(|v| v.as_str()) else {
+                return;
+            };
+
+            match tpe {
+                "tool-call" => {
+                    if let Some(input) = obj.get_mut("input")
+                        && !matches!(input, serde_json::Value::String(_))
+                        && let Ok(s) = serde_json::to_string(input)
+                    {
+                        *input = serde_json::Value::String(s);
+                    }
+                }
+                "finish" => {
+                    if let Some(fr) = obj.get_mut("finishReason")
+                        && let serde_json::Value::String(s) = fr
+                    {
+                        *fr = serde_json::json!({ "unified": s, "raw": serde_json::Value::Null });
+                    }
+                }
+                "source" => {
+                    if obj.get("sourceType").is_none()
+                        && let Some(st) = obj.remove("source_type")
+                    {
+                        obj.insert("sourceType".to_string(), st);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        normalize_in_place(&mut v);
+        serde_json::from_value::<LanguageModelV3StreamPart>(v).ok()
+    }
+
     /// Best-effort parse from a `ChatStreamEvent`.
     ///
     /// This is primarily intended for `ChatStreamEvent::Custom` where `data` follows
     /// the Vercel stream part JSON shape.
     pub fn try_from_chat_event(ev: &ChatStreamEvent) -> Option<Self> {
         match ev {
-            ChatStreamEvent::Custom { data, .. } => serde_json::from_value(data.clone()).ok(),
+            ChatStreamEvent::Custom { data, .. } => Self::parse_loose_json(data),
             ChatStreamEvent::Error { error } => Some(LanguageModelV3StreamPart::Error {
                 error: serde_json::json!(error),
             }),
@@ -631,5 +678,45 @@ mod tests {
         let text = String::from_utf8(bytes).expect("utf8");
         assert!(text.starts_with("data: "));
         assert!(text.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn stream_part_parse_loose_accepts_tool_call_input_object() {
+        let v = serde_json::json!({
+            "type": "tool-call",
+            "toolCallId": "call_1",
+            "toolName": "web_search",
+            "input": { "query": "rust" }
+        });
+
+        let part = LanguageModelV3StreamPart::parse_loose_json(&v).expect("parsed");
+        match part {
+            LanguageModelV3StreamPart::ToolCall(call) => {
+                assert_eq!(call.tool_call_id, "call_1");
+                assert_eq!(call.tool_name, "web_search");
+                assert!(call.input.contains("\"query\""));
+            }
+            other => panic!("unexpected part: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_part_parse_loose_accepts_finish_reason_string() {
+        let v = serde_json::json!({
+            "type": "finish",
+            "usage": {
+                "inputTokens": { "total": 1 },
+                "outputTokens": { "total": 2 }
+            },
+            "finishReason": "stop"
+        });
+
+        let part = LanguageModelV3StreamPart::parse_loose_json(&v).expect("parsed");
+        match part {
+            LanguageModelV3StreamPart::Finish { finish_reason, .. } => {
+                assert_eq!(finish_reason.unified, "stop");
+            }
+            other => panic!("unexpected part: {other:?}"),
+        }
     }
 }

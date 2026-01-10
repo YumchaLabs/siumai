@@ -940,8 +940,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
 
         match event {
             ChatStreamEvent::Custom { data, .. } => {
-                let Ok(part) = serde_json::from_value::<LanguageModelV3StreamPart>(data.clone())
-                else {
+                let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {
                     return Ok(Vec::new());
                 };
 
@@ -1053,6 +1052,51 @@ mod tests {
                 .iter()
                 .any(|v| v["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_1"),
             "expected tool_calls from custom tool-call: {frames:?}"
+        );
+    }
+
+    #[test]
+    fn openai_compat_accepts_tool_call_input_object_via_loose_parser() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["tools".to_string()],
+            default_model: Some("gpt-4o-mini".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-siumai-encoding-only",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-4o-mini");
+
+        let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Custom {
+                event_type: "gemini:tool".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": "call_1",
+                    "toolName": "get_weather",
+                    "input": { "city": "Tokyo" }
+                }),
+            })
+            .expect("serialize ok");
+
+        let frames = parse_sse_data_frames(&bytes);
+        assert!(
+            frames
+                .iter()
+                .any(|v| v["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_1"),
+            "expected tool_calls from loose tool-call: {frames:?}"
         );
     }
 

@@ -943,8 +943,7 @@ impl SseEventConverter for GeminiEventConverter {
                 sse_data_frame(&payload)
             }
             ChatStreamEvent::Custom { data, .. } => {
-                let Ok(part) = serde_json::from_value::<LanguageModelV3StreamPart>(data.clone())
-                else {
+                let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {
                     return Ok(Vec::new());
                 };
 
