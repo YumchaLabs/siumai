@@ -3236,12 +3236,207 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
     fn finalize_on_disconnect(&self) -> bool {
         true
     }
+
+    fn serialize_event(
+        &self,
+        event: &crate::streaming::ChatStreamEvent,
+    ) -> Result<Vec<u8>, crate::error::LlmError> {
+        use crate::error::LlmError;
+
+        fn sse_event_frame(event: &str, value: &serde_json::Value) -> Result<Vec<u8>, LlmError> {
+            let data = serde_json::to_vec(value)
+                .map_err(|e| LlmError::JsonError(format!("Failed to serialize SSE JSON: {e}")))?;
+            let mut out = Vec::with_capacity(data.len() + event.len() + 16);
+            out.extend_from_slice(b"event: ");
+            out.extend_from_slice(event.as_bytes());
+            out.extend_from_slice(b"\n");
+            out.extend_from_slice(b"data: ");
+            out.extend_from_slice(&data);
+            out.extend_from_slice(b"\n\n");
+            Ok(out)
+        }
+
+        fn sse_done_frame() -> Vec<u8> {
+            // OpenAI-style end marker; some clients rely on it, others just close the connection.
+            b"data: [DONE]\n\n".to_vec()
+        }
+
+        fn now_epoch_seconds() -> i64 {
+            chrono::Utc::now().timestamp()
+        }
+
+        match event {
+            crate::streaming::ChatStreamEvent::StreamStart { metadata } => {
+                let response_id = metadata
+                    .id
+                    .clone()
+                    .unwrap_or_else(|| "resp_siumai_0".to_string());
+                let model_id = metadata
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string());
+                let created_at = metadata
+                    .created
+                    .map(|dt| dt.timestamp())
+                    .unwrap_or_else(now_epoch_seconds);
+
+                // Persist metadata for subsequent `StreamEnd` frames (best-effort).
+                self.record_created_response_metadata(&response_id, &model_id, created_at);
+
+                let payload = serde_json::json!({
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {
+                        "id": response_id,
+                        "object": "response",
+                        "created_at": created_at,
+                        "status": "in_progress",
+                        "model": model_id,
+                        "output": [],
+                        "usage": serde_json::Value::Null,
+                        "metadata": {},
+                    }
+                });
+                sse_event_frame("response.created", &payload)
+            }
+            crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+                let payload = serde_json::json!({
+                    "type": "response.output_text.delta",
+                    "delta": delta,
+                    "output_index": 0,
+                });
+                sse_event_frame("response.output_text.delta", &payload)
+            }
+            crate::streaming::ChatStreamEvent::ToolCallDelta {
+                id,
+                function_name,
+                arguments_delta,
+                ..
+            } => {
+                let function = match (function_name.clone(), arguments_delta.clone()) {
+                    (Some(name), Some(args)) => {
+                        serde_json::json!({ "name": name, "arguments": args })
+                    }
+                    (Some(name), None) => serde_json::json!({ "name": name }),
+                    (None, Some(args)) => serde_json::json!({ "arguments": args }),
+                    (None, None) => serde_json::json!({}),
+                };
+
+                let payload = serde_json::json!({
+                    "type": "response.function_call.delta",
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": id,
+                                "function": function,
+                            }
+                        ]
+                    },
+                    "output_index": 0,
+                });
+                sse_event_frame("response.function_call.delta", &payload)
+            }
+            crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
+                let payload = serde_json::json!({
+                    "type": "response.usage",
+                    "usage": {
+                        "input_tokens": usage.prompt_tokens,
+                        "output_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                    }
+                });
+                sse_event_frame("response.usage", &payload)
+            }
+            crate::streaming::ChatStreamEvent::StreamEnd { response } => {
+                let response_id = response
+                    .id
+                    .clone()
+                    .or_else(|| self.created_response_id())
+                    .unwrap_or_else(|| "resp_siumai_0".to_string());
+                let model_id = response
+                    .model
+                    .clone()
+                    .or_else(|| self.created_model_id())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let created_at = self
+                    .created_created_at
+                    .lock()
+                    .ok()
+                    .and_then(|v| *v)
+                    .unwrap_or_else(now_epoch_seconds);
+
+                let text = response.content.all_text();
+
+                let usage = response.usage.as_ref().map(|u| {
+                    serde_json::json!({
+                        "input_tokens": u.prompt_tokens,
+                        "output_tokens": u.completion_tokens,
+                        "total_tokens": u.total_tokens,
+                    })
+                });
+
+                let payload = serde_json::json!({
+                    "type": "response.completed",
+                    "response": {
+                        "id": response_id,
+                        "object": "response",
+                        "created_at": created_at,
+                        "status": "completed",
+                        "model": model_id,
+                        "output": [
+                            { "type": "output_text", "text": text }
+                        ],
+                        "usage": usage.unwrap_or(serde_json::Value::Null),
+                        "metadata": {},
+                    }
+                });
+
+                let mut out = sse_event_frame("response.completed", &payload)?;
+                out.extend_from_slice(&sse_done_frame());
+                Ok(out)
+            }
+            crate::streaming::ChatStreamEvent::Error { error } => {
+                let payload = serde_json::json!({
+                    "type": "response.error",
+                    "error": { "message": error },
+                });
+                sse_event_frame("response.error", &payload)
+            }
+            crate::streaming::ChatStreamEvent::ThinkingDelta { .. }
+            | crate::streaming::ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::streaming::SseEventConverter;
+    use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
+
+    fn parse_sse_frames(bytes: &[u8]) -> Vec<(String, serde_json::Value)> {
+        let text = String::from_utf8_lossy(bytes);
+        text.split("\n\n")
+            .filter_map(|chunk| {
+                let mut event_name: Option<String> = None;
+                let mut data_line: Option<String> = None;
+                for line in chunk.lines() {
+                    if let Some(v) = line.strip_prefix("event: ") {
+                        event_name = Some(v.trim().to_string());
+                    } else if let Some(v) = line.strip_prefix("data: ") {
+                        data_line = Some(v.trim().to_string());
+                    }
+                }
+                let event_name = event_name?;
+                let data_line = data_line?;
+                if data_line == "[DONE]" {
+                    return None;
+                }
+                let json = serde_json::from_str::<serde_json::Value>(&data_line).ok()?;
+                Some((event_name, json))
+            })
+            .collect()
+    }
 
     #[test]
     fn test_responses_event_converter_content_delta() {
@@ -3581,5 +3776,114 @@ mod tests {
             }
             other => panic!("expected Custom source, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_basic_text_deltas() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let start_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("resp_test".to_string()),
+                    model: Some("gpt-test".to_string()),
+                    created: None,
+                    provider: "openai".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+        let start_frames = parse_sse_frames(&start_bytes);
+        assert_eq!(start_frames.len(), 1);
+        assert_eq!(start_frames[0].0, "response.created");
+        assert_eq!(
+            start_frames[0].1["type"],
+            serde_json::json!("response.created")
+        );
+
+        let delta_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::ContentDelta {
+                delta: "Hello".to_string(),
+                index: None,
+            })
+            .expect("serialize delta");
+        let delta_frames = parse_sse_frames(&delta_bytes);
+        assert_eq!(delta_frames.len(), 1);
+        assert_eq!(delta_frames[0].0, "response.output_text.delta");
+        assert_eq!(delta_frames[0].1["delta"], serde_json::json!("Hello"));
+
+        let end_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::StreamEnd {
+                response: ChatResponse {
+                    id: Some("resp_test".to_string()),
+                    model: Some("gpt-test".to_string()),
+                    content: MessageContent::Text("Hello".to_string()),
+                    usage: Some(
+                        Usage::builder()
+                            .prompt_tokens(3)
+                            .completion_tokens(5)
+                            .total_tokens(8)
+                            .build(),
+                    ),
+                    finish_reason: Some(FinishReason::Stop),
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
+                    provider_metadata: None,
+                },
+            })
+            .expect("serialize end");
+        let end_frames = parse_sse_frames(&end_bytes);
+        assert!(!end_frames.is_empty());
+        assert_eq!(end_frames[0].0, "response.completed");
+        assert_eq!(
+            end_frames[0].1["type"],
+            serde_json::json!("response.completed")
+        );
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_tool_call_delta() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::ToolCallDelta {
+                id: "call_1".to_string(),
+                function_name: Some("lookup".to_string()),
+                arguments_delta: Some("{\"q\":\"rust\"}".to_string()),
+                index: None,
+            })
+            .expect("serialize tool delta");
+
+        let frames = parse_sse_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].0, "response.function_call.delta");
+        assert_eq!(
+            frames[0].1["type"],
+            serde_json::json!("response.function_call.delta")
+        );
+        assert_eq!(
+            frames[0].1["delta"]["tool_calls"][0]["function"]["name"],
+            serde_json::json!("lookup")
+        );
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_response_error() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Error {
+                error: "Upstream failure".to_string(),
+            })
+            .expect("serialize error");
+        let frames = parse_sse_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].0, "response.error");
+        assert_eq!(
+            frames[0].1["error"]["message"],
+            serde_json::json!("Upstream failure")
+        );
     }
 }

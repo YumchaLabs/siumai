@@ -60,6 +60,7 @@ For Siumai, the equivalent is a provider-specific event converter that supports 
 
 - Anthropic: SSE serialization implemented (message_start, content/thinking/tool deltas, message_delta/stop).
 - Ollama: JSONL serialization implemented (content/thinking deltas + done frame).
+- OpenAI (Responses): SSE serialization implemented (response.created, response.output_text.delta, response.function_call.delta, response.usage, response.completed, response.error).
 
 ### Next candidates
 
