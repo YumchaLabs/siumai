@@ -42,6 +42,9 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - Vercel-style custom fetch is available via `fetch(...)` (injects `HttpTransport`) across built-in providers (OpenAI, Azure, Anthropic, Gemini, Vertex, Groq, xAI, Ollama, MiniMaxi) and OpenAI-compatible vendor presets.
 - Provider-defined tool factories are available under `siumai::tools::*` (implemented in `siumai-core::tools`) and serialize to the Vercel `{ type: "provider", id, name, args }` shape; `Tool::provider_defined(id, name)` remains the escape hatch for unknown tools.
 - Streaming converters support bidirectional mapping (parse + serialize) for selected providers (Anthropic SSE, Ollama JSONL) to enable cross-provider stream proxying (Vercel-aligned `parseStreamPart`/`formatStreamPart` concept).
+- Typed stream parts (Vercel AI SDK aligned) are available for advanced gateway/proxy integrations:
+  - `siumai_core::streaming::LanguageModelV3StreamPart` + `to_data_sse_bytes()`
+  - `LanguageModelV3StreamPart::try_from_chat_event(...)` and `to_custom_event(...)` for best-effort interop with `ChatStreamEvent::Custom`
 
 ## Streaming wire format alignment
 

@@ -21,6 +21,7 @@ mod processor;
 mod sse;
 mod sse_json;
 mod state_tracker;
+mod stream_part;
 mod telemetry_wrapper;
 mod types;
 
@@ -38,5 +39,6 @@ pub use processor::*;
 pub use sse::*;
 pub use sse_json::*;
 pub use state_tracker::*;
+pub use stream_part::*;
 pub use telemetry_wrapper::*;
 pub use types::*;

@@ -161,8 +161,8 @@ pub mod experimental {
     /// gateways/proxies that need to re-serialize streams into provider-native wire formats.
     pub mod streaming {
         pub use siumai_core::streaming::{
-            ChatByteStream, OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_jsonl,
-            encode_chat_stream_as_sse,
+            ChatByteStream, LanguageModelV3StreamPart, OpenAiResponsesStreamPartsBridge,
+            StreamPartNamespace, encode_chat_stream_as_jsonl, encode_chat_stream_as_sse,
         };
     }
 
