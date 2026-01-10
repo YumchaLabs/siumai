@@ -58,12 +58,22 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - STT SSE transcript streaming: `siumai::provider_ext::openai::transcription_streaming::stt_sse_stream` (see `examples/04-provider-specific/openai/stt_sse_streaming.rs`)
 - Anthropic provider extension example
   - Thinking replay: `examples/04-provider-specific/anthropic/thinking-replay-ext.rs`
+- Gateway/proxy streaming utilities (Vercel-aligned `parseStreamPart` / `formatStreamPart` concept):
+  - Stream encoders: `siumai::experimental::streaming::{encode_chat_stream_as_sse, encode_chat_stream_as_jsonl}` (serialize `ChatStreamEvent` back into provider-native wire formats)
+  - Bidirectional SSE support for proxying:
+    - OpenAI Responses SSE stream serialization (Vercel-aligned `openai:*` stream parts)
+    - OpenAI-compatible Chat Completions SSE stream serialization
+    - Gemini GenerateContent SSE stream serialization
+  - Cross-provider stream part bridge for gateway output:
+    - `siumai_core::streaming::OpenAiResponsesStreamPartsBridge` (maps `gemini:*` / `anthropic:*` custom parts into `openai:*` parts)
+  - Alignment notes: `docs/streaming-bridge-alignment.md`
 
 ### Changed
 
 - OpenAI-compatible builder `provider_specific_config` is now applied to chat requests via the compat adapter layer.
 - Model listing and model retrieval endpoints are now spec-driven (`ProviderSpec::{models_url, model_url}`) to support non-OpenAI routes (e.g. Anthropic `/v1/models`, Ollama `/api/tags`) without provider-specific URL plumbing.
 - Advanced orchestrator examples are now maintained under `siumai-extras/examples/*` (the `siumai` facade focuses on low-level provider/client APIs).
+- HTTP execution now supports an injectable transport (`fetch` / `HttpTransport`) across providers, including streaming use-cases (gateway parity with Vercel's `fetch(customTransport)`).
 
 ### Deprecated
 
@@ -90,6 +100,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - OpenAI rerank response parsing no longer panics on missing optional fields (runtime unwrap removal).
 - Gemini/Anthropic system instruction semantics are now Vercel-aligned (system/developer messages must appear at the beginning; provider-specific exceptions handled internally).
 - Anthropic streaming metadata is preserved and surfaced via `provider_metadata["anthropic"]` (thinking replay signatures, redacted thinking, and normalized sources/citations).
+- SSE decoding is stricter for JSON payloads (invalid frames no longer silently corrupt downstream state).
 
 ### Migration guide (beta.5)
 

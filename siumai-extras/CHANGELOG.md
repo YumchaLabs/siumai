@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.0-beta.5] - Unreleased
 
+### Added
+
+- OpenAI Responses SSE gateway helpers (Axum)
+  - `siumai_extras::server::axum::to_openai_responses_sse_stream(...)`
+  - `siumai_extras::server::axum::to_openai_responses_sse_response(...)`
+- Runnable gateway example (Gemini backend, OpenAI Responses SSE output)
+  - `siumai-extras/examples/openai-responses-gateway.rs`
+
 ### Changed
 
 - Workspace version alignment for the `.5` split phase (no siumai-extras-specific behavior changes).
