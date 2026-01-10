@@ -65,3 +65,30 @@ Requests carry provider options as an **open, provider-id keyed JSON map**:
 
 There is no longer a closed `ProviderOptions` enum transport in `siumai-core` (breaking change).
 Typed option structs are provider-owned and exposed via `siumai::provider_ext::<provider>::*`.
+
+## Crate layout & dependency direction
+
+This workspace is intentionally split to keep protocol mapping, provider runtime code, and the
+end-user facade decoupled.
+
+### Roles
+
+- `siumai-core`: provider-agnostic types, errors, execution primitives, streaming converters, common helpers.
+- `siumai-protocol-*`: protocol-family standards (request/response/stream transformers + typed protocol objects).
+- `siumai-provider-*`: provider implementations (auth, URL building, options, HTTP execution) and re-exports for compatibility.
+- `siumai-registry`: registry + factory layer that wires providers into the public `Siumai` API.
+- `siumai` (facade crate): public surface + feature forwarding (select providers/protocols via Cargo features).
+- `siumai-extras`: optional integrations (middleware, telemetry, server adapters); kept outside the main facade.
+
+### Dependency rules (intended)
+
+- `siumai-core` has **no** dependency on protocol/provider/registry crates.
+- `siumai-protocol-*` depends on `siumai-core` (and general-purpose deps), but **must not** depend on provider crates.
+- `siumai-provider-*` depends on `siumai-core` and may depend on `siumai-protocol-*` for shared standards, but **must not** depend on `siumai-registry` or `siumai`.
+- `siumai-registry` depends on `siumai-core` and `siumai-provider-*` (and may reference `siumai-protocol-*` through providers).
+- `siumai` depends on `siumai-core` + `siumai-registry`, and pulls in provider/protocol crates as optional deps behind features.
+
+### Feature forwarding
+
+Provider selection is centralized in `siumai/Cargo.toml` so end users can choose a minimal build
+(`default = ["openai"]`) or opt into additional providers (`anthropic`, `google`, `google-vertex`, etc.).
