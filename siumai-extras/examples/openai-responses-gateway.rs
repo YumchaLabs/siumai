@@ -1,9 +1,10 @@
-//! OpenAI Responses SSE Gateway (Gemini backend)
+//! Multi-protocol SSE Gateway (Gemini backend)
 //!
 //! This example demonstrates how to:
 //! - Stream from a non-OpenAI provider (Gemini) using `siumai` unified streaming
-//! - Bridge provider-specific Vercel-aligned stream parts into `openai:*` parts
-//! - Serialize the stream into OpenAI Responses SSE frames
+//! - Expose multiple downstream protocol surfaces from the same upstream backend
+//!   (OpenAI Responses SSE / OpenAI Chat Completions SSE / Anthropic Messages SSE / Gemini SSE)
+//! - Apply a simple transcoding policy (strict drop vs lossy text fallback)
 //! - Serve the result over HTTP using Axum
 //!
 //! ## Setup
@@ -13,22 +14,30 @@
 //!
 //! ## Run
 //! ```bash
-//! cargo run -p siumai-extras --example openai-responses-gateway --features "server,google,openai"
+//! cargo run -p siumai-extras --example openai-responses-gateway --features "server,google,openai,anthropic"
 //! ```
 //!
 //! ## Test
 //! ```bash
 //! curl -N http://127.0.0.1:3000/v1/responses
-//! ```
-//!
+//! curl -N "http://127.0.0.1:3000/v1/responses?lossy=1"
 //! curl -N http://127.0.0.1:3000/v1/chat/completions
+//! curl -N "http://127.0.0.1:3000/anthropic/messages?lossy=1"
+//! curl -N http://127.0.0.1:3000/gemini/generateContent
+//! ```
 
 use std::sync::Arc;
 
-use axum::{Router, extract::State, response::Response, routing::get};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::Response,
+    routing::get,
+};
+use serde::Deserialize;
 use siumai::prelude::*;
 use siumai_extras::server::axum::{
-    to_openai_chat_completions_sse_response, to_openai_responses_sse_response,
+    TargetSseFormat, TranscodeSseOptions, to_transcoded_sse_response,
 };
 
 #[derive(Clone)]
@@ -36,47 +45,114 @@ struct AppState {
     client: Arc<Siumai>,
 }
 
-async fn responses(State(state): State<AppState>) -> Response {
-    let stream = match state
-        .client
-        .chat_stream(
-            vec![user!("Explain Rust lifetimes in one short paragraph.")],
-            None,
-        )
-        .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            let body = format!("failed to start stream: {}", e.user_message());
-            return Response::builder()
-                .status(500)
-                .header("content-type", "text/plain")
-                .body(axum::body::Body::from(body))
-                .unwrap_or_else(|_| Response::new(axum::body::Body::from("internal error")));
-        }
-    };
-
-    to_openai_responses_sse_response(stream)
+#[derive(Debug, Clone, Deserialize)]
+struct GatewayQuery {
+    /// Prompt override.
+    prompt: Option<String>,
+    /// Enable lossy downgrade for unsupported v3 parts.
+    lossy: Option<bool>,
+    /// Enable OpenAI Responses bridge (tool/source/reasoning v3 parts -> openai:*).
+    bridge: Option<bool>,
 }
 
-async fn chat_completions(State(state): State<AppState>) -> Response {
-    let stream = match state
-        .client
-        .chat_stream(vec![user!("Write a short haiku about Rust.")], None)
-        .await
-    {
+fn internal_error_response(error: &LlmError) -> Response {
+    let body = format!("failed to start stream: {}", error.user_message());
+    Response::builder()
+        .status(500)
+        .header("content-type", "text/plain")
+        .body(axum::body::Body::from(body))
+        .unwrap_or_else(|_| Response::new(axum::body::Body::from("internal error")))
+}
+
+fn transcode_opts(q: &GatewayQuery) -> TranscodeSseOptions {
+    let mut opts = if q.lossy.unwrap_or(false) {
+        TranscodeSseOptions::lossy_text()
+    } else {
+        TranscodeSseOptions::strict()
+    };
+    if let Some(bridge) = q.bridge {
+        opts.bridge_openai_responses_stream_parts = bridge;
+    }
+    opts
+}
+
+async fn responses(State(state): State<AppState>, Query(q): Query<GatewayQuery>) -> Response {
+    let prompt = q
+        .prompt
+        .clone()
+        .unwrap_or_else(|| "Explain Rust lifetimes in one short paragraph.".to_string());
+
+    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
         Ok(s) => s,
-        Err(e) => {
-            let body = format!("failed to start stream: {}", e.user_message());
-            return Response::builder()
-                .status(500)
-                .header("content-type", "text/plain")
-                .body(axum::body::Body::from(body))
-                .unwrap_or_else(|_| Response::new(axum::body::Body::from("internal error")));
-        }
+        Err(e) => return internal_error_response(&e),
     };
 
-    to_openai_chat_completions_sse_response(stream)
+    to_transcoded_sse_response(stream, TargetSseFormat::OpenAiResponses, transcode_opts(&q))
+}
+
+async fn chat_completions(
+    State(state): State<AppState>,
+    Query(q): Query<GatewayQuery>,
+) -> Response {
+    let prompt = q
+        .prompt
+        .clone()
+        .unwrap_or_else(|| "Write a short haiku about Rust.".to_string());
+
+    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+        Ok(s) => s,
+        Err(e) => return internal_error_response(&e),
+    };
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiChatCompletions,
+        transcode_opts(&q),
+    )
+}
+
+#[cfg(feature = "anthropic")]
+async fn anthropic_messages(
+    State(state): State<AppState>,
+    Query(q): Query<GatewayQuery>,
+) -> Response {
+    let prompt = q
+        .prompt
+        .clone()
+        .unwrap_or_else(|| "Answer in JSON: {\"summary\":\"...\"}. Use one sentence.".to_string());
+
+    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+        Ok(s) => s,
+        Err(e) => return internal_error_response(&e),
+    };
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::AnthropicMessages,
+        transcode_opts(&q),
+    )
+}
+
+#[cfg(feature = "google")]
+async fn gemini_generate_content(
+    State(state): State<AppState>,
+    Query(q): Query<GatewayQuery>,
+) -> Response {
+    let prompt = q
+        .prompt
+        .clone()
+        .unwrap_or_else(|| "List three practical tips for learning Rust.".to_string());
+
+    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+        Ok(s) => s,
+        Err(e) => return internal_error_response(&e),
+    };
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::GeminiGenerateContent,
+        transcode_opts(&q),
+    )
 }
 
 #[tokio::main]
@@ -95,14 +171,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         client: Arc::new(client),
     };
 
-    let app = Router::new()
+    let app = Router::<AppState>::new()
         .route("/v1/responses", get(responses))
-        .route("/v1/chat/completions", get(chat_completions))
-        .with_state(state);
+        .route("/v1/chat/completions", get(chat_completions));
+
+    #[cfg(feature = "anthropic")]
+    let app = app.route("/anthropic/messages", get(anthropic_messages));
+
+    #[cfg(feature = "google")]
+    let app = app.route("/gemini/generateContent", get(gemini_generate_content));
+
+    let app: Router = app.with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
     println!("Listening on http://127.0.0.1:3000/v1/responses");
     println!("Listening on http://127.0.0.1:3000/v1/chat/completions");
+    println!("Listening on http://127.0.0.1:3000/anthropic/messages");
+    println!("Listening on http://127.0.0.1:3000/gemini/generateContent");
     axum::serve(listener, app).await?;
 
     Ok(())

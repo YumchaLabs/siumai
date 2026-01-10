@@ -188,6 +188,21 @@ fn handler(stream: ChatStream) -> Response<Body> {
 
 See the runnable example: `siumai-extras/examples/openai-responses-gateway.rs`.
 
+If you need to expose multiple downstream protocol surfaces from the same upstream stream,
+use the transcoder helper:
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::unified::ChatStream;
+use siumai_extras::server::axum::{
+    TargetSseFormat, TranscodeSseOptions, to_transcoded_sse_response,
+};
+
+fn handler(stream: ChatStream) -> Response<Body> {
+    to_transcoded_sse_response(stream, TargetSseFormat::OpenAiResponses, TranscodeSseOptions::strict())
+}
+```
+
 ### MCP Integration
 
 ```rust

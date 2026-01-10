@@ -62,3 +62,13 @@ This enables the bridge to omit `outputIndex` and avoid index collisions with me
 - Tool raw items are emitted as best-effort `custom_tool_call` items in the OpenAI Responses output stream.
 - Provider-native schemas differ; the bridge preserves the original JSON payload in `rawItem.output` when possible.
 
+## Related: Multi-target SSE transcoding
+
+For gateways that need to expose multiple downstream protocol surfaces from the same upstream backend,
+`siumai-extras` provides `to_transcoded_sse_response(...)` (OpenAI Responses / OpenAI Chat Completions / Anthropic Messages / Gemini GenerateContent).
+
+The transcoder is intentionally policy-driven:
+
+- `TranscodeSseOptions::strict()` drops v3 parts that do not have a native representation in the target wire protocol.
+- `TranscodeSseOptions::lossy_text()` downgrades some unsupported v3 parts into text deltas (best-effort).
+- `bridge_openai_responses_stream_parts=false` disables the additional OpenAI Responses bridging layer and preserves the original custom parts.
