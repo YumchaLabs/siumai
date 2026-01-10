@@ -61,6 +61,8 @@ let tools = vec![
 let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(tools);
 ```
 
+Note: `Gemini` is exposed as `siumai::providers::google` (Vercel-aligned alias of `providers::gemini`).
+
 ### 2) Use `Tool::provider_defined_id(...)` for dynamic selection
 
 If your tool list is configured by strings (e.g. config files), you can create the tool from the

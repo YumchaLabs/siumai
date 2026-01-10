@@ -429,6 +429,14 @@ pub mod provider_ext {
         };
     }
 
+    /// Vercel alignment: the AI SDK uses `@ai-sdk/google` for Gemini.
+    ///
+    /// This is a stable alias for the Gemini provider extension surface.
+    #[cfg(feature = "google")]
+    pub mod google {
+        pub use super::gemini::*;
+    }
+
     #[cfg(feature = "google-vertex")]
     pub mod google_vertex {
         pub use siumai_provider_google_vertex::providers::vertex::{
