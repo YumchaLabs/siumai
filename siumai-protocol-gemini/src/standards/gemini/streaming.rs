@@ -80,6 +80,8 @@ struct GeminiPart {
         skip_serializing_if = "Option::is_none"
     )]
     code_execution_result: Option<GeminiCodeExecutionResult>,
+    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
+    function_call: Option<GeminiFunctionCall>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,6 +94,12 @@ struct GeminiExecutableCode {
 struct GeminiCodeExecutionResult {
     outcome: Option<String>,
     output: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeminiFunctionCall {
+    name: String,
+    args: Option<serde_json::Value>,
 }
 
 /// Gemini usage metadata
@@ -120,6 +128,8 @@ pub struct GeminiEventConverter {
     next_source_id: Arc<AtomicU64>,
     /// Monotonic id counter for emitted text/reasoning blocks (Vercel-aligned custom events)
     next_block_id: Arc<AtomicU64>,
+    /// Monotonic id counter for emitted tool calls (client-executed functionCall parts)
+    next_tool_call_id: Arc<AtomicU64>,
     /// Pair executableCode -> codeExecutionResult across chunks
     pending_code_execution_id: Arc<Mutex<Option<String>>>,
     /// Track the active reasoning block id (for Vercel-aligned custom reasoning events)
@@ -137,6 +147,7 @@ impl GeminiEventConverter {
             seen_source_keys: Arc::new(Mutex::new(std::collections::HashSet::new())),
             next_source_id: Arc::new(AtomicU64::new(0)),
             next_block_id: Arc::new(AtomicU64::new(0)),
+            next_tool_call_id: Arc::new(AtomicU64::new(0)),
             pending_code_execution_id: Arc::new(Mutex::new(None)),
             current_reasoning_block_id: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(GeminiSerializeState::default())),
@@ -279,6 +290,17 @@ impl GeminiEventConverter {
             builder = builder.add_custom_event("gemini:tool".to_string(), data);
         }
 
+        // Process client-executed tool calls (functionCall parts) as unified ToolCallDelta events.
+        for (tool_name, args_json) in self.extract_function_call_events(&response) {
+            let id_num = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
+            builder = builder.add_tool_call_delta(
+                format!("call_{id_num}"),
+                Some(tool_name),
+                Some(args_json),
+                None,
+            );
+        }
+
         // Process usage update if available
         if let Some(usage) = self.extract_usage(&response) {
             builder = builder.add_usage_update(usage);
@@ -354,6 +376,52 @@ impl GeminiEventConverter {
             }
         }
         out
+    }
+
+    fn extract_function_call_events(
+        &self,
+        response: &GeminiStreamResponse,
+    ) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let Some(candidates) = response.candidates.as_ref() else {
+            return out;
+        };
+
+        for cand in candidates {
+            let Some(content) = cand.content.as_ref() else {
+                continue;
+            };
+            let Some(parts) = content.parts.as_ref() else {
+                continue;
+            };
+
+            for part in parts {
+                let Some(call) = part.function_call.as_ref() else {
+                    continue;
+                };
+
+                let args = call.args.clone().unwrap_or_else(|| serde_json::json!({}));
+                let args_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string());
+                out.push((call.name.clone(), args_json));
+            }
+        }
+
+        out
+    }
+
+    fn has_function_call_parts(&self, response: &GeminiStreamResponse) -> bool {
+        let Some(candidates) = response.candidates.as_ref() else {
+            return false;
+        };
+        for cand in candidates {
+            if let Some(content) = cand.content.as_ref()
+                && let Some(parts) = content.parts.as_ref()
+                && parts.iter().any(|p| p.function_call.is_some())
+            {
+                return true;
+            }
+        }
+        false
     }
 
     fn extract_code_execution_events(
@@ -514,7 +582,13 @@ impl GeminiEventConverter {
 
         if let Some(finish_reason) = &candidate.finish_reason {
             let finish_reason = match finish_reason.as_str() {
-                "STOP" => FinishReason::Stop,
+                "STOP" => {
+                    if self.has_function_call_parts(response) {
+                        FinishReason::ToolCalls
+                    } else {
+                        FinishReason::Stop
+                    }
+                }
                 "MAX_TOKENS" => FinishReason::Length,
                 "SAFETY" => FinishReason::ContentFilter,
                 "RECITATION" => FinishReason::ContentFilter,

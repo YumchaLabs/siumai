@@ -274,3 +274,61 @@ fn gemini_simple_text_transcodes_to_openai_chat_completions_and_responses() {
         "expected OpenAI Responses v3 text-delta parts"
     );
 }
+
+#[test]
+fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
+    let path = gemini_fixtures_dir().join("function_call_then_finish.sse");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = run_gemini_converter(read_gemini_sse_data_lines(&path));
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    assert!(
+        upstream
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::ContentDelta { .. })),
+        "expected initial text content delta"
+    );
+
+    let has_tool_call = upstream.iter().any(|e| match e {
+        ChatStreamEvent::ToolCallDelta {
+            function_name,
+            arguments_delta,
+            ..
+        } => {
+            function_name.as_deref() == Some("test-tool")
+                && arguments_delta
+                    .as_deref()
+                    .is_some_and(|s| s.contains("example value"))
+        }
+        _ => false,
+    });
+    assert!(has_tool_call, "expected ToolCallDelta for test-tool");
+
+    let chat_bytes = encode_openai_chat_completions(upstream.clone());
+    let chat_events = decode_openai_chat_completions(&chat_bytes);
+    assert!(
+        chat_events
+            .iter()
+            .any(|e| matches!(e, ChatStreamEvent::ToolCallDelta { .. })),
+        "expected tool-call events in OpenAI chat completions stream"
+    );
+
+    let responses_bytes = encode_openai_responses(upstream);
+    let responses_events = decode_openai_responses(&responses_bytes);
+
+    let has_responses_tool_call = responses_events.iter().any(|e| match e {
+        ChatStreamEvent::ToolCallDelta { function_name, .. } => {
+            function_name.as_deref() == Some("test-tool")
+        }
+        ChatStreamEvent::Custom { data, .. } => {
+            data.get("type") == Some(&serde_json::json!("tool-call"))
+                && data.get("toolName").and_then(|v| v.as_str()) == Some("test-tool")
+        }
+        _ => false,
+    });
+    assert!(
+        has_responses_tool_call,
+        "expected tool call to be present after OpenAI Responses re-serialization"
+    );
+}

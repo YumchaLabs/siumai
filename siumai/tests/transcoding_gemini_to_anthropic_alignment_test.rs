@@ -164,3 +164,46 @@ fn gemini_thought_then_text_transcodes_to_anthropic_messages_sse() {
         "expected message_stop frame: {frames:?}"
     );
 }
+
+#[test]
+fn gemini_function_call_transcodes_to_anthropic_messages_sse() {
+    let path = gemini_fixtures_dir().join("function_call_then_finish.sse");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = run_gemini_converter(read_gemini_sse_data_lines(&path));
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_anthropic_messages_sse(upstream);
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| v["type"] == "message_start"),
+        "expected message_start frame: {frames:?}"
+    );
+
+    assert!(
+        frames.iter().any(|v| {
+            v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["name"] == "test-tool"
+                && v["content_block"]["id"].as_str().is_some()
+        }),
+        "expected tool_use content_block_start for test-tool: {frames:?}"
+    );
+
+    assert!(
+        frames.iter().any(|v| {
+            v["type"] == "content_block_delta"
+                && v["delta"]["type"] == "input_json_delta"
+                && v["delta"]["partial_json"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("example value"))
+        }),
+        "expected input_json_delta containing tool args: {frames:?}"
+    );
+
+    assert!(
+        frames.iter().any(|v| v["type"] == "message_stop"),
+        "expected message_stop frame: {frames:?}"
+    );
+}
