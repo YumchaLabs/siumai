@@ -86,6 +86,72 @@ impl TranscodeSseOptions {
     }
 }
 
+#[cfg(feature = "openai")]
+fn openai_responses_supports_v3_part_type(tpe: &str) -> bool {
+    matches!(
+        tpe,
+        "stream-start"
+            | "response-metadata"
+            | "text-start"
+            | "text-delta"
+            | "text-end"
+            | "reasoning-start"
+            | "reasoning-delta"
+            | "reasoning-end"
+            | "tool-input-start"
+            | "tool-input-delta"
+            | "tool-input-end"
+            | "tool-approval-request"
+            | "tool-call"
+            | "tool-result"
+            | "source"
+            | "finish"
+            | "error"
+    )
+}
+
+#[cfg(feature = "openai")]
+fn apply_openai_responses_v3_lossy_fallback(
+    stream: ChatStream,
+    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+) -> ChatStream {
+    use siumai::experimental::streaming::{LanguageModelV3StreamPart, transform_chat_event_stream};
+
+    if behavior != siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText {
+        return stream;
+    }
+
+    transform_chat_event_stream(stream, move |ev| match ev {
+        ChatStreamEvent::Custom { event_type, data } => {
+            if event_type.starts_with("openai:") {
+                return vec![ChatStreamEvent::Custom { event_type, data }];
+            }
+
+            let Some(tpe) = data.get("type").and_then(|v| v.as_str()) else {
+                return vec![ChatStreamEvent::Custom { event_type, data }];
+            };
+
+            if openai_responses_supports_v3_part_type(tpe) {
+                return vec![ChatStreamEvent::Custom { event_type, data }];
+            }
+
+            let Some(part) = LanguageModelV3StreamPart::parse_loose_json(&data) else {
+                return vec![ChatStreamEvent::Custom { event_type, data }];
+            };
+
+            if let Some(text) = part.to_lossy_text() {
+                vec![ChatStreamEvent::ContentDelta {
+                    delta: text,
+                    index: None,
+                }]
+            } else {
+                vec![ChatStreamEvent::Custom { event_type, data }]
+            }
+        }
+        other => vec![other],
+    })
+}
+
 /// Options for SSE encoding.
 ///
 /// Controls which events are included in the SSE stream and how errors are handled.
@@ -347,6 +413,16 @@ pub fn to_text_stream(
 pub fn to_openai_responses_sse_stream(
     stream: ChatStream,
 ) -> Pin<Box<dyn Stream<Item = Result<axum::body::Bytes, Infallible>> + Send>> {
+    to_openai_responses_sse_stream_with_options(stream, TranscodeSseOptions::default())
+}
+
+/// Convert a `ChatStream` into an OpenAI Responses-compatible SSE byte stream with configurable
+/// v3 fallback options.
+#[cfg(feature = "openai")]
+pub fn to_openai_responses_sse_stream_with_options(
+    stream: ChatStream,
+    opts: TranscodeSseOptions,
+) -> Pin<Box<dyn Stream<Item = Result<axum::body::Bytes, Infallible>> + Send>> {
     use siumai::experimental::streaming::{
         OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse, transform_chat_event_stream,
     };
@@ -354,6 +430,8 @@ pub fn to_openai_responses_sse_stream(
 
     let mut bridge = OpenAiResponsesStreamPartsBridge::new();
 
+    let stream =
+        apply_openai_responses_v3_lossy_fallback(stream, opts.v3_unsupported_part_behavior);
     let bridged = transform_chat_event_stream(stream, move |ev| bridge.bridge_event(ev));
 
     let converter = OpenAiResponsesEventConverter::new();
@@ -374,7 +452,17 @@ pub fn to_openai_responses_sse_stream(
 /// `Content-Type: text/event-stream` header.
 #[cfg(feature = "openai")]
 pub fn to_openai_responses_sse_response(stream: ChatStream) -> Response<Body> {
-    let body = Body::from_stream(to_openai_responses_sse_stream(stream));
+    to_openai_responses_sse_response_with_options(stream, TranscodeSseOptions::default())
+}
+
+/// Convert a `ChatStream` into an Axum `Response<Body>` in OpenAI Responses SSE format with
+/// configurable v3 fallback options.
+#[cfg(feature = "openai")]
+pub fn to_openai_responses_sse_response_with_options(
+    stream: ChatStream,
+    opts: TranscodeSseOptions,
+) -> Response<Body> {
+    let body = Body::from_stream(to_openai_responses_sse_stream_with_options(stream, opts));
     let mut resp = Response::new(body);
     resp.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -515,8 +603,12 @@ pub fn to_transcoded_sse_response(
             #[cfg(feature = "openai")]
             {
                 if opts.bridge_openai_responses_stream_parts {
-                    return to_openai_responses_sse_response(stream);
+                    return to_openai_responses_sse_response_with_options(stream, opts);
                 }
+                let stream = apply_openai_responses_v3_lossy_fallback(
+                    stream,
+                    opts.v3_unsupported_part_behavior,
+                );
                 // Without bridge: serialize directly (best-effort).
                 use futures::StreamExt;
                 use siumai::experimental::streaming::encode_chat_stream_as_sse;
