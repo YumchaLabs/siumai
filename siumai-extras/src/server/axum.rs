@@ -342,6 +342,124 @@ pub fn to_openai_responses_sse_response(stream: ChatStream) -> Response<Body> {
     resp
 }
 
+/// Convert a `ChatStream` into an OpenAI-compatible Chat Completions SSE response.
+///
+/// This is useful when building gateways that need to expose an OpenAI-compatible endpoint
+/// backed by a non-OpenAI provider.
+#[cfg(feature = "openai")]
+pub fn to_openai_chat_completions_sse_response(stream: ChatStream) -> Response<Body> {
+    use siumai::experimental::streaming::encode_chat_stream_as_sse;
+    use siumai::protocol::openai::compat::openai_config::OpenAiCompatibleConfig;
+    use siumai::protocol::openai::compat::provider_registry::{
+        ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+    };
+    use siumai::protocol::openai::compat::streaming::OpenAiCompatibleEventConverter;
+
+    let adapter = std::sync::Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "openai".to_string(),
+        name: "OpenAI".to_string(),
+        base_url: "https://api.openai.com/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec!["tools".to_string()],
+        default_model: Some("gpt-4o-mini".to_string()),
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+
+    let cfg = OpenAiCompatibleConfig::new(
+        "openai",
+        "sk-siumai-encoding-only",
+        "https://api.openai.com/v1",
+        adapter.clone(),
+    )
+    .with_model("gpt-4o-mini");
+
+    let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+    let bytes = encode_chat_stream_as_sse(stream, converter);
+    let body = Body::from_stream(bytes.map(|item| {
+        Ok::<axum::body::Bytes, Infallible>(match item {
+            Ok(bytes) => bytes,
+            Err(e) => axum::body::Bytes::from(format!(
+                "event: error\ndata: {}\n\n",
+                serde_json::json!({ "error": e.user_message() })
+            )),
+        })
+    }));
+
+    let mut resp = Response::new(body);
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("text/event-stream"),
+    );
+    resp
+}
+
+/// Convert a `ChatStream` into an Anthropic Messages SSE response (best-effort).
+#[cfg(feature = "anthropic")]
+pub fn to_anthropic_messages_sse_response(stream: ChatStream) -> Response<Body> {
+    use futures::StreamExt;
+    use siumai::experimental::streaming::encode_chat_stream_as_sse;
+    use siumai::protocol::anthropic::params::AnthropicParams;
+    use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
+
+    let converter = AnthropicEventConverter::new(AnthropicParams::default());
+    let bytes = encode_chat_stream_as_sse(stream, converter);
+
+    let body = Body::from_stream(bytes.map(|item| {
+        Ok::<axum::body::Bytes, Infallible>(match item {
+            Ok(bytes) => bytes,
+            Err(e) => axum::body::Bytes::from(format!(
+                "data: {}\n\n",
+                serde_json::json!({
+                    "type": "error",
+                    "error": { "type": "api_error", "message": e.user_message() }
+                })
+            )),
+        })
+    }));
+
+    let mut resp = Response::new(body);
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("text/event-stream"),
+    );
+    resp
+}
+
+/// Convert a `ChatStream` into a Google Gemini GenerateContent SSE response (best-effort).
+#[cfg(feature = "google")]
+pub fn to_gemini_generate_content_sse_response(stream: ChatStream) -> Response<Body> {
+    use futures::StreamExt;
+    use siumai::experimental::streaming::encode_chat_stream_as_sse;
+    use siumai::protocol::gemini::streaming::GeminiEventConverter;
+    use siumai::protocol::gemini::types::GeminiConfig;
+
+    let cfg = GeminiConfig::default();
+    let converter = GeminiEventConverter::new(cfg);
+    let bytes = encode_chat_stream_as_sse(stream, converter);
+
+    let body = Body::from_stream(bytes.map(|item| {
+        Ok::<axum::body::Bytes, Infallible>(match item {
+            Ok(bytes) => bytes,
+            Err(e) => axum::body::Bytes::from(format!(
+                "data: {}\n\n",
+                serde_json::json!({
+                    "error": { "message": e.user_message() }
+                })
+            )),
+        })
+    }));
+
+    let mut resp = Response::new(body);
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("text/event-stream"),
+    );
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,5 +518,16 @@ mod tests {
         assert_eq!(collected.len(), 2);
         assert_eq!(collected[0].as_ref().unwrap(), "Hello");
         assert_eq!(collected[1].as_ref().unwrap(), " world");
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn test_to_openai_chat_completions_sse_response_builds() {
+        let events = vec![Ok(ChatStreamEvent::ContentDelta {
+            delta: "Hello".to_string(),
+            index: Some(0),
+        })];
+        let chat_stream: ChatStream = Box::pin(stream::iter(events));
+        let _resp = to_openai_chat_completions_sse_response(chat_stream);
     }
 }
