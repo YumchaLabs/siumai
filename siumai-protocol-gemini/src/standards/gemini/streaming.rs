@@ -15,6 +15,18 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug, Default, Clone)]
+struct GeminiFunctionCallSerializeState {
+    name: Option<String>,
+    arguments: String,
+    last_emitted_args_json: Option<String>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct GeminiSerializeState {
+    function_calls_by_id: std::collections::HashMap<String, GeminiFunctionCallSerializeState>,
+}
+
 /// Gemini stream response structure
 #[derive(Debug, Clone, Deserialize)]
 struct GeminiStreamResponse {
@@ -109,6 +121,8 @@ pub struct GeminiEventConverter {
     pending_code_execution_id: Arc<Mutex<Option<String>>>,
     /// Track the active reasoning block id (for Vercel-aligned custom reasoning events)
     current_reasoning_block_id: Arc<Mutex<Option<String>>>,
+
+    serialize_state: Arc<Mutex<GeminiSerializeState>>,
 }
 
 impl GeminiEventConverter {
@@ -121,6 +135,7 @@ impl GeminiEventConverter {
             next_block_id: Arc::new(AtomicU64::new(0)),
             pending_code_execution_id: Arc::new(Mutex::new(None)),
             current_reasoning_block_id: Arc::new(Mutex::new(None)),
+            serialize_state: Arc::new(Mutex::new(GeminiSerializeState::default())),
         }
     }
 
@@ -739,6 +754,80 @@ impl SseEventConverter for GeminiEventConverter {
                 });
                 sse_data_frame(&payload)
             }
+            ChatStreamEvent::ToolCallDelta {
+                id,
+                function_name,
+                arguments_delta,
+                ..
+            } => {
+                let mut state = self.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+
+                let call = state.function_calls_by_id.entry(id.clone()).or_default();
+
+                if let Some(name) = function_name.clone()
+                    && !name.trim().is_empty()
+                {
+                    call.name = Some(name);
+                }
+
+                if let Some(delta) = arguments_delta.clone() {
+                    call.arguments.push_str(&delta);
+                }
+
+                let Some(name) = call.name.clone() else {
+                    return Ok(Vec::new());
+                };
+
+                if call.arguments.trim().is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                let parsed: serde_json::Value =
+                    crate::streaming::parse_json_with_repair(&call.arguments).map_err(|e| {
+                        LlmError::ParseError(format!(
+                            "Failed to parse Gemini tool call arguments as JSON object: {e}"
+                        ))
+                    })?;
+
+                let Some(obj) = parsed.as_object() else {
+                    return Ok(Vec::new());
+                };
+
+                let args_json = serde_json::to_string(obj).map_err(|e| {
+                    LlmError::ParseError(format!(
+                        "Failed to serialize Gemini tool call args JSON object: {e}"
+                    ))
+                })?;
+
+                if call
+                    .last_emitted_args_json
+                    .as_ref()
+                    .is_some_and(|v| v == &args_json)
+                {
+                    return Ok(Vec::new());
+                }
+                call.last_emitted_args_json = Some(args_json);
+
+                let payload = serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "functionCall": {
+                                            "name": name,
+                                            "args": serde_json::Value::Object(obj.clone())
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                });
+                sse_data_frame(&payload)
+            }
             ChatStreamEvent::StreamEnd { response } => {
                 let reason = response
                     .finish_reason
@@ -767,13 +856,71 @@ impl SseEventConverter for GeminiEventConverter {
                     })
                 });
 
+                let mut out = Vec::new();
+
+                // Flush pending tool calls (best-effort) before finish chunk.
+                if let Ok(mut state) = self.serialize_state.lock() {
+                    for (call_id, call) in state.function_calls_by_id.iter_mut() {
+                        let Some(name) = call.name.clone() else {
+                            continue;
+                        };
+                        if call.arguments.trim().is_empty() {
+                            continue;
+                        }
+
+                        let parsed: Result<serde_json::Value, _> =
+                            crate::streaming::parse_json_with_repair(&call.arguments);
+                        let Ok(parsed) = parsed else {
+                            continue;
+                        };
+                        let Some(obj) = parsed.as_object() else {
+                            continue;
+                        };
+
+                        let args_json = match serde_json::to_string(obj) {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
+                        if call
+                            .last_emitted_args_json
+                            .as_ref()
+                            .is_some_and(|v| v == &args_json)
+                        {
+                            continue;
+                        }
+                        call.last_emitted_args_json = Some(args_json);
+
+                        let payload = serde_json::json!({
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "parts": [
+                                            {
+                                                "functionCall": {
+                                                    "name": name,
+                                                    "args": serde_json::Value::Object(obj.clone())
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                            "siumai": { "toolCallId": call_id }
+                        });
+                        if let Ok(frame) = sse_data_frame(&payload) {
+                            out.extend_from_slice(&frame);
+                        }
+                    }
+                }
+
                 let payload = serde_json::json!({
                     "candidates": [
                         { "finishReason": reason }
                     ],
                     "usageMetadata": usage.unwrap_or(serde_json::Value::Null),
                 });
-                sse_data_frame(&payload)
+                out.extend_from_slice(&sse_data_frame(&payload)?);
+                Ok(out)
             }
             ChatStreamEvent::Error { error } => {
                 // Gemini SSE errors do not have a stable in-band frame; emit a best-effort JSON payload.
@@ -782,9 +929,7 @@ impl SseEventConverter for GeminiEventConverter {
                 });
                 sse_data_frame(&payload)
             }
-            ChatStreamEvent::ToolCallDelta { .. } | ChatStreamEvent::Custom { .. } => {
-                Ok(Vec::new())
-            }
+            ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
         }
     }
 }
@@ -1177,6 +1322,37 @@ mod tests {
                     e,
                     Ok(ChatStreamEvent::StreamEnd { response }) if response.finish_reason == Some(FinishReason::Stop)
                 ))
+        );
+    }
+
+    #[test]
+    fn gemini_serializes_tool_call_delta_as_function_call_part() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::ToolCallDelta {
+                id: "call_1".to_string(),
+                function_name: Some("get_weather".to_string()),
+                arguments_delta: Some(r#"{"city":"Tokyo"}"#.to_string()),
+                index: None,
+            })
+            .expect("serialize tool call delta");
+
+        let text = String::from_utf8(bytes).expect("utf8");
+        let json_line = text
+            .lines()
+            .find_map(|line| line.strip_prefix("data: "))
+            .expect("data line");
+
+        let v: serde_json::Value = serde_json::from_str(json_line).expect("json");
+        assert_eq!(
+            v["candidates"][0]["content"]["parts"][0]["functionCall"]["name"],
+            serde_json::json!("get_weather")
+        );
+        assert_eq!(
+            v["candidates"][0]["content"]["parts"][0]["functionCall"]["args"]["city"],
+            serde_json::json!("Tokyo")
         );
     }
 }
