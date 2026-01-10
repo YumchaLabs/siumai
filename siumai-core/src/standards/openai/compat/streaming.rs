@@ -17,6 +17,16 @@ use std::sync::Arc;
 use super::adapter::ProviderAdapter;
 use super::openai_config::OpenAiCompatibleConfig;
 
+#[derive(Debug, Default, Clone)]
+struct OpenAiCompatSerializeState {
+    id: Option<String>,
+    model: Option<String>,
+    created: Option<u64>,
+    emitted_role: bool,
+    tool_call_index_by_id: std::collections::HashMap<String, u32>,
+    next_tool_call_index: u32,
+}
+
 // Type alias for better readability and to reduce type complexity lints
 type ToolCallDelta = (String, Option<String>, Option<String>, Option<usize>);
 
@@ -82,6 +92,9 @@ pub struct OpenAiCompatibleEventConverter {
     accumulated_content: Arc<tokio::sync::Mutex<String>>,
     // Track whether we have emitted any ContentDelta to avoid duplicate injection
     emitted_content: std::sync::Arc<std::sync::atomic::AtomicBool>,
+
+    // Serialize state for reverse SSE encoding (ChatStreamEvent -> OpenAI-compatible SSE).
+    serialize_state: Arc<std::sync::Mutex<OpenAiCompatSerializeState>>,
 }
 
 impl OpenAiCompatibleEventConverter {
@@ -93,6 +106,7 @@ impl OpenAiCompatibleEventConverter {
             state_tracker: StreamStateTracker::new(),
             accumulated_content: Arc::new(tokio::sync::Mutex::new(String::new())),
             emitted_content: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            serialize_state: Arc::new(std::sync::Mutex::new(OpenAiCompatSerializeState::default())),
         }
     }
 
@@ -681,6 +695,247 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
+
+    fn serialize_event(&self, event: &ChatStreamEvent) -> Result<Vec<u8>, LlmError> {
+        fn sse_data_frame(value: &serde_json::Value) -> Result<Vec<u8>, LlmError> {
+            let data = serde_json::to_vec(value).map_err(|e| {
+                LlmError::JsonError(format!(
+                    "Failed to serialize OpenAI-compatible SSE JSON: {e}"
+                ))
+            })?;
+            let mut out = Vec::with_capacity(data.len() + 8);
+            out.extend_from_slice(b"data: ");
+            out.extend_from_slice(&data);
+            out.extend_from_slice(b"\n\n");
+            Ok(out)
+        }
+
+        fn done_frame() -> Vec<u8> {
+            b"data: [DONE]\n\n".to_vec()
+        }
+
+        fn finish_reason_str(reason: &FinishReason) -> Option<&'static str> {
+            match reason {
+                FinishReason::Stop | FinishReason::StopSequence => Some("stop"),
+                FinishReason::Length => Some("length"),
+                FinishReason::ToolCalls => Some("tool_calls"),
+                FinishReason::ContentFilter => Some("content_filter"),
+                FinishReason::Error => Some("error"),
+                FinishReason::Unknown => None,
+                FinishReason::Other(_) => None,
+            }
+        }
+
+        fn now_epoch_secs() -> u64 {
+            chrono::Utc::now().timestamp().max(0) as u64
+        }
+
+        let mut state = self
+            .serialize_state
+            .lock()
+            .map_err(|_| LlmError::InternalError("serialize_state lock poisoned".to_string()))?;
+
+        let ensure_state = |state: &mut OpenAiCompatSerializeState| {
+            if state.id.is_none() {
+                state.id = Some("chatcmpl-siumai-0".to_string());
+            }
+            if state.model.is_none() {
+                state.model = Some("unknown".to_string());
+            }
+            if state.created.is_none() {
+                state.created = Some(now_epoch_secs());
+            }
+        };
+
+        match event {
+            ChatStreamEvent::StreamStart { metadata } => {
+                *state = OpenAiCompatSerializeState::default();
+                state.id = metadata
+                    .id
+                    .clone()
+                    .or_else(|| Some("chatcmpl-siumai-0".to_string()));
+                state.model = metadata
+                    .model
+                    .clone()
+                    .or_else(|| Some(self.config.model.clone()));
+                state.created = metadata
+                    .created
+                    .map(|dt| dt.timestamp().max(0) as u64)
+                    .or_else(|| Some(now_epoch_secs()));
+
+                let payload = serde_json::json!({
+                    "id": state.id.clone(),
+                    "object": "chat.completion.chunk",
+                    "created": state.created,
+                    "model": state.model.clone(),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": { "role": "assistant" },
+                            "finish_reason": serde_json::Value::Null
+                        }
+                    ]
+                });
+                state.emitted_role = true;
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::ContentDelta { delta, index } => {
+                ensure_state(&mut state);
+                let choice_index = index.unwrap_or(0) as u32;
+
+                // Some clients expect a role delta before the first content delta.
+                let mut out = Vec::new();
+                if !state.emitted_role {
+                    let role_payload = serde_json::json!({
+                        "id": state.id.clone(),
+                        "object": "chat.completion.chunk",
+                        "created": state.created,
+                        "model": state.model.clone(),
+                        "choices": [
+                            {
+                                "index": choice_index,
+                                "delta": { "role": "assistant" },
+                                "finish_reason": serde_json::Value::Null
+                            }
+                        ]
+                    });
+                    out.extend_from_slice(&sse_data_frame(&role_payload)?);
+                    state.emitted_role = true;
+                }
+
+                let payload = serde_json::json!({
+                    "id": state.id.clone(),
+                    "object": "chat.completion.chunk",
+                    "created": state.created,
+                    "model": state.model.clone(),
+                    "choices": [
+                        {
+                            "index": choice_index,
+                            "delta": { "content": delta },
+                            "finish_reason": serde_json::Value::Null
+                        }
+                    ]
+                });
+                out.extend_from_slice(&sse_data_frame(&payload)?);
+                Ok(out)
+            }
+            ChatStreamEvent::ToolCallDelta {
+                id,
+                function_name,
+                arguments_delta,
+                index,
+            } => {
+                ensure_state(&mut state);
+                let choice_index = index.unwrap_or(0) as u32;
+
+                let tool_call_index = match state.tool_call_index_by_id.get(id).copied() {
+                    Some(i) => i,
+                    None => {
+                        let i = state.next_tool_call_index;
+                        state.next_tool_call_index += 1;
+                        state.tool_call_index_by_id.insert(id.clone(), i);
+                        i
+                    }
+                };
+
+                let mut function = serde_json::Map::new();
+                if let Some(name) = function_name.clone() {
+                    function.insert("name".to_string(), serde_json::Value::String(name));
+                }
+                if let Some(args) = arguments_delta.clone() {
+                    function.insert("arguments".to_string(), serde_json::Value::String(args));
+                }
+
+                let payload = serde_json::json!({
+                    "id": state.id.clone(),
+                    "object": "chat.completion.chunk",
+                    "created": state.created,
+                    "model": state.model.clone(),
+                    "choices": [
+                        {
+                            "index": choice_index,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": tool_call_index,
+                                        "id": id,
+                                        "type": "function",
+                                        "function": serde_json::Value::Object(function),
+                                    }
+                                ]
+                            },
+                            "finish_reason": serde_json::Value::Null
+                        }
+                    ]
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::UsageUpdate { usage } => {
+                ensure_state(&mut state);
+                let payload = serde_json::json!({
+                    "id": state.id.clone(),
+                    "object": "chat.completion.chunk",
+                    "created": state.created,
+                    "model": state.model.clone(),
+                    "choices": [],
+                    "usage": {
+                        "prompt_tokens": usage.prompt_tokens,
+                        "completion_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                    }
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::StreamEnd { response } => {
+                ensure_state(&mut state);
+                if state.model.is_none() {
+                    state.model = response.model.clone();
+                }
+                let finish_reason = response
+                    .finish_reason
+                    .as_ref()
+                    .and_then(finish_reason_str)
+                    .map(|s| serde_json::Value::String(s.to_string()))
+                    .unwrap_or(serde_json::Value::Null);
+
+                let usage = response.usage.as_ref().map(|u| {
+                    serde_json::json!({
+                        "prompt_tokens": u.prompt_tokens,
+                        "completion_tokens": u.completion_tokens,
+                        "total_tokens": u.total_tokens,
+                    })
+                });
+
+                let payload = serde_json::json!({
+                    "id": state.id.clone(),
+                    "object": "chat.completion.chunk",
+                    "created": state.created,
+                    "model": state.model.clone(),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": finish_reason
+                        }
+                    ],
+                    "usage": usage.unwrap_or(serde_json::Value::Null),
+                });
+
+                let mut out = sse_data_frame(&payload)?;
+                out.extend_from_slice(&done_frame());
+                Ok(out)
+            }
+            ChatStreamEvent::Error { error } => {
+                let payload = serde_json::json!({
+                    "error": { "message": error },
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::ThinkingDelta { .. } | ChatStreamEvent::Custom { .. } => {
+                Ok(Vec::new())
+            }
+        }
+    }
 }
 
 // Legacy OpenAiCompatibleStreaming client has been removed in favor of the unified HttpChatExecutor.
@@ -703,6 +958,23 @@ mod tests {
         ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
     };
     use crate::streaming::SseEventConverter;
+    use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
+
+    fn parse_sse_data_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
+        let text = String::from_utf8_lossy(bytes);
+        text.split("\n\n")
+            .filter_map(|chunk| {
+                let line = chunk
+                    .lines()
+                    .find_map(|l| l.strip_prefix("data: "))
+                    .map(str::trim)?;
+                if line.is_empty() || line == "[DONE]" {
+                    return None;
+                }
+                serde_json::from_str::<serde_json::Value>(line).ok()
+            })
+            .collect()
+    }
 
     #[tokio::test]
     async fn deepseek_streaming_emits_usage_then_single_stream_end_and_ignores_done() {
@@ -777,5 +1049,143 @@ mod tests {
         // After StreamEnd is emitted from finish_reason, the [DONE] marker should not
         // trigger another StreamEnd in handle_stream_end().
         assert!(converter.handle_stream_end().is_none());
+    }
+
+    #[test]
+    fn openai_compatible_serializes_basic_text_deltas_as_chat_completion_chunks() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings {
+                thinking_fields: vec![],
+                content_field: "content".to_string(),
+                tool_calls_field: "tool_calls".to_string(),
+                role_field: "role".to_string(),
+            },
+            capabilities: vec!["tools".to_string()],
+            default_model: Some("gpt-test".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-test",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-test");
+        let conv = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+        let start_bytes = conv
+            .serialize_event(&ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("chatcmpl_test".to_string()),
+                    model: Some("gpt-test".to_string()),
+                    created: None,
+                    provider: "openai-compatible".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+        let start_frames = parse_sse_data_frames(&start_bytes);
+        assert_eq!(start_frames.len(), 1);
+        assert_eq!(
+            start_frames[0]["object"],
+            serde_json::json!("chat.completion.chunk")
+        );
+        assert_eq!(
+            start_frames[0]["choices"][0]["delta"]["role"],
+            serde_json::json!("assistant")
+        );
+
+        let delta_bytes = conv
+            .serialize_event(&ChatStreamEvent::ContentDelta {
+                delta: "Hello".to_string(),
+                index: None,
+            })
+            .expect("serialize delta");
+        let delta_frames = parse_sse_data_frames(&delta_bytes);
+        assert!(!delta_frames.is_empty());
+        assert_eq!(
+            delta_frames.last().unwrap()["choices"][0]["delta"]["content"],
+            serde_json::json!("Hello")
+        );
+
+        let end_bytes = conv
+            .serialize_event(&ChatStreamEvent::StreamEnd {
+                response: ChatResponse {
+                    id: None,
+                    model: Some("gpt-test".to_string()),
+                    content: MessageContent::Text("Hello".to_string()),
+                    usage: Some(
+                        Usage::builder()
+                            .prompt_tokens(3)
+                            .completion_tokens(5)
+                            .total_tokens(8)
+                            .build(),
+                    ),
+                    finish_reason: Some(FinishReason::Stop),
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
+                    provider_metadata: None,
+                },
+            })
+            .expect("serialize end");
+        assert!(String::from_utf8_lossy(&end_bytes).contains("data: [DONE]"));
+        let end_frames = parse_sse_data_frames(&end_bytes);
+        assert!(!end_frames.is_empty());
+        assert_eq!(
+            end_frames[0]["choices"][0]["finish_reason"],
+            serde_json::json!("stop")
+        );
+    }
+
+    #[test]
+    fn openai_compatible_serializes_tool_call_delta_as_tool_calls_delta() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings {
+                thinking_fields: vec![],
+                content_field: "content".to_string(),
+                tool_calls_field: "tool_calls".to_string(),
+                role_field: "role".to_string(),
+            },
+            capabilities: vec!["tools".to_string()],
+            default_model: Some("gpt-test".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-test",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-test");
+        let conv = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+        let bytes = conv
+            .serialize_event(&ChatStreamEvent::ToolCallDelta {
+                id: "call_1".to_string(),
+                function_name: Some("lookup".to_string()),
+                arguments_delta: Some("{\"q\":\"rust\"}".to_string()),
+                index: None,
+            })
+            .expect("serialize tool delta");
+        let frames = parse_sse_data_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
+            serde_json::json!("lookup")
+        );
     }
 }
