@@ -30,6 +30,7 @@ struct OpenAiResponsesFunctionCallSerializeState {
     output_index: u64,
     name: Option<String>,
     arguments: String,
+    arguments_done: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -41,6 +42,9 @@ struct OpenAiResponsesSerializeState {
 
     used_output_indices: std::collections::HashSet<u64>,
     next_output_index: u64,
+
+    emitted_output_item_added_ids: std::collections::HashSet<String>,
+    emitted_output_item_done_ids: std::collections::HashSet<String>,
 
     message_item_id: Option<String>,
     message_output_index: Option<u64>,
@@ -3347,6 +3351,21 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
             }
         }
 
+        fn alloc_or_reuse_output_index(
+            state: &mut OpenAiResponsesSerializeState,
+            requested: Option<u64>,
+        ) -> u64 {
+            if let Some(idx) = requested
+                && !state.used_output_indices.contains(&idx)
+            {
+                state.used_output_indices.insert(idx);
+                state.next_output_index =
+                    std::cmp::max(state.next_output_index, idx.saturating_add(1));
+                return idx;
+            }
+            alloc_output_index(state)
+        }
+
         let mut state = self
             .serialize_state
             .lock()
@@ -3485,6 +3504,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                                 output_index,
                                 name: None,
                                 arguments: String::new(),
+                                arguments_done: false,
                             },
                         );
                     }
@@ -3514,6 +3534,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
                 let mut out = Vec::new();
                 if let Some((item_id, output_index, call_id, name)) = emit_added {
+                    state.emitted_output_item_added_ids.insert(item_id.clone());
                     let added = serde_json::json!({
                         "type": "response.output_item.added",
                         "sequence_number": next_sequence_number(&mut state),
@@ -3617,7 +3638,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 let calls: Vec<(String, OpenAiResponsesFunctionCallSerializeState)> =
                     state.function_calls_by_call_id.drain().collect();
                 for (call_id, call) in calls {
-                    if !call.arguments.is_empty() {
+                    if !call.arguments.is_empty() && !call.arguments_done {
                         let done = serde_json::json!({
                             "type": "response.function_call_arguments.done",
                             "sequence_number": next_sequence_number(&mut state),
@@ -4059,6 +4080,390 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             &payload,
                         )?);
                         Ok(out)
+                    }
+                    "openai:tool-input-start" => {
+                        let Some(call_id) = data.get("id").and_then(|v| v.as_str()) else {
+                            return Ok(Vec::new());
+                        };
+                        let Some(tool_name) = data.get("toolName").and_then(|v| v.as_str()) else {
+                            return Ok(Vec::new());
+                        };
+                        if call_id.is_empty() || tool_name.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        ensure_response_metadata(self, &mut state);
+
+                        if !state.function_calls_by_call_id.contains_key(call_id) {
+                            let output_index = alloc_output_index(&mut state);
+                            state.function_calls_by_call_id.insert(
+                                call_id.to_string(),
+                                OpenAiResponsesFunctionCallSerializeState {
+                                    item_id: format!("fc_siumai_{output_index}"),
+                                    output_index,
+                                    name: None,
+                                    arguments: String::new(),
+                                    arguments_done: false,
+                                },
+                            );
+                        }
+
+                        let (item_id, output_index) = {
+                            let call = state
+                                .function_calls_by_call_id
+                                .get_mut(call_id)
+                                .unwrap_or_else(|| unreachable!("function call state must exist"));
+
+                            if call.name.is_some() {
+                                return Ok(Vec::new());
+                            }
+
+                            call.name = Some(tool_name.to_string());
+                            (call.item_id.clone(), call.output_index)
+                        };
+
+                        state.emitted_output_item_added_ids.insert(item_id.clone());
+
+                        let added = serde_json::json!({
+                            "type": "response.output_item.added",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "output_index": output_index,
+                            "item": {
+                                "id": item_id,
+                                "type": "function_call",
+                                "status": "in_progress",
+                                "arguments": "",
+                                "call_id": call_id,
+                                "name": tool_name,
+                            }
+                        });
+
+                        sse_event_frame("response.output_item.added", &added)
+                    }
+                    "openai:tool-input-delta" => {
+                        let Some(call_id) = data.get("id").and_then(|v| v.as_str()) else {
+                            return Ok(Vec::new());
+                        };
+                        let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
+                            return Ok(Vec::new());
+                        };
+                        if call_id.is_empty() || delta.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        ensure_response_metadata(self, &mut state);
+
+                        if !state.function_calls_by_call_id.contains_key(call_id) {
+                            let output_index = alloc_output_index(&mut state);
+                            state.function_calls_by_call_id.insert(
+                                call_id.to_string(),
+                                OpenAiResponsesFunctionCallSerializeState {
+                                    item_id: format!("fc_siumai_{output_index}"),
+                                    output_index,
+                                    name: Some("tool".to_string()),
+                                    arguments: String::new(),
+                                    arguments_done: false,
+                                },
+                            );
+                        }
+
+                        let (item_id, output_index, name, has_name) = {
+                            let call = state
+                                .function_calls_by_call_id
+                                .get_mut(call_id)
+                                .unwrap_or_else(|| unreachable!("function call state must exist"));
+
+                            call.arguments.push_str(delta);
+
+                            (
+                                call.item_id.clone(),
+                                call.output_index,
+                                call.name.clone().unwrap_or_else(|| "tool".to_string()),
+                                call.name.is_some(),
+                            )
+                        };
+
+                        // Ensure a function_call item exists so that downstream parsers can associate
+                        // argument deltas with a call id.
+                        let mut out = Vec::new();
+                        if has_name && state.emitted_output_item_added_ids.insert(item_id.clone()) {
+                            let added = serde_json::json!({
+                                "type": "response.output_item.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": {
+                                    "id": item_id,
+                                    "type": "function_call",
+                                    "status": "in_progress",
+                                    "arguments": "",
+                                    "call_id": call_id,
+                                    "name": name,
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.added",
+                                &added,
+                            )?);
+                        }
+
+                        let payload = serde_json::json!({
+                            "type": "response.function_call_arguments.delta",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "delta": delta,
+                        });
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.function_call_arguments.delta",
+                            &payload,
+                        )?);
+                        Ok(out)
+                    }
+                    "openai:tool-input-end" => {
+                        let Some(call_id) = data.get("id").and_then(|v| v.as_str()) else {
+                            return Ok(Vec::new());
+                        };
+                        if call_id.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        ensure_response_metadata(self, &mut state);
+
+                        let (item_id, output_index, arguments) = {
+                            let Some(call) = state.function_calls_by_call_id.get_mut(call_id)
+                            else {
+                                return Ok(Vec::new());
+                            };
+                            if call.arguments_done {
+                                return Ok(Vec::new());
+                            }
+                            call.arguments_done = true;
+                            (
+                                call.item_id.clone(),
+                                call.output_index,
+                                call.arguments.clone(),
+                            )
+                        };
+
+                        let payload = serde_json::json!({
+                            "type": "response.function_call_arguments.done",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "arguments": arguments,
+                        });
+                        sse_event_frame("response.function_call_arguments.done", &payload)
+                    }
+                    "openai:tool-call" => {
+                        ensure_response_metadata(self, &mut state);
+
+                        let output_index = alloc_or_reuse_output_index(
+                            &mut state,
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+
+                        let raw_item = data.get("rawItem").cloned();
+                        let provider_executed = data
+                            .get("providerExecuted")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+
+                        if let Some(item) = raw_item {
+                            let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                            let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("");
+
+                            // Provider tool calls may be surfaced via output_item.added (in_progress)
+                            // or output_item.done (completed). Some tools (e.g. code interpreter, MCP)
+                            // only emit stream parts on done; dedupe via item id.
+                            let is_done = !provider_executed || status == "completed";
+                            if is_done {
+                                if !item_id.is_empty()
+                                    && !state
+                                        .emitted_output_item_done_ids
+                                        .insert(item_id.to_string())
+                                {
+                                    return Ok(Vec::new());
+                                }
+
+                                let payload = serde_json::json!({
+                                    "type": "response.output_item.done",
+                                    "sequence_number": next_sequence_number(&mut state),
+                                    "output_index": output_index,
+                                    "item": item,
+                                });
+                                return sse_event_frame("response.output_item.done", &payload);
+                            }
+
+                            if !item_id.is_empty()
+                                && !state
+                                    .emitted_output_item_added_ids
+                                    .insert(item_id.to_string())
+                            {
+                                return Ok(Vec::new());
+                            }
+
+                            let payload = serde_json::json!({
+                                "type": "response.output_item.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": item,
+                            });
+                            return sse_event_frame("response.output_item.added", &payload);
+                        }
+
+                        // Best-effort fallback: represent the stream part as a function_call item.
+                        let call_id = data
+                            .get("toolCallId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let tool_name = data.get("toolName").and_then(|v| v.as_str()).unwrap_or("");
+                        let input = data.get("input").and_then(|v| v.as_str()).unwrap_or("");
+                        if call_id.is_empty() || tool_name.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        if !state.function_calls_by_call_id.contains_key(call_id) {
+                            let output_index = alloc_output_index(&mut state);
+                            state.function_calls_by_call_id.insert(
+                                call_id.to_string(),
+                                OpenAiResponsesFunctionCallSerializeState {
+                                    item_id: format!("fc_siumai_{output_index}"),
+                                    output_index,
+                                    name: None,
+                                    arguments: String::new(),
+                                    arguments_done: false,
+                                },
+                            );
+                        }
+
+                        let (item_id, output_index, name, arguments, emit_added, emit_done) = {
+                            let call = state
+                                .function_calls_by_call_id
+                                .get_mut(call_id)
+                                .unwrap_or_else(|| unreachable!("function call state must exist"));
+
+                            let mut emit_added = false;
+                            if call.name.is_none() {
+                                call.name = Some(tool_name.to_string());
+                                emit_added = true;
+                            }
+
+                            if !input.is_empty() {
+                                call.arguments.push_str(input);
+                            }
+
+                            let mut emit_done = false;
+                            if !call.arguments_done {
+                                call.arguments_done = true;
+                                emit_done = true;
+                            }
+
+                            (
+                                call.item_id.clone(),
+                                call.output_index,
+                                call.name.clone().unwrap_or_else(|| "tool".to_string()),
+                                call.arguments.clone(),
+                                emit_added,
+                                emit_done,
+                            )
+                        };
+
+                        let mut out = Vec::new();
+
+                        if emit_added && state.emitted_output_item_added_ids.insert(item_id.clone())
+                        {
+                            let added = serde_json::json!({
+                                "type": "response.output_item.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": {
+                                    "id": item_id,
+                                    "type": "function_call",
+                                    "status": "in_progress",
+                                    "arguments": "",
+                                    "call_id": call_id,
+                                    "name": name,
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.added",
+                                &added,
+                            )?);
+                        }
+
+                        if emit_done {
+                            let payload = serde_json::json!({
+                                "type": "response.function_call_arguments.done",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "item_id": item_id,
+                                "output_index": output_index,
+                                "arguments": arguments,
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.function_call_arguments.done",
+                                &payload,
+                            )?);
+                        }
+
+                        Ok(out)
+                    }
+                    "openai:tool-result" => {
+                        ensure_response_metadata(self, &mut state);
+
+                        let output_index = alloc_or_reuse_output_index(
+                            &mut state,
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+
+                        if let Some(item) = data.get("rawItem").cloned() {
+                            let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                            if !item_id.is_empty()
+                                && !state
+                                    .emitted_output_item_done_ids
+                                    .insert(item_id.to_string())
+                            {
+                                return Ok(Vec::new());
+                            }
+
+                            let payload = serde_json::json!({
+                                "type": "response.output_item.done",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": item,
+                            });
+                            return sse_event_frame("response.output_item.done", &payload);
+                        }
+
+                        Ok(Vec::new())
+                    }
+                    "openai:tool-approval-request" => {
+                        ensure_response_metadata(self, &mut state);
+
+                        let output_index = alloc_or_reuse_output_index(
+                            &mut state,
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+
+                        if let Some(item) = data.get("rawItem").cloned() {
+                            let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                            if !item_id.is_empty()
+                                && !state
+                                    .emitted_output_item_done_ids
+                                    .insert(item_id.to_string())
+                            {
+                                return Ok(Vec::new());
+                            }
+
+                            let payload = serde_json::json!({
+                                "type": "response.output_item.done",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": item,
+                            });
+                            return sse_event_frame("response.output_item.done", &payload);
+                        }
+
+                        Ok(Vec::new())
                     }
                     _ => Ok(Vec::new()),
                 }
@@ -4624,6 +5029,165 @@ mod tests {
                 && v["annotation"]["type"] == serde_json::json!("file_citation")
                 && v["annotation"]["file_id"] == serde_json::json!("file_123")
                 && v["annotation"]["filename"] == serde_json::json!("notes.txt")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_tool_input_stream_parts_as_function_call_arguments() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let start_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("resp_test".to_string()),
+                    model: Some("gpt-test".to_string()),
+                    created: None,
+                    provider: "openai".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+        let _ = parse_sse_frames(&start_bytes);
+
+        let start_tool_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-start".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-start",
+                    "id": "call_1",
+                    "toolName": "lookup",
+                }),
+            })
+            .expect("serialize tool-input-start");
+        let start_tool_frames = parse_sse_frames(&start_tool_bytes);
+        assert!(start_tool_frames.iter().any(|(ev, v)| {
+            ev == "response.output_item.added"
+                && v["item"]["type"] == serde_json::json!("function_call")
+                && v["item"]["call_id"] == serde_json::json!("call_1")
+                && v["item"]["name"] == serde_json::json!("lookup")
+        }));
+
+        let delta_tool_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-delta",
+                    "id": "call_1",
+                    "delta": "{\"q\":\"rust\"}",
+                }),
+            })
+            .expect("serialize tool-input-delta");
+        let delta_tool_frames = parse_sse_frames(&delta_tool_bytes);
+        assert!(delta_tool_frames.iter().any(|(ev, v)| {
+            ev == "response.function_call_arguments.delta"
+                && v["delta"] == serde_json::json!("{\"q\":\"rust\"}")
+        }));
+
+        let end_tool_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-input-end".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-input-end",
+                    "id": "call_1",
+                }),
+            })
+            .expect("serialize tool-input-end");
+        let end_tool_frames = parse_sse_frames(&end_tool_bytes);
+        assert!(end_tool_frames.iter().any(|(ev, v)| {
+            ev == "response.function_call_arguments.done"
+                && v["arguments"] == serde_json::json!("{\"q\":\"rust\"}")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_provider_tool_call_stream_part_raw_item() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-call".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": "ws_1",
+                    "toolName": "web_search_preview",
+                    "providerExecuted": true,
+                    "outputIndex": 1,
+                    "rawItem": {
+                        "id": "ws_1",
+                        "type": "web_search_call",
+                        "status": "in_progress"
+                    }
+                }),
+            })
+            .expect("serialize provider tool-call");
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| {
+            ev == "response.output_item.added"
+                && v["output_index"] == serde_json::json!(1)
+                && v["item"]["type"] == serde_json::json!("web_search_call")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_provider_tool_result_stream_part_raw_item() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-result".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-result",
+                    "toolCallId": "ws_1",
+                    "toolName": "web_search_preview",
+                    "providerExecuted": true,
+                    "outputIndex": 1,
+                    "rawItem": {
+                        "id": "ws_1",
+                        "type": "web_search_call",
+                        "status": "completed",
+                        "action": { "type": "search", "query": "rust" },
+                        "results": []
+                    }
+                }),
+            })
+            .expect("serialize provider tool-result");
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| {
+            ev == "response.output_item.done"
+                && v["output_index"] == serde_json::json!(1)
+                && v["item"]["type"] == serde_json::json!("web_search_call")
+                && v["item"]["status"] == serde_json::json!("completed")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_tool_approval_request_stream_part_raw_item() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-approval-request".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-approval-request",
+                    "approvalId": "apr_1",
+                    "toolCallId": "mcp_approval_1",
+                    "outputIndex": 2,
+                    "rawItem": {
+                        "id": "apr_1",
+                        "type": "mcp_approval_request",
+                        "status": "completed"
+                    }
+                }),
+            })
+            .expect("serialize tool approval request");
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| {
+            ev == "response.output_item.done"
+                && v["output_index"] == serde_json::json!(2)
+                && v["item"]["type"] == serde_json::json!("mcp_approval_request")
         }));
     }
 

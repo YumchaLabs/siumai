@@ -61,7 +61,7 @@ For Siumai, the equivalent is a provider-specific event converter that supports 
 - Anthropic: SSE serialization implemented (message_start, content/thinking/tool deltas, message_delta/stop).
 - Ollama: JSONL serialization implemented (content/thinking deltas + done frame).
 - OpenAI (Responses): SSE serialization implemented (response.created, message scaffolding via output_item/content_part, output_text.delta/done, function_call output_item + function_call_arguments delta/done, response.usage, response.completed, response.error).
-- OpenAI (Responses): stream parts reverse mapping implemented for `openai:text-delta`, `openai:reasoning-delta`, and `openai:source` (as `response.output_text.annotation.added`) to support Vercel-style `formatStreamPart` proxying.
+- OpenAI (Responses): stream parts reverse mapping implemented for `openai:text-delta`, `openai:reasoning-delta`, `openai:source` (as `response.output_text.annotation.added`), and tool parts (`openai:tool-input-*`, `openai:tool-call`, `openai:tool-result`, `openai:tool-approval-request`) to support Vercel-style `formatStreamPart` proxying.
 - OpenAI-compatible (Chat Completions): SSE serialization implemented (chat.completion.chunk deltas + [DONE]).
 - Gemini / Vertex (GenerateContent): SSE serialization implemented (candidates.parts text/thought chunks + usageMetadata + finishReason).
 
