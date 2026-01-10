@@ -50,6 +50,7 @@ pub(super) struct MinimaxiMusicExtraInfo {
 }
 
 /// Generate music
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn generate_music(
     api_key: &str,
     base_url: &str,
@@ -57,15 +58,20 @@ pub(super) async fn generate_music(
     http_client: &reqwest::Client,
     retry_options: Option<&RetryOptions>,
     interceptors: &[Arc<dyn HttpInterceptor>],
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     request: MusicGenerationRequest,
 ) -> Result<MusicGenerationResponse, LlmError> {
-    let wiring = HttpExecutionWiring::new(
+    let mut wiring = HttpExecutionWiring::new(
         "minimaxi",
         http_client.clone(),
         super::utils::build_context(api_key, base_url, http_config),
     )
     .with_interceptors(interceptors.to_vec())
     .with_retry_options(retry_options.cloned());
+
+    if let Some(transport) = http_transport {
+        wiring = wiring.with_transport(transport);
+    }
 
     let config = wiring.config(Arc::new(MinimaxiMusicSpec::new()));
     let url = MinimaxiMusicSpec::new().music_generation_url(&config.provider_context);

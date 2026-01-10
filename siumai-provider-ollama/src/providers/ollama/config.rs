@@ -4,11 +4,12 @@
 
 use crate::error::LlmError;
 use crate::types::{CommonParams, HttpConfig};
+use std::sync::Arc;
 
 pub use crate::standards::ollama::params::OllamaParams;
 
 /// Ollama provider configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OllamaConfig {
     /// Base URL for Ollama API (default: <http://localhost:11434>)
     pub base_url: String,
@@ -20,6 +21,18 @@ pub struct OllamaConfig {
     pub http_config: HttpConfig,
     /// Ollama-specific parameters
     pub ollama_params: OllamaParams,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+}
+
+impl std::fmt::Debug for OllamaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OllamaConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("has_http_transport", &self.http_transport.is_some())
+            .finish()
+    }
 }
 
 impl Default for OllamaConfig {
@@ -30,6 +43,7 @@ impl Default for OllamaConfig {
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
             ollama_params: OllamaParams::default(),
+            http_transport: None,
         }
     }
 }
@@ -65,13 +79,27 @@ impl OllamaConfig {
 }
 
 /// Builder for Ollama configuration
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct OllamaConfigBuilder {
     base_url: Option<String>,
     model: Option<String>,
     common_params: Option<CommonParams>,
     http_config: Option<HttpConfig>,
     ollama_params: Option<OllamaParams>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+}
+
+impl std::fmt::Debug for OllamaConfigBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OllamaConfigBuilder")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("common_params", &self.common_params)
+            .field("http_config", &self.http_config)
+            .field("ollama_params", &self.ollama_params)
+            .field("has_http_transport", &self.http_transport.is_some())
+            .finish()
+    }
 }
 
 impl OllamaConfigBuilder {
@@ -216,6 +244,15 @@ impl OllamaConfigBuilder {
         self
     }
 
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.http_transport = Some(transport);
+        self
+    }
+
     /// Build the configuration
     pub fn build(self) -> Result<OllamaConfig, LlmError> {
         let mut common_params = self.common_params.unwrap_or_default();
@@ -233,6 +270,7 @@ impl OllamaConfigBuilder {
             common_params,
             http_config: self.http_config.unwrap_or_default(),
             ollama_params: self.ollama_params.unwrap_or_default(),
+            http_transport: self.http_transport,
         };
 
         config.validate()?;

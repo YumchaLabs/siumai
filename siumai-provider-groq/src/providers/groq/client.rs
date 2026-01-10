@@ -47,6 +47,12 @@ impl GroqClient {
     ) -> Vec<std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>> {
         self.inner.http_interceptors()
     }
+
+    fn http_transport(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>> {
+        self.inner.http_transport()
+    }
 }
 
 #[async_trait]

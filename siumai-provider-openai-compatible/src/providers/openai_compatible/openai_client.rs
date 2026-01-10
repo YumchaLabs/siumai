@@ -171,6 +171,17 @@ impl OpenAiCompatibleClient {
         self.http_interceptors.clone()
     }
 
+    /// Clone the installed custom HTTP transport, if present.
+    ///
+    /// This is primarily used by hybrid providers (e.g. Groq) that reuse the OpenAI-compatible
+    /// client for most capabilities but still need to invoke spec-driven executors with the
+    /// same transport wiring.
+    pub fn http_transport(
+        &self,
+    ) -> Option<Arc<dyn crate::execution::http::transport::HttpTransport>> {
+        self.config.http_transport.clone()
+    }
+
     fn build_chat_executor(
         &self,
         request: &ChatRequest,

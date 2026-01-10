@@ -277,9 +277,11 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         };
 
         // Resolve base URL: context override → resourceName env.
-        let default_base = Self::default_base_url_from_env()?;
-        let base_url =
-            crate::utils::builder_helpers::resolve_base_url(ctx.base_url.clone(), &default_base);
+        let base_url = if let Some(custom) = ctx.base_url.clone() {
+            custom
+        } else {
+            Self::default_base_url_from_env()?
+        };
 
         // Resolve common parameters (model, temperature, max_tokens, etc.).
         let common_params = crate::utils::builder_helpers::resolve_common_params(
@@ -301,6 +303,9 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
                 )
                 .with_chat_mode(self.chat_mode);
         cfg.common_params = common_params;
+        if let Some(transport) = ctx.http_transport.clone() {
+            cfg = cfg.with_http_transport(transport);
+        }
 
         let client = siumai_provider_azure::providers::azure_openai::AzureOpenAiClient::new(
             cfg,
@@ -860,6 +865,9 @@ impl ProviderFactory for GroqProviderFactory {
         }
         config = config.with_common_params(common_params.clone());
         config = config.with_http_config(http_config.clone());
+        if let Some(transport) = ctx.http_transport.clone() {
+            config = config.with_http_transport(transport);
+        }
 
         let mut client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
@@ -1011,6 +1019,9 @@ impl ProviderFactory for XAIProviderFactory {
         }
         config = config.with_common_params(common_params.clone());
         config = config.with_http_config(http_config.clone());
+        if let Some(transport) = ctx.http_transport.clone() {
+            config = config.with_http_transport(transport);
+        }
 
         let mut client =
             siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
@@ -1134,6 +1145,7 @@ impl ProviderFactory for OllamaProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -1243,6 +1255,7 @@ impl ProviderFactory for MiniMaxiProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }

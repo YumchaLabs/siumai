@@ -564,6 +564,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 api_key: Some(api_key.clone()),
                 base_url: Some(resolved_base),
@@ -588,6 +589,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 base_url: Some(ollama_base_url),
                 tracing_config: builder.tracing_config.clone(),
@@ -608,6 +610,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             // Build unified context and delegate to GroqProviderFactory.
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 api_key: Some(api_key.clone()),
                 base_url: base_url.clone(),
@@ -628,6 +631,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::Custom(name) if name == "azure" => {
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 api_key: Some(api_key.clone()),
                 base_url: base_url.clone(),
@@ -663,6 +667,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::Custom(name) if name == "anthropic-vertex" => {
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 base_url: base_url.clone(),
                 tracing_config: builder.tracing_config.clone(),
@@ -682,6 +687,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::Custom(name) if name == "vertex" => {
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 api_key: vertex_api_key.clone(),
                 base_url: base_url.clone(),
@@ -707,6 +713,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 // provider factory using the given provider id.
                 let ctx = BuildContext {
                     http_client: Some(built_http_client.clone()),
+                    http_transport: builder.http_transport.clone(),
                     http_config: Some(http_config.clone()),
                     api_key: Some(api_key.clone()),
                     base_url: base_url.clone(),
@@ -782,6 +789,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             // Build unified context and delegate to MiniMaxiProviderFactory.
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 api_key: Some(api_key.clone()),
                 base_url: Some(resolved_base),

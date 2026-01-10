@@ -21,19 +21,22 @@ pub struct OllamaModelsCapability {
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
+    pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 }
 
 impl OllamaModelsCapability {
     /// Creates a new Ollama models capability
-    pub const fn new(
+    pub fn new(
         base_url: String,
         http_client: reqwest::Client,
         http_config: HttpConfig,
+        http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     ) -> Self {
         Self {
             base_url,
             http_client,
             http_config,
+            http_transport,
         }
     }
 
@@ -69,8 +72,15 @@ impl OllamaModelsCapability {
         let spec = Arc::new(crate::providers::ollama::spec::OllamaSpec::new(
             crate::providers::ollama::config::OllamaParams::default(),
         ));
-        crate::execution::wiring::HttpExecutionWiring::new("ollama", self.http_client.clone(), ctx)
-            .config(spec)
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
+            "ollama",
+            self.http_client.clone(),
+            ctx,
+        );
+        if let Some(transport) = self.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+        wiring.config(spec)
     }
 
     /// Pull a model from Ollama registry
@@ -303,6 +313,7 @@ mod tests {
             "http://localhost:11434".to_string(),
             reqwest::Client::new(),
             HttpConfig::default(),
+            None,
         );
 
         let ollama_model = OllamaModel {

@@ -28,7 +28,7 @@ use super::config::OllamaParams;
 ///
 /// # API Reference
 /// <https://github.com/ollama/ollama/blob/main/docs/api.md#generate-embeddings>
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OllamaEmbeddings {
     /// Base URL for Ollama API
     base_url: String,
@@ -42,6 +42,23 @@ pub struct OllamaEmbeddings {
     ollama_params: OllamaParams,
     /// Unified retry options (optional)
     retry_options: Option<RetryOptions>,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+}
+
+impl std::fmt::Debug for OllamaEmbeddings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OllamaEmbeddings")
+            .field("base_url", &self.base_url)
+            .field("default_model", &self.default_model)
+            .field(
+                "stream_disable_compression",
+                &self.http_config.stream_disable_compression,
+            )
+            .field("has_retry", &self.retry_options.is_some())
+            .field("has_http_transport", &self.http_transport.is_some())
+            .finish()
+    }
 }
 
 impl OllamaEmbeddings {
@@ -52,6 +69,7 @@ impl OllamaEmbeddings {
         http_client: reqwest::Client,
         http_config: HttpConfig,
         ollama_params: OllamaParams,
+        http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     ) -> Self {
         Self {
             base_url,
@@ -60,6 +78,7 @@ impl OllamaEmbeddings {
             http_config,
             ollama_params,
             retry_options: None,
+            http_transport,
         }
     }
 
@@ -92,6 +111,10 @@ impl OllamaEmbeddings {
         let mut builder = EmbeddingExecutorBuilder::new("ollama", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx);
+
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
@@ -202,6 +225,7 @@ mod tests {
             client,
             http_config,
             config,
+            None,
         );
 
         assert_eq!(embeddings.embedding_dimension(), 8192);
@@ -219,6 +243,7 @@ mod tests {
             client,
             http_config,
             config,
+            None,
         );
 
         let models = embeddings.supported_embedding_models();
@@ -239,6 +264,7 @@ mod tests {
             client,
             http_config,
             config,
+            None,
         );
 
         let info = embeddings.get_model_info("nomic-embed-text");

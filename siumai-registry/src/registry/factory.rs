@@ -409,6 +409,7 @@ pub async fn build_ollama_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use siumai_provider_ollama::providers::ollama::OllamaClient;
     use siumai_provider_ollama::providers::ollama::config::{OllamaConfig, OllamaParams};
@@ -422,6 +423,7 @@ pub async fn build_ollama_client(
         common_params: common_params.clone(),
         ollama_params,
         http_config,
+        http_transport,
     };
 
     let mut client = OllamaClient::new(config, http_client);
@@ -459,6 +461,7 @@ pub async fn build_minimaxi_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use siumai_provider_minimaxi::providers::minimaxi::client::MinimaxiClient;
     use siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig;
@@ -468,6 +471,9 @@ pub async fn build_minimaxi_client(
         .with_model(common_params.model.clone());
 
     let mut client = MinimaxiClient::new(config, http_client);
+    if let Some(transport) = http_transport {
+        client = client.with_http_transport(transport);
+    }
 
     if let Some(tc) = tracing_config {
         client = client.with_tracing(tc);

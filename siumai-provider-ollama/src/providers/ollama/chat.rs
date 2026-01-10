@@ -12,6 +12,7 @@ use crate::types::*;
 use super::config::OllamaParams;
 use super::types::*;
 use super::utils::*;
+use std::sync::Arc;
 
 /// Ollama Chat Capability Implementation
 #[derive(Clone)]
@@ -20,21 +21,24 @@ pub struct OllamaChatCapability {
     pub http_client: reqwest::Client,
     pub http_config: HttpConfig,
     pub ollama_params: OllamaParams,
+    pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 }
 
 impl OllamaChatCapability {
     /// Creates a new Ollama chat capability
-    pub const fn new(
+    pub fn new(
         base_url: String,
         http_client: reqwest::Client,
         http_config: HttpConfig,
         ollama_params: OllamaParams,
+        http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     ) -> Self {
         Self {
             base_url,
             http_client,
             http_config,
             ollama_params,
+            http_transport,
         }
     }
 
@@ -105,12 +109,15 @@ impl OllamaChatCapability {
         let body = self.build_chat_request_body(&request)?;
         let body_json = serde_json::to_value(&body)?;
 
-        let config = crate::execution::wiring::HttpExecutionWiring::new(
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             "ollama",
             self.http_client.clone(),
             ctx,
-        )
-        .config(spec);
+        );
+        if let Some(transport) = self.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+        let config = wiring.config(spec);
         let res = crate::execution::executors::common::execute_json_request(
             &config,
             &url,
@@ -140,6 +147,7 @@ mod tests {
             reqwest::Client::new(),
             HttpConfig::default(),
             OllamaParams::default(),
+            None,
         );
 
         let common_params = CommonParams {
@@ -167,6 +175,7 @@ mod tests {
             reqwest::Client::new(),
             HttpConfig::default(),
             OllamaParams::default(),
+            None,
         );
 
         let ollama_response = OllamaChatResponse {

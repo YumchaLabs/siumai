@@ -160,6 +160,7 @@ pub struct MinimaxiFiles {
     http_config: crate::types::HttpConfig,
     http_interceptors: Vec<std::sync::Arc<dyn HttpInterceptor>>,
     retry_options: Option<RetryOptions>,
+    http_transport: Option<std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>>,
 }
 
 impl MinimaxiFiles {
@@ -169,6 +170,9 @@ impl MinimaxiFiles {
         http_config: crate::types::HttpConfig,
         http_interceptors: Vec<std::sync::Arc<dyn HttpInterceptor>>,
         retry_options: Option<RetryOptions>,
+        http_transport: Option<
+            std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>,
+        >,
     ) -> Self {
         Self {
             config,
@@ -176,18 +180,23 @@ impl MinimaxiFiles {
             http_config,
             http_interceptors,
             retry_options,
+            http_transport,
         }
     }
 
     fn build_http_config(&self) -> HttpExecutionConfig {
         let base_url = resolve_api_root_base_url(&self.config.base_url);
-        let wiring = HttpExecutionWiring::new(
+        let mut wiring = HttpExecutionWiring::new(
             "minimaxi",
             self.http_client.clone(),
             build_context(&self.config.api_key, &base_url, &self.http_config),
         )
         .with_interceptors(self.http_interceptors.clone())
         .with_retry_options(self.retry_options.clone());
+
+        if let Some(transport) = self.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
 
         wiring.config(std::sync::Arc::new(MinimaxiFilesSpec))
     }

@@ -40,6 +40,8 @@ pub struct MinimaxiClient {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares (applied to chat).
     model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 }
 
 impl Clone for MinimaxiClient {
@@ -53,6 +55,7 @@ impl Clone for MinimaxiClient {
             retry_options: self.retry_options.clone(),
             http_interceptors: self.http_interceptors.clone(),
             model_middlewares: self.model_middlewares.clone(),
+            http_transport: self.http_transport.clone(),
         }
     }
 }
@@ -92,6 +95,7 @@ impl MinimaxiClient {
             retry_options: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
+            http_transport: None,
         }
     }
 
@@ -132,6 +136,15 @@ impl MinimaxiClient {
         self
     }
 
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.http_transport = Some(transport);
+        self
+    }
+
     fn build_context(&self) -> crate::core::ProviderContext {
         super::utils::build_context(
             &self.config.api_key,
@@ -159,6 +172,10 @@ impl MinimaxiClient {
             .with_stream_disable_compression(self.http_config.stream_disable_compression)
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(self.model_middlewares.clone());
+
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
@@ -310,6 +327,7 @@ impl AudioCapability for MinimaxiClient {
             &self.http_client,
             self.retry_options.as_ref(),
             &self.http_interceptors,
+            self.http_transport.clone(),
         );
 
         // Execute TTS request - transformer will handle JSON parsing, hex decoding, and metadata extraction
@@ -343,6 +361,7 @@ impl FileManagementCapability for MinimaxiClient {
             self.http_config.clone(),
             self.http_interceptors.clone(),
             self.retry_options.clone(),
+            self.http_transport.clone(),
         );
         files.upload_file(request).await
     }
@@ -354,6 +373,7 @@ impl FileManagementCapability for MinimaxiClient {
             self.http_config.clone(),
             self.http_interceptors.clone(),
             self.retry_options.clone(),
+            self.http_transport.clone(),
         );
         files.list_files(query).await
     }
@@ -365,6 +385,7 @@ impl FileManagementCapability for MinimaxiClient {
             self.http_config.clone(),
             self.http_interceptors.clone(),
             self.retry_options.clone(),
+            self.http_transport.clone(),
         );
         files.retrieve_file(file_id).await
     }
@@ -376,6 +397,7 @@ impl FileManagementCapability for MinimaxiClient {
             self.http_config.clone(),
             self.http_interceptors.clone(),
             self.retry_options.clone(),
+            self.http_transport.clone(),
         );
         files.delete_file(file_id).await
     }
@@ -387,6 +409,7 @@ impl FileManagementCapability for MinimaxiClient {
             self.http_config.clone(),
             self.http_interceptors.clone(),
             self.retry_options.clone(),
+            self.http_transport.clone(),
         );
         files.get_file_content(file_id).await
     }
@@ -408,6 +431,7 @@ impl ImageGenerationCapability for MinimaxiClient {
             &self.http_client,
             self.retry_options.as_ref(),
             &self.http_interceptors,
+            self.http_transport.clone(),
         );
         exec.execute(request).await
     }
@@ -445,6 +469,7 @@ impl VideoGenerationCapability for MinimaxiClient {
             &self.http_client,
             self.retry_options.as_ref(),
             &self.http_interceptors,
+            self.http_transport.clone(),
             request,
         )
         .await
@@ -461,6 +486,7 @@ impl VideoGenerationCapability for MinimaxiClient {
             &self.http_client,
             self.retry_options.as_ref(),
             &self.http_interceptors,
+            self.http_transport.clone(),
             task_id,
         )
         .await
@@ -492,6 +518,7 @@ impl MusicGenerationCapability for MinimaxiClient {
             &self.http_client,
             self.retry_options.as_ref(),
             &self.http_interceptors,
+            self.http_transport.clone(),
             request,
         )
         .await

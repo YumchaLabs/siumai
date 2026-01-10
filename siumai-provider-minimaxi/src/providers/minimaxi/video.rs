@@ -22,17 +22,25 @@ fn build_wiring(
     http_client: &reqwest::Client,
     retry_options: Option<&RetryOptions>,
     interceptors: &[Arc<dyn HttpInterceptor>],
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> HttpExecutionWiring {
-    HttpExecutionWiring::new(
+    let mut wiring = HttpExecutionWiring::new(
         "minimaxi",
         http_client.clone(),
         super::utils::build_context(api_key, base_url, http_config),
     )
     .with_interceptors(interceptors.to_vec())
-    .with_retry_options(retry_options.cloned())
+    .with_retry_options(retry_options.cloned());
+
+    if let Some(transport) = http_transport {
+        wiring = wiring.with_transport(transport);
+    }
+
+    wiring
 }
 
 /// Create video task
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn create_video_task(
     api_key: &str,
     base_url: &str,
@@ -40,6 +48,7 @@ pub(super) async fn create_video_task(
     http_client: &reqwest::Client,
     retry_options: Option<&RetryOptions>,
     interceptors: &[Arc<dyn HttpInterceptor>],
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     request: VideoGenerationRequest,
 ) -> Result<VideoGenerationResponse, LlmError> {
     let wiring = build_wiring(
@@ -49,6 +58,7 @@ pub(super) async fn create_video_task(
         http_client,
         retry_options,
         interceptors,
+        http_transport,
     );
     let config = wiring.config(Arc::new(MinimaxiVideoSpec::new()));
     let url = MinimaxiVideoSpec::new().video_generation_url(&config.provider_context);
@@ -62,6 +72,7 @@ pub(super) async fn create_video_task(
 }
 
 /// Query video task status
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn query_video_task(
     api_key: &str,
     base_url: &str,
@@ -69,6 +80,7 @@ pub(super) async fn query_video_task(
     http_client: &reqwest::Client,
     retry_options: Option<&RetryOptions>,
     interceptors: &[Arc<dyn HttpInterceptor>],
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     task_id: &str,
 ) -> Result<VideoTaskStatusResponse, LlmError> {
     let wiring = build_wiring(
@@ -78,6 +90,7 @@ pub(super) async fn query_video_task(
         http_client,
         retry_options,
         interceptors,
+        http_transport,
     );
     let config = wiring.config(Arc::new(MinimaxiVideoSpec::new()));
     let url = MinimaxiVideoSpec::new().video_query_url(&config.provider_context, task_id);

@@ -133,6 +133,10 @@ impl AzureOpenAiClient {
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(self.model_middlewares.clone());
 
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(hook) = before_send_hook {
             builder = builder.with_before_send(hook);
         }
@@ -152,6 +156,10 @@ impl AzureOpenAiClient {
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
 
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
         }
@@ -167,6 +175,10 @@ impl AzureOpenAiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
@@ -184,6 +196,10 @@ impl AzureOpenAiClient {
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
 
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
         }
@@ -199,6 +215,10 @@ impl AzureOpenAiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);

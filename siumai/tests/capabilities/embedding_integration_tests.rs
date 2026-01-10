@@ -195,6 +195,7 @@ mod tests {
             http_client,
             http_config,
             config,
+            None,
         );
 
         // Test basic embedding

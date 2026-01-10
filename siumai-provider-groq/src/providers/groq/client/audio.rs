@@ -26,6 +26,10 @@ impl AudioCapability for GroqClient {
             .with_context(ctx)
             .with_interceptors(self.http_interceptors());
 
+        if let Some(transport) = self.http_transport() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(retry) = self.retry_options() {
             builder = builder.with_retry_options(retry);
         }
@@ -54,6 +58,10 @@ impl AudioCapability for GroqClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors());
+
+        if let Some(transport) = self.http_transport() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(retry) = self.retry_options() {
             builder = builder.with_retry_options(retry);

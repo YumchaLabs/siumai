@@ -39,7 +39,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - OpenAI-compatible vendor presets are hosted by `siumai-provider-openai-compatible` (migrated out of `siumai-protocol-openai`).
 - `siumai::tools::openai::*` defaults match Vercel fixtures for tool names (`webSearch`, `fileSearch`, `generateImage`, `codeExecution`, `MCP`, etc.).
 - Google Vertex builder surface includes Vercel-aligned aliases: `language_model(...)`, `embedding_model(...)` (deprecated: `text_embedding_model(...)`).
-- Google Vertex builder supports Vercel-style custom fetch via `fetch(...)` (injects `HttpTransport` for non-stream JSON requests).
+- Vercel-style custom fetch is available via `fetch(...)` (injects `HttpTransport`) across built-in providers (OpenAI, Azure, Anthropic, Gemini, Vertex, Groq, xAI, Ollama, MiniMaxi) and OpenAI-compatible vendor presets.
 - Provider-defined tool factories are available under `siumai::tools::*` (implemented in `siumai-core::tools`) and serialize to the Vercel `{ type: "provider", id, name, args }` shape; `Tool::provider_defined(id, name)` remains the escape hatch for unknown tools.
 
 ## Fixture/test parity checklist

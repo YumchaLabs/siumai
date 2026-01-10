@@ -52,6 +52,8 @@ pub struct OllamaClient {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares
     model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 }
 
 impl Clone for OllamaClient {
@@ -69,6 +71,7 @@ impl Clone for OllamaClient {
             retry_options: self.retry_options.clone(),
             http_interceptors: self.http_interceptors.clone(),
             model_middlewares: self.model_middlewares.clone(),
+            http_transport: self.http_transport.clone(),
         }
     }
 }
@@ -94,11 +97,14 @@ impl std::fmt::Debug for OllamaClient {
 impl OllamaClient {
     /// Creates a new Ollama client with configuration and HTTP client
     pub fn new(config: OllamaConfig, http_client: reqwest::Client) -> Self {
+        let http_transport = config.http_transport.clone();
+
         let chat_capability = OllamaChatCapability::new(
             config.base_url.clone(),
             http_client.clone(),
             config.http_config.clone(),
             config.ollama_params.clone(),
+            http_transport.clone(),
         );
 
         let embedding_capability = OllamaEmbeddings::new(
@@ -111,12 +117,14 @@ impl OllamaClient {
             http_client.clone(),
             config.http_config.clone(),
             config.ollama_params.clone(),
+            http_transport.clone(),
         );
 
         let models_capability = OllamaModelsCapability::new(
             config.base_url.clone(),
             http_client.clone(),
             config.http_config.clone(),
+            http_transport.clone(),
         );
 
         Self {
@@ -132,6 +140,7 @@ impl OllamaClient {
             retry_options: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
+            http_transport,
         }
     }
 
@@ -320,13 +329,19 @@ impl OllamaClient {
     }
 
     fn http_wiring(&self) -> crate::execution::wiring::HttpExecutionWiring {
-        crate::execution::wiring::HttpExecutionWiring::new(
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             "ollama",
             self.http_client.clone(),
             self.build_context(),
         )
         .with_interceptors(self.http_interceptors.clone())
-        .with_retry_options(self.retry_options.clone())
+        .with_retry_options(self.retry_options.clone());
+
+        if let Some(transport) = self.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+
+        wiring
     }
 
     /// Create chat executor using the builder pattern
@@ -353,6 +368,10 @@ impl OllamaClient {
             )
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(self.model_middlewares.clone());
+
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(hook) = before_send_hook {
             builder = builder.with_before_send(hook);

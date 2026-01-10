@@ -118,6 +118,22 @@ impl XaiBuilder {
         self
     }
 
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.inner = self.inner.with_http_transport(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(
+        self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
+    }
+
     pub async fn build(self) -> Result<super::XaiClient, LlmError> {
         self.inner.build().await
     }
