@@ -660,6 +660,133 @@ impl SseEventConverter for GeminiEventConverter {
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
+
+    fn serialize_event(&self, event: &ChatStreamEvent) -> Result<Vec<u8>, LlmError> {
+        fn sse_data_frame(value: &serde_json::Value) -> Result<Vec<u8>, LlmError> {
+            let data = serde_json::to_vec(value).map_err(|e| {
+                LlmError::JsonError(format!("Failed to serialize Gemini SSE JSON: {e}"))
+            })?;
+            let mut out = Vec::with_capacity(data.len() + 8);
+            out.extend_from_slice(b"data: ");
+            out.extend_from_slice(&data);
+            out.extend_from_slice(b"\n\n");
+            Ok(out)
+        }
+
+        fn map_finish_reason(reason: &FinishReason) -> &'static str {
+            match reason {
+                FinishReason::Stop | FinishReason::StopSequence => "STOP",
+                FinishReason::Length => "MAX_TOKENS",
+                FinishReason::ContentFilter => "SAFETY",
+                FinishReason::ToolCalls => "STOP",
+                FinishReason::Error => "STOP",
+                FinishReason::Unknown => "STOP",
+                FinishReason::Other(_) => "STOP",
+            }
+        }
+
+        match event {
+            // Gemini streaming does not have an explicit "start" frame; the first chunk carries data.
+            ChatStreamEvent::StreamStart { .. } => Ok(Vec::new()),
+            ChatStreamEvent::ContentDelta { delta, .. } => {
+                let payload = serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    { "text": delta }
+                                ]
+                            }
+                        }
+                    ]
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::ThinkingDelta { delta } => {
+                // Gemini thinking chunks use `thought: true` on the part.
+                let payload = serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    { "text": delta, "thought": true }
+                                ]
+                            }
+                        }
+                    ]
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::UsageUpdate { usage } => {
+                let thoughts = usage
+                    .completion_tokens_details
+                    .as_ref()
+                    .and_then(|d| d.reasoning_tokens)
+                    .or({
+                        #[allow(deprecated)]
+                        {
+                            usage.reasoning_tokens
+                        }
+                    });
+
+                let payload = serde_json::json!({
+                    "usageMetadata": {
+                        "promptTokenCount": usage.prompt_tokens,
+                        "candidatesTokenCount": usage.completion_tokens,
+                        "totalTokenCount": usage.total_tokens,
+                        "thoughtsTokenCount": thoughts,
+                    }
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::StreamEnd { response } => {
+                let reason = response
+                    .finish_reason
+                    .as_ref()
+                    .map(map_finish_reason)
+                    .unwrap_or("STOP");
+
+                let thoughts = response
+                    .usage
+                    .as_ref()
+                    .and_then(|u| u.completion_tokens_details.as_ref())
+                    .and_then(|d| d.reasoning_tokens)
+                    .or_else(|| {
+                        #[allow(deprecated)]
+                        {
+                            response.usage.as_ref().and_then(|u| u.reasoning_tokens)
+                        }
+                    });
+
+                let usage = response.usage.as_ref().map(|u| {
+                    serde_json::json!({
+                        "promptTokenCount": u.prompt_tokens,
+                        "candidatesTokenCount": u.completion_tokens,
+                        "totalTokenCount": u.total_tokens,
+                        "thoughtsTokenCount": thoughts,
+                    })
+                });
+
+                let payload = serde_json::json!({
+                    "candidates": [
+                        { "finishReason": reason }
+                    ],
+                    "usageMetadata": usage.unwrap_or(serde_json::Value::Null),
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::Error { error } => {
+                // Gemini SSE errors do not have a stable in-band frame; emit a best-effort JSON payload.
+                let payload = serde_json::json!({
+                    "error": { "message": error }
+                });
+                sse_data_frame(&payload)
+            }
+            ChatStreamEvent::ToolCallDelta { .. } | ChatStreamEvent::Custom { .. } => {
+                Ok(Vec::new())
+            }
+        }
+    }
 }
 
 // Legacy GeminiStreaming client has been removed in favor of the unified HttpChatExecutor.
@@ -669,6 +796,8 @@ impl SseEventConverter for GeminiEventConverter {
 mod tests {
     use super::*;
     use crate::standards::gemini::types::GeminiConfig;
+    use crate::streaming::SseEventConverter;
+    use crate::types::{ChatResponse, FinishReason, MessageContent, Usage};
 
     fn create_test_config() -> GeminiConfig {
         use secrecy::SecretString;
@@ -891,6 +1020,163 @@ mod tests {
             result
                 .iter()
                 .any(|e| matches!(e, Ok(ChatStreamEvent::ThinkingDelta { .. })))
+        );
+    }
+
+    fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
+        let text = String::from_utf8_lossy(bytes);
+        text.split("\n\n")
+            .filter_map(|chunk| {
+                let line = chunk
+                    .lines()
+                    .find_map(|l| l.strip_prefix("data: "))
+                    .map(str::trim)?;
+                if line.is_empty() || line == "[DONE]" {
+                    return None;
+                }
+                serde_json::from_str::<serde_json::Value>(line).ok()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn gemini_stream_proxy_serializes_content_delta() {
+        let converter = GeminiEventConverter::new(create_test_config());
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::ContentDelta {
+                delta: "Hello".to_string(),
+                index: None,
+            })
+            .expect("serialize ok");
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0]["candidates"][0]["content"]["parts"][0]["text"],
+            serde_json::json!("Hello")
+        );
+
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: serde_json::to_string(&frames[0]).expect("json"),
+            id: "".to_string(),
+            retry: None,
+        };
+        let out = converter.convert_event(event).await;
+        assert!(out.iter().any(|e| matches!(
+            e,
+            Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "Hello"
+        )));
+    }
+
+    #[tokio::test]
+    async fn gemini_stream_proxy_serializes_thinking_delta() {
+        let converter = GeminiEventConverter::new(create_test_config());
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::ThinkingDelta {
+                delta: "think".to_string(),
+            })
+            .expect("serialize ok");
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0]["candidates"][0]["content"]["parts"][0]["thought"],
+            serde_json::json!(true)
+        );
+
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: serde_json::to_string(&frames[0]).expect("json"),
+            id: "".to_string(),
+            retry: None,
+        };
+        let out = converter.convert_event(event).await;
+        assert!(out.iter().any(|e| matches!(
+            e,
+            Ok(ChatStreamEvent::ThinkingDelta { delta }) if delta == "think"
+        )));
+    }
+
+    #[tokio::test]
+    async fn gemini_stream_proxy_serializes_usage_update() {
+        let converter = GeminiEventConverter::new(create_test_config());
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::UsageUpdate {
+                usage: Usage::builder()
+                    .prompt_tokens(3)
+                    .completion_tokens(5)
+                    .total_tokens(8)
+                    .build(),
+            })
+            .expect("serialize ok");
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0]["usageMetadata"]["promptTokenCount"],
+            serde_json::json!(3)
+        );
+
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: serde_json::to_string(&frames[0]).expect("json"),
+            id: "".to_string(),
+            retry: None,
+        };
+        let out = converter.convert_event(event).await;
+        assert!(out.iter().any(|e| matches!(
+            e,
+            Ok(ChatStreamEvent::UsageUpdate { usage }) if usage.prompt_tokens == 3
+        )));
+    }
+
+    #[tokio::test]
+    async fn gemini_stream_proxy_serializes_stream_end_finish_reason() {
+        let converter = GeminiEventConverter::new(create_test_config());
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::StreamEnd {
+                response: ChatResponse {
+                    id: None,
+                    model: None,
+                    content: MessageContent::Text(String::new()),
+                    usage: Some(
+                        Usage::builder()
+                            .prompt_tokens(3)
+                            .completion_tokens(5)
+                            .total_tokens(8)
+                            .build(),
+                    ),
+                    finish_reason: Some(FinishReason::Stop),
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
+                    provider_metadata: None,
+                },
+            })
+            .expect("serialize ok");
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0]["candidates"][0]["finishReason"],
+            serde_json::json!("STOP")
+        );
+
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: serde_json::to_string(&frames[0]).expect("json"),
+            id: "".to_string(),
+            retry: None,
+        };
+        let out = converter.convert_event(event).await;
+        assert!(
+            out.iter()
+                .any(|e| matches!(
+                    e,
+                    Ok(ChatStreamEvent::StreamEnd { response }) if response.finish_reason == Some(FinishReason::Stop)
+                ))
         );
     }
 }

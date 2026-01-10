@@ -62,6 +62,7 @@ For Siumai, the equivalent is a provider-specific event converter that supports 
 - Ollama: JSONL serialization implemented (content/thinking deltas + done frame).
 - OpenAI (Responses): SSE serialization implemented (response.created, response.output_text.delta, response.function_call.delta, response.usage, response.completed, response.error).
 - OpenAI-compatible (Chat Completions): SSE serialization implemented (chat.completion.chunk deltas + [DONE]).
+- Gemini / Vertex (GenerateContent): SSE serialization implemented (candidates.parts text/thought chunks + usageMetadata + finishReason).
 
 ### Next candidates
 
