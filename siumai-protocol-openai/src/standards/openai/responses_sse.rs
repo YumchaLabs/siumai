@@ -38,6 +38,8 @@ struct OpenAiResponsesSerializeState {
     response_id: Option<String>,
     model_id: Option<String>,
     created_at: Option<i64>,
+    response_created_emitted: bool,
+    response_completed_emitted: bool,
     next_sequence_number: u64,
 
     used_output_indices: std::collections::HashSet<u64>,
@@ -3339,6 +3341,35 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
             (response_id, model_id, created_at)
         }
 
+        fn maybe_emit_response_created(
+            this: &OpenAiResponsesEventConverter,
+            state: &mut OpenAiResponsesSerializeState,
+        ) -> Result<Vec<u8>, LlmError> {
+            if state.response_created_emitted {
+                return Ok(Vec::new());
+            }
+
+            let (response_id, model_id, created_at) = ensure_response_metadata(this, state);
+            state.response_created_emitted = true;
+
+            let payload = serde_json::json!({
+                "type": "response.created",
+                "sequence_number": next_sequence_number(state),
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "created_at": created_at,
+                    "status": "in_progress",
+                    "model": model_id,
+                    "output": [],
+                    "usage": serde_json::Value::Null,
+                    "metadata": {},
+                }
+            });
+
+            sse_event_frame("response.created", &payload)
+        }
+
         fn alloc_output_index(state: &mut OpenAiResponsesSerializeState) -> u64 {
             let mut candidate = state.next_output_index;
             loop {
@@ -3393,6 +3424,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 state.response_id = Some(response_id.clone());
                 state.model_id = Some(model_id.clone());
                 state.created_at = Some(created_at);
+                state.response_created_emitted = true;
 
                 let payload = serde_json::json!({
                     "type": "response.created",
@@ -3411,6 +3443,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 sse_event_frame("response.created", &payload)
             }
             crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+                maybe_emit_response_created(self, &mut state)?;
                 let (response_id, _, _) = ensure_response_metadata(self, &mut state);
 
                 if state.message_output_index.is_none() {
@@ -3482,6 +3515,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 arguments_delta,
                 index,
             } => {
+                maybe_emit_response_created(self, &mut state)?;
                 ensure_response_metadata(self, &mut state);
 
                 // Map ToolCallDelta into Responses-style function_call item + arguments deltas.
@@ -3569,6 +3603,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
             }
             crate::streaming::ChatStreamEvent::ThinkingDelta { delta } => {
                 // Best-effort mapping into Responses reasoning summary text deltas.
+                maybe_emit_response_created(self, &mut state)?;
                 ensure_response_metadata(self, &mut state);
 
                 if state.reasoning_output_index.is_none() {
@@ -3615,6 +3650,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 Ok(out)
             }
             crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
+                maybe_emit_response_created(self, &mut state)?;
                 state.latest_usage = Some(usage.clone());
                 let payload = serde_json::json!({
                     "type": "response.usage",
@@ -3628,6 +3664,11 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 sse_event_frame("response.usage", &payload)
             }
             crate::streaming::ChatStreamEvent::StreamEnd { response } => {
+                if state.response_completed_emitted {
+                    *state = OpenAiResponsesSerializeState::default();
+                    return Ok(Vec::new());
+                }
+
                 let (response_id, model_id, created_at) =
                     ensure_response_metadata(self, &mut state);
 
@@ -3771,6 +3812,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
                 out.extend_from_slice(&sse_event_frame("response.completed", &payload)?);
                 out.extend_from_slice(&sse_done_frame());
+                state.response_completed_emitted = true;
                 Ok(out)
             }
             crate::streaming::ChatStreamEvent::Error { error } => {
@@ -3790,6 +3832,34 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 }
 
                 match event_type.as_str() {
+                    "openai:stream-start" => {
+                        // Vercel stream part; OpenAI SSE has no direct equivalent.
+                        // Reset state so subsequent parts start a fresh response.
+                        *state = OpenAiResponsesSerializeState::default();
+                        Ok(Vec::new())
+                    }
+                    "openai:response-metadata" => {
+                        let response_id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let model_id = data.get("modelId").and_then(|v| v.as_str()).unwrap_or("");
+                        let timestamp =
+                            data.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+
+                        if !response_id.is_empty() {
+                            state.response_id = Some(response_id.to_string());
+                        }
+                        if !model_id.is_empty() {
+                            state.model_id = Some(model_id.to_string());
+                        }
+
+                        if !timestamp.is_empty()
+                            && let Ok(dt) = chrono::DateTime::parse_from_rfc3339(timestamp)
+                        {
+                            state.created_at = Some(dt.timestamp());
+                        }
+
+                        // Prefer emitting a real `response.created` only once we have stable ids.
+                        maybe_emit_response_created(self, &mut state)
+                    }
                     "openai:text-delta" => {
                         let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
                             return Ok(Vec::new());
@@ -3798,6 +3868,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             return Ok(Vec::new());
                         }
 
+                        maybe_emit_response_created(self, &mut state)?;
                         let (response_id, _, _) = ensure_response_metadata(self, &mut state);
                         if state.message_output_index.is_none() {
                             state.message_output_index = Some(alloc_output_index(&mut state));
@@ -3805,7 +3876,13 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         let output_index = state.message_output_index.unwrap_or(0);
 
                         if state.message_item_id.is_none() {
-                            state.message_item_id = Some(format!("msg_{response_id}_0"));
+                            let fallback_id = data
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| format!("msg_{response_id}_0"));
+                            state.message_item_id = Some(fallback_id);
                         }
                         let item_id = state
                             .message_item_id
@@ -3867,6 +3944,186 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         )?);
                         Ok(out)
                     }
+                    "openai:text-start" => {
+                        maybe_emit_response_created(self, &mut state)?;
+
+                        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let item_id = data
+                            .get("providerMetadata")
+                            .and_then(provider_metadata_value)
+                            .and_then(|m| m.get("itemId"))
+                            .and_then(|v| v.as_str())
+                            .or(if id.is_empty() { None } else { Some(id) })
+                            .unwrap_or("");
+
+                        if item_id.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        if state.message_output_index.is_none() {
+                            state.message_output_index = Some(alloc_output_index(&mut state));
+                        }
+                        let output_index = state.message_output_index.unwrap_or(0);
+
+                        state.message_item_id = Some(item_id.to_string());
+
+                        if state.message_scaffold_emitted {
+                            return Ok(Vec::new());
+                        }
+
+                        let added = serde_json::json!({
+                            "type": "response.output_item.added",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "output_index": output_index,
+                            "item": {
+                                "id": item_id,
+                                "type": "message",
+                                "status": "in_progress",
+                                "role": "assistant",
+                                "content": [],
+                            }
+                        });
+
+                        let part_added = serde_json::json!({
+                            "type": "response.content_part.added",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": state.message_content_index,
+                            "part": {
+                                "type": "output_text",
+                                "text": "",
+                                "annotations": [],
+                                "logprobs": [],
+                            }
+                        });
+
+                        state.message_scaffold_emitted = true;
+
+                        let mut out = Vec::new();
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.output_item.added",
+                            &added,
+                        )?);
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.content_part.added",
+                            &part_added,
+                        )?);
+                        Ok(out)
+                    }
+                    "openai:text-end" => {
+                        maybe_emit_response_created(self, &mut state)?;
+
+                        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let item_id = data
+                            .get("providerMetadata")
+                            .and_then(provider_metadata_value)
+                            .and_then(|m| m.get("itemId"))
+                            .and_then(|v| v.as_str())
+                            .or(if id.is_empty() { None } else { Some(id) })
+                            .unwrap_or("");
+                        if item_id.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        if state.message_item_id.is_none() {
+                            state.message_item_id = Some(item_id.to_string());
+                        }
+                        if state.message_output_index.is_none() {
+                            state.message_output_index = Some(alloc_output_index(&mut state));
+                        }
+                        let output_index = state.message_output_index.unwrap_or(0);
+
+                        let final_text = state.message_text.clone();
+
+                        let mut out = Vec::new();
+                        if !state.message_scaffold_emitted {
+                            let added = serde_json::json!({
+                                "type": "response.output_item.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": {
+                                    "id": item_id,
+                                    "type": "message",
+                                    "status": "in_progress",
+                                    "role": "assistant",
+                                    "content": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.added",
+                                &added,
+                            )?);
+
+                            let part_added = serde_json::json!({
+                                "type": "response.content_part.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "item_id": item_id,
+                                "output_index": output_index,
+                                "content_index": state.message_content_index,
+                                "part": {
+                                    "type": "output_text",
+                                    "text": "",
+                                    "annotations": [],
+                                    "logprobs": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.content_part.added",
+                                &part_added,
+                            )?);
+                            state.message_scaffold_emitted = true;
+                        }
+
+                        let output_text_done = serde_json::json!({
+                            "type": "response.output_text.done",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": state.message_content_index,
+                            "text": final_text,
+                        });
+                        let part_done = serde_json::json!({
+                            "type": "response.content_part.done",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": state.message_content_index,
+                            "part": {
+                                "type": "output_text",
+                                "text": final_text,
+                                "annotations": [],
+                            }
+                        });
+                        let item_done = serde_json::json!({
+                            "type": "response.output_item.done",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "output_index": output_index,
+                            "item": {
+                                "id": item_id,
+                                "type": "message",
+                                "status": "completed",
+                                "role": "assistant",
+                                "content": [
+                                    { "type": "output_text", "text": final_text, "annotations": [] }
+                                ]
+                            }
+                        });
+
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.output_text.done",
+                            &output_text_done,
+                        )?);
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.content_part.done",
+                            &part_done,
+                        )?);
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.output_item.done",
+                            &item_done,
+                        )?);
+                        Ok(out)
+                    }
                     "openai:reasoning-delta" => {
                         let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
                             return Ok(Vec::new());
@@ -3875,6 +4132,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             return Ok(Vec::new());
                         }
 
+                        maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
                         if state.reasoning_output_index.is_none() {
@@ -3884,7 +4142,20 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
                         let emit_added = state.reasoning_item_id.is_none();
                         if emit_added {
-                            state.reasoning_item_id = Some(format!("rs_siumai_{output_index}"));
+                            let item_id = data
+                                .get("providerMetadata")
+                                .and_then(provider_metadata_value)
+                                .and_then(|m| m.get("itemId"))
+                                .and_then(|v| v.as_str())
+                                .or_else(|| {
+                                    data.get("id")
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|id| id.split(':').next())
+                                })
+                                .filter(|s| !s.is_empty())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| format!("rs_siumai_{output_index}"));
+                            state.reasoning_item_id = Some(item_id);
                         }
                         let item_id = state
                             .reasoning_item_id
@@ -3930,6 +4201,107 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         )?);
                         Ok(out)
                     }
+                    "openai:reasoning-start" => {
+                        maybe_emit_response_created(self, &mut state)?;
+
+                        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let item_id = data
+                            .get("providerMetadata")
+                            .and_then(provider_metadata_value)
+                            .and_then(|m| m.get("itemId"))
+                            .and_then(|v| v.as_str())
+                            .or_else(|| {
+                                if id.is_empty() {
+                                    None
+                                } else {
+                                    Some(id.split(':').next().unwrap_or(""))
+                                }
+                            })
+                            .unwrap_or("");
+                        if item_id.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        if state.reasoning_output_index.is_none() {
+                            state.reasoning_output_index = Some(alloc_output_index(&mut state));
+                        }
+                        let output_index = state.reasoning_output_index.unwrap_or(0);
+
+                        if state.reasoning_item_id.is_none() {
+                            state.reasoning_item_id = Some(item_id.to_string());
+                        }
+
+                        let item_id = state
+                            .reasoning_item_id
+                            .clone()
+                            .unwrap_or_else(|| item_id.to_string());
+
+                        if !state.emitted_output_item_added_ids.insert(item_id.clone()) {
+                            return Ok(Vec::new());
+                        }
+
+                        let added = serde_json::json!({
+                            "type": "response.output_item.added",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "output_index": output_index,
+                            "item": {
+                                "id": item_id,
+                                "type": "reasoning",
+                                "summary": [],
+                            }
+                        });
+                        sse_event_frame("response.output_item.added", &added)
+                    }
+                    "openai:reasoning-end" => {
+                        maybe_emit_response_created(self, &mut state)?;
+
+                        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let item_id = data
+                            .get("providerMetadata")
+                            .and_then(provider_metadata_value)
+                            .and_then(|m| m.get("itemId"))
+                            .and_then(|v| v.as_str())
+                            .or_else(|| {
+                                if id.is_empty() {
+                                    None
+                                } else {
+                                    Some(id.split(':').next().unwrap_or(""))
+                                }
+                            })
+                            .unwrap_or("");
+                        if item_id.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        if state.reasoning_output_index.is_none() {
+                            state.reasoning_output_index = Some(alloc_output_index(&mut state));
+                        }
+                        let output_index = state.reasoning_output_index.unwrap_or(0);
+
+                        if state.reasoning_item_id.is_none() {
+                            state.reasoning_item_id = Some(item_id.to_string());
+                        }
+                        let item_id = state
+                            .reasoning_item_id
+                            .clone()
+                            .unwrap_or_else(|| item_id.to_string());
+
+                        if !state.emitted_output_item_done_ids.insert(item_id.clone()) {
+                            return Ok(Vec::new());
+                        }
+
+                        let done = serde_json::json!({
+                            "type": "response.output_item.done",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "output_index": output_index,
+                            "item": {
+                                "id": item_id,
+                                "type": "reasoning",
+                                "summary": [],
+                            }
+                        });
+                        sse_event_frame("response.output_item.done", &done)
+                    }
                     "openai:source" => {
                         // Tool result sources (e.g. web_search_call) should stay as Vercel parts and
                         // must not be mapped into output_text annotations.
@@ -3942,6 +4314,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             return Ok(Vec::new());
                         };
 
+                        maybe_emit_response_created(self, &mut state)?;
                         let (response_id, _, _) = ensure_response_metadata(self, &mut state);
 
                         if state.message_output_index.is_none() {
@@ -4081,6 +4454,204 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         )?);
                         Ok(out)
                     }
+                    "openai:error" => {
+                        let msg = data
+                            .get("error")
+                            .and_then(|v| v.get("error"))
+                            .and_then(|v| v.get("message"))
+                            .and_then(|v| v.as_str())
+                            .or_else(|| {
+                                data.get("error")
+                                    .and_then(|v| v.get("message"))
+                                    .and_then(|v| v.as_str())
+                            })
+                            .unwrap_or("Unknown error");
+
+                        let payload = serde_json::json!({
+                            "type": "response.error",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "error": { "message": msg },
+                        });
+                        sse_event_frame("response.error", &payload)
+                    }
+                    "openai:finish" => {
+                        if state.response_completed_emitted {
+                            return Ok(Vec::new());
+                        }
+
+                        let provider_meta = data
+                            .get("providerMetadata")
+                            .and_then(provider_metadata_value);
+
+                        if let Some(id) = provider_meta
+                            .and_then(|v| v.get("responseId"))
+                            .and_then(|v| v.as_str())
+                            && !id.is_empty()
+                        {
+                            state.response_id = Some(id.to_string());
+                        }
+
+                        let input_tokens = data
+                            .get("usage")
+                            .and_then(|u| u.get("inputTokens"))
+                            .and_then(|u| u.get("total"))
+                            .and_then(|v| v.as_u64());
+                        let output_tokens = data
+                            .get("usage")
+                            .and_then(|u| u.get("outputTokens"))
+                            .and_then(|u| u.get("total"))
+                            .and_then(|v| v.as_u64());
+
+                        if let (Some(prompt), Some(completion)) = (input_tokens, output_tokens) {
+                            state.latest_usage = Some(
+                                crate::types::Usage::builder()
+                                    .prompt_tokens(prompt as u32)
+                                    .completion_tokens(completion as u32)
+                                    .total_tokens(prompt.saturating_add(completion) as u32)
+                                    .build(),
+                            );
+                        }
+
+                        maybe_emit_response_created(self, &mut state)?;
+
+                        let (response_id, model_id, created_at) =
+                            ensure_response_metadata(self, &mut state);
+
+                        let mut out = Vec::new();
+
+                        // Close open function calls (best-effort): emit done + output_item.done.
+                        let mut function_outputs: Vec<serde_json::Value> = Vec::new();
+                        let calls: Vec<(String, OpenAiResponsesFunctionCallSerializeState)> =
+                            state.function_calls_by_call_id.drain().collect();
+                        for (call_id, call) in calls {
+                            if !call.arguments.is_empty() && !call.arguments_done {
+                                let done = serde_json::json!({
+                                    "type": "response.function_call_arguments.done",
+                                    "sequence_number": next_sequence_number(&mut state),
+                                    "item_id": call.item_id,
+                                    "output_index": call.output_index,
+                                    "arguments": call.arguments,
+                                });
+                                out.extend_from_slice(&sse_event_frame(
+                                    "response.function_call_arguments.done",
+                                    &done,
+                                )?);
+                            }
+
+                            let item_done = serde_json::json!({
+                                "type": "response.output_item.done",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": call.output_index,
+                                "item": {
+                                    "id": call.item_id,
+                                    "type": "function_call",
+                                    "status": "completed",
+                                    "arguments": call.arguments,
+                                    "call_id": call_id,
+                                    "name": call.name.clone().unwrap_or_else(|| "tool".to_string()),
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.done",
+                                &item_done,
+                            )?);
+
+                            function_outputs.push(item_done["item"].clone());
+                        }
+
+                        // Close message output (best-effort): emit output_text.done + content_part.done + output_item.done.
+                        let final_text = state.message_text.clone();
+
+                        let mut output: Vec<serde_json::Value> = Vec::new();
+                        output.extend(function_outputs);
+
+                        if let (Some(item_id), Some(output_index)) =
+                            (state.message_item_id.clone(), state.message_output_index)
+                        {
+                            let output_text_done = serde_json::json!({
+                                "type": "response.output_text.done",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "item_id": item_id,
+                                "output_index": output_index,
+                                "content_index": state.message_content_index,
+                                "text": final_text,
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_text.done",
+                                &output_text_done,
+                            )?);
+
+                            let part_done = serde_json::json!({
+                                "type": "response.content_part.done",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "item_id": item_id,
+                                "output_index": output_index,
+                                "content_index": state.message_content_index,
+                                "part": {
+                                    "type": "output_text",
+                                    "text": final_text,
+                                    "annotations": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.content_part.done",
+                                &part_done,
+                            )?);
+
+                            let item_done = serde_json::json!({
+                                "type": "response.output_item.done",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": {
+                                    "id": item_id,
+                                    "type": "message",
+                                    "status": "completed",
+                                    "role": "assistant",
+                                    "content": [
+                                        { "type": "output_text", "text": final_text, "annotations": [] }
+                                    ]
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.done",
+                                &item_done,
+                            )?);
+                            output.push(item_done["item"].clone());
+                        } else if !final_text.is_empty() {
+                            output.push(
+                                serde_json::json!({ "type": "output_text", "text": final_text }),
+                            );
+                        }
+
+                        let usage = state.latest_usage.clone();
+                        let usage_json = usage.as_ref().map(|u| {
+                            serde_json::json!({
+                                "input_tokens": u.prompt_tokens,
+                                "output_tokens": u.completion_tokens,
+                                "total_tokens": u.total_tokens,
+                            })
+                        });
+
+                        let payload = serde_json::json!({
+                            "type": "response.completed",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "response": {
+                                "id": response_id,
+                                "object": "response",
+                                "created_at": created_at,
+                                "status": "completed",
+                                "model": model_id,
+                                "output": output,
+                                "usage": usage_json.unwrap_or(serde_json::Value::Null),
+                                "metadata": {},
+                            }
+                        });
+
+                        out.extend_from_slice(&sse_event_frame("response.completed", &payload)?);
+                        out.extend_from_slice(&sse_done_frame());
+                        state.response_completed_emitted = true;
+                        Ok(out)
+                    }
                     "openai:tool-input-start" => {
                         let Some(call_id) = data.get("id").and_then(|v| v.as_str()) else {
                             return Ok(Vec::new());
@@ -4092,6 +4663,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             return Ok(Vec::new());
                         }
 
+                        maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
                         if !state.function_calls_by_call_id.contains_key(call_id) {
@@ -4151,6 +4723,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             return Ok(Vec::new());
                         }
 
+                        maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
                         if !state.function_calls_by_call_id.contains_key(call_id) {
@@ -4227,6 +4800,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             return Ok(Vec::new());
                         }
 
+                        maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
                         let (item_id, output_index, arguments) = {
@@ -4255,6 +4829,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         sse_event_frame("response.function_call_arguments.done", &payload)
                     }
                     "openai:tool-call" => {
+                        maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
                         let output_index = alloc_or_reuse_output_index(
@@ -4408,6 +4983,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         Ok(out)
                     }
                     "openai:tool-result" => {
+                        maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
                         let output_index = alloc_or_reuse_output_index(
@@ -4437,6 +5013,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         Ok(Vec::new())
                     }
                     "openai:tool-approval-request" => {
+                        maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
                         let output_index = alloc_or_reuse_output_index(
@@ -5189,6 +5766,231 @@ mod tests {
                 && v["output_index"] == serde_json::json!(2)
                 && v["item"]["type"] == serde_json::json!("mcp_approval_request")
         }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_stream_start_and_response_metadata_parts() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let start_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:stream-start".to_string(),
+                data: serde_json::json!({
+                    "type": "stream-start",
+                    "warnings": [],
+                }),
+            })
+            .expect("serialize stream-start");
+        assert!(start_bytes.is_empty());
+
+        let meta_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:response-metadata".to_string(),
+                data: serde_json::json!({
+                    "type": "response-metadata",
+                    "id": "resp_test",
+                    "modelId": "gpt-test",
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                }),
+            })
+            .expect("serialize response-metadata");
+
+        let frames = parse_sse_frames(&meta_bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].0, "response.created");
+        assert_eq!(
+            frames[0].1["response"]["id"],
+            serde_json::json!("resp_test")
+        );
+        assert_eq!(
+            frames[0].1["response"]["model"],
+            serde_json::json!("gpt-test")
+        );
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_text_start_and_end_parts() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:response-metadata".to_string(),
+                data: serde_json::json!({
+                    "type": "response-metadata",
+                    "id": "resp_test",
+                    "modelId": "gpt-test",
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                }),
+            })
+            .expect("serialize response-metadata");
+
+        let start_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-start".to_string(),
+                data: serde_json::json!({
+                    "type": "text-start",
+                    "id": "msg_1",
+                    "providerMetadata": { "openai": { "itemId": "msg_1" } },
+                }),
+            })
+            .expect("serialize text-start");
+        let start_frames = parse_sse_frames(&start_bytes);
+        assert!(start_frames.iter().any(|(ev, v)| {
+            ev == "response.output_item.added" && v["item"]["type"] == serde_json::json!("message")
+        }));
+        assert!(
+            start_frames
+                .iter()
+                .any(|(ev, _)| ev == "response.content_part.added")
+        );
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "msg_1",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize text-delta");
+
+        let end_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-end".to_string(),
+                data: serde_json::json!({
+                    "type": "text-end",
+                    "id": "msg_1",
+                    "providerMetadata": { "openai": { "itemId": "msg_1" } },
+                }),
+            })
+            .expect("serialize text-end");
+        let end_frames = parse_sse_frames(&end_bytes);
+        assert!(
+            end_frames
+                .iter()
+                .any(|(ev, v)| ev == "response.output_text.done"
+                    && v["text"] == serde_json::json!("Hello"))
+        );
+        assert!(
+            end_frames
+                .iter()
+                .any(|(ev, _)| ev == "response.output_item.done")
+        );
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_reasoning_start_and_end_parts() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:response-metadata".to_string(),
+                data: serde_json::json!({
+                    "type": "response-metadata",
+                    "id": "resp_test",
+                    "modelId": "gpt-test",
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                }),
+            })
+            .expect("serialize response-metadata");
+
+        let start_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-start".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-start",
+                    "id": "rs_1:0",
+                    "providerMetadata": { "openai": { "itemId": "rs_1" } },
+                }),
+            })
+            .expect("serialize reasoning-start");
+        let start_frames = parse_sse_frames(&start_bytes);
+        assert!(start_frames.iter().any(|(ev, v)| {
+            ev == "response.output_item.added"
+                && v["item"]["type"] == serde_json::json!("reasoning")
+        }));
+
+        let end_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-end".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-end",
+                    "id": "rs_1:0",
+                    "providerMetadata": { "openai": { "itemId": "rs_1" } },
+                }),
+            })
+            .expect("serialize reasoning-end");
+        let end_frames = parse_sse_frames(&end_bytes);
+        assert!(end_frames.iter().any(|(ev, v)| {
+            ev == "response.output_item.done" && v["item"]["type"] == serde_json::json!("reasoning")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:response-metadata".to_string(),
+                data: serde_json::json!({
+                    "type": "response-metadata",
+                    "id": "resp_test",
+                    "modelId": "gpt-test",
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                }),
+            })
+            .expect("serialize response-metadata");
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "msg_1",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize text-delta");
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:finish".to_string(),
+                data: serde_json::json!({
+                    "type": "finish",
+                    "finishReason": { "raw": null, "unified": "stop" },
+                    "providerMetadata": { "openai": { "responseId": "resp_test" } },
+                    "usage": {
+                        "inputTokens": { "total": 3, "cacheRead": 0, "cacheWrite": null, "noCache": 3 },
+                        "outputTokens": { "total": 5, "reasoning": 0, "text": 5 },
+                        "raw": null
+                    }
+                }),
+            })
+            .expect("serialize finish");
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| ev == "response.completed"
+            && v["response"]["id"] == serde_json::json!("resp_test")));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_error_part_as_response_error() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:error".to_string(),
+                data: serde_json::json!({
+                    "type": "error",
+                    "error": { "error": { "message": "boom" } }
+                }),
+            })
+            .expect("serialize error");
+        let frames = parse_sse_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].0, "response.error");
+        assert_eq!(frames[0].1["error"]["message"], serde_json::json!("boom"));
     }
 
     #[test]
