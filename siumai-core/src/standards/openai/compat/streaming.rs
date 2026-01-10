@@ -278,20 +278,16 @@ impl OpenAiCompatibleEventConverter {
             .and_then(|v| v.as_str())
             .filter(|s| !s.trim().is_empty())
             .map(|s| s.to_string());
-        let model = json
-            .get("model")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| s.to_string())
-            // Vercel parity: some model routers emit an initial chunk with an empty `model`.
-            // Fall back to the configured request model to avoid surfacing empty model ids.
-            .or_else(|| {
-                if self.config.model.trim().is_empty() {
-                    None
-                } else {
-                    Some(self.config.model.clone())
-                }
-            });
+        let model = match json.get("model") {
+            Some(v) => match v.as_str().map(str::trim) {
+                Some(s) if !s.is_empty() => Some(s.to_string()),
+                // Vercel parity: some model routers emit an initial chunk with an empty (or null)
+                // `model`. Fall back to the configured request model to avoid surfacing empty model ids.
+                _ => (!self.config.model.trim().is_empty()).then(|| self.config.model.clone()),
+            },
+            // If the field is entirely missing, do not invent a model id.
+            None => None,
+        };
         let created = json.get("created").and_then(|v| v.as_u64()).map(|ts| {
             chrono::DateTime::from_timestamp(ts as i64, 0).unwrap_or_else(chrono::Utc::now)
         });
@@ -637,7 +633,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
     ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + '_>>
     {
         Box::pin(async move {
-            match crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data) {
+            match serde_json::from_str::<serde_json::Value>(&event.data) {
                 Ok(value) => self
                     .convert_event_json_async(&value)
                     .await

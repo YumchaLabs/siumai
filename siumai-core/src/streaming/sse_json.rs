@@ -8,7 +8,7 @@
 
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
-use crate::streaming::{SseStreamExt, parse_json_with_repair};
+use crate::streaming::SseStreamExt;
 use futures_util::Stream;
 use futures_util::StreamExt;
 use std::pin::Pin;
@@ -38,7 +38,7 @@ pub type JsonSseStream =
 ///
 /// - Calls `HttpInterceptor::on_sse_event` for every SSE event.
 /// - Ignores empty payloads and configurable done markers.
-/// - Parses JSON with the shared repair logic (`parse_json_with_repair`).
+/// - Parses JSON strictly (`serde_json::from_str`).
 pub fn stream_sse_json_values<S, B>(
     byte_stream: S,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
@@ -79,7 +79,7 @@ where
                 continue;
             }
 
-            let payload: serde_json::Value = match parse_json_with_repair(data) {
+            let payload: serde_json::Value = match serde_json::from_str(data) {
                 Ok(v) => v,
                 Err(e) => {
                     yield Err(LlmError::ParseError(format!(

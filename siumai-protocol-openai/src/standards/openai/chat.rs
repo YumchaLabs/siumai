@@ -500,7 +500,7 @@ impl StreamChunkTransformer for OpenAiChatStreamTransformer {
             // Apply adapter transformation to SSE event if adapter is present
             let event_to_process = if let Some(adapter) = chat_adapter {
                 // Parse JSON, apply adapter transformation, then re-serialize
-                match crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data) {
+                match serde_json::from_str::<serde_json::Value>(&event.data) {
                     Ok(mut json) => {
                         // Apply adapter transformation
                         if let Err(e) = adapter.transform_sse_event(&mut json) {

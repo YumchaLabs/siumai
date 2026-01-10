@@ -36,7 +36,7 @@ pub struct GenerateContentResponse {
     #[serde(default)]
     pub candidates: Vec<Candidate>,
     /// Returns the prompt's feedback related to the content filters.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "promptFeedback")]
     pub prompt_feedback: Option<PromptFeedback>,
     /// Output only. Metadata on the generation requests' token usage.
     #[serde(skip_serializing_if = "Option::is_none", rename = "usageMetadata")]

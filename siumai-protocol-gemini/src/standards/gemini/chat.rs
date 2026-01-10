@@ -171,7 +171,7 @@ impl StreamChunkTransformer for GeminiChatStreamTransformer {
         let inner = self.inner.clone();
         Box::pin(async move {
             let event_to_process = if let Some(adapter) = adapter {
-                match crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data) {
+                match serde_json::from_str::<serde_json::Value>(&event.data) {
                     Ok(mut json) => {
                         if let Err(e) = adapter.transform_sse_event(&mut json) {
                             return vec![Err(e)];
