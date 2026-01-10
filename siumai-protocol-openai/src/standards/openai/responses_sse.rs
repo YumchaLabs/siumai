@@ -3869,7 +3869,52 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     obj.get("openai").or_else(|| obj.values().next())
                 }
 
-                match event_type.as_str() {
+                fn stream_part_type_to_openai_event_type(tpe: &str) -> Option<&'static str> {
+                    match tpe {
+                        "stream-start" => Some("openai:stream-start"),
+                        "response-metadata" => Some("openai:response-metadata"),
+                        "text-start" => Some("openai:text-start"),
+                        "text-delta" => Some("openai:text-delta"),
+                        "text-end" => Some("openai:text-end"),
+                        "reasoning-start" => Some("openai:reasoning-start"),
+                        "reasoning-delta" => Some("openai:reasoning-delta"),
+                        "reasoning-end" => Some("openai:reasoning-end"),
+                        "tool-input-start" => Some("openai:tool-input-start"),
+                        "tool-input-delta" => Some("openai:tool-input-delta"),
+                        "tool-input-end" => Some("openai:tool-input-end"),
+                        "tool-approval-request" => Some("openai:tool-approval-request"),
+                        "tool-call" => Some("openai:tool-call"),
+                        "tool-result" => Some("openai:tool-result"),
+                        "source" => Some("openai:source"),
+                        "finish" => Some("openai:finish"),
+                        "error" => Some("openai:error"),
+                        _ => None,
+                    }
+                }
+
+                fn normalize_json_string(value: Option<&serde_json::Value>) -> Option<String> {
+                    let v = value?;
+                    match v {
+                        serde_json::Value::String(s) => Some(s.clone()),
+                        serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                            serde_json::to_string(v).ok()
+                        }
+                        _ => None,
+                    }
+                }
+
+                // Best-effort: ignore the custom event prefix and rely on the v3 part tag
+                // (`data.type`) to select the OpenAI stream part handler.
+                let effective_event_type = if event_type.starts_with("openai:") {
+                    event_type.as_str()
+                } else {
+                    data.get("type")
+                        .and_then(|v| v.as_str())
+                        .and_then(stream_part_type_to_openai_event_type)
+                        .unwrap_or(event_type.as_str())
+                };
+
+                match effective_event_type {
                     "openai:stream-start" => {
                         // Vercel stream part; OpenAI SSE has no direct equivalent.
                         // Reset state so subsequent parts start a fresh response.
@@ -4939,13 +4984,12 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
                         let tool_name = data.get("toolName").and_then(|v| v.as_str()).unwrap_or("");
-                        let input = data.get("input").and_then(|v| v.as_str()).unwrap_or("");
+                        let input = normalize_json_string(data.get("input")).unwrap_or_default();
                         if call_id.is_empty() || tool_name.is_empty() {
                             return Ok(Vec::new());
                         }
 
                         if !state.function_calls_by_call_id.contains_key(call_id) {
-                            let output_index = alloc_output_index(&mut state);
                             state.function_calls_by_call_id.insert(
                                 call_id.to_string(),
                                 OpenAiResponsesFunctionCallSerializeState {
@@ -4971,7 +5015,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             }
 
                             if !input.is_empty() {
-                                call.arguments.push_str(input);
+                                call.arguments.push_str(&input);
                             }
 
                             let mut emit_done = false;
@@ -5063,7 +5107,55 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                             return sse_event_frame("response.output_item.done", &payload);
                         }
 
-                        Ok(Vec::new())
+                        // Best-effort fallback: synthesize a completed tool item from v3 parts.
+                        let call_id = data
+                            .get("toolCallId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let tool_name = data.get("toolName").and_then(|v| v.as_str()).unwrap_or("");
+                        if call_id.is_empty() || tool_name.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        let output_index = provider_tool_output_index(
+                            &mut state,
+                            Some(call_id),
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+
+                        let result = data
+                            .get("result")
+                            .cloned()
+                            .or_else(|| data.get("output").cloned())
+                            .unwrap_or(serde_json::Value::Null);
+
+                        let input = normalize_json_string(data.get("input"))
+                            .map(serde_json::Value::String)
+                            .unwrap_or_else(|| serde_json::Value::String("{}".to_string()));
+
+                        let item = serde_json::json!({
+                            "id": call_id,
+                            "type": "custom_tool_call",
+                            "status": "completed",
+                            "name": tool_name,
+                            "input": input,
+                            "output": result,
+                        });
+
+                        if !state
+                            .emitted_output_item_done_ids
+                            .insert(call_id.to_string())
+                        {
+                            return Ok(Vec::new());
+                        }
+
+                        let payload = serde_json::json!({
+                            "type": "response.output_item.done",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "output_index": output_index,
+                            "item": item,
+                        });
+                        sse_event_frame("response.output_item.done", &payload)
                     }
                     "openai:tool-approval-request" => {
                         maybe_emit_response_created(self, &mut state)?;
@@ -5571,12 +5663,67 @@ mod tests {
     }
 
     #[test]
+    fn responses_stream_proxy_serializes_v3_text_delta_even_with_non_openai_event_type() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("resp_test".to_string()),
+                    model: Some("gpt-test".to_string()),
+                    created: None,
+                    provider: "openai".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "gemini:tool".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "msg_1",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize stream part");
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| {
+            ev == "response.output_text.delta" && v["delta"] == serde_json::json!("Hello")
+        }));
+    }
+
+    #[test]
     fn responses_stream_proxy_serializes_openai_reasoning_stream_part_delta() {
         let conv = OpenAiResponsesEventConverter::new();
 
         let bytes = conv
             .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
                 event_type: "openai:reasoning-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-delta",
+                    "id": "rs_1:0",
+                    "delta": "think",
+                }),
+            })
+            .expect("serialize reasoning stream part");
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| {
+            ev == "response.reasoning_summary_text.delta"
+                && v["delta"] == serde_json::json!("think")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_v3_reasoning_delta_even_with_non_openai_event_type() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "gemini:reasoning".to_string(),
                 data: serde_json::json!({
                     "type": "reasoning-delta",
                     "id": "rs_1:0",
@@ -5860,6 +6007,82 @@ mod tests {
             .expect("output_item.done frame must exist");
 
         assert_eq!(call_output_index, result_output_index);
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_tool_call_and_result_even_with_non_openai_event_type() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let tool_call_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "gemini:tool".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": "ct_1",
+                    "toolName": "code_execution",
+                    "providerExecuted": true,
+                    "input": { "language": "PYTHON", "code": "print(1)" }
+                }),
+            })
+            .expect("serialize tool-call");
+
+        let call_frames = parse_sse_frames(&tool_call_bytes);
+        let call_output_index = call_frames
+            .iter()
+            .find_map(|(ev, v)| {
+                if ev == "response.output_item.added" {
+                    v.get("output_index").and_then(|v| v.as_u64())
+                } else {
+                    None
+                }
+            })
+            .expect("output_item.added frame must exist");
+
+        assert!(
+            call_frames
+                .iter()
+                .any(|(ev, v)| ev == "response.function_call_arguments.done"
+                    && v.get("arguments")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|s| s.contains("\"language\""))),
+            "expected function_call_arguments.done with JSON arguments: {call_frames:?}"
+        );
+
+        let tool_result_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "gemini:tool".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-result",
+                    "toolCallId": "ct_1",
+                    "toolName": "code_execution",
+                    "providerExecuted": true,
+                    "result": { "outcome": "OUTCOME_OK", "output": "1" }
+                }),
+            })
+            .expect("serialize tool-result");
+
+        let result_frames = parse_sse_frames(&tool_result_bytes);
+        let result_output_index = result_frames
+            .iter()
+            .find_map(|(ev, v)| {
+                if ev == "response.output_item.done" {
+                    v.get("output_index").and_then(|v| v.as_u64())
+                } else {
+                    None
+                }
+            })
+            .expect("output_item.done frame must exist");
+
+        assert_eq!(call_output_index, result_output_index);
+
+        assert!(
+            result_frames
+                .iter()
+                .any(|(ev, v)| ev == "response.output_item.done"
+                    && v["item"]["type"] == serde_json::json!("custom_tool_call")
+                    && v["item"]["output"]["output"] == serde_json::json!("1")),
+            "expected synthesized custom tool output item: {result_frames:?}"
+        );
     }
 
     #[test]
