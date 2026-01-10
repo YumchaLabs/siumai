@@ -10,6 +10,7 @@ use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata,
 use serde::Deserialize;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 
 /// Ollama stream response structure
 #[derive(Debug, Clone, Deserialize)]
@@ -41,6 +42,8 @@ struct OllamaMessage {
 pub struct OllamaEventConverter {
     /// Track if StreamStart has been emitted
     state_tracker: StreamStateTracker,
+    /// Best-effort model id captured from `StreamStart`/`StreamEnd` for reverse serialization.
+    stream_model: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for OllamaEventConverter {
@@ -53,6 +56,7 @@ impl OllamaEventConverter {
     pub fn new() -> Self {
         Self {
             state_tracker: StreamStateTracker::new(),
+            stream_model: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -214,6 +218,82 @@ impl JsonEventConverter for OllamaEventConverter {
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
+
+    fn serialize_event(&self, event: &ChatStreamEvent) -> Result<Vec<u8>, LlmError> {
+        match event {
+            ChatStreamEvent::StreamStart { metadata } => {
+                if let Some(model) = metadata.model.clone()
+                    && let Ok(mut guard) = self.stream_model.lock()
+                {
+                    *guard = Some(model);
+                }
+                Ok(Vec::new())
+            }
+            ChatStreamEvent::ContentDelta { delta, .. } => {
+                let model = self.stream_model.lock().ok().and_then(|v| v.clone());
+                let body = serde_json::json!({
+                    "model": model,
+                    "message": { "role": "assistant", "content": delta },
+                    "done": false,
+                });
+                let mut out = serde_json::to_vec(&body).map_err(|e| {
+                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
+                })?;
+                out.push(b'\n');
+                Ok(out)
+            }
+            ChatStreamEvent::ThinkingDelta { delta } => {
+                let model = self.stream_model.lock().ok().and_then(|v| v.clone());
+                let body = serde_json::json!({
+                    "model": model,
+                    "message": { "role": "assistant", "thinking": delta },
+                    "done": false,
+                });
+                let mut out = serde_json::to_vec(&body).map_err(|e| {
+                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
+                })?;
+                out.push(b'\n');
+                Ok(out)
+            }
+            ChatStreamEvent::StreamEnd { response } => {
+                if let Some(model) = response.model.clone()
+                    && let Ok(mut guard) = self.stream_model.lock()
+                {
+                    *guard = Some(model);
+                }
+
+                let usage = response.usage.clone();
+                let prompt_eval_count = usage.as_ref().map(|u| u.prompt_tokens);
+                let eval_count = usage.as_ref().map(|u| u.completion_tokens);
+
+                let model = self.stream_model.lock().ok().and_then(|v| v.clone());
+                let body = serde_json::json!({
+                    "model": model,
+                    "done": true,
+                    "prompt_eval_count": prompt_eval_count,
+                    "eval_count": eval_count,
+                });
+                let mut out = serde_json::to_vec(&body).map_err(|e| {
+                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
+                })?;
+                out.push(b'\n');
+                Ok(out)
+            }
+            ChatStreamEvent::Error { error } => {
+                // Ollama's JSONL protocol does not define a stable error frame. Emit a best-effort
+                // JSON line so downstream proxies can surface the error.
+                let body = serde_json::json!({ "error": error });
+                let mut out = serde_json::to_vec(&body).map_err(|e| {
+                    LlmError::ParseError(format!("Failed to serialize Ollama JSONL event: {e}"))
+                })?;
+                out.push(b'\n');
+                Ok(out)
+            }
+            ChatStreamEvent::UsageUpdate { .. }
+            | ChatStreamEvent::ToolCallDelta { .. }
+            | ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+        }
+    }
 }
 
 // Legacy OllamaStreaming client has been removed in favor of the unified HttpChatExecutor.
@@ -222,6 +302,7 @@ impl JsonEventConverter for OllamaEventConverter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Usage;
 
     #[tokio::test]
     async fn test_ollama_streaming_conversion() {
@@ -267,5 +348,85 @@ mod tests {
         } else {
             panic!("Expected UsageUpdate event in results: {:?}", result);
         }
+    }
+
+    #[test]
+    fn test_ollama_serializes_content_delta_to_jsonl() {
+        let converter = OllamaEventConverter::new();
+
+        let _ = converter.serialize_event(&ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: None,
+                model: Some("llama3.2".to_string()),
+                created: None,
+                provider: "ollama".to_string(),
+                request_id: None,
+            },
+        });
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::ContentDelta {
+                delta: "hi".to_string(),
+                index: None,
+            })
+            .expect("serialize ok");
+
+        let line = String::from_utf8(bytes).expect("utf8");
+        let v: serde_json::Value = serde_json::from_str(line.trim()).expect("json");
+        assert_eq!(v.get("done").and_then(|x| x.as_bool()), Some(false));
+        assert_eq!(
+            v.get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|x| x.as_str()),
+            Some("hi")
+        );
+        assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("llama3.2"));
+    }
+
+    #[test]
+    fn test_ollama_serializes_stream_end_with_usage_counts() {
+        let converter = OllamaEventConverter::new();
+
+        let _ = converter.serialize_event(&ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: None,
+                model: Some("llama3.2".to_string()),
+                created: None,
+                provider: "ollama".to_string(),
+                request_id: None,
+            },
+        });
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::StreamEnd {
+                response: ChatResponse {
+                    id: None,
+                    model: Some("llama3.2".to_string()),
+                    content: MessageContent::Text(String::new()),
+                    usage: Some(
+                        Usage::builder()
+                            .prompt_tokens(10)
+                            .completion_tokens(20)
+                            .total_tokens(30)
+                            .build(),
+                    ),
+                    finish_reason: Some(FinishReason::Stop),
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
+                    provider_metadata: None,
+                },
+            })
+            .expect("serialize ok");
+
+        let line = String::from_utf8(bytes).expect("utf8");
+        let v: serde_json::Value = serde_json::from_str(line.trim()).expect("json");
+        assert_eq!(v.get("done").and_then(|x| x.as_bool()), Some(true));
+        assert_eq!(
+            v.get("prompt_eval_count").and_then(|x| x.as_u64()),
+            Some(10)
+        );
+        assert_eq!(v.get("eval_count").and_then(|x| x.as_u64()), Some(20));
     }
 }

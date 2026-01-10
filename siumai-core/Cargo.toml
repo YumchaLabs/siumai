@@ -27,6 +27,7 @@ serde_json.workspace = true
 jsonwebtoken = { workspace = true, optional = true }
 reqwest.workspace = true
 tokio.workspace = true
+bytes.workspace = true
 futures.workspace = true
 futures-util.workspace = true
 async-stream.workspace = true

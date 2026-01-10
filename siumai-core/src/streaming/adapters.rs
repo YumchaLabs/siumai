@@ -139,6 +139,13 @@ where
     fn finalize_on_disconnect(&self) -> bool {
         self.convert.finalize_on_disconnect()
     }
+
+    fn serialize_event(
+        &self,
+        event: &crate::streaming::ChatStreamEvent,
+    ) -> Result<Vec<u8>, LlmError> {
+        self.convert.serialize_event(event)
+    }
 }
 
 /// Wrap SSE conversion with HTTP interceptors for each raw SSE event.
@@ -211,6 +218,13 @@ where
     fn finalize_on_disconnect(&self) -> bool {
         self.convert.finalize_on_disconnect()
     }
+
+    fn serialize_event(
+        &self,
+        event: &crate::streaming::ChatStreamEvent,
+    ) -> Result<Vec<u8>, LlmError> {
+        self.convert.serialize_event(event)
+    }
 }
 
 /// Wrap a `JsonEventConverter` with language model middlewares.
@@ -256,5 +270,12 @@ impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
             }
             out
         })
+    }
+
+    fn serialize_event(
+        &self,
+        event: &crate::streaming::ChatStreamEvent,
+    ) -> Result<Vec<u8>, LlmError> {
+        self.convert.serialize_event(event)
     }
 }

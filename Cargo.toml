@@ -50,6 +50,7 @@ tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "time", "syn
 futures = "0.3"
 
 # Streaming
+bytes = "1"
 futures-util = "0.3"
 async-stream = "0.3"
 eventsource-stream = "0.2"

@@ -41,6 +41,24 @@ pub trait SseEventConverter: Send + Sync {
     /// Convert an SSE event to zero or more ChatStreamEvents
     fn convert_event(&self, event: Event) -> SseEventFuture<'_>;
 
+    /// Serialize a unified `ChatStreamEvent` into provider-native SSE bytes.
+    ///
+    /// This is the reverse operation of `convert_event(...)` and enables
+    /// cross-provider stream proxying (e.g., exposing an Ollama backend as an
+    /// Anthropic-compatible SSE endpoint).
+    ///
+    /// Converters may return an empty byte vector to indicate "no output" for
+    /// the given event (for example, when the provider protocol has no explicit
+    /// equivalent of `StreamStart`).
+    ///
+    /// Default implementation returns `UnsupportedOperation` so existing
+    /// converters remain source-compatible.
+    fn serialize_event(&self, _event: &ChatStreamEvent) -> Result<Vec<u8>, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "serialize_event is not supported by this SSE converter".to_string(),
+        ))
+    }
+
     /// Whether the StreamFactory should call `handle_stream_end` when the SSE
     /// connection closes without an explicit `[DONE]` marker.
     ///
@@ -92,6 +110,22 @@ pub trait SseEventConverter: Send + Sync {
 pub trait JsonEventConverter: Send + Sync {
     /// Convert JSON data to zero or more ChatStreamEvents
     fn convert_json<'a>(&'a self, json_data: &'a str) -> JsonEventFuture<'a>;
+
+    /// Serialize a unified `ChatStreamEvent` into provider-native JSON line bytes.
+    ///
+    /// This is the reverse operation of `convert_json(...)` and enables
+    /// cross-provider stream proxying for JSONL-based providers (e.g. Ollama).
+    ///
+    /// Converters may return an empty byte vector to indicate "no output" for
+    /// the given event.
+    ///
+    /// Default implementation returns `UnsupportedOperation` so existing
+    /// converters remain source-compatible.
+    fn serialize_event(&self, _event: &ChatStreamEvent) -> Result<Vec<u8>, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "serialize_event is not supported by this JSON converter".to_string(),
+        ))
+    }
 
     /// Handle the end of stream
     ///

@@ -41,6 +41,30 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - Google Vertex builder surface includes Vercel-aligned aliases: `language_model(...)`, `embedding_model(...)` (deprecated: `text_embedding_model(...)`).
 - Vercel-style custom fetch is available via `fetch(...)` (injects `HttpTransport`) across built-in providers (OpenAI, Azure, Anthropic, Gemini, Vertex, Groq, xAI, Ollama, MiniMaxi) and OpenAI-compatible vendor presets.
 - Provider-defined tool factories are available under `siumai::tools::*` (implemented in `siumai-core::tools`) and serialize to the Vercel `{ type: "provider", id, name, args }` shape; `Tool::provider_defined(id, name)` remains the escape hatch for unknown tools.
+- Streaming converters support bidirectional mapping (parse + serialize) for selected providers (Anthropic SSE, Ollama JSONL) to enable cross-provider stream proxying (Vercel-aligned `parseStreamPart`/`formatStreamPart` concept).
+
+## Streaming wire format alignment
+
+Vercel AI SDK exposes "stream parts" helpers that can both parse and format streaming payloads.
+For Siumai, the equivalent is a provider-specific event converter that supports both:
+
+- Provider wire stream -> unified `ChatStreamEvent` (existing `convert_event` / `convert_json`)
+- Unified `ChatStreamEvent` -> provider wire stream bytes (new `serialize_event`)
+
+### Public building blocks
+
+- Traits: `siumai-core::streaming::{SseEventConverter, JsonEventConverter}` now include `serialize_event(...)` with a default `UnsupportedOperation` implementation.
+- Encoders: `siumai-core::streaming::{encode_chat_stream_as_sse, encode_chat_stream_as_jsonl}` turn a `Stream<Item = Result<ChatStreamEvent, LlmError>>` into a `Stream<Item = Result<Bytes, LlmError>>` suitable for HTTP responses.
+
+### Provider support (as of alpha.5)
+
+- Anthropic: SSE serialization implemented (message_start, content/thinking/tool deltas, message_delta/stop).
+- Ollama: JSONL serialization implemented (content/thinking deltas + done frame).
+
+### Next candidates
+
+- OpenAI Responses SSE serializer (stream proxying / gateway use-cases).
+- Gemini / Vertex SSE/JSON streaming serializers (if needed by downstream gateways).
 
 ## Fixture/test parity checklist
 

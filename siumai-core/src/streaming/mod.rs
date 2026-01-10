@@ -12,6 +12,7 @@
 pub mod adapters;
 mod builder;
 mod converters;
+mod encoder;
 mod events;
 mod factory;
 mod json_repair;
@@ -26,6 +27,7 @@ mod types;
 pub use adapters::*;
 pub use builder::*;
 pub use converters::*;
+pub use encoder::*;
 pub use events::*;
 pub use factory::*;
 #[doc(hidden)]
