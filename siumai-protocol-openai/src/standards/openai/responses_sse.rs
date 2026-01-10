@@ -45,7 +45,9 @@ struct OpenAiResponsesSerializeState {
     message_item_id: Option<String>,
     message_output_index: Option<u64>,
     message_content_index: u64,
+    message_scaffold_emitted: bool,
     message_text: String,
+    message_annotation_index: u64,
 
     reasoning_item_id: Option<String>,
     reasoning_output_index: Option<u64>,
@@ -3407,7 +3409,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
                 // Emit message scaffolding (output_item.added + content_part.added) once.
                 let mut out = Vec::new();
-                if state.message_text.is_empty() && state.message_content_index == 0 {
+                if !state.message_scaffold_emitted {
                     let added = serde_json::json!({
                         "type": "response.output_item.added",
                         "sequence_number": next_sequence_number(&mut state),
@@ -3439,6 +3441,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         "response.content_part.added",
                         &part_added,
                     )?);
+                    state.message_scaffold_emitted = true;
                 }
 
                 state.message_text.push_str(delta);
@@ -3757,7 +3760,309 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 });
                 sse_event_frame("response.error", &payload)
             }
-            crate::streaming::ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
+            crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+                fn provider_metadata_value(
+                    metadata: &serde_json::Value,
+                ) -> Option<&serde_json::Value> {
+                    let obj = metadata.as_object()?;
+                    obj.get("openai").or_else(|| obj.values().next())
+                }
+
+                match event_type.as_str() {
+                    "openai:text-delta" => {
+                        let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
+                            return Ok(Vec::new());
+                        };
+                        if delta.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        let (response_id, _, _) = ensure_response_metadata(self, &mut state);
+                        if state.message_output_index.is_none() {
+                            state.message_output_index = Some(alloc_output_index(&mut state));
+                        }
+                        let output_index = state.message_output_index.unwrap_or(0);
+
+                        if state.message_item_id.is_none() {
+                            state.message_item_id = Some(format!("msg_{response_id}_0"));
+                        }
+                        let item_id = state
+                            .message_item_id
+                            .clone()
+                            .unwrap_or_else(|| "msg_siumai_0".to_string());
+
+                        let mut out = Vec::new();
+                        if !state.message_scaffold_emitted {
+                            let added = serde_json::json!({
+                                "type": "response.output_item.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": {
+                                    "id": item_id,
+                                    "type": "message",
+                                    "status": "in_progress",
+                                    "role": "assistant",
+                                    "content": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.added",
+                                &added,
+                            )?);
+
+                            let part_added = serde_json::json!({
+                                "type": "response.content_part.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "item_id": item_id,
+                                "output_index": output_index,
+                                "content_index": state.message_content_index,
+                                "part": {
+                                    "type": "output_text",
+                                    "text": "",
+                                    "annotations": [],
+                                    "logprobs": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.content_part.added",
+                                &part_added,
+                            )?);
+                            state.message_scaffold_emitted = true;
+                        }
+
+                        state.message_text.push_str(delta);
+                        let payload = serde_json::json!({
+                            "type": "response.output_text.delta",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": state.message_content_index,
+                            "delta": delta,
+                            "logprobs": [],
+                        });
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.output_text.delta",
+                            &payload,
+                        )?);
+                        Ok(out)
+                    }
+                    "openai:reasoning-delta" => {
+                        let Some(delta) = data.get("delta").and_then(|v| v.as_str()) else {
+                            return Ok(Vec::new());
+                        };
+                        if delta.is_empty() {
+                            return Ok(Vec::new());
+                        }
+
+                        ensure_response_metadata(self, &mut state);
+
+                        if state.reasoning_output_index.is_none() {
+                            state.reasoning_output_index = Some(alloc_output_index(&mut state));
+                        }
+                        let output_index = state.reasoning_output_index.unwrap_or(0);
+
+                        let emit_added = state.reasoning_item_id.is_none();
+                        if emit_added {
+                            state.reasoning_item_id = Some(format!("rs_siumai_{output_index}"));
+                        }
+                        let item_id = state
+                            .reasoning_item_id
+                            .clone()
+                            .unwrap_or_else(|| "rs_siumai_0".to_string());
+
+                        let summary_index = data
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .and_then(|id| id.rsplit_once(':').map(|(_, n)| n))
+                            .and_then(|n| n.parse::<u64>().ok())
+                            .unwrap_or(state.reasoning_summary_index);
+
+                        let mut out = Vec::new();
+                        if emit_added {
+                            let added = serde_json::json!({
+                                "type": "response.output_item.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": {
+                                    "id": item_id,
+                                    "type": "reasoning",
+                                    "summary": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.added",
+                                &added,
+                            )?);
+                        }
+
+                        let payload = serde_json::json!({
+                            "type": "response.reasoning_summary_text.delta",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "summary_index": summary_index,
+                            "delta": delta,
+                        });
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.reasoning_summary_text.delta",
+                            &payload,
+                        )?);
+                        Ok(out)
+                    }
+                    "openai:source" => {
+                        // Tool result sources (e.g. web_search_call) should stay as Vercel parts and
+                        // must not be mapped into output_text annotations.
+                        if data.get("toolCallId").is_some() {
+                            return Ok(Vec::new());
+                        }
+
+                        let Some(source_type) = data.get("sourceType").and_then(|v| v.as_str())
+                        else {
+                            return Ok(Vec::new());
+                        };
+
+                        let (response_id, _, _) = ensure_response_metadata(self, &mut state);
+
+                        if state.message_output_index.is_none() {
+                            state.message_output_index = Some(alloc_output_index(&mut state));
+                        }
+                        let output_index = state.message_output_index.unwrap_or(0);
+
+                        if state.message_item_id.is_none() {
+                            state.message_item_id = Some(format!("msg_{response_id}_0"));
+                        }
+                        let item_id = state
+                            .message_item_id
+                            .clone()
+                            .unwrap_or_else(|| "msg_siumai_0".to_string());
+
+                        let mut out = Vec::new();
+                        if !state.message_scaffold_emitted {
+                            let added = serde_json::json!({
+                                "type": "response.output_item.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "output_index": output_index,
+                                "item": {
+                                    "id": item_id,
+                                    "type": "message",
+                                    "status": "in_progress",
+                                    "role": "assistant",
+                                    "content": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.output_item.added",
+                                &added,
+                            )?);
+
+                            let part_added = serde_json::json!({
+                                "type": "response.content_part.added",
+                                "sequence_number": next_sequence_number(&mut state),
+                                "item_id": item_id,
+                                "output_index": output_index,
+                                "content_index": state.message_content_index,
+                                "part": {
+                                    "type": "output_text",
+                                    "text": "",
+                                    "annotations": [],
+                                    "logprobs": [],
+                                }
+                            });
+                            out.extend_from_slice(&sse_event_frame(
+                                "response.content_part.added",
+                                &part_added,
+                            )?);
+                            state.message_scaffold_emitted = true;
+                        }
+
+                        let annotation = match source_type {
+                            "url" => {
+                                let Some(url) = data.get("url").and_then(|v| v.as_str()) else {
+                                    return Ok(Vec::new());
+                                };
+                                let title = data.get("title").and_then(|v| v.as_str());
+                                let mut ann = serde_json::Map::new();
+                                ann.insert("type".to_string(), serde_json::json!("url_citation"));
+                                ann.insert("url".to_string(), serde_json::json!(url));
+                                if let Some(t) = title {
+                                    ann.insert("title".to_string(), serde_json::json!(t));
+                                }
+                                serde_json::Value::Object(ann)
+                            }
+                            "document" => {
+                                let Some(file_id) = data.get("url").and_then(|v| v.as_str()) else {
+                                    return Ok(Vec::new());
+                                };
+                                let filename = data
+                                    .get("filename")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or(file_id);
+                                let quote = data.get("title").and_then(|v| v.as_str());
+                                let media_type = data.get("mediaType").and_then(|v| v.as_str());
+
+                                let provider_meta = data
+                                    .get("providerMetadata")
+                                    .and_then(provider_metadata_value);
+                                let container_id = provider_meta
+                                    .and_then(|v| v.get("containerId"))
+                                    .filter(|v| !v.is_null())
+                                    .cloned();
+                                let index = provider_meta.and_then(|v| v.get("index")).cloned();
+
+                                let ann_type = if media_type == Some("application/octet-stream") {
+                                    "file_path"
+                                } else if container_id.is_some() {
+                                    "container_file_citation"
+                                } else {
+                                    "file_citation"
+                                };
+
+                                let mut ann = serde_json::Map::new();
+                                ann.insert("type".to_string(), serde_json::json!(ann_type));
+                                ann.insert("file_id".to_string(), serde_json::json!(file_id));
+                                ann.insert("filename".to_string(), serde_json::json!(filename));
+                                if let Some(q) = quote {
+                                    ann.insert("quote".to_string(), serde_json::json!(q));
+                                }
+                                if ann_type == "container_file_citation" {
+                                    if let Some(cid) = container_id {
+                                        ann.insert("container_id".to_string(), cid);
+                                    }
+                                    if let Some(idx) = index {
+                                        ann.insert("index".to_string(), idx);
+                                    }
+                                } else if ann_type == "file_path"
+                                    && let Some(idx) = index
+                                {
+                                    ann.insert("index".to_string(), idx);
+                                }
+                                serde_json::Value::Object(ann)
+                            }
+                            _ => return Ok(Vec::new()),
+                        };
+
+                        let annotation_index = state.message_annotation_index;
+                        state.message_annotation_index =
+                            state.message_annotation_index.saturating_add(1);
+
+                        let payload = serde_json::json!({
+                            "type": "response.output_text.annotation.added",
+                            "sequence_number": next_sequence_number(&mut state),
+                            "item_id": item_id,
+                            "output_index": output_index,
+                            "content_index": state.message_content_index,
+                            "annotation_index": annotation_index,
+                            "annotation": annotation,
+                        });
+                        out.extend_from_slice(&sse_event_frame(
+                            "response.output_text.annotation.added",
+                            &payload,
+                        )?);
+                        Ok(out)
+                    }
+                    _ => Ok(Vec::new()),
+                }
+            }
         }
     }
 }
@@ -4194,6 +4499,131 @@ mod tests {
         let end_frames = parse_sse_frames(&end_bytes);
         assert!(end_frames.iter().any(|(ev, v)| {
             ev == "response.completed" && v["type"] == serde_json::json!("response.completed")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_openai_text_stream_part_delta() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("resp_test".to_string()),
+                    model: Some("gpt-test".to_string()),
+                    created: None,
+                    provider: "openai".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "msg_1",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize stream part");
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| {
+            ev == "response.output_text.delta" && v["delta"] == serde_json::json!("Hello")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_openai_reasoning_stream_part_delta() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:reasoning-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "reasoning-delta",
+                    "id": "rs_1:0",
+                    "delta": "think",
+                }),
+            })
+            .expect("serialize reasoning stream part");
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(frames.iter().any(|(ev, v)| {
+            ev == "response.reasoning_summary_text.delta"
+                && v["delta"] == serde_json::json!("think")
+        }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_added() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("resp_test".to_string()),
+                    model: Some("gpt-test".to_string()),
+                    created: None,
+                    provider: "openai".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start");
+
+        let _ = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:text-delta".to_string(),
+                data: serde_json::json!({
+                    "type": "text-delta",
+                    "id": "msg_1",
+                    "delta": "Hello",
+                }),
+            })
+            .expect("serialize text delta");
+
+        let url_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:source".to_string(),
+                data: serde_json::json!({
+                    "type": "source",
+                    "sourceType": "url",
+                    "id": "ann:url:https://www.rust-lang.org",
+                    "url": "https://www.rust-lang.org",
+                    "title": "Rust",
+                }),
+            })
+            .expect("serialize url source");
+        let url_frames = parse_sse_frames(&url_bytes);
+        assert!(url_frames.iter().any(|(ev, v)| {
+            ev == "response.output_text.annotation.added"
+                && v["annotation"]["type"] == serde_json::json!("url_citation")
+                && v["annotation"]["url"] == serde_json::json!("https://www.rust-lang.org")
+        }));
+
+        let doc_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:source".to_string(),
+                data: serde_json::json!({
+                    "type": "source",
+                    "sourceType": "document",
+                    "id": "ann:doc:file_123",
+                    "url": "file_123",
+                    "title": "Document",
+                    "mediaType": "text/plain",
+                    "filename": "notes.txt",
+                    "providerMetadata": { "openai": { "fileId": "file_123" } },
+                }),
+            })
+            .expect("serialize doc source");
+        let doc_frames = parse_sse_frames(&doc_bytes);
+        assert!(doc_frames.iter().any(|(ev, v)| {
+            ev == "response.output_text.annotation.added"
+                && v["annotation"]["type"] == serde_json::json!("file_citation")
+                && v["annotation"]["file_id"] == serde_json::json!("file_123")
+                && v["annotation"]["filename"] == serde_json::json!("notes.txt")
         }));
     }
 
