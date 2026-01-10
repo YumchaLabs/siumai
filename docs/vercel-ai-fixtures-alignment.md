@@ -18,6 +18,23 @@ plus a test that validates Siumai’s request/response mapping.
 - Provider-defined tools follow Vercel JSON shape: `{ "type": "provider", "id", "name", "args": { ... } }`
 - Tests live in `siumai/tests/*_fixtures_alignment_test.rs` and are feature-gated.
 
+## Cross-protocol streaming transcoding (Alpha.5)
+
+This suite validates gateway/proxy use-cases where an upstream provider stream is re-serialized into
+another provider’s streaming wire protocol, using Vercel-aligned v3 stream parts as the bridge.
+
+### Done
+
+- [x] Anthropic Messages SSE -> OpenAI Responses SSE (tool-call + tool-result preserved)
+  - Test: `siumai/tests/transcoding_anthropic_to_openai_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/anthropic/messages-stream/anthropic-web-fetch-tool.1.chunks.txt`
+- [x] Anthropic Messages SSE -> OpenAI Chat Completions SSE (lossy tool-result fallback)
+  - Test: `siumai/tests/transcoding_anthropic_to_openai_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/anthropic/messages-stream/anthropic-mcp.1.chunks.txt`
+- [x] Gemini GenerateContent SSE -> OpenAI Chat Completions SSE + OpenAI Responses SSE (text roundtrip)
+  - Test: `siumai/tests/transcoding_gemini_to_openai_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/gemini/simple_text_then_finish.sse`
+
 ## Google Vertex Imagen (via Vertex provider)
 
 Provider id: `vertex`

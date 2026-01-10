@@ -2388,7 +2388,7 @@ impl OpenAiResponsesEventConverter {
             let tool_name = self.custom_tool_name_for_call_name(call_name);
             let input = item.get("input").and_then(|v| v.as_str()).unwrap_or("");
 
-            return Some(vec![crate::streaming::ChatStreamEvent::Custom {
+            let mut events = vec![crate::streaming::ChatStreamEvent::Custom {
                 event_type: "openai:tool-call".to_string(),
                 data: serde_json::json!({
                     "type": "tool-call",
@@ -2399,7 +2399,35 @@ impl OpenAiResponsesEventConverter {
                     "outputIndex": output_index,
                     "rawItem": serde_json::Value::Object(item.clone()),
                 }),
-            }]);
+            }];
+
+            if let Some(output) = item.get("output") {
+                let mut tool_result = serde_json::json!({
+                    "type": "tool-result",
+                    "toolCallId": tool_call_id,
+                    "toolName": tool_name,
+                    "result": output,
+                    "providerExecuted": true,
+                    "outputIndex": output_index,
+                    "providerMetadata": self.provider_metadata_json(serde_json::json!({
+                        "itemId": tool_call_id,
+                    })),
+                    "rawItem": serde_json::Value::Object(item.clone()),
+                });
+
+                if let Some(is_error) = item.get("is_error").and_then(|v| v.as_bool())
+                    && let Some(obj) = tool_result.as_object_mut()
+                {
+                    obj.insert("isError".to_string(), serde_json::Value::Bool(is_error));
+                }
+
+                events.push(crate::streaming::ChatStreamEvent::Custom {
+                    event_type: "openai:tool-result".to_string(),
+                    data: tool_result,
+                });
+            }
+
+            return Some(events);
         }
 
         let (default_tool_name, result) = match item_type {
