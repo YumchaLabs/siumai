@@ -103,6 +103,15 @@ impl ImageExecutorBuilder {
         self
     }
 
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.policy.transport = Some(transport);
+        self
+    }
+
     pub fn build(self) -> Arc<HttpImageExecutor> {
         Arc::new(HttpImageExecutor {
             provider_id: self.provider_id,

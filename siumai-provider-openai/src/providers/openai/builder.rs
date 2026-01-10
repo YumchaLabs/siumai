@@ -11,6 +11,7 @@ use crate::error::LlmError;
 use crate::params::{OpenAiParams, ResponseFormat, ToolChoice};
 use crate::retry_api::RetryOptions;
 use crate::types::*;
+use std::sync::Arc;
 
 use super::OpenAiClient;
 use super::vendors::OpenAiVendorId;
@@ -265,6 +266,23 @@ impl OpenAiBuilder {
         self
     }
 
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.core = self.core.with_http_transport(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(
+        self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
+    }
+
     /// Use the OpenAI Responses API instead of Chat Completions.
     ///
     /// When enabled, the client routes chat requests to `/responses` and sets
@@ -348,6 +366,9 @@ impl OpenAiBuilder {
         // Retry + interceptors (builder-owned)
         if let Some(retry) = self.core.retry_options {
             b = b.with_retry(retry);
+        }
+        if let Some(transport) = self.core.http_transport {
+            b = b.with_http_transport(transport);
         }
         for it in self.core.http_interceptors {
             b = b.with_http_interceptor(it);
@@ -447,6 +468,7 @@ impl OpenAiBuilder {
             openai_params: self.openai_params,
             provider_options_map,
             http_config: self.core.http_config.clone(),
+            http_transport: self.core.http_transport.clone(),
         };
 
         // Model is carried solely via common_params.model now

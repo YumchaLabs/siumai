@@ -320,10 +320,19 @@ impl GeminiFileSearchStores {
     }
 
     fn build_http_config(&self, ctx: crate::core::ProviderContext) -> HttpExecutionConfig {
-        crate::execution::wiring::HttpExecutionWiring::new("gemini", self.http_client.clone(), ctx)
-            .with_interceptors(self.http_interceptors.clone())
-            .with_retry_options(self.retry_options.clone())
-            .config(Arc::new(crate::providers::gemini::spec::GeminiSpec))
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
+            "gemini",
+            self.http_client.clone(),
+            ctx,
+        )
+        .with_interceptors(self.http_interceptors.clone())
+        .with_retry_options(self.retry_options.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+
+        wiring.config(Arc::new(crate::providers::gemini::spec::GeminiSpec))
     }
 
     async fn retry<T, F, Fut>(&self, call: F) -> Result<T, LlmError>

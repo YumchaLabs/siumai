@@ -31,6 +31,10 @@ impl RerankCapability for OpenAiClient {
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
 
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
         }

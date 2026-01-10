@@ -79,8 +79,15 @@ impl GeminiModels {
         &self,
         ctx: crate::core::ProviderContext,
     ) -> crate::execution::executors::common::HttpExecutionConfig {
-        crate::execution::wiring::HttpExecutionWiring::new("gemini", self.http_client.clone(), ctx)
-            .config(Arc::new(crate::providers::gemini::spec::GeminiSpec))
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
+            "gemini",
+            self.http_client.clone(),
+            ctx,
+        );
+        if let Some(transport) = self.config.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+        wiring.config(Arc::new(crate::providers::gemini::spec::GeminiSpec))
     }
 
     /// Convert `GeminiModel` to `ModelInfo`

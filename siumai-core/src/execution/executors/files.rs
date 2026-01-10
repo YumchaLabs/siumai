@@ -85,6 +85,15 @@ impl FilesExecutorBuilder {
         self
     }
 
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.policy.transport = Some(transport);
+        self
+    }
+
     pub fn build(self) -> Arc<HttpFilesExecutor> {
         let spec = self.spec.expect("provider_spec is required");
         let context = self.context.expect("provider_context is required");

@@ -19,6 +19,11 @@ impl EmbeddingCapability for GeminiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+        let exec = if let Some(transport) = self.config.http_transport.clone() {
+            exec.with_transport(transport)
+        } else {
+            exec
+        };
 
         let exec = if let Some(retry) = self.retry_options.clone() {
             exec.with_retry_options(retry).build_for_request(&req)
@@ -67,6 +72,11 @@ impl EmbeddingExtensions for GeminiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+        let exec = if let Some(transport) = self.config.http_transport.clone() {
+            exec.with_transport(transport)
+        } else {
+            exec
+        };
 
         let exec = if let Some(retry) = self.retry_options.clone() {
             exec.with_retry_options(retry).build_for_request(&request)

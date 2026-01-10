@@ -1582,6 +1582,7 @@ mod files_tests {
             timeout: Some(30),
             http_config: crate::types::HttpConfig::default(),
             token_provider: None,
+            http_transport: None,
             provider_metadata_key: None,
         }
     }
@@ -1672,6 +1673,7 @@ mod images_tests {
             timeout: Some(30),
             http_config: crate::types::HttpConfig::default(),
             token_provider: None,
+            http_transport: None,
             provider_metadata_key: None,
         }
     }
@@ -1732,6 +1734,7 @@ mod embeddings_tests {
             timeout: Some(30),
             http_config: crate::types::HttpConfig::default(),
             token_provider: None,
+            http_transport: None,
             provider_metadata_key: None,
         }
     }

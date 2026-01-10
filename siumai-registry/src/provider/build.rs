@@ -426,6 +426,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             // Build unified context and delegate to OpenAIProviderFactory.
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 api_key: Some(api_key.clone()),
                 base_url: Some(resolved_base),
@@ -471,6 +472,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     // Build unified context and delegate to AnthropicVertexProviderFactory.
                     let ctx = BuildContext {
                         http_client: Some(built_http_client.clone()),
+                        http_transport: builder.http_transport.clone(),
                         http_config: Some(http_config.clone()),
                         base_url: Some(base),
                         tracing_config: builder.tracing_config.clone(),
@@ -501,6 +503,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 // Build unified context and delegate to AnthropicProviderFactory.
                 let ctx = BuildContext {
                     http_client: Some(built_http_client.clone()),
+                    http_transport: builder.http_transport.clone(),
                     http_config: Some(http_config.clone()),
                     api_key: Some(api_key.clone()),
                     base_url: Some(anthropic_base_url),
@@ -531,6 +534,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             // Build unified context and delegate to GeminiProviderFactory.
             let ctx = BuildContext {
                 http_client: Some(built_http_client.clone()),
+                http_transport: builder.http_transport.clone(),
                 http_config: Some(http_config.clone()),
                 // Only override API key when explicitly set; otherwise allow factory
                 // to fall back to GEMINI_API_KEY or token-based auth.

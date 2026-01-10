@@ -99,12 +99,15 @@ impl ModerationCapability for OpenAiModeration {
 
         let spec = std::sync::Arc::new(super::spec::OpenAiSpec::new());
         let ctx = self.build_context();
-        let config = crate::execution::wiring::HttpExecutionWiring::new(
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             "openai",
             self.http_client.clone(),
             ctx,
-        )
-        .config(spec);
+        );
+        if let Some(transport) = self.config.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+        let config = wiring.config(spec);
 
         let url = format!("{}/moderations", self.config.base_url.trim_end_matches('/'));
         let result = crate::execution::executors::common::execute_json_request(

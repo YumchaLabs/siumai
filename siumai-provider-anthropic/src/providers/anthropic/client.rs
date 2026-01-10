@@ -15,6 +15,7 @@ use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::params::AnthropicParams;
 
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 use crate::traits::*;
 use crate::types::*;
@@ -34,6 +35,8 @@ pub struct AnthropicClient {
     base_url: String,
     http_client: reqwest::Client,
     http_config: HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    http_transport: Option<Arc<dyn HttpTransport>>,
     /// Models capability implementation
     models_capability: AnthropicModels,
     /// Common parameters
@@ -63,6 +66,7 @@ impl Clone for AnthropicClient {
             base_url: self.base_url.clone(),
             http_client: self.http_client.clone(),
             http_config: self.http_config.clone(),
+            http_transport: self.http_transport.clone(),
             models_capability: self.models_capability.clone(),
             common_params: self.common_params.clone(),
             anthropic_params: self.anthropic_params.clone(),
@@ -133,6 +137,7 @@ impl AnthropicClient {
             base_url,
             http_client,
             http_config,
+            http_transport: None,
             models_capability,
             common_params,
             anthropic_params,
@@ -183,6 +188,13 @@ impl AnthropicClient {
         middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     ) -> Self {
         self.model_middlewares = middlewares;
+        self
+    }
+
+    /// Install a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.http_transport = Some(transport.clone());
+        self.models_capability.http_transport = Some(transport);
         self
     }
 
@@ -323,6 +335,10 @@ impl AnthropicClient {
             .with_stream_disable_compression(self.http_config.stream_disable_compression)
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(middlewares);
+
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(hook) = before_send_hook {
             builder = builder.with_before_send(hook);

@@ -4,11 +4,12 @@
 
 use super::adapter::ProviderAdapter;
 use crate::error::LlmError;
+use crate::execution::http::transport::HttpTransport;
 use crate::types::{CommonParams, HttpConfig};
 use std::sync::Arc;
 
 /// Configuration for OpenAI-compatible providers
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiCompatibleConfig {
     /// Provider identifier
     pub provider_id: String,
@@ -22,10 +23,32 @@ pub struct OpenAiCompatibleConfig {
     pub common_params: CommonParams,
     /// HTTP configuration (timeout, proxy, etc.)
     pub http_config: HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
     /// Custom headers for requests
     pub custom_headers: reqwest::header::HeaderMap,
     /// Provider adapter for handling specifics
     pub adapter: Arc<dyn ProviderAdapter>,
+}
+
+impl std::fmt::Debug for OpenAiCompatibleConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut ds = f.debug_struct("OpenAiCompatibleConfig");
+        ds.field("provider_id", &self.provider_id)
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("common_params", &self.common_params)
+            .field("http_config", &self.http_config);
+
+        if !self.api_key.is_empty() {
+            ds.field("has_api_key", &true);
+        }
+        if self.http_transport.is_some() {
+            ds.field("has_http_transport", &true);
+        }
+
+        ds.finish()
+    }
 }
 
 impl OpenAiCompatibleConfig {
@@ -43,6 +66,7 @@ impl OpenAiCompatibleConfig {
             model: String::new(),
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
+            http_transport: None,
             custom_headers: reqwest::header::HeaderMap::new(),
             adapter,
         }
@@ -64,6 +88,12 @@ impl OpenAiCompatibleConfig {
     /// Set HTTP configuration
     pub fn with_http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = config;
+        self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.http_transport = Some(transport);
         self
     }
 

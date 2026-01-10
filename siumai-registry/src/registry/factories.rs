@@ -157,6 +157,7 @@ impl ProviderFactory for OpenAIProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -385,6 +386,7 @@ impl ProviderFactory for AnthropicProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -485,6 +487,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -611,6 +614,7 @@ impl ProviderFactory for GeminiProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -748,6 +752,7 @@ impl ProviderFactory for GoogleVertexProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -1339,6 +1344,7 @@ impl ProviderFactory for OpenRouterProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -1438,6 +1444,7 @@ impl ProviderFactory for DeepSeekProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }
@@ -1585,6 +1592,7 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
             ctx.model_middlewares.clone(),
+            ctx.http_transport.clone(),
         )
         .await
     }

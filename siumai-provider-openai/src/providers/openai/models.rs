@@ -10,6 +10,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use crate::error::LlmError;
+use crate::execution::http::transport::HttpTransport;
 use crate::traits::ModelListingCapability;
 use crate::types::{HttpConfig, ModelInfo};
 
@@ -30,6 +31,8 @@ pub struct OpenAiModels {
     pub project: Option<String>,
     /// HTTP configuration
     pub http_config: HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
 }
 
 impl OpenAiModels {
@@ -41,6 +44,7 @@ impl OpenAiModels {
         organization: Option<String>,
         project: Option<String>,
         http_config: HttpConfig,
+        http_transport: Option<Arc<dyn HttpTransport>>,
     ) -> Self {
         Self {
             api_key,
@@ -49,6 +53,7 @@ impl OpenAiModels {
             organization,
             project,
             http_config,
+            http_transport,
         }
     }
 
@@ -62,8 +67,15 @@ impl OpenAiModels {
         )
         .with_org_project(self.organization.clone(), self.project.clone());
 
-        crate::execution::wiring::HttpExecutionWiring::new("openai", self.http_client.clone(), ctx)
-            .config(spec)
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
+            "openai",
+            self.http_client.clone(),
+            ctx,
+        );
+        if let Some(transport) = self.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+        wiring.config(spec)
     }
 
     /// Convert `OpenAI` model response to `ModelInfo`
@@ -463,6 +475,7 @@ mod tests {
             config.organization.clone(),
             config.project.clone(),
             config.http_config.clone(),
+            None,
         );
         let cfg = models.build_http_config();
         assert_eq!(

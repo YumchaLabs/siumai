@@ -51,6 +51,8 @@ pub struct SiumaiBuilder {
     pub(crate) http_debug: bool,
     /// Custom HTTP client (takes precedence over all other HTTP settings)
     pub(crate) http_client: Option<reqwest::Client>,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub(crate) http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     /// Advanced HTTP features are not handled here anymore; use HttpConfig only
     #[cfg(any(feature = "google", feature = "google-vertex"))]
     /// Optional Bearer token provider for Google auth (Gemini and/or Vertex AI).
@@ -79,6 +81,7 @@ impl SiumaiBuilder {
             http_interceptors: Vec::new(),
             http_debug: false,
             http_client: None,
+            http_transport: None,
 
             #[cfg(any(feature = "google", feature = "google-vertex"))]
             gemini_token_provider: None,
@@ -249,6 +252,23 @@ impl SiumaiBuilder {
     pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
         self.http_client = Some(client);
         self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.http_transport = Some(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(
+        self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
     }
 
     /// Enable audio capability

@@ -227,6 +227,8 @@ pub struct BuildContext {
     /// Optional pre-built HTTP client. When present, factories should prefer
     /// this client over constructing a new one from `http_config`.
     pub http_client: Option<reqwest::Client>,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     /// Optional HTTP configuration (timeouts, headers, proxy, user-agent, etc.).
     /// When no custom client is supplied, factories may use this to build one.
     pub http_config: Option<crate::types::HttpConfig>,

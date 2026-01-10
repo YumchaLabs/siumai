@@ -142,6 +142,23 @@ impl GeminiBuilder {
         self
     }
 
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.core = self.core.with_http_transport(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(
+        self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
+    }
+
     // === HTTP Advanced Configuration ===
 
     /// Control whether to disable compression for streaming (SSE) requests.
@@ -432,6 +449,9 @@ impl GeminiBuilder {
         // This keeps behavior consistent across providers and ensures `http_stream_disable_compression`
         // affects Gemini streaming requests.
         config = config.with_http_config(self.core.http_config.clone());
+        if let Some(transport) = self.core.http_transport.clone() {
+            config = config.with_http_transport(transport);
+        }
 
         // Step 4: Build HTTP client from core
         let http_client = self.core.build_http_client()?;

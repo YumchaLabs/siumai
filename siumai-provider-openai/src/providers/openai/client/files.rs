@@ -18,6 +18,7 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             openai_params: self.openai_params.clone(),
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
+            http_transport: self.http_transport.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -41,6 +42,7 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             openai_params: self.openai_params.clone(),
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
+            http_transport: self.http_transport.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -61,6 +63,7 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             openai_params: self.openai_params.clone(),
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
+            http_transport: self.http_transport.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -84,6 +87,7 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             openai_params: self.openai_params.clone(),
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
+            http_transport: self.http_transport.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -104,6 +108,7 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             openai_params: self.openai_params.clone(),
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
+            http_transport: self.http_transport.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,

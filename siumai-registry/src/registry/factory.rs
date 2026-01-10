@@ -35,6 +35,7 @@ pub async fn build_openai_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let mut config = siumai_provider_openai::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
@@ -51,6 +52,9 @@ pub async fn build_openai_client(
     }
     if let Some(proj) = project {
         config = config.with_project(proj);
+    }
+    if let Some(transport) = http_transport {
+        config = config.with_http_transport(transport);
     }
 
     let mut client =
@@ -90,6 +94,7 @@ pub async fn build_openai_compatible_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Resolve provider adapter and base URL via registry v2
     let registry = crate::registry::global_registry();
@@ -132,6 +137,9 @@ pub async fn build_openai_compatible_client(
             crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
         })
         .with_http_config(http_config.clone());
+    if let Some(transport) = http_transport {
+        config = config.with_http_transport(transport);
+    }
 
     // Apply common params we support directly
     if let Some(temp) = common_params.temperature {
@@ -186,6 +194,7 @@ pub async fn build_anthropic_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     // Provider-specific parameters are now handled via provider_options in ChatRequest
     let anthropic_params =
@@ -200,6 +209,9 @@ pub async fn build_anthropic_client(
         anthropic_params,
         http_config,
     );
+    if let Some(transport) = http_transport {
+        client = client.with_http_transport(transport);
+    }
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
     }
@@ -238,6 +250,7 @@ pub async fn build_gemini_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     use siumai_provider_gemini::providers::gemini::client::GeminiClient;
     use siumai_provider_gemini::providers::gemini::types::{GeminiConfig, GenerationConfig};
@@ -264,6 +277,9 @@ pub async fn build_gemini_client(
         .with_common_params(common_params.clone());
     // Pass through HTTP config if present in builder path
     config = config.with_http_config(http_config.clone());
+    if let Some(transport) = http_transport {
+        config = config.with_http_transport(transport);
+    }
 
     // Attach token provider if present
     if let Some(tp) = gemini_token_provider {
@@ -313,6 +329,7 @@ pub async fn build_anthropic_vertex_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    _http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let cfg =
         siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicConfig {
@@ -356,13 +373,14 @@ pub async fn build_google_vertex_client(
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     _middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let cfg = siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig {
         base_url,
         model: common_params.model.clone(),
         api_key,
         http_config,
-        http_transport: None,
+        http_transport,
         token_provider,
     };
 

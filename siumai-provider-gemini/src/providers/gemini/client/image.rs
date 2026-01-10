@@ -26,6 +26,11 @@ impl ImageGenerationCapability for GeminiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+        let builder = if let Some(transport) = self.config.http_transport.clone() {
+            builder.with_transport(transport)
+        } else {
+            builder
+        };
 
         let exec = if let Some(retry) = self.retry_options.clone() {
             builder
@@ -61,6 +66,11 @@ impl ImageExtras for GeminiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+        let builder = if let Some(transport) = self.config.http_transport.clone() {
+            builder.with_transport(transport)
+        } else {
+            builder
+        };
 
         let selector = ImageGenerationRequest {
             model: request.model.clone(),

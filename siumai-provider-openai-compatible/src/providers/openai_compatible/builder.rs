@@ -1,6 +1,7 @@
 use crate::LlmError;
 use crate::builder::BuilderBase;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
+use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 use std::sync::Arc;
 
@@ -46,6 +47,8 @@ pub struct OpenAiCompatibleBuilder {
     common_params: crate::types::CommonParams,
     /// HTTP configuration
     http_config: crate::types::HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    http_transport: Option<Arc<dyn HttpTransport>>,
     /// Provider-specific configuration
     provider_specific_config: std::collections::HashMap<String, serde_json::Value>,
     /// Unified retry options
@@ -76,6 +79,7 @@ impl OpenAiCompatibleBuilder {
                 cp
             },
             http_config: crate::types::HttpConfig::default(),
+            http_transport: None,
             provider_specific_config: std::collections::HashMap::new(),
             retry_options: None,
             // Inherit interceptors/debug from unified builder
@@ -236,6 +240,17 @@ impl OpenAiCompatibleBuilder {
     pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
         self.base.http_client = Some(client);
         self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.http_transport = Some(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.with_http_transport(transport)
     }
 
     /// Enable thinking mode for supported models (SiliconFlow only)
@@ -518,6 +533,9 @@ impl OpenAiCompatibleBuilder {
         }
 
         config = config.with_http_config(final_http_config);
+        if let Some(transport) = self.http_transport.clone() {
+            config = config.with_http_transport(transport);
+        }
 
         // Save model before moving config (may still be empty for truly unknown providers)
         let model_id = config.model.clone();

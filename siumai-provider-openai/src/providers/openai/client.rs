@@ -16,6 +16,7 @@ use super::rerank::OpenAiRerank;
 use super::types::OpenAiSpecificParams;
 use super::utils::get_default_models;
 // use crate::execution::executors::chat::ChatExecutor; // not used directly
+use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 
@@ -57,6 +58,8 @@ pub struct OpenAiClient {
     default_provider_options_map: ProviderOptionsMap,
     /// HTTP client for making requests
     http_client: reqwest::Client,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    http_transport: Option<Arc<dyn HttpTransport>>,
     /// Tracing configuration
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     /// Tracing guard to keep tracing system active (not cloned)
@@ -88,6 +91,7 @@ impl Clone for OpenAiClient {
             forced_responses_api: self.forced_responses_api.clone(),
             default_provider_options_map: self.default_provider_options_map.clone(),
             http_client: self.http_client.clone(),
+            http_transport: self.http_transport.clone(),
             tracing_config: self.tracing_config.clone(),
             _tracing_guard: None, // Don't clone the tracing guard
             retry_options: self.retry_options.clone(),
@@ -202,6 +206,7 @@ impl OpenAiClient {
             config.organization.clone(),
             config.project.clone(),
             config.http_config.clone(),
+            config.http_transport.clone(),
         );
 
         let rerank_capability = OpenAiRerank::new(
@@ -211,6 +216,7 @@ impl OpenAiClient {
             config.organization.clone(),
             config.project.clone(),
             config.http_config.clone(),
+            config.http_transport.clone(),
         );
 
         Self {
@@ -227,6 +233,7 @@ impl OpenAiClient {
             forced_responses_api: None,
             default_provider_options_map: config.provider_options_map,
             http_client,
+            http_transport: config.http_transport.clone(),
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
@@ -290,13 +297,19 @@ impl OpenAiClient {
     }
 
     fn http_wiring(&self) -> crate::execution::wiring::HttpExecutionWiring {
-        crate::execution::wiring::HttpExecutionWiring::new(
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             "openai",
             self.http_client.clone(),
             self.build_context(),
         )
         .with_interceptors(self.http_interceptors.clone())
-        .with_retry_options(self.retry_options.clone())
+        .with_retry_options(self.retry_options.clone());
+
+        if let Some(transport) = self.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+
+        wiring
     }
 
     /// Helper: Build ChatExecutor with common configuration
@@ -449,6 +462,10 @@ impl OpenAiClient {
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(self.model_middlewares.clone());
 
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(hook) = before_send_hook {
             builder = builder.with_before_send(hook);
         }
@@ -475,6 +492,10 @@ impl OpenAiClient {
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
 
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
         }
@@ -497,6 +518,10 @@ impl OpenAiClient {
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
 
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
         }
@@ -515,6 +540,10 @@ impl OpenAiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);

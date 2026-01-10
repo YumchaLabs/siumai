@@ -4,6 +4,7 @@ use crate::params::AnthropicParams;
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmError};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Anthropic-specific builder
 ///
@@ -85,6 +86,23 @@ impl AnthropicBuilder {
     pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
         self.core = self.core.with_http_client(client);
         self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.core = self.core.with_http_transport(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(
+        self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
     }
 
     // === HTTP Advanced Configuration ===
@@ -263,6 +281,10 @@ impl AnthropicBuilder {
             self.anthropic_params,
             self.core.http_config.clone(),
         );
+
+        if let Some(transport) = self.core.http_transport.clone() {
+            client = client.with_http_transport(transport);
+        }
 
         // Step 6: Apply tracing and retry configuration from core
         client = client.with_specific_params(specific_params);

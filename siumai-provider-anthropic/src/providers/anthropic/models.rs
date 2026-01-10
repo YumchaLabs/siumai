@@ -9,6 +9,7 @@ use secrecy::SecretString;
 use std::sync::Arc;
 
 use crate::error::LlmError;
+use crate::execution::http::transport::HttpTransport;
 use crate::traits::ModelListingCapability;
 use crate::types::ModelInfo;
 
@@ -22,6 +23,7 @@ pub struct AnthropicModels {
     pub base_url: String,
     pub http_client: reqwest::Client,
     pub http_config: crate::types::HttpConfig,
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
 }
 
 impl AnthropicModels {
@@ -37,6 +39,7 @@ impl AnthropicModels {
             base_url,
             http_client,
             http_config,
+            http_transport: None,
         }
     }
 
@@ -54,12 +57,15 @@ impl AnthropicModels {
         &self,
         ctx: crate::core::ProviderContext,
     ) -> crate::execution::executors::common::HttpExecutionConfig {
-        crate::execution::wiring::HttpExecutionWiring::new(
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             "anthropic",
             self.http_client.clone(),
             ctx,
-        )
-        .config(Arc::new(super::spec::AnthropicSpec::new()))
+        );
+        if let Some(transport) = self.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+        wiring.config(Arc::new(super::spec::AnthropicSpec::new()))
     }
 
     fn remap_anthropic_api_error(&self, err: LlmError) -> LlmError {

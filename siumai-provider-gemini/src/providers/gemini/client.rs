@@ -545,6 +545,10 @@ impl GeminiClient {
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(self.model_middlewares.clone());
 
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(hook) = before_send_hook {
             builder = builder.with_before_send(hook);
         }

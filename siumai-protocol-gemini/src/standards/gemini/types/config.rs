@@ -1,6 +1,7 @@
 use crate::types::{CommonParams, HttpConfig};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Gemini configuration parameters (protocol layer)
 #[derive(Clone)]
@@ -24,6 +25,9 @@ pub struct GeminiConfig {
     /// Optional Bearer token provider (e.g., Vertex AI enterprise auth)
     /// Not serialized/deserialized; runtime only.
     pub token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 
     /// Override the Vercel-aligned providerMetadata namespace key (`google` vs `vertex`).
     ///
@@ -68,6 +72,7 @@ impl Default for GeminiConfig {
             timeout: Some(30),
             http_config: HttpConfig::default(),
             token_provider: None,
+            http_transport: None,
             provider_metadata_key: None,
         }
     }
@@ -144,6 +149,15 @@ impl GeminiConfig {
         provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
     ) -> Self {
         self.token_provider = Some(provider);
+        self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.http_transport = Some(transport);
         self
     }
 

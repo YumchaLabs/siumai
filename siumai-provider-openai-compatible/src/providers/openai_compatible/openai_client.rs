@@ -132,13 +132,19 @@ impl OpenAiCompatibleClient {
     }
 
     fn http_wiring(&self, ctx: ProviderContext) -> crate::execution::wiring::HttpExecutionWiring {
-        crate::execution::wiring::HttpExecutionWiring::new(
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             self.config.provider_id.clone(),
             self.http_client.clone(),
             ctx,
         )
         .with_interceptors(self.http_interceptors.clone())
-        .with_retry_options(self.retry_options.clone())
+        .with_retry_options(self.retry_options.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+
+        wiring
     }
 
     /// Build the provider execution context (headers/base_url/api key + extra headers).
@@ -187,6 +193,10 @@ impl OpenAiCompatibleClient {
                 .with_interceptors(self.http_interceptors.clone())
                 .with_middlewares(self.model_middlewares.clone());
 
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(hook) = before_send_hook {
             builder = builder.with_before_send(hook);
         }
@@ -215,6 +225,10 @@ impl OpenAiCompatibleClient {
         .with_context(ctx)
         .with_interceptors(self.http_interceptors.clone());
 
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
         }
@@ -236,6 +250,10 @@ impl OpenAiCompatibleClient {
                 .with_spec(spec)
                 .with_context(ctx)
                 .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);

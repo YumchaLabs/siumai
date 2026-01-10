@@ -4,8 +4,10 @@
 
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::error::LlmError;
+use crate::execution::http::transport::HttpTransport;
 pub use crate::params::OpenAiParams;
 use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap};
 
@@ -31,9 +33,10 @@ pub use crate::params::openai::{FunctionChoice, OpenAiParamsBuilder, ResponseFor
 ///     openai_params: Default::default(),
 ///     provider_options_map: Default::default(),
 ///     http_config: Default::default(),
+///     http_transport: None,
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiConfig {
     /// `OpenAI` API key (securely stored)
     pub api_key: SecretString,
@@ -61,6 +64,33 @@ pub struct OpenAiConfig {
 
     /// HTTP configuration
     pub http_config: HttpConfig,
+
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
+}
+
+impl std::fmt::Debug for OpenAiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut ds = f.debug_struct("OpenAiConfig");
+        ds.field("base_url", &self.base_url)
+            .field("common_params", &self.common_params)
+            .field("http_config", &self.http_config);
+
+        if !self.api_key.expose_secret().is_empty() {
+            ds.field("has_api_key", &true);
+        }
+        if self.organization.is_some() {
+            ds.field("has_organization", &true);
+        }
+        if self.project.is_some() {
+            ds.field("has_project", &true);
+        }
+        if self.http_transport.is_some() {
+            ds.field("has_http_transport", &true);
+        }
+
+        ds.finish()
+    }
 }
 
 impl OpenAiConfig {
@@ -81,6 +111,7 @@ impl OpenAiConfig {
             openai_params: OpenAiParams::default(),
             provider_options_map: ProviderOptionsMap::default(),
             http_config: HttpConfig::default(),
+            http_transport: None,
         }
     }
 
@@ -108,6 +139,12 @@ impl OpenAiConfig {
     /// * `project` - The project ID
     pub fn with_project<S: Into<String>>(mut self, project: S) -> Self {
         self.project = Some(project.into());
+        self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.http_transport = Some(transport);
         self
     }
 
@@ -260,6 +297,7 @@ impl Default for OpenAiConfig {
             openai_params: OpenAiParams::default(),
             provider_options_map: ProviderOptionsMap::default(),
             http_config: HttpConfig::default(),
+            http_transport: None,
         }
     }
 }

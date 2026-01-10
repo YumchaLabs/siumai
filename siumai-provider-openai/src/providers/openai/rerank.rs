@@ -6,14 +6,16 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use secrecy::ExposeSecret;
+use std::sync::Arc;
 
 use crate::error::LlmError;
+use crate::execution::http::transport::HttpTransport;
 use crate::providers::openai::config::OpenAiConfig;
 use crate::traits::RerankCapability;
 use crate::types::{HttpConfig, RerankRequest, RerankResponse};
 
 /// OpenAI-compatible rerank capability implementation
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiRerank {
     /// API key for authentication
     pub api_key: secrecy::SecretString,
@@ -27,6 +29,28 @@ pub struct OpenAiRerank {
     pub project: Option<String>,
     /// HTTP configuration for custom headers/proxy/user-agent
     pub http_config: HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
+}
+
+impl std::fmt::Debug for OpenAiRerank {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut ds = f.debug_struct("OpenAiRerank");
+        ds.field("base_url", &self.base_url)
+            .field("http_config", &self.http_config);
+
+        if self.organization.is_some() {
+            ds.field("has_organization", &true);
+        }
+        if self.project.is_some() {
+            ds.field("has_project", &true);
+        }
+        if self.http_transport.is_some() {
+            ds.field("has_http_transport", &true);
+        }
+
+        ds.finish()
+    }
 }
 
 impl OpenAiRerank {
@@ -38,6 +62,7 @@ impl OpenAiRerank {
         organization: Option<String>,
         project: Option<String>,
         http_config: HttpConfig,
+        http_transport: Option<Arc<dyn HttpTransport>>,
     ) -> Self {
         Self {
             api_key,
@@ -46,6 +71,7 @@ impl OpenAiRerank {
             organization,
             project,
             http_config,
+            http_transport,
         }
     }
 
@@ -58,6 +84,7 @@ impl OpenAiRerank {
             config.organization.clone(),
             config.project.clone(),
             config.http_config.clone(),
+            config.http_transport.clone(),
         )
     }
 }
@@ -86,10 +113,15 @@ impl RerankCapability for OpenAiRerank {
         .with_org_project(self.organization.clone(), self.project.clone());
 
         let spec = std::sync::Arc::new(crate::providers::openai::spec::OpenAiSpecWithRerank::new());
-        let exec = RerankExecutorBuilder::new("openai", self.http_client.clone())
+        let mut builder = RerankExecutorBuilder::new("openai", self.http_client.clone())
             .with_spec(spec)
-            .with_context(ctx)
-            .build_for_request(&request);
+            .with_context(ctx);
+
+        if let Some(transport) = self.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
+        let exec = builder.build_for_request(&request);
 
         RerankExecutor::execute(&*exec, request).await
     }
@@ -130,6 +162,7 @@ mod tests {
             None,
             None,
             crate::types::HttpConfig::default(),
+            None,
         );
         let req = RerankRequest::new(
             "BAAI/bge-reranker-v2-m3".to_string(),
@@ -162,6 +195,7 @@ mod tests {
             None,
             None,
             crate::types::HttpConfig::default(),
+            None,
         );
         let req = RerankRequest::new(
             "BAAI/bge-reranker-v2-m3".to_string(),
@@ -192,6 +226,7 @@ mod tests {
             None,
             None,
             crate::types::HttpConfig::default(),
+            None,
         );
 
         let models = rerank.supported_models();
@@ -208,6 +243,7 @@ mod tests {
             None,
             None,
             crate::types::HttpConfig::default(),
+            None,
         );
 
         assert_eq!(rerank.max_documents(), Some(1000));
