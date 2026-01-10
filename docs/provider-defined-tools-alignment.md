@@ -44,6 +44,23 @@ use siumai::tools;
 let web_search = tools::openai::web_search_named("mySearch");
 ```
 
+### 1b) Use provider-scoped aliases (Vercel-style import paths)
+
+If you prefer a provider-scoped namespace (closer to the AI SDK mental model), you can also use
+the stable alias `siumai::providers::<provider>::provider_tools::*`:
+
+```rust
+use siumai::prelude::*;
+use siumai::providers;
+
+let tools = vec![
+    providers::openai::provider_tools::web_search(),
+    providers::openai::provider_tools::file_search(),
+];
+
+let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(tools);
+```
+
 ### 2) Use `Tool::provider_defined_id(...)` for dynamic selection
 
 If your tool list is configured by strings (e.g. config files), you can create the tool from the
@@ -72,4 +89,3 @@ let tool = openai::web_search()
 
 - `Tool::provider_defined(id, name)` remains available for full manual control, but prefer the
   factory APIs above to avoid naming mismatches during the refactor.
-

@@ -221,6 +221,12 @@ pub mod experimental {
 pub use siumai_core::siumai_for_each_openai_compatible_provider;
 pub use siumai_registry::registry;
 
+/// Stable alias for provider-specific extension surface.
+///
+/// This is a naming convenience for Vercel AI SDK alignment: provider packages expose
+/// provider-owned helpers (tools/options/metadata) under a `providers::*` namespace.
+pub use crate::provider_ext as providers;
+
 /// Provider extension APIs (non-unified surface).
 ///
 /// These are stable module paths for provider-specific endpoints/resources.
@@ -234,6 +240,13 @@ pub mod provider_ext {
         /// These tools are executed on the provider side (e.g. OpenAI Responses hosted tools).
         pub mod tools {
             pub use crate::hosted_tools::openai::*;
+        }
+
+        /// Vercel-style provider tool factories that return `Tool` directly.
+        ///
+        /// Prefer this module when you want the simplest `Vec<Tool>` construction without typed builders.
+        pub mod provider_tools {
+            pub use crate::tools::openai::*;
         }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["openai"]`).
@@ -311,6 +324,11 @@ pub mod provider_ext {
             pub use crate::hosted_tools::anthropic::*;
         }
 
+        /// Vercel-style provider tool factories that return `Tool` directly.
+        pub mod provider_tools {
+            pub use crate::tools::anthropic::*;
+        }
+
         /// Typed provider options (`provider_options_map["anthropic"]`).
         pub mod options {
             pub use siumai_provider_anthropic::provider_options::anthropic::{
@@ -355,6 +373,11 @@ pub mod provider_ext {
         /// Provider-executed tool factories (Vercel-aligned).
         pub mod tools {
             pub use crate::hosted_tools::google::*;
+        }
+
+        /// Vercel-style provider tool factories that return `Tool` directly.
+        pub mod provider_tools {
+            pub use crate::tools::google::*;
         }
 
         /// Typed provider options (`provider_options_map["google"]`).
@@ -501,6 +524,11 @@ pub mod provider_ext {
     #[cfg(feature = "xai")]
     pub mod xai {
         pub use siumai_provider_xai::providers::xai::XaiClient;
+
+        /// Vercel-style provider tool factories that return `Tool` directly.
+        pub mod provider_tools {
+            pub use crate::tools::xai::*;
+        }
 
         /// Typed provider options (`provider_options_map["xai"]`).
         pub mod options {
