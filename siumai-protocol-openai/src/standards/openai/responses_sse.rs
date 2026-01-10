@@ -62,6 +62,10 @@ struct OpenAiResponsesSerializeState {
     function_calls_by_call_id:
         std::collections::HashMap<String, OpenAiResponsesFunctionCallSerializeState>,
 
+    /// Stable output indices for provider-hosted tool calls/results when the caller does not
+    /// provide an explicit `outputIndex` stream-part field.
+    provider_tool_output_index_by_tool_call_id: std::collections::HashMap<String, u64>,
+
     latest_usage: Option<crate::types::Usage>,
 }
 
@@ -3397,6 +3401,40 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
             alloc_output_index(state)
         }
 
+        fn provider_tool_output_index(
+            state: &mut OpenAiResponsesSerializeState,
+            tool_call_id: Option<&str>,
+            requested: Option<u64>,
+        ) -> u64 {
+            if let Some(req) = requested {
+                let idx = alloc_or_reuse_output_index(state, Some(req));
+                if let Some(id) = tool_call_id
+                    && !id.is_empty()
+                {
+                    state
+                        .provider_tool_output_index_by_tool_call_id
+                        .insert(id.to_string(), idx);
+                }
+                return idx;
+            }
+
+            if let Some(id) = tool_call_id
+                && !id.is_empty()
+            {
+                if let Some(idx) = state.provider_tool_output_index_by_tool_call_id.get(id) {
+                    return *idx;
+                }
+
+                let idx = alloc_output_index(state);
+                state
+                    .provider_tool_output_index_by_tool_call_id
+                    .insert(id.to_string(), idx);
+                return idx;
+            }
+
+            alloc_output_index(state)
+        }
+
         let mut state = self
             .serialize_state
             .lock()
@@ -4832,16 +4870,25 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
-                        let output_index = alloc_or_reuse_output_index(
-                            &mut state,
-                            data.get("outputIndex").and_then(|v| v.as_u64()),
-                        );
-
                         let raw_item = data.get("rawItem").cloned();
                         let provider_executed = data
                             .get("providerExecuted")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
+
+                        let tool_call_id_for_index =
+                            data.get("toolCallId").and_then(|v| v.as_str()).or_else(|| {
+                                raw_item
+                                    .as_ref()
+                                    .and_then(|it| it.get("id"))
+                                    .and_then(|v| v.as_str())
+                            });
+
+                        let output_index = provider_tool_output_index(
+                            &mut state,
+                            tool_call_id_for_index,
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
 
                         if let Some(item) = raw_item {
                             let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -4986,12 +5033,18 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         maybe_emit_response_created(self, &mut state)?;
                         ensure_response_metadata(self, &mut state);
 
-                        let output_index = alloc_or_reuse_output_index(
-                            &mut state,
-                            data.get("outputIndex").and_then(|v| v.as_u64()),
-                        );
-
                         if let Some(item) = data.get("rawItem").cloned() {
+                            let tool_call_id_for_index = data
+                                .get("toolCallId")
+                                .and_then(|v| v.as_str())
+                                .or_else(|| item.get("id").and_then(|v| v.as_str()));
+
+                            let output_index = provider_tool_output_index(
+                                &mut state,
+                                tool_call_id_for_index,
+                                data.get("outputIndex").and_then(|v| v.as_u64()),
+                            );
+
                             let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
                             if !item_id.is_empty()
                                 && !state
@@ -5737,6 +5790,192 @@ mod tests {
                 && v["item"]["type"] == serde_json::json!("web_search_call")
                 && v["item"]["status"] == serde_json::json!("completed")
         }));
+    }
+
+    #[test]
+    fn responses_stream_proxy_reuses_output_index_for_tool_parts_without_explicit_output_index() {
+        let conv = OpenAiResponsesEventConverter::new();
+
+        let call_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-call".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-call",
+                    "toolCallId": "ct_1",
+                    "toolName": "custom_tool",
+                    "providerExecuted": true,
+                    "rawItem": {
+                        "id": "ct_1",
+                        "type": "custom_tool_call",
+                        "status": "in_progress",
+                        "name": "custom_tool",
+                        "input": "{}"
+                    }
+                }),
+            })
+            .expect("serialize tool-call without outputIndex");
+
+        let call_frames = parse_sse_frames(&call_bytes);
+        let call_output_index = call_frames
+            .iter()
+            .find_map(|(ev, v)| {
+                if ev == "response.output_item.added" {
+                    v.get("output_index").and_then(|v| v.as_u64())
+                } else {
+                    None
+                }
+            })
+            .expect("output_item.added frame must exist");
+
+        let result_bytes = conv
+            .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+                event_type: "openai:tool-result".to_string(),
+                data: serde_json::json!({
+                    "type": "tool-result",
+                    "toolCallId": "ct_1",
+                    "toolName": "custom_tool",
+                    "providerExecuted": true,
+                    "rawItem": {
+                        "id": "ct_1",
+                        "type": "custom_tool_call",
+                        "status": "completed",
+                        "name": "custom_tool",
+                        "input": "{}",
+                        "output": { "ok": true }
+                    }
+                }),
+            })
+            .expect("serialize tool-result without outputIndex");
+
+        let result_frames = parse_sse_frames(&result_bytes);
+        let result_output_index = result_frames
+            .iter()
+            .find_map(|(ev, v)| {
+                if ev == "response.output_item.done" {
+                    v.get("output_index").and_then(|v| v.as_u64())
+                } else {
+                    None
+                }
+            })
+            .expect("output_item.done frame must exist");
+
+        assert_eq!(call_output_index, result_output_index);
+    }
+
+    #[test]
+    fn responses_stream_bridge_maps_gemini_tool_events_to_openai_output_items() {
+        let conv = OpenAiResponsesEventConverter::new();
+        let mut bridge = crate::streaming::OpenAiResponsesStreamPartsBridge::new();
+
+        let tool_call = crate::streaming::ChatStreamEvent::Custom {
+            event_type: "gemini:tool".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "call_1",
+                "toolName": "code_execution",
+                "providerExecuted": true,
+                "input": { "language": "PYTHON", "code": "print(1)" }
+            }),
+        };
+
+        let tool_result = crate::streaming::ChatStreamEvent::Custom {
+            event_type: "gemini:tool".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "code_execution",
+                "providerExecuted": true,
+                "result": { "outcome": "OUTCOME_OK", "output": "1" }
+            }),
+        };
+
+        let mut frames: Vec<(String, serde_json::Value)> = Vec::new();
+        for ev in bridge.bridge_event(tool_call) {
+            let bytes = conv
+                .serialize_event(&ev)
+                .expect("serialize bridged tool-call");
+            frames.extend(parse_sse_frames(&bytes));
+        }
+        for ev in bridge.bridge_event(tool_result) {
+            let bytes = conv
+                .serialize_event(&ev)
+                .expect("serialize bridged tool-result");
+            frames.extend(parse_sse_frames(&bytes));
+        }
+
+        let added = frames
+            .iter()
+            .find(|(ev, _)| ev == "response.output_item.added");
+        let done = frames
+            .iter()
+            .find(|(ev, _)| ev == "response.output_item.done");
+        assert!(
+            added.is_some(),
+            "tool-call should produce output_item.added"
+        );
+        assert!(
+            done.is_some(),
+            "tool-result should produce output_item.done"
+        );
+
+        let added_output_index = added
+            .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+            .unwrap_or_default();
+        let done_output_index = done
+            .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+            .unwrap_or_default();
+
+        assert_eq!(added_output_index, done_output_index);
+    }
+
+    #[test]
+    fn responses_stream_bridge_synthesizes_tool_call_when_only_result_is_available() {
+        let conv = OpenAiResponsesEventConverter::new();
+        let mut bridge = crate::streaming::OpenAiResponsesStreamPartsBridge::new();
+
+        let tool_result_only = crate::streaming::ChatStreamEvent::Custom {
+            event_type: "anthropic:tool-result".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "call_2",
+                "toolName": "web_search",
+                "providerExecuted": true,
+                "isError": false,
+                "result": [{ "type": "web_search_result", "url": "https://example.com", "title": "Example" }]
+            }),
+        };
+
+        let mut frames: Vec<(String, serde_json::Value)> = Vec::new();
+        for ev in bridge.bridge_event(tool_result_only) {
+            let bytes = conv
+                .serialize_event(&ev)
+                .expect("serialize bridged tool-result-only");
+            frames.extend(parse_sse_frames(&bytes));
+        }
+
+        let added = frames
+            .iter()
+            .find(|(ev, _)| ev == "response.output_item.added");
+        let done = frames
+            .iter()
+            .find(|(ev, _)| ev == "response.output_item.done");
+        assert!(
+            added.is_some(),
+            "bridged tool-result should synthesize output_item.added"
+        );
+        assert!(
+            done.is_some(),
+            "bridged tool-result should produce output_item.done"
+        );
+
+        let added_output_index = added
+            .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+            .unwrap_or_default();
+        let done_output_index = done
+            .and_then(|(_, v)| v.get("output_index").and_then(|v| v.as_u64()))
+            .unwrap_or_default();
+
+        assert_eq!(added_output_index, done_output_index);
     }
 
     #[test]

@@ -170,6 +170,24 @@ use siumai_extras::server::axum::to_sse_response;
 let sse = to_sse_response(stream, options);
 ```
 
+If you are building an OpenAI-compatible gateway and need to output **OpenAI Responses SSE**,
+`siumai-extras` also provides a helper that:
+- bridges provider-specific `ChatStreamEvent::Custom` parts into `openai:*` stream parts, and
+- serializes the stream into OpenAI Responses SSE frames.
+
+```rust
+use axum::response::Response;
+use axum::body::Body;
+use siumai_extras::server::axum::to_openai_responses_sse_response;
+use siumai::prelude::unified::ChatStream;
+
+fn handler(stream: ChatStream) -> Response<Body> {
+    to_openai_responses_sse_response(stream)
+}
+```
+
+See the runnable example: `siumai-extras/examples/openai-responses-gateway.rs`.
+
 ### MCP Integration
 
 ```rust

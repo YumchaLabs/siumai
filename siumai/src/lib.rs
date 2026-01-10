@@ -155,6 +155,17 @@ pub mod experimental {
         pub use siumai_core::core::*;
     }
 
+    /// Streaming utilities (advanced API).
+    ///
+    /// This exposes low-level building blocks from `siumai-core` that are useful when building
+    /// gateways/proxies that need to re-serialize streams into provider-native wire formats.
+    pub mod streaming {
+        pub use siumai_core::streaming::{
+            ChatByteStream, OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_jsonl,
+            encode_chat_stream_as_sse,
+        };
+    }
+
     /// Custom provider API (advanced).
     pub mod custom_provider {
         pub use siumai_core::custom_provider::*;

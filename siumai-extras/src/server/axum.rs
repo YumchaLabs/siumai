@@ -31,6 +31,7 @@ use std::convert::Infallible;
 use std::pin::Pin;
 
 use axum::response::sse::{Event, Sse};
+use axum::{body::Body, http::header, response::Response};
 use futures::{Stream, StreamExt};
 
 use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmError};
@@ -281,6 +282,64 @@ pub fn to_text_stream(
     });
 
     Box::pin(text_stream)
+}
+
+/// Convert a `ChatStream` into an OpenAI Responses-compatible SSE byte stream.
+///
+/// This is a convenience helper for building gateways/proxies:
+/// - It bridges provider-specific Vercel-aligned stream parts (e.g. `gemini:*`, `anthropic:*`)
+///   into `openai:*` stream parts.
+/// - It then serializes the unified stream into OpenAI Responses SSE frames.
+/// - It never yields stream-level errors (errors become `response.error` SSE frames).
+///
+/// Note: requires the `openai` feature (and the OpenAI Responses streaming implementation).
+#[cfg(feature = "openai")]
+pub fn to_openai_responses_sse_stream(
+    stream: ChatStream,
+) -> Pin<Box<dyn Stream<Item = Result<axum::body::Bytes, Infallible>> + Send>> {
+    use futures::stream;
+    use siumai::experimental::streaming::{
+        OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse,
+    };
+    use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
+
+    let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+    let bridged = stream.flat_map(move |item| {
+        let events: Vec<Result<ChatStreamEvent, LlmError>> = match item {
+            Ok(ev) => bridge.bridge_event(ev).into_iter().map(Ok).collect(),
+            Err(e) => vec![Ok(ChatStreamEvent::Error {
+                error: e.user_message(),
+            })],
+        };
+        stream::iter(events)
+    });
+
+    let converter = OpenAiResponsesEventConverter::new();
+    let bytes_stream = encode_chat_stream_as_sse(bridged, converter);
+
+    Box::pin(bytes_stream.map(|item| match item {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => Ok(axum::body::Bytes::from(format!(
+            "event: response.error\ndata: {{\"type\":\"response.error\",\"error\":{{\"message\":{}}}}}\n\n",
+            serde_json::json!(e.user_message())
+        ))),
+    }))
+}
+
+/// Convert a `ChatStream` into an Axum `Response<Body>` in OpenAI Responses SSE format.
+///
+/// This is a thin wrapper around `to_openai_responses_sse_stream()` that sets the proper
+/// `Content-Type: text/event-stream` header.
+#[cfg(feature = "openai")]
+pub fn to_openai_responses_sse_response(stream: ChatStream) -> Response<Body> {
+    let body = Body::from_stream(to_openai_responses_sse_stream(stream));
+    let mut resp = Response::new(body);
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("text/event-stream"),
+    );
+    resp
 }
 
 #[cfg(test)]

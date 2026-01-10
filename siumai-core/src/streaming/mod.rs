@@ -10,6 +10,7 @@
 
 // Core streaming types
 pub mod adapters;
+mod bridge;
 mod builder;
 mod converters;
 mod encoder;
@@ -25,6 +26,7 @@ mod types;
 
 // Re-exports
 pub use adapters::*;
+pub use bridge::*;
 pub use builder::*;
 pub use converters::*;
 pub use encoder::*;

@@ -121,3 +121,8 @@ required-features = ["openai"]
 name = "orchestrator_advanced_agent_features"
 path = "examples/orchestrator/advanced-agent-features.rs"
 required-features = ["openai"]
+
+[[example]]
+name = "openai-responses-gateway"
+path = "examples/openai-responses-gateway.rs"
+required-features = ["server", "google", "openai"]
