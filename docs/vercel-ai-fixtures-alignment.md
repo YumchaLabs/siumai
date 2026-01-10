@@ -40,6 +40,12 @@ another provider’s streaming wire protocol, using Vercel-aligned v3 stream par
 - [x] OpenAI Responses SSE -> Gemini GenerateContent SSE (functionCall emitted; tool-result lossy fallback)
   - Test: `siumai/tests/transcoding_openai_to_gemini_alignment_test.rs`
   - Upstream fixtures: `siumai/tests/fixtures/openai/responses-stream/web-search/openai-web-search-tool.1.chunks.txt`, `siumai/tests/fixtures/openai/responses-stream/mcp/openai-mcp-tool.1.chunks.txt`
+- [x] Anthropic Messages SSE -> Gemini GenerateContent SSE (functionCall emitted; tool-result lossy fallback)
+  - Test: `siumai/tests/transcoding_anthropic_to_gemini_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/anthropic/messages-stream/anthropic-web-search-tool.1.chunks.txt`
+- [x] Gemini GenerateContent SSE -> Anthropic Messages SSE (thinking/text roundtrip)
+  - Test: `siumai/tests/transcoding_gemini_to_anthropic_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/gemini/thought_then_text_stop.sse`
 
 ## Google Vertex Imagen (via Vertex provider)
 
