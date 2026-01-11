@@ -118,39 +118,16 @@ impl ProviderSpec for AnthropicChatSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, LlmError> {
-        use reqwest::header::HeaderMap;
-        let mut headers = HeaderMap::new();
-
-        // Standard Anthropic headers
-        if let Some(api_key) = &ctx.api_key {
-            headers.insert(
-                "x-api-key",
-                api_key
-                    .parse()
-                    .map_err(|e| LlmError::InvalidParameter(format!("Invalid API key: {}", e)))?,
-            );
-            headers.insert(
-                "anthropic-version",
-                "2023-06-01"
-                    .parse()
-                    .map_err(|e| LlmError::InvalidParameter(format!("Invalid version: {}", e)))?,
-            );
-        }
-
-        // Add custom headers
-        for (k, v) in &ctx.http_extra_headers {
-            let header_name: reqwest::header::HeaderName = k.parse().map_err(|e| {
-                LlmError::InvalidParameter(format!("Invalid header name '{}': {}", k, e))
-            })?;
-            let header_value: reqwest::header::HeaderValue = v.parse().map_err(|e| {
-                LlmError::InvalidParameter(format!("Invalid header value '{}': {}", v, e))
-            })?;
-            headers.insert(header_name, header_value);
-        }
+        let api_key = ctx
+            .api_key
+            .as_ref()
+            .ok_or_else(|| LlmError::MissingApiKey("Anthropic API key not provided".into()))?;
+        let mut headers =
+            crate::standards::anthropic::utils::build_headers(api_key, &ctx.http_extra_headers)?;
 
         // Allow adapter to modify headers
         if let Some(adapter) = &self.adapter {
-            adapter.build_headers(ctx.api_key.as_deref().unwrap_or(""), &mut headers)?;
+            adapter.build_headers(api_key, &mut headers)?;
         }
 
         Ok(headers)

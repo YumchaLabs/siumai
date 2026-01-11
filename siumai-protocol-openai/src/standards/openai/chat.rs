@@ -347,6 +347,9 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
             if let Some(tp) = req.common_params.top_p {
                 body["top_p"] = serde_json::json!(tp);
             }
+            if let Some(seed) = req.common_params.seed {
+                body["seed"] = serde_json::json!(seed);
+            }
             if let Some(max) = req.common_params.max_completion_tokens {
                 body["max_completion_tokens"] = serde_json::json!(max);
             } else if let Some(max) = req.common_params.max_tokens {

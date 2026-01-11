@@ -467,6 +467,47 @@ impl AnthropicAutoBetaHeadersMiddleware {
             out.push("pdfs-2024-09-25");
         }
 
+        // Context management configured via providerOptions.
+        let has_context_management = req
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|v| v.as_object())
+            .is_some_and(|o| {
+                o.contains_key("contextManagement") || o.contains_key("context_management")
+            });
+        if has_context_management {
+            out.push("context-management-2025-06-27");
+        }
+
+        // Vercel-aligned: only when streaming, enable fine-grained tool streaming by default.
+        // The flag can be disabled via `providerOptions.anthropic.toolStreaming = false`.
+        if req.stream {
+            let tool_streaming = req
+                .provider_options_map
+                .get("anthropic")
+                .and_then(|v| v.as_object())
+                .and_then(|o| {
+                    o.get("toolStreaming")
+                        .or_else(|| o.get("tool_streaming"))
+                        .and_then(|v| v.as_bool())
+                })
+                .unwrap_or(true);
+
+            if tool_streaming {
+                out.push("fine-grained-tool-streaming-2025-05-14");
+            }
+        }
+
+        // Vercel-aligned: `providerOptions.anthropic.effort` requires the effort beta.
+        let has_effort = req
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|v| v.as_object())
+            .is_some_and(|o| o.contains_key("effort"));
+        if has_effort {
+            out.push("effort-2025-11-24");
+        }
+
         // Agent skills (Vercel-aligned): requires both `skills` and `files` betas.
         let has_agent_skills = req
             .provider_options_map
@@ -478,6 +519,9 @@ impl AnthropicAutoBetaHeadersMiddleware {
             .and_then(|v| v.as_array())
             .is_some_and(|arr| !arr.is_empty());
         if has_agent_skills {
+            // Vercel-aligned: skill containers always require code execution runtime beta
+            // regardless of whether the code execution tool is included (missing tool emits a warning).
+            out.push("code-execution-2025-08-25");
             out.push("skills-2025-10-02");
             out.push("files-api-2025-04-14");
         }
@@ -775,6 +819,35 @@ mod tests {
                     }
                 }),
             );
+
+        let out = mw.transform_params(req);
+        let val = out
+            .http_config
+            .as_ref()
+            .and_then(|hc| hc.headers.get("anthropic-beta"))
+            .cloned()
+            .unwrap_or_default();
+
+        assert_eq!(
+            val,
+            "code-execution-2025-08-25,skills-2025-10-02,files-api-2025-04-14"
+        );
+    }
+
+    #[test]
+    fn beta_middleware_injects_skills_betas_even_without_code_execution_tool() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_provider_option(
+            "anthropic",
+            serde_json::json!({
+                "container": {
+                    "skills": [
+                        { "type": "anthropic", "skillId": "pptx", "version": "latest" }
+                    ]
+                }
+            }),
+        );
 
         let out = mw.transform_params(req);
         let val = out

@@ -276,6 +276,130 @@ fn anthropic_memory_enables_beta_header() {
 }
 
 #[test]
+fn anthropic_context_management_enables_beta_header() {
+    let req: siumai::prelude::unified::ChatRequest = read_json(
+        fixtures_dir()
+            .join("anthropic-context-management.1")
+            .join("request.json"),
+    );
+
+    let spec = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new();
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let base = spec.build_headers(&ctx).expect("base headers");
+    let extra = spec.chat_request_headers(false, &req, &ctx);
+    let merged = spec.merge_request_headers(base, &extra);
+    let beta = merged
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    assert!(
+        beta.split(',')
+            .any(|t| t.trim() == "context-management-2025-06-27"),
+        "missing context-management beta token: {beta}"
+    );
+}
+
+#[test]
+fn anthropic_fine_grained_tool_streaming_enables_beta_header() {
+    let req: siumai::prelude::unified::ChatRequest = read_json(
+        fixtures_dir()
+            .join("anthropic-fine-grained-tool-streaming.1")
+            .join("request.json"),
+    );
+
+    let spec = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new();
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let base = spec.build_headers(&ctx).expect("base headers");
+    let extra = spec.chat_request_headers(true, &req, &ctx);
+    let merged = spec.merge_request_headers(base, &extra);
+    let beta = merged
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    assert!(
+        beta.split(',')
+            .any(|t| t.trim() == "fine-grained-tool-streaming-2025-05-14"),
+        "missing fine-grained-tool-streaming beta token: {beta}"
+    );
+}
+
+#[test]
+fn anthropic_fine_grained_tool_streaming_disabled_omits_beta_header() {
+    let req: siumai::prelude::unified::ChatRequest = read_json(
+        fixtures_dir()
+            .join("anthropic-fine-grained-tool-streaming-disabled.1")
+            .join("request.json"),
+    );
+
+    let spec = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new();
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let base = spec.build_headers(&ctx).expect("base headers");
+    let extra = spec.chat_request_headers(true, &req, &ctx);
+    let merged = spec.merge_request_headers(base, &extra);
+    let beta = merged
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    assert!(
+        !beta
+            .split(',')
+            .any(|t| t.trim() == "fine-grained-tool-streaming-2025-05-14"),
+        "unexpected fine-grained-tool-streaming beta token: {beta}"
+    );
+}
+
+#[test]
+fn anthropic_effort_enables_beta_header() {
+    let req: siumai::prelude::unified::ChatRequest = read_json(
+        fixtures_dir()
+            .join("anthropic-effort.1")
+            .join("request.json"),
+    );
+
+    let spec = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new();
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1",
+        Some("test-api-key".to_string()),
+        HashMap::new(),
+    );
+
+    let base = spec.build_headers(&ctx).expect("base headers");
+    let extra = spec.chat_request_headers(false, &req, &ctx);
+    let merged = spec.merge_request_headers(base, &extra);
+    let beta = merged
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    assert!(
+        beta.split(',').any(|t| t.trim() == "effort-2025-11-24"),
+        "missing effort beta token: {beta}"
+    );
+}
+
+#[test]
 fn anthropic_code_execution_20250825_enables_beta_header() {
     let req: siumai::prelude::unified::ChatRequest = read_json(
         fixtures_dir()

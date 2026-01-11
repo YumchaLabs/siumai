@@ -82,7 +82,7 @@ pub fn google_search() -> GoogleSearchConfig {
 pub struct FileSearchConfig {
     file_search_store_names: Option<Vec<String>>,
     top_k: Option<u32>,
-    metadata_filter: Option<serde_json::Value>,
+    metadata_filter: Option<String>,
 }
 
 impl FileSearchConfig {
@@ -103,9 +103,9 @@ impl FileSearchConfig {
         self
     }
 
-    /// Set metadata filter object (provider-specific).
-    pub fn with_metadata_filter(mut self, filter: serde_json::Value) -> Self {
-        self.metadata_filter = Some(filter);
+    /// Set metadata filter expression (provider-specific; AIP-160 string filter).
+    pub fn with_metadata_filter(mut self, filter: impl Into<String>) -> Self {
+        self.metadata_filter = Some(filter.into());
         self
     }
 
@@ -120,7 +120,7 @@ impl FileSearchConfig {
             args["topK"] = serde_json::json!(top_k);
         }
         if let Some(filter) = self.metadata_filter {
-            args["metadataFilter"] = filter;
+            args["metadataFilter"] = serde_json::json!(filter);
         }
 
         Tool::ProviderDefined(

@@ -60,6 +60,10 @@ struct AnthropicStreamEvent {
     usage: Option<serde_json::Value>,
     #[serde(default)]
     #[allow(dead_code)]
+    // Some Anthropic events may include context management information at the top-level.
+    context_management: Option<serde_json::Value>,
+    #[serde(default)]
+    #[allow(dead_code)]
     // Kept for forward-compatibility with Anthropic SSE payloads (serde needs the field even if unused)
     index: Option<usize>,
     #[serde(default)]
@@ -88,6 +92,14 @@ struct AnthropicMessage {
     #[allow(dead_code)]
     // Usage may be attached to message_start; retained for finish metadata
     usage: Option<serde_json::Value>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    // Container metadata may be attached to message_start for code execution / skills.
+    container: Option<serde_json::Value>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    // Context management metadata may be attached to message_start.
+    context_management: Option<serde_json::Value>,
 }
 
 /// Anthropic content structure
@@ -129,6 +141,14 @@ struct AnthropicDelta {
     #[allow(dead_code)]
     // Stop sequence token for deltas; usage is reflected via finish events elsewhere
     stop_sequence: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    // Container updates may be attached to message_delta events for agent skills.
+    container: Option<serde_json::Value>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    // Context management updates may be attached to message_delta events.
+    context_management: Option<serde_json::Value>,
 }
 
 /// Anthropic event converter
@@ -148,10 +168,13 @@ pub struct AnthropicEventConverter {
     mcp_server_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     json_tool_seen: Arc<AtomicBool>,
     vercel_stream_start_emitted: Arc<AtomicBool>,
+    seen_error: Arc<AtomicBool>,
     vercel_response_id: Arc<Mutex<Option<String>>>,
     vercel_model_id: Arc<Mutex<Option<String>>>,
     vercel_stop_sequence: Arc<Mutex<Option<String>>>,
     vercel_usage: Arc<Mutex<Option<serde_json::Value>>>,
+    vercel_container: Arc<Mutex<Option<serde_json::Value>>>,
+    vercel_context_management: Arc<Mutex<Option<serde_json::Value>>>,
     serialize_state: Arc<Mutex<AnthropicSerializeState>>,
     v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
 }
@@ -171,10 +194,13 @@ impl AnthropicEventConverter {
             mcp_server_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             json_tool_seen: Arc::new(AtomicBool::new(false)),
             vercel_stream_start_emitted: Arc::new(AtomicBool::new(false)),
+            seen_error: Arc::new(AtomicBool::new(false)),
             vercel_response_id: Arc::new(Mutex::new(None)),
             vercel_model_id: Arc::new(Mutex::new(None)),
             vercel_stop_sequence: Arc::new(Mutex::new(None)),
             vercel_usage: Arc::new(Mutex::new(None)),
+            vercel_container: Arc::new(Mutex::new(None)),
+            vercel_context_management: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(AnthropicSerializeState::default())),
             v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
         }
@@ -238,6 +264,20 @@ impl AnthropicEventConverter {
     > {
         let mut anthropic = std::collections::HashMap::new();
 
+        if let Ok(v) = self.vercel_container.lock()
+            && let Some(container) = v.clone()
+            && let Some(mapped) = super::utils::map_container_provider_metadata(&container)
+        {
+            anthropic.insert("container".to_string(), mapped);
+        }
+
+        if let Ok(v) = self.vercel_context_management.lock()
+            && let Some(cm) = v.clone()
+            && let Some(mapped) = super::utils::map_context_management_provider_metadata(&cm)
+        {
+            anthropic.insert("contextManagement".to_string(), mapped);
+        }
+
         if let Ok(map) = self.thinking_signature_by_index.lock()
             && let Some((_, sig)) = map.iter().min_by_key(|(k, _)| *k)
             && !sig.is_empty()
@@ -286,6 +326,12 @@ impl AnthropicEventConverter {
         }
         if let Ok(mut usage) = self.vercel_usage.lock() {
             *usage = message.usage.clone();
+        }
+        if let Ok(mut container) = self.vercel_container.lock() {
+            *container = message.container.clone();
+        }
+        if let Ok(mut cm) = self.vercel_context_management.lock() {
+            *cm = message.context_management.clone();
         }
     }
 
@@ -436,6 +482,22 @@ impl AnthropicEventConverter {
             .ok()
             .and_then(|v| v.clone());
 
+        let container = self
+            .vercel_container
+            .lock()
+            .ok()
+            .and_then(|v| v.clone())
+            .and_then(|v| super::utils::map_container_provider_metadata(&v))
+            .unwrap_or(serde_json::Value::Null);
+
+        let context_management = self
+            .vercel_context_management
+            .lock()
+            .ok()
+            .and_then(|v| v.clone())
+            .and_then(|v| super::utils::map_context_management_provider_metadata(&v))
+            .unwrap_or(serde_json::Value::Null);
+
         ChatStreamEvent::Custom {
             event_type: "anthropic:finish".to_string(),
             data: serde_json::json!({
@@ -447,8 +509,8 @@ impl AnthropicEventConverter {
                 "providerMetadata": {
                     "anthropic": {
                         "cacheCreationInputTokens": cache_creation_input_tokens,
-                        "container": serde_json::Value::Null,
-                        "contextManagement": serde_json::Value::Null,
+                        "container": container,
+                        "contextManagement": context_management,
                         "stopSequence": stop_sequence.map(|s| serde_json::json!(s)).unwrap_or(serde_json::Value::Null),
                         "usage": usage_raw,
                     }
@@ -480,6 +542,7 @@ impl AnthropicEventConverter {
 
         match event.r#type.as_str() {
             "error" => {
+                self.seen_error.store(true, Ordering::Relaxed);
                 let msg = event
                     .error
                     .as_ref()
@@ -1403,14 +1466,30 @@ impl AnthropicEventConverter {
                         builder.add_usage_update(Usage::new(prompt_tokens, completion_tokens));
                 }
 
+                if let Some(cm) = event
+                    .delta
+                    .as_ref()
+                    .and_then(|d| d.context_management.as_ref())
+                    .or(event.context_management.as_ref())
+                    && let Ok(mut v) = self.vercel_context_management.lock()
+                {
+                    *v = Some(cm.clone());
+                }
+
                 // Finish reason -> StreamEnd
                 if let Some(delta) = &event.delta
                     && let Some(stop_reason) = &delta.stop_reason
                 {
+                    if let Some(container) = &delta.container
+                        && let Ok(mut v) = self.vercel_container.lock()
+                    {
+                        *v = Some(container.clone());
+                    }
+
                     let reason = match stop_reason.as_str() {
                         "end_turn" => FinishReason::Stop,
                         "max_tokens" => FinishReason::Length,
-                        "stop_sequence" => FinishReason::Stop,
+                        "stop_sequence" => FinishReason::StopSequence,
                         "tool_use" => {
                             if self.json_tool_seen.load(Ordering::Relaxed) {
                                 FinishReason::Stop
@@ -1493,11 +1572,19 @@ impl SseEventConverter for AnthropicEventConverter {
     {
         Box::pin(async move {
             // Log the raw event data for debugging
-            tracing::debug!("Anthropic SSE event: {}", event.data);
+            tracing::debug!(
+                "Anthropic SSE event: {} (event={})",
+                event.data,
+                event.event
+            );
 
             // Handle special cases first
             if event.data.trim() == "[DONE]" {
                 return vec![];
+            }
+
+            if event.event.trim().eq_ignore_ascii_case("error") {
+                self.seen_error.store(true, Ordering::Relaxed);
             }
 
             // Try to parse as standard Anthropic event
@@ -1524,6 +1611,7 @@ impl SseEventConverter for AnthropicEventConverter {
                                 .and_then(|m| m.as_str())
                                 .unwrap_or("Unknown error");
 
+                            self.seen_error.store(true, Ordering::Relaxed);
                             return vec![Ok(ChatStreamEvent::Error {
                                 error: format!("Anthropic API error: {}", error_message),
                             })];
@@ -1555,7 +1643,11 @@ impl SseEventConverter for AnthropicEventConverter {
             model: None,
             content: MessageContent::Text("".to_string()),
             usage: None,
-            finish_reason: Some(FinishReason::Unknown),
+            finish_reason: Some(if self.seen_error.load(Ordering::Relaxed) {
+                FinishReason::Error
+            } else {
+                FinishReason::Unknown
+            }),
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -1571,6 +1663,22 @@ impl SseEventConverter for AnthropicEventConverter {
             let data = serde_json::to_vec(value)
                 .map_err(|e| LlmError::JsonError(format!("Failed to serialize SSE JSON: {e}")))?;
             let mut out = Vec::with_capacity(data.len() + 8);
+            out.extend_from_slice(b"data: ");
+            out.extend_from_slice(&data);
+            out.extend_from_slice(b"\n\n");
+            Ok(out)
+        }
+
+        fn sse_event_data_frame(
+            event: &str,
+            value: &serde_json::Value,
+        ) -> Result<Vec<u8>, LlmError> {
+            let data = serde_json::to_vec(value)
+                .map_err(|e| LlmError::JsonError(format!("Failed to serialize SSE JSON: {e}")))?;
+            let mut out = Vec::with_capacity(data.len() + event.len() + 16);
+            out.extend_from_slice(b"event: ");
+            out.extend_from_slice(event.as_bytes());
+            out.extend_from_slice(b"\n");
             out.extend_from_slice(b"data: ");
             out.extend_from_slice(&data);
             out.extend_from_slice(b"\n\n");
@@ -1801,9 +1909,11 @@ impl SseEventConverter for AnthropicEventConverter {
                 ChatStreamEvent::Error { error } => {
                     let payload = serde_json::json!({
                         "type": "error",
-                        "error": { "type": "api_error", "message": error }
+                        "error": { "type": "api_error", "message": error, "details": serde_json::Value::Null }
                     });
-                    sse_data_frame(&payload)
+                    // Anthropic streams sometimes prefix error frames with `event: error`.
+                    // We do the same for better official-API compatibility (and Vercel parity).
+                    sse_event_data_frame("error", &payload)
                 }
                 ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
             }
@@ -1959,7 +2069,7 @@ mod tests {
         let converter = AnthropicEventConverter::new(config);
 
         let event = Event {
-            event: "".to_string(),
+            event: "error".to_string(),
             data:
                 r#"{"type":"error","error":{"type":"overloaded_error","message":"rate limited"}}"#
                     .to_string(),
@@ -1977,6 +2087,121 @@ mod tests {
             }
             other => panic!("Expected Error event, got: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_anthropic_streaming_error_event_without_type_is_exposed() {
+        let config = create_test_config();
+        let converter = AnthropicEventConverter::new(config);
+
+        let event = Event {
+            event: "error".to_string(),
+            data: r#"{"error":{"message":"bad request"}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let result = converter.convert_event(event).await;
+        let err = result
+            .iter()
+            .find(|e| matches!(e, Ok(ChatStreamEvent::Error { .. })));
+        match err {
+            Some(Ok(ChatStreamEvent::Error { error })) => {
+                assert!(error.contains("bad request"));
+            }
+            other => panic!("Expected Error event, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_anthropic_stream_end_is_error_after_error_event() {
+        let config = create_test_config();
+        let converter = AnthropicEventConverter::new(config);
+
+        let event = Event {
+            event: "error".to_string(),
+            data: r#"{"type":"error","error":{"type":"api_error","message":"nope"}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let _ = converter.convert_event(event).await;
+
+        let end = converter
+            .handle_stream_end()
+            .expect("expected stream end after error")
+            .expect("expected Ok stream end");
+
+        match end {
+            ChatStreamEvent::StreamEnd { response } => {
+                assert!(matches!(response.finish_reason, Some(FinishReason::Error)));
+            }
+            other => panic!("Expected StreamEnd event, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_anthropic_stream_finish_includes_context_management_provider_metadata() {
+        let config = create_test_config();
+        let converter = AnthropicEventConverter::new(config);
+
+        let start = Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_test","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+        let _ = converter.convert_event(start).await;
+
+        let delta = Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"context_management":{"applied_edits":[{"type":"clear_tool_uses_20250919","cleared_tool_uses":5,"cleared_input_tokens":10000}]}},"usage":{"input_tokens":1,"output_tokens":1}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+        let out = converter.convert_event(delta).await;
+
+        let finish = out.iter().find_map(|r| match r.as_ref().ok() {
+            Some(ChatStreamEvent::Custom { data, .. })
+                if data.get("type") == Some(&serde_json::json!("finish")) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        });
+        let finish = finish.expect("expected finish event");
+
+        let cm = finish["providerMetadata"]["anthropic"]["contextManagement"].clone();
+        assert_eq!(
+            cm["appliedEdits"][0]["type"],
+            serde_json::json!("clear_tool_uses_20250919")
+        );
+        assert_eq!(
+            cm["appliedEdits"][0]["clearedToolUses"],
+            serde_json::json!(5)
+        );
+        assert_eq!(
+            cm["appliedEdits"][0]["clearedInputTokens"],
+            serde_json::json!(10000)
+        );
+
+        let end = out.iter().find_map(|r| match r.as_ref().ok() {
+            Some(ChatStreamEvent::StreamEnd { response }) => Some(response.clone()),
+            _ => None,
+        });
+        let end = end.expect("expected StreamEnd");
+
+        let cm = end
+            .provider_metadata
+            .as_ref()
+            .and_then(|m| m.get("anthropic"))
+            .and_then(|m| m.get("contextManagement"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        assert_eq!(
+            cm["appliedEdits"][0]["clearedToolUses"],
+            serde_json::json!(5)
+        );
     }
 
     // Removed legacy merge-provider-params test; behavior now covered by transformers
@@ -2438,6 +2663,40 @@ mod tests {
             .collect()
     }
 
+    #[derive(Debug)]
+    struct SseFrame {
+        event: Option<String>,
+        data: serde_json::Value,
+    }
+
+    fn parse_sse_frames(bytes: &[u8]) -> Vec<SseFrame> {
+        let text = String::from_utf8_lossy(bytes);
+        text.split("\n\n")
+            .filter_map(|chunk| {
+                let mut event: Option<String> = None;
+                let mut data_line: Option<&str> = None;
+
+                for line in chunk.lines() {
+                    if let Some(v) = line.strip_prefix("event: ") {
+                        event = Some(v.trim().to_string());
+                        continue;
+                    }
+                    if let Some(v) = line.strip_prefix("data: ") {
+                        data_line = Some(v.trim());
+                        continue;
+                    }
+                }
+
+                let data_str = data_line?;
+                if data_str.is_empty() {
+                    return None;
+                }
+                let data = serde_json::from_str::<serde_json::Value>(data_str).ok()?;
+                Some(SseFrame { event, data })
+            })
+            .collect()
+    }
+
     #[test]
     fn serializes_text_stream_events_to_anthropic_sse() {
         let converter = AnthropicEventConverter::new(create_test_config());
@@ -2501,6 +2760,249 @@ mod tests {
         assert!(end_frames.iter().any(|v| v["type"] == "content_block_stop"));
         assert!(end_frames.iter().any(|v| v["type"] == "message_delta"));
         assert!(end_frames.iter().any(|v| v["type"] == "message_stop"));
+    }
+
+    #[test]
+    fn serializes_error_event_with_event_prefix() {
+        let converter = AnthropicEventConverter::new(create_test_config());
+
+        let bytes = converter
+            .serialize_event(&ChatStreamEvent::Error {
+                error: "Overloaded".to_string(),
+            })
+            .expect("serialize error");
+
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            text.starts_with("event: error\n"),
+            "expected `event: error` prefix, got: {text:?}"
+        );
+
+        let frames = parse_sse_json_frames(&bytes);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0]["type"], serde_json::json!("error"));
+        assert_eq!(frames[0]["error"]["type"], serde_json::json!("api_error"));
+    }
+
+    #[test]
+    fn serializes_blocks_in_order_and_closes_before_message_stop() {
+        let converter = AnthropicEventConverter::new(create_test_config());
+
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(
+            &converter
+                .serialize_event(&ChatStreamEvent::StreamStart {
+                    metadata: ResponseMetadata {
+                        id: Some("msg_test".to_string()),
+                        model: Some("claude-test".to_string()),
+                        created: None,
+                        provider: "anthropic".to_string(),
+                        request_id: None,
+                    },
+                })
+                .expect("serialize start"),
+        );
+        bytes.extend_from_slice(
+            &converter
+                .serialize_event(&ChatStreamEvent::ContentDelta {
+                    delta: "Hello".to_string(),
+                    index: None,
+                })
+                .expect("serialize text delta"),
+        );
+        bytes.extend_from_slice(
+            &converter
+                .serialize_event(&ChatStreamEvent::ThinkingDelta {
+                    delta: "Thinking".to_string(),
+                })
+                .expect("serialize thinking delta"),
+        );
+        bytes.extend_from_slice(
+            &converter
+                .serialize_event(&ChatStreamEvent::ToolCallDelta {
+                    id: "call_1".to_string(),
+                    function_name: Some("get_weather".to_string()),
+                    arguments_delta: Some("{\"city\":".to_string()),
+                    index: None,
+                })
+                .expect("serialize tool call delta"),
+        );
+        bytes.extend_from_slice(
+            &converter
+                .serialize_event(&ChatStreamEvent::ToolCallDelta {
+                    id: "call_1".to_string(),
+                    function_name: None,
+                    arguments_delta: Some("\"Tokyo\"}".to_string()),
+                    index: None,
+                })
+                .expect("serialize tool call delta 2"),
+        );
+        bytes.extend_from_slice(
+            &converter
+                .serialize_event(&ChatStreamEvent::StreamEnd {
+                    response: ChatResponse {
+                        id: Some("msg_test".to_string()),
+                        model: Some("claude-test".to_string()),
+                        content: MessageContent::Text(String::new()),
+                        usage: Some(
+                            Usage::builder()
+                                .prompt_tokens(3)
+                                .completion_tokens(5)
+                                .total_tokens(8)
+                                .build(),
+                        ),
+                        finish_reason: Some(FinishReason::Stop),
+                        audio: None,
+                        system_fingerprint: None,
+                        service_tier: None,
+                        warnings: None,
+                        provider_metadata: None,
+                    },
+                })
+                .expect("serialize end"),
+        );
+
+        let frames = parse_sse_frames(&bytes);
+        assert!(!frames.is_empty(), "expected frames");
+
+        let types: Vec<String> = frames
+            .iter()
+            .filter_map(|f| {
+                f.data
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+
+        assert_eq!(
+            types.first().map(String::as_str),
+            Some("message_start"),
+            "expected message_start first, got: {types:?}"
+        );
+        assert_eq!(
+            types.last().map(String::as_str),
+            Some("message_stop"),
+            "expected message_stop last, got: {types:?}"
+        );
+
+        let message_delta_pos = types
+            .iter()
+            .position(|t| t == "message_delta")
+            .expect("message_delta present");
+        let message_stop_pos = types
+            .iter()
+            .position(|t| t == "message_stop")
+            .expect("message_stop present");
+        assert_eq!(
+            message_stop_pos,
+            types.len() - 1,
+            "message_stop must be the last frame: {types:?}"
+        );
+
+        let mut starts: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        let mut stops: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        let mut deltas: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
+
+        for (pos, f) in frames.iter().enumerate() {
+            let Some(t) = f.data.get("type").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            match t {
+                "content_block_start" => {
+                    let idx = f
+                        .data
+                        .get("index")
+                        .and_then(|v| v.as_u64())
+                        .expect("content_block_start index") as usize;
+                    starts.insert(idx, pos);
+                }
+                "content_block_delta" => {
+                    let idx = f
+                        .data
+                        .get("index")
+                        .and_then(|v| v.as_u64())
+                        .expect("content_block_delta index") as usize;
+                    deltas.entry(idx).or_default().push(pos);
+                }
+                "content_block_stop" => {
+                    let idx = f
+                        .data
+                        .get("index")
+                        .and_then(|v| v.as_u64())
+                        .expect("content_block_stop index") as usize;
+                    stops.insert(idx, pos);
+                }
+                _ => {}
+            }
+        }
+
+        assert!(
+            !starts.is_empty(),
+            "expected at least one content_block_start"
+        );
+
+        for (idx, start_pos) in &starts {
+            let stop_pos = stops
+                .get(idx)
+                .copied()
+                .expect("content_block_stop for started block");
+            assert!(
+                stop_pos < message_delta_pos,
+                "content_block_stop must appear before message_delta (idx={idx}): {types:?}"
+            );
+            assert!(
+                start_pos < &stop_pos,
+                "content_block_start must appear before stop (idx={idx}): {types:?}"
+            );
+
+            let ds = deltas.get(idx).cloned().unwrap_or_default();
+            assert!(
+                !ds.is_empty(),
+                "expected at least one delta for started block idx={idx}"
+            );
+            for dpos in ds {
+                assert!(
+                    dpos > *start_pos && dpos < stop_pos,
+                    "delta must be between start and stop (idx={idx}): {types:?}"
+                );
+            }
+        }
+
+        let tool_start = frames.iter().find(|f| {
+            f.data.get("type").and_then(|v| v.as_str()) == Some("content_block_start")
+                && f.data
+                    .get("content_block")
+                    .and_then(|v| v.get("type"))
+                    .and_then(|v| v.as_str())
+                    == Some("tool_use")
+        });
+        let tool_start = tool_start.expect("tool_use content_block_start");
+        assert_eq!(
+            tool_start
+                .data
+                .get("content_block")
+                .and_then(|v| v.get("id"))
+                .and_then(|v| v.as_str()),
+            Some("call_1")
+        );
+        assert_eq!(
+            tool_start
+                .data
+                .get("content_block")
+                .and_then(|v| v.get("name"))
+                .and_then(|v| v.as_str()),
+            Some("get_weather")
+        );
+
+        assert!(
+            frames
+                .iter()
+                .filter(|f| f.data.get("type").and_then(|v| v.as_str()) != Some("error"))
+                .all(|f| f.event.is_none()),
+            "only error frames should have an SSE event name"
+        );
     }
 
     #[test]

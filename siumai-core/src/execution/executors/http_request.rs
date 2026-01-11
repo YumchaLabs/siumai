@@ -224,7 +224,7 @@ pub async fn execute_bytes_request(
             status.as_u16(),
             &error_text,
             &response_headers,
-            None,
+            status.canonical_reason(),
         );
         for interceptor in &config.interceptors {
             interceptor.on_error(&ctx, &error);
@@ -636,7 +636,7 @@ where
             status.as_u16(),
             &error_text,
             &response_headers,
-            None,
+            status.canonical_reason(),
         );
         for interceptor in &config.interceptors {
             interceptor.on_error(&ctx, &error);
@@ -796,13 +796,16 @@ pub async fn execute_request(
 
         if !(200..300).contains(&result.status) {
             let text = String::from_utf8_lossy(&result.body);
+            let fallback_message = reqwest::StatusCode::from_u16(result.status)
+                .ok()
+                .and_then(|s| s.canonical_reason());
             let error = exec_errors::classify_http_error(
                 &config.provider_id,
                 Some(config.provider_spec.as_ref()),
                 result.status,
                 &text,
                 &result.headers,
-                None,
+                fallback_message,
             );
             for interceptor in &config.interceptors {
                 interceptor.on_error(&ctx, &error);
@@ -891,7 +894,7 @@ pub async fn execute_request(
             status.as_u16(),
             &error_text,
             &response_headers,
-            None,
+            status.canonical_reason(),
         );
         for interceptor in &config.interceptors {
             interceptor.on_error(&ctx, &error);
@@ -1034,7 +1037,7 @@ where
             status.as_u16(),
             &error_text,
             &response_headers,
-            None,
+            status.canonical_reason(),
         );
         for interceptor in &config.interceptors {
             interceptor.on_error(&ctx, &error);
@@ -1169,7 +1172,7 @@ pub async fn execute_get_request(
                 status.as_u16(),
                 &text,
                 &headers,
-                None,
+                status.canonical_reason(),
             );
             for interceptor in &config.interceptors {
                 interceptor.on_error(&ctx, &error);
@@ -1288,7 +1291,7 @@ pub async fn execute_delete_request(
                 status.as_u16(),
                 &text,
                 &headers,
-                None,
+                status.canonical_reason(),
             );
             for interceptor in &config.interceptors {
                 interceptor.on_error(&ctx, &error);
@@ -1423,7 +1426,7 @@ pub async fn execute_delete_json_request(
             status.as_u16(),
             &text,
             &headers,
-            None,
+            status.canonical_reason(),
         );
         for interceptor in &config.interceptors {
             interceptor.on_error(&ctx, &error);
@@ -1550,7 +1553,7 @@ pub async fn execute_get_binary(
                 status.as_u16(),
                 &text,
                 &headers,
-                None,
+                status.canonical_reason(),
             );
             for interceptor in &config.interceptors {
                 interceptor.on_error(&ctx, &error);

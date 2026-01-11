@@ -50,6 +50,8 @@ impl OpenAiResponsesStreamPartsBridge {
         match event_type.as_str() {
             // Gemini: multiplexed custom events
             "gemini:tool" => self.bridge_tool_like_custom_event(&data),
+            // Legacy Gemini: split tool events (kept for backward compatibility)
+            "gemini:tool-call" | "gemini:tool-result" => self.bridge_tool_like_custom_event(&data),
             "gemini:source" => self.rename_custom("openai:source", data),
             "gemini:reasoning" => self.bridge_reasoning_multiplexed_custom_event(&data),
 

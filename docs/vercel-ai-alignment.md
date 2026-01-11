@@ -105,3 +105,15 @@ Target categories (ordered by ROI):
 
 - Tool factories: we expose a higher-level Rust API (`siumai::tools::<provider>::...`) while preserving the exact wire shape; the `id` is authoritative (`provider.tool_type`), and the `name` is customizable for toolName mappings.
 - How do we guarantee cross-provider tool interoperability without re-introducing provider-to-provider coupling?
+
+## Related docs
+
+- `docs/provider-feature-alignment.md`
+- `docs/provider-granularity-alignment.md`
+- `docs/provider-split-alignment.md`
+- `docs/provider-implementation-alignment.md`
+- `docs/provider-implementation-backlog.md`
+- `docs/provider-dual-anchor-alignment-table.md`
+- `docs/vercel-ai-fixtures-alignment.md`
+- `docs/streaming-bridge-alignment.md`
+- `docs/provider-defined-tools-alignment.md`

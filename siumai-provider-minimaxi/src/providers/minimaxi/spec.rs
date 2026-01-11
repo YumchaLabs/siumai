@@ -105,6 +105,22 @@ impl ProviderSpec for MinimaxiChatSpec {
         self.chat_spec().build_headers(ctx)
     }
 
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        crate::standards::anthropic::errors::classify_anthropic_http_error(
+            "minimaxi", status, body_text,
+        )
+        .or_else(|| {
+            crate::standards::openai::errors::classify_openai_compatible_http_error(
+                "minimaxi", status, body_text,
+            )
+        })
+    }
+
     fn chat_url(
         &self,
         stream: bool,

@@ -23,7 +23,6 @@
     "prompt_tokens_details": { "cached_tokens": 0 },
     "completion_tokens_details": { "reasoning_tokens": 0 }
   },
-  "finish_reason": "tool_calls",
+  "finish_reason": "stop",
   "service_tier": "default"
 }
-

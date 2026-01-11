@@ -88,16 +88,69 @@ impl ProviderAdapter for ConfigurableAdapter {
         _model: &str,
         _request_type: RequestType,
     ) -> Result<(), LlmError> {
+        fn take_any(
+            obj: &mut serde_json::Map<String, serde_json::Value>,
+            keys: &[&str],
+        ) -> Option<serde_json::Value> {
+            for k in keys {
+                if let Some(v) = obj.remove(*k) {
+                    return Some(v);
+                }
+            }
+            None
+        }
+
+        fn rename_field(
+            obj: &mut serde_json::Map<String, serde_json::Value>,
+            from: &str,
+            to: &str,
+        ) {
+            if let Some(v) = obj.remove(from) {
+                obj.entry(to.to_string()).or_insert(v);
+            }
+        }
+
+        fn normalize_xai_search_parameters(v: &mut serde_json::Value) {
+            let Some(obj) = v.as_object_mut() else {
+                return;
+            };
+
+            rename_field(obj, "returnCitations", "return_citations");
+            rename_field(obj, "maxSearchResults", "max_search_results");
+            rename_field(obj, "fromDate", "from_date");
+            rename_field(obj, "toDate", "to_date");
+
+            rename_field(obj, "searchParameters", "search_parameters");
+
+            if let Some(arr) = obj.get_mut("sources").and_then(|v| v.as_array_mut()) {
+                for src in arr {
+                    let Some(src_obj) = src.as_object_mut() else {
+                        continue;
+                    };
+
+                    rename_field(src_obj, "allowedWebsites", "allowed_websites");
+                    rename_field(src_obj, "excludedWebsites", "excluded_websites");
+                    rename_field(src_obj, "safeSearch", "safe_search");
+
+                    rename_field(src_obj, "excludedXHandles", "excluded_x_handles");
+                    rename_field(src_obj, "includedXHandles", "included_x_handles");
+                    rename_field(src_obj, "postFavoriteCount", "post_favorite_count");
+                    rename_field(src_obj, "postViewCount", "post_view_count");
+                    rename_field(src_obj, "xHandles", "x_handles");
+                }
+            }
+        }
+
         // Most OpenAI-compatible providers don't need parameter transformation.
         //
         // For a small set of vendors, we centralize well-known OpenAI-compat quirks here
         // to keep provider crates thin and avoid copy/paste drift.
         match self.config.id.as_str() {
-            // Groq and xAI (Grok) are OpenAI-compatible but have a few request differences:
+            // Groq is OpenAI-compatible but has a few request differences:
             // - "developer" role is not supported (treat as "system")
             // - "stream_options" is not supported (omit it)
             // - "max_completion_tokens" is not supported (use "max_tokens")
-            "groq" | "xai" => {
+            "groq" => {
                 if let Some(msgs) = params.get_mut("messages").and_then(|v| v.as_array_mut()) {
                     for m in msgs {
                         if m.get("role").and_then(|v| v.as_str()) == Some("developer") {
@@ -110,6 +163,25 @@ impl ProviderAdapter for ConfigurableAdapter {
                     obj.remove("stream_options");
                     if let Some(v) = obj.remove("max_completion_tokens") {
                         obj.entry("max_tokens".to_string()).or_insert(v);
+                    }
+                }
+            }
+            // xAI (Grok) Chat Completions quirks (Vercel-aligned):
+            // - "stream_options" is not supported (omit it)
+            // - stop sequences are not supported (omit "stop")
+            // - accept Vercel-style camelCase provider options and normalize to snake_case
+            "xai" => {
+                if let Some(obj) = params.as_object_mut() {
+                    obj.remove("stream_options");
+                    obj.remove("stop");
+
+                    if let Some(v) = take_any(obj, &["reasoningEffort", "reasoning_effort"]) {
+                        obj.entry("reasoning_effort".to_string()).or_insert(v);
+                    }
+
+                    if let Some(mut v) = take_any(obj, &["searchParameters", "search_parameters"]) {
+                        normalize_xai_search_parameters(&mut v);
+                        obj.entry("search_parameters".to_string()).or_insert(v);
                     }
                 }
             }

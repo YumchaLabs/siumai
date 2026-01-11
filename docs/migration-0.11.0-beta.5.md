@@ -11,6 +11,17 @@ If you are new to the refactor direction, read `docs/next-steps.md` and `docs/mo
 - If you upgraded across multiple beta versions, apply the steps in this guide first to restore builds,
   then address any remaining, smaller API adjustments.
 
+## Recommended sanity checks (after migrating)
+
+If you are developing inside this repository (or you vendored it as a workspace), these commands help
+verify the Alpha.5 refactor safety net:
+
+- M1 core-trio smoke matrix (expects `../ai` next to this repo):
+  - Windows: `scripts/test-m1.bat`
+  - Unix: `bash scripts/test-m1.sh`
+- Fixture drift audit only:
+  - `python scripts/audit_vercel_fixtures.py --ai-root ../ai --siumai-root .`
+
 ## Summary of breaking changes
 
 ### 1) Default features: `openai` only
@@ -74,13 +85,21 @@ However, internally the ownership now follows the **protocol-family rule**:
 This change is mostly internal. If you were depending on file-level paths or internal modules,
 switch to the stable import paths shown above.
 
-### 4) `siumai::providers::*` removed
+### 4) `siumai::providers::*` is now a stable alias for `provider_ext`
 
-The historical `siumai::providers::*` module path is removed to prevent cross-layer coupling.
+To align with the Vercel AI SDK mental model, `siumai` exposes:
+
+- `siumai::provider_ext::<provider>::*` (recommended)
+- `siumai::providers::<provider>::*` (stable alias; same as `provider_ext`)
+
+This path is intentionally scoped to provider-owned extension APIs (tools/options/metadata/resources/ext),
+and does **not** expose provider implementation internals.
+
+If you relied on internal symbols through `siumai::providers::*` before, switch to:
 
 - Unified surface: `use siumai::prelude::unified::*;`
-- Provider-specific surface: `use siumai::provider_ext::<provider>::*;`
-- Protocol-layer/helpers: `use siumai::experimental::*;` (advanced) or depend on the relevant protocol/provider crate directly (e.g. `siumai-protocol-openai` for OpenAI-like mapping, `siumai-protocol-anthropic` for Anthropic Messages mapping).
+- Protocol mapping: `use siumai::protocol::<family>::*;` (preferred) or `use siumai::experimental::*;` (advanced)
+- Provider internals: depend on the provider crate directly (recommended) or use `siumai::experimental::providers::*` (advanced, unstable)
 
 ### 5) Groq/xAI internal chat capability modules removed
 

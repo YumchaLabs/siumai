@@ -2,6 +2,7 @@
 
 use siumai::experimental::execution::transformers::request::RequestTransformer;
 use siumai::prelude::unified::*;
+use siumai_provider_xai::standards::openai::transformers::request::OpenAiResponsesRequestTransformer;
 
 #[test]
 fn xai_code_execution_tool_maps_to_code_interpreter_in_responses_request() {
@@ -16,8 +17,7 @@ fn xai_code_execution_tool_maps_to_code_interpreter_in_responses_request() {
         ..Default::default()
     };
 
-    let tx =
-        siumai::experimental::standards::openai::transformers::request::OpenAiResponsesRequestTransformer;
+    let tx = OpenAiResponsesRequestTransformer;
     let body = tx.transform_chat(&req).expect("transform request");
 
     let tools = body.get("tools").and_then(|v| v.as_array()).expect("tools");

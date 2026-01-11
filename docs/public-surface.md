@@ -35,6 +35,12 @@ use siumai::provider_ext::anthropic::*;
 use siumai::provider_ext::gemini::*;
 ```
 
+Vercel-aligned alias (equivalent to `provider_ext`):
+
+```rust
+use siumai::providers::openai::*;
+```
+
 For new code, prefer explicit imports from structured submodules:
 
 ```rust

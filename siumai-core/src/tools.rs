@@ -48,8 +48,8 @@ pub fn provider_defined_tool(id: &str) -> Option<Tool> {
         google::URL_CONTEXT_ID => Some(google::url_context()),
         google::ENTERPRISE_WEB_SEARCH_ID => Some(google::enterprise_web_search()),
         google::GOOGLE_MAPS_ID => Some(google::google_maps()),
-        google::VERTEX_RAG_STORE_ID => Some(google::vertex_rag_store()),
-        google::FILE_SEARCH_ID => Some(google::file_search()),
+        // `google.vertex_rag_store` and `google.file_search` require args, so `provider_defined_id(...)`
+        // cannot build a valid default `Tool` value.
 
         // xAI
         xai::WEB_SEARCH_ID => Some(xai::web_search()),
@@ -564,20 +564,27 @@ pub mod google {
         Tool::provider_defined(GOOGLE_MAPS_ID, name)
     }
 
-    pub fn vertex_rag_store() -> Tool {
-        vertex_rag_store_named("vertex_rag_store")
+    pub fn vertex_rag_store(rag_corpus: impl Into<String>) -> Tool {
+        vertex_rag_store_named(rag_corpus, "vertex_rag_store")
     }
 
-    pub fn vertex_rag_store_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(VERTEX_RAG_STORE_ID, name)
+    pub fn vertex_rag_store_named(rag_corpus: impl Into<String>, name: impl Into<String>) -> Tool {
+        Tool::provider_defined(VERTEX_RAG_STORE_ID, name).with_args(serde_json::json!({
+            "ragCorpus": rag_corpus.into(),
+        }))
     }
 
-    pub fn file_search() -> Tool {
-        file_search_named("file_search")
+    pub fn file_search(file_search_store_names: Vec<String>) -> Tool {
+        file_search_named(file_search_store_names, "file_search")
     }
 
-    pub fn file_search_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(FILE_SEARCH_ID, name)
+    pub fn file_search_named(
+        file_search_store_names: Vec<String>,
+        name: impl Into<String>,
+    ) -> Tool {
+        Tool::provider_defined(FILE_SEARCH_ID, name).with_args(serde_json::json!({
+            "fileSearchStoreNames": file_search_store_names,
+        }))
     }
 }
 

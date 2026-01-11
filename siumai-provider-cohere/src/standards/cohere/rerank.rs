@@ -10,6 +10,7 @@ use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{
     RerankDocuments, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage,
 };
+use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
@@ -78,6 +79,20 @@ impl ProviderSpec for CohereRerankSpec {
         }
 
         Ok(headers)
+    }
+
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        crate::standards::cohere::errors::classify_cohere_http_error(
+            self.provider_id,
+            status,
+            body_text,
+            headers,
+        )
     }
 
     fn rerank_url(&self, _req: &RerankRequest, ctx: &ProviderContext) -> String {

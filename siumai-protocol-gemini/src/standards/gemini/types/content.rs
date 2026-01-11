@@ -420,9 +420,9 @@ pub struct FileSearch {
     #[serde(skip_serializing_if = "Option::is_none", rename = "topK")]
     pub top_k: Option<u32>,
 
-    /// Optional metadata filter object.
+    /// Optional metadata filter expression (AIP-160).
     #[serde(skip_serializing_if = "Option::is_none", rename = "metadataFilter")]
-    pub metadata_filter: Option<serde_json::Value>,
+    pub metadata_filter: Option<String>,
 }
 
 /// Enterprise Web Search tool (Gemini 2.0+)

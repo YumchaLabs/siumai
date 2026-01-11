@@ -37,21 +37,40 @@ another provider’s streaming wire protocol, using Vercel-aligned v3 stream par
 - [x] Gemini GenerateContent SSE -> OpenAI Chat Completions SSE + OpenAI Responses SSE (tool-call)
   - Test: `siumai/tests/transcoding_gemini_to_openai_alignment_test.rs`
   - Upstream fixture: `siumai/tests/fixtures/gemini/function_call_then_finish.sse`
+- [x] Gemini GenerateContent SSE -> OpenAI Chat Completions SSE + OpenAI Responses SSE (multi tool-call in one chunk)
+  - Test: `siumai/tests/transcoding_gemini_to_openai_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/gemini/multi_function_calls_then_finish.sse`
+- [x] Gemini GenerateContent SSE v3 tool-call part exposes `thoughtSignature` (optional mode)
+  - Test: `siumai/tests/transcoding_gemini_to_openai_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/gemini/function_call_with_thought_signature.sse`
+- [x] Gemini GenerateContent SSE can parse gateway-replayed `functionResponse` as v3 `tool-result` (gateway-only)
+  - Test: `siumai/tests/gemini_function_response_gateway_roundtrip_test.rs`
+  - Fixture: `siumai/tests/fixtures/gemini/function_response_then_finish.sse`
+- [x] Gemini GenerateContent SSE (`functionResponse`) -> OpenAI Responses SSE (tool-result preserved; gateway-only)
+  - Test: `siumai/tests/transcoding_gemini_to_openai_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/gemini/function_response_then_finish.sse`
 - [x] OpenAI Responses SSE -> Anthropic Messages SSE (tool-call preserved; tool-result lossy fallback)
   - Test: `siumai/tests/transcoding_openai_to_anthropic_alignment_test.rs`
   - Upstream fixtures: `siumai/tests/fixtures/openai/responses-stream/web-search/openai-web-search-tool.1.chunks.txt`, `siumai/tests/fixtures/openai/responses-stream/mcp/openai-mcp-tool.1.chunks.txt`
-- [x] OpenAI Responses SSE -> Gemini GenerateContent SSE (functionCall emitted; tool-result lossy fallback)
+- [x] OpenAI Responses SSE -> Gemini GenerateContent SSE (functionCall emitted; tool-result lossy fallback by default)
   - Test: `siumai/tests/transcoding_openai_to_gemini_alignment_test.rs`
   - Upstream fixtures: `siumai/tests/fixtures/openai/responses-stream/web-search/openai-web-search-tool.1.chunks.txt`, `siumai/tests/fixtures/openai/responses-stream/mcp/openai-mcp-tool.1.chunks.txt`
-- [x] Anthropic Messages SSE -> Gemini GenerateContent SSE (functionCall emitted; tool-result lossy fallback)
+- [x] OpenAI Responses SSE -> Gemini GenerateContent SSE (tool-result can be replayed as `functionResponse`; gateway-only)
+  - Test: `siumai/tests/transcoding_openai_to_gemini_alignment_test.rs`
+- [x] Anthropic Messages SSE -> Gemini GenerateContent SSE (functionCall emitted; tool-result lossy fallback by default)
   - Test: `siumai/tests/transcoding_anthropic_to_gemini_alignment_test.rs`
   - Upstream fixture: `siumai/tests/fixtures/anthropic/messages-stream/anthropic-web-search-tool.1.chunks.txt`
+- [x] Anthropic Messages SSE -> Gemini GenerateContent SSE (tool-result can be replayed as `functionResponse`; gateway-only)
+  - Test: `siumai/tests/transcoding_anthropic_to_gemini_alignment_test.rs`
 - [x] Gemini GenerateContent SSE -> Anthropic Messages SSE (thinking/text roundtrip)
   - Test: `siumai/tests/transcoding_gemini_to_anthropic_alignment_test.rs`
   - Upstream fixture: `siumai/tests/fixtures/gemini/thought_then_text_stop.sse`
 - [x] Gemini GenerateContent SSE -> Anthropic Messages SSE (tool-call)
   - Test: `siumai/tests/transcoding_gemini_to_anthropic_alignment_test.rs`
   - Upstream fixture: `siumai/tests/fixtures/gemini/function_call_then_finish.sse`
+- [x] Gemini GenerateContent SSE -> Anthropic Messages SSE (multi tool-call in one chunk)
+  - Test: `siumai/tests/transcoding_gemini_to_anthropic_alignment_test.rs`
+  - Upstream fixture: `siumai/tests/fixtures/gemini/multi_function_calls_then_finish.sse`
 
 ## Google Vertex Imagen (via Vertex provider)
 
@@ -172,6 +191,19 @@ Provider id: `openai_compatible` (Chat Completions)
 - [x] `openaiCompatible` message/part metadata is hoisted into OpenAI message objects and `tool_calls[]` (Vercel parity)
 - [x] Fixture-driven message alignment tests under `siumai/tests/fixtures/openai-compatible/chat-messages/*`
 
+## Groq (OpenAI-compatible Chat)
+
+Provider id: `groq`
+
+### Done
+
+- [x] Chat request mapping parity for Groq quirks (developer role downgrade, streaming body shape, `max_tokens` handling)
+  - Test: `siumai/tests/groq_chat_request_fixtures_alignment_test.rs`
+  - Fixtures: `siumai/tests/fixtures/groq/chat-requests/*`
+- [x] OpenAI-compatible error envelope parity (preserve `error.message`)
+  - Test: `siumai/tests/groq_http_error_fixtures_alignment_test.rs`
+  - Fixtures: `siumai/tests/fixtures/groq/errors/*`
+
 ## OpenAI Responses Web Search
 
 Provider id: `openai` (Responses API)
@@ -278,7 +310,7 @@ Provider id: `openai` (Responses API)
 - [x] Basic text response parsing (message `output_text` -> `ChatResponse.content`)
 - [x] Logprobs extraction into `providerMetadata.*.logprobs` (normalized token/logprob + top_logprobs)
 - [x] Function tool calls parsing (`function_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
-- [x] Hosted tool calls parsing (`local_shell_call` / `shell_call` / `apply_patch_call` -> `tool-call` parts + inferred `tool_calls` finish reason + per-part `providerMetadata.openai.itemId`)
+- [x] Hosted tool calls parsing (`local_shell_call` / `shell_call` / `apply_patch_call` -> `tool-call` parts + inferred `stop` finish reason + per-part `providerMetadata.openai.itemId`)
 - [x] MCP output parity (`mcp_call` -> `tool-call` + `tool-result`, `mcp_approval_request` -> `tool-call` + `tool-approval-request`, skip `mcp_list_tools`)
 - [x] Provider tool calls parsing (`file_search_call` -> `tool-call` + `tool-result` parts, `toolName: "fileSearch"`, empty input)
 - [x] Provider tool calls parsing (`web_search_call` -> `tool-call` + `tool-result` parts, action type normalization, `toolName: "webSearch"`, empty input)
@@ -489,6 +521,19 @@ Provider id: `xai`
 
 - [x] `xai-web-search-tool.1` (provider tool; tool-input-delta from `arguments`, no tool-result when payload missing)
 - [x] `xai-x-search-tool` (x_search triggers `custom_tool_call` items; `x_keyword_search` maps to `x_search`, web_search calls use empty tool-input-delta, no tool-result)
+- [x] OpenAI-compatible error envelope parity (preserve `error.message`)
+  - Test: `siumai/tests/xai_http_error_fixtures_alignment_test.rs`
+  - Fixture: `siumai/tests/fixtures/xai/errors/xai-error.1.json`
+
+## XAI Chat Completions (OpenAI-compatible)
+
+Provider id: `xai` (Chat Completions)
+
+### Done
+
+- [x] Request mapping parity (max_completion_tokens + search_parameters; stop_sequences omitted)
+  - Test: `siumai/tests/xai_chat_request_fixtures_alignment_test.rs`
+  - Fixtures: `siumai/tests/fixtures/xai/chat-requests/*`
 
 ## DeepSeek Chat Completions (Fixtures)
 
@@ -532,3 +577,11 @@ Note that Siumai stores most fixtures as *case directories* (e.g. `response.json
 - Cohere (`packages/cohere/src/reranking/__fixtures__`): rerank fixture mirrored under `siumai/tests/fixtures/cohere/rerank/*`.
 - TogetherAI (`packages/togetherai/src/reranking/__fixtures__`): rerank fixture mirrored under `siumai/tests/fixtures/togetherai/rerank/*`.
 - Amazon Bedrock (`packages/amazon-bedrock/src/__fixtures__`): fixtures mirrored under `siumai/tests/fixtures/bedrock/chat`.
+
+### Automated audit
+
+To quickly validate fixture coverage and detect accidental drift (hash mismatch) against the checked-in `repo-ref/ai` fixtures:
+
+```bash
+python scripts/audit_vercel_fixtures.py --ai-root ../ai --siumai-root .
+```

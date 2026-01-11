@@ -73,14 +73,18 @@ fn decode_openai_responses(lines: Vec<String>, tools: Vec<Tool>) -> Vec<ChatStre
     events
 }
 
-fn encode_gemini_generate_content_sse(events: Vec<ChatStreamEvent>) -> Vec<u8> {
-    use siumai::experimental::streaming::V3UnsupportedPartBehavior;
+fn encode_gemini_generate_content_sse(
+    events: Vec<ChatStreamEvent>,
+    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+    emit_function_response_tool_results: bool,
+) -> Vec<u8> {
     use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::gemini::streaming::GeminiEventConverter;
     use siumai::protocol::gemini::types::GeminiConfig;
 
     let conv = GeminiEventConverter::new(GeminiConfig::default())
-        .with_v3_unsupported_part_behavior(V3UnsupportedPartBehavior::AsText);
+        .with_v3_unsupported_part_behavior(behavior)
+        .with_emit_function_response_tool_results(emit_function_response_tool_results);
 
     let mut out = Vec::new();
     for ev in events {
@@ -111,7 +115,11 @@ fn openai_responses_web_search_transcodes_to_gemini_sse() {
     let upstream = decode_openai_responses(read_fixture_lines(&path), tools);
     assert!(!upstream.is_empty(), "fixture produced no events");
 
-    let bytes = encode_gemini_generate_content_sse(upstream);
+    let bytes = encode_gemini_generate_content_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        false,
+    );
     let frames = parse_sse_json_frames(&bytes);
 
     assert!(
@@ -169,7 +177,11 @@ fn openai_responses_mcp_transcodes_to_gemini_sse() {
     let upstream = decode_openai_responses(read_fixture_lines(&path), Vec::new());
     assert!(!upstream.is_empty(), "fixture produced no events");
 
-    let bytes = encode_gemini_generate_content_sse(upstream);
+    let bytes = encode_gemini_generate_content_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        false,
+    );
     let frames = parse_sse_json_frames(&bytes);
 
     assert!(
@@ -210,5 +222,180 @@ fn openai_responses_mcp_transcodes_to_gemini_sse() {
                 .is_some()
         }),
         "expected finishReason frame: {frames:?}"
+    );
+}
+
+#[test]
+fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_gemini_transcoding() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("openai")
+        .join("responses-stream")
+        .join("mcp")
+        .join("openai-mcp-tool-approval.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = decode_openai_responses(read_fixture_lines(&path), Vec::new());
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_gemini_generate_content_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        false,
+    );
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        !frames.iter().any(|v| {
+            v.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())
+                .is_some_and(|s| s.contains("[tool-approval-request]"))
+        }),
+        "expected strict transcoding to drop tool-approval-request: {frames:?}"
+    );
+}
+
+#[test]
+fn openai_responses_mcp_tool_approval_request_is_downgraded_in_lossy_gemini_transcoding() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("openai")
+        .join("responses-stream")
+        .join("mcp")
+        .join("openai-mcp-tool-approval.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = decode_openai_responses(read_fixture_lines(&path), Vec::new());
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_gemini_generate_content_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+        false,
+    );
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| {
+            v.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())
+                .is_some_and(|s| s.contains("[tool-approval-request]"))
+        }),
+        "expected lossy transcoding to downgrade tool-approval-request into text: {frames:?}"
+    );
+}
+
+#[test]
+fn openai_responses_web_search_can_replay_tool_results_as_gemini_function_response_frames() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("openai")
+        .join("responses-stream")
+        .join("web-search")
+        .join("openai-web-search-tool.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let tools = vec![Tool::ProviderDefined(ProviderDefinedTool::new(
+        "openai.web_search",
+        "webSearch",
+    ))];
+
+    let upstream = decode_openai_responses(read_fixture_lines(&path), tools);
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_gemini_generate_content_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        true,
+    );
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| {
+            v.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("functionResponse"))
+                .and_then(|fr| fr.get("name"))
+                .and_then(|n| n.as_str())
+                == Some("webSearch")
+        }),
+        "expected functionResponse name=webSearch: {frames:?}"
+    );
+
+    assert!(
+        frames.iter().any(|v| {
+            v.get("siumai")
+                .and_then(|m| m.get("toolCallId"))
+                .and_then(|id| id.as_str())
+                .is_some_and(|s| !s.is_empty())
+        }),
+        "expected siumai.toolCallId on at least one functionResponse frame: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
+            v.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())
+                .is_some_and(|s| s.contains("[tool-result]"))
+        }),
+        "expected non-lossy transcoding to avoid [tool-result] text downgrade: {frames:?}"
+    );
+}
+
+#[test]
+fn openai_responses_mcp_can_replay_tool_results_as_gemini_function_response_frames() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("openai")
+        .join("responses-stream")
+        .join("mcp")
+        .join("openai-mcp-tool.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = decode_openai_responses(read_fixture_lines(&path), Vec::new());
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_gemini_generate_content_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+        true,
+    );
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| {
+            v.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("functionResponse"))
+                .and_then(|fr| fr.get("name"))
+                .and_then(|n| n.as_str())
+                .is_some()
+        }),
+        "expected at least one functionResponse frame: {frames:?}"
     );
 }

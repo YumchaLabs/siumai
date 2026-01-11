@@ -29,6 +29,17 @@ struct OpenAiCompatSerializeState {
     next_tool_call_index: u32,
 }
 
+#[derive(Debug, Default, Clone)]
+struct OpenAiCompatParseState {
+    tool_call_state_by_index: std::collections::HashMap<(u32, u32), OpenAiCompatToolCallState>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct OpenAiCompatToolCallState {
+    id: String,
+    name: String,
+}
+
 // Type alias for better readability and to reduce type complexity lints
 type ToolCallDelta = (String, Option<String>, Option<String>, Option<usize>);
 
@@ -95,6 +106,8 @@ pub struct OpenAiCompatibleEventConverter {
     // Track whether we have emitted any ContentDelta to avoid duplicate injection
     emitted_content: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
+    parse_state: Arc<std::sync::Mutex<OpenAiCompatParseState>>,
+
     // Serialize state for reverse SSE encoding (ChatStreamEvent -> OpenAI-compatible SSE).
     serialize_state: Arc<std::sync::Mutex<OpenAiCompatSerializeState>>,
     v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
@@ -109,6 +122,7 @@ impl OpenAiCompatibleEventConverter {
             state_tracker: StreamStateTracker::new(),
             accumulated_content: Arc::new(tokio::sync::Mutex::new(String::new())),
             emitted_content: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            parse_state: Arc::new(std::sync::Mutex::new(OpenAiCompatParseState::default())),
             serialize_state: Arc::new(std::sync::Mutex::new(OpenAiCompatSerializeState::default())),
             v3_unsupported_part_behavior: V3UnsupportedPartBehavior::Drop,
         }
@@ -531,24 +545,69 @@ impl OpenAiCompatibleEventConverter {
             .and_then(|d| d.get("tool_calls"))
             .and_then(|tc| tc.as_array())
         {
-            let idx = json
+            let choice_index = json
                 .get("choices")
                 .and_then(|c| c.get(0))
                 .and_then(|choice| choice.get("index"))
                 .and_then(|v| v.as_u64())
-                .map(|i| i as usize);
-            for first in arr {
-                let id = first.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let function = first.get("function");
-                let name = function
+                .unwrap_or(0) as u32;
+            let idx = Some(choice_index as usize);
+
+            let mut state = self
+                .parse_state
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+
+            for (pos, tc) in arr.iter().enumerate() {
+                let tool_call_index = tc
+                    .get("index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(pos as u64) as u32;
+                let key = (choice_index, tool_call_index);
+                let entry = state.tool_call_state_by_index.entry(key).or_default();
+
+                let id_in_chunk = tc
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+                if let Some(id) = id_in_chunk {
+                    entry.id = id;
+                } else if entry.id.is_empty() {
+                    // Best-effort stability: some providers omit tool call ids in
+                    // follow-up chunks; key by choice index + tool_call_index.
+                    entry.id = format!("call_{choice_index}_{tool_call_index}");
+                }
+
+                let function = tc.get("function");
+                let name_in_chunk = function
                     .and_then(|f| f.get("name"))
                     .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
                     .map(|s| s.to_string());
+                let function_name_to_emit = match name_in_chunk {
+                    Some(name) => {
+                        if entry.name.is_empty() {
+                            entry.name = name.clone();
+                            Some(name)
+                        } else if entry.name == name {
+                            None
+                        } else {
+                            entry.name = name.clone();
+                            Some(name)
+                        }
+                    }
+                    None => None,
+                };
+
                 let args = function
                     .and_then(|f| f.get("arguments"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                out.push((id.to_string(), name, args, idx));
+
+                out.push((entry.id.clone(), function_name_to_emit, args, idx));
             }
         }
         out

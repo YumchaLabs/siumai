@@ -10,6 +10,14 @@ use crate::types::*;
 use base64::Engine;
 use reqwest::header::HeaderMap;
 
+fn guess_image_media_type_from_bytes(bytes: &[u8]) -> String {
+    let guessed = crate::utils::mime::guess_mime_from_bytes(bytes);
+    match guessed.as_deref() {
+        Some(m) if m.starts_with("image/") => m.to_string(),
+        _ => "image/jpeg".to_string(),
+    }
+}
+
 /// Build HTTP headers for Anthropic API requests according to official documentation
 /// <https://docs.anthropic.com/en/api/messages>
 pub fn build_headers(
@@ -68,6 +76,82 @@ mod header_tests {
             Some("feature-a,feature-b")
         );
     }
+
+    #[test]
+    fn guess_image_media_type_prefers_known_image_mime() {
+        // Minimal PNG signature; infer should classify as image/png.
+        let png_bytes: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+        assert_eq!(guess_image_media_type_from_bytes(png_bytes), "image/png");
+    }
+}
+
+#[cfg(test)]
+mod image_block_tests {
+    use super::*;
+
+    #[test]
+    fn tool_result_image_content_includes_media_type() {
+        let png_bytes: Vec<u8> = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR".to_vec();
+
+        let tool_result = ContentPart::ToolResult {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "generate_image".to_string(),
+            output: ToolResultOutput::content(vec![ToolResultContentPart::Image {
+                source: MediaSource::Binary { data: png_bytes },
+                detail: None,
+            }]),
+            provider_executed: None,
+            provider_metadata: None,
+        };
+
+        let content = MessageContent::MultiModal(vec![tool_result]);
+        let mapped = convert_message_content(&content).expect("convert ok");
+
+        let arr = mapped.as_array().expect("array");
+        let tool_result_obj = arr[0].as_object().expect("object");
+        assert_eq!(
+            tool_result_obj.get("type").and_then(|v| v.as_str()),
+            Some("tool_result")
+        );
+
+        let inner = tool_result_obj
+            .get("content")
+            .and_then(|v| v.as_array())
+            .expect("tool_result content array");
+        let image = inner[0].as_object().expect("image block");
+        assert_eq!(image.get("type").and_then(|v| v.as_str()), Some("image"));
+
+        let media_type = image
+            .get("source")
+            .and_then(|v| v.get("media_type"))
+            .and_then(|v| v.as_str())
+            .expect("media_type");
+        assert_eq!(media_type, "image/png");
+    }
+
+    #[test]
+    fn tool_result_json_is_stringified() {
+        let tool_result = ContentPart::ToolResult {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "test".to_string(),
+            output: ToolResultOutput::Json {
+                value: serde_json::json!({ "ok": true }),
+            },
+            provider_executed: None,
+            provider_metadata: None,
+        };
+
+        let content = MessageContent::MultiModal(vec![tool_result]);
+        let mapped = convert_message_content(&content).expect("convert ok");
+
+        let arr = mapped.as_array().expect("array");
+        let tool_result_obj = arr[0].as_object().expect("object");
+        let content_value = tool_result_obj.get("content").expect("content");
+        assert!(
+            content_value.is_string(),
+            "expected stringified JSON, got: {content_value:?}"
+        );
+    }
 }
 
 /// Convert message content to Anthropic format
@@ -92,12 +176,20 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                         // Anthropic requires base64-encoded images
                         let (media_type, data) = match source {
                             crate::types::chat::MediaSource::Base64 { data } => {
-                                ("image/jpeg", data.clone())
+                                let bytes = base64::engine::general_purpose::STANDARD
+                                    .decode(data.as_bytes())
+                                    .ok();
+                                let media_type = bytes
+                                    .as_deref()
+                                    .map(guess_image_media_type_from_bytes)
+                                    .unwrap_or_else(|| "image/jpeg".to_string());
+                                (media_type, data.clone())
                             }
                             crate::types::chat::MediaSource::Binary { data } => {
                                 let encoded =
                                     base64::engine::general_purpose::STANDARD.encode(data);
-                                ("image/jpeg", encoded)
+                                let media_type = guess_image_media_type_from_bytes(data);
+                                (media_type, encoded)
                             }
                             crate::types::chat::MediaSource::Url { url } => {
                                 // Anthropic doesn't support URLs, convert to text
@@ -264,11 +356,19 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
 
                         let (content_value, is_error) = match output {
                             ToolResultOutput::Text { value } => (serde_json::json!(value), false),
-                            ToolResultOutput::Json { value } => (value.clone(), false),
+                            // Anthropic Messages API requires tool_result `content` to be a string
+                            // or an array of content blocks; JSON objects must be stringified.
+                            ToolResultOutput::Json { value } => (
+                                serde_json::json!(serde_json::to_string(value).unwrap_or_default()),
+                                false,
+                            ),
                             ToolResultOutput::ErrorText { value } => {
                                 (serde_json::json!(value), true)
                             }
-                            ToolResultOutput::ErrorJson { value } => (value.clone(), true),
+                            ToolResultOutput::ErrorJson { value } => (
+                                serde_json::json!(serde_json::to_string(value).unwrap_or_default()),
+                                true,
+                            ),
                             ToolResultOutput::ExecutionDenied { reason } => {
                                 let msg = reason
                                     .as_ref()
@@ -288,13 +388,39 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                             use crate::types::MediaSource;
                                             match source {
                                                 MediaSource::Url { url } => {
-                                                    serde_json::json!({"type": "image", "source": {"type": "url", "url": url}})
+                                                    serde_json::json!({
+                                                        "type": "text",
+                                                        "text": format!("[Image: {}]", url)
+                                                    })
                                                 }
                                                 MediaSource::Base64 { data } => {
-                                                    serde_json::json!({"type": "image", "source": {"type": "base64", "data": data}})
+                                                    let bytes = base64::engine::general_purpose::STANDARD
+                                                        .decode(data.as_bytes())
+                                                        .ok();
+                                                    let media_type = bytes
+                                                        .as_deref()
+                                                        .map(guess_image_media_type_from_bytes)
+                                                        .unwrap_or_else(|| "image/jpeg".to_string());
+                                                    serde_json::json!({
+                                                        "type": "image",
+                                                        "source": {
+                                                            "type": "base64",
+                                                            "media_type": media_type,
+                                                            "data": data
+                                                        }
+                                                    })
                                                 }
-                                                MediaSource::Binary { .. } => {
-                                                    serde_json::json!({"type": "text", "text": "[Binary image data]"})
+                                                MediaSource::Binary { data } => {
+                                                    let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                                                    let media_type = guess_image_media_type_from_bytes(data);
+                                                    serde_json::json!({
+                                                        "type": "image",
+                                                        "source": {
+                                                            "type": "base64",
+                                                            "media_type": media_type,
+                                                            "data": encoded
+                                                        }
+                                                    })
                                                 }
                                             }
                                         }
@@ -930,11 +1056,150 @@ pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
         Some("end_turn") => Some(FinishReason::Stop),
         Some("max_tokens") => Some(FinishReason::Length),
         Some("tool_use") => Some(FinishReason::ToolCalls),
-        Some("stop_sequence") => Some(FinishReason::Other("stop_sequence".to_string())),
+        Some("stop_sequence") => Some(FinishReason::StopSequence),
         Some("pause_turn") => Some(FinishReason::Other("pause_turn".to_string())),
         Some("refusal") => Some(FinishReason::ContentFilter),
         Some(other) => Some(FinishReason::Other(other.to_string())),
         None => None,
+    }
+}
+
+/// Map the raw Anthropic `container` object (snake_case) into Vercel-aligned providerMetadata shape.
+///
+/// Input example (API payload):
+/// `{ "id": "...", "expires_at": "...", "skills": [{ "type": "anthropic", "skill_id": "pptx", "version": "latest" }] }`
+///
+/// Output example (providerMetadata.anthropic.container):
+/// `{ "id": "...", "expiresAt": "...", "skills": [{ "type": "anthropic", "skillId": "pptx", "version": "latest" }] }`
+pub fn map_container_provider_metadata(v: &serde_json::Value) -> Option<serde_json::Value> {
+    let obj = v.as_object()?;
+    let mut out = serde_json::Map::new();
+
+    if let Some(id) = obj.get("id") {
+        out.insert("id".to_string(), id.clone());
+    }
+
+    out.insert(
+        "expiresAt".to_string(),
+        obj.get("expires_at")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    );
+
+    let skills = obj
+        .get("skills")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let mapped_skills = match skills {
+        serde_json::Value::Array(arr) => {
+            let mut out_arr: Vec<serde_json::Value> = Vec::new();
+            for item in arr {
+                let Some(skill) = item.as_object() else {
+                    out_arr.push(item);
+                    continue;
+                };
+                let mut out_skill = serde_json::Map::new();
+                if let Some(t) = skill.get("type") {
+                    out_skill.insert("type".to_string(), t.clone());
+                }
+                out_skill.insert(
+                    "skillId".to_string(),
+                    skill
+                        .get("skill_id")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                if let Some(v) = skill.get("version") {
+                    out_skill.insert("version".to_string(), v.clone());
+                }
+                out_arr.push(serde_json::Value::Object(out_skill));
+            }
+            serde_json::Value::Array(out_arr)
+        }
+        other => other,
+    };
+    out.insert("skills".to_string(), mapped_skills);
+
+    Some(serde_json::Value::Object(out))
+}
+
+pub fn map_context_management_provider_metadata(
+    v: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let obj = v.as_object()?;
+    let applied_edits = obj.get("applied_edits")?.as_array()?;
+
+    let mut out_edits: Vec<serde_json::Value> = Vec::new();
+    for edit in applied_edits {
+        let Some(edit_obj) = edit.as_object() else {
+            continue;
+        };
+        let Some(ty) = edit_obj.get("type").and_then(|v| v.as_str()) else {
+            continue;
+        };
+
+        match ty {
+            "clear_tool_uses_20250919" => {
+                let mut mapped = serde_json::Map::new();
+                mapped.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(ty.to_string()),
+                );
+                mapped.insert(
+                    "clearedToolUses".to_string(),
+                    edit_obj
+                        .get("cleared_tool_uses")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                mapped.insert(
+                    "clearedInputTokens".to_string(),
+                    edit_obj
+                        .get("cleared_input_tokens")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                out_edits.push(serde_json::Value::Object(mapped));
+            }
+            "clear_thinking_20251015" => {
+                let mut mapped = serde_json::Map::new();
+                mapped.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(ty.to_string()),
+                );
+                mapped.insert(
+                    "clearedThinkingTurns".to_string(),
+                    edit_obj
+                        .get("cleared_thinking_turns")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                mapped.insert(
+                    "clearedInputTokens".to_string(),
+                    edit_obj
+                        .get("cleared_input_tokens")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                out_edits.push(serde_json::Value::Object(mapped));
+            }
+            _ => {}
+        }
+    }
+
+    Some(serde_json::json!({ "appliedEdits": out_edits }))
+}
+
+#[cfg(test)]
+mod finish_reason_tests {
+    use super::*;
+
+    #[test]
+    fn maps_stop_sequence_to_dedicated_finish_reason() {
+        assert!(matches!(
+            parse_finish_reason(Some("stop_sequence")),
+            Some(FinishReason::StopSequence)
+        ));
     }
 }
 
@@ -1427,21 +1692,42 @@ pub fn map_anthropic_error(
             LlmError::InvalidInput(format!("Request too large: {error_message}"))
         }
         "rate_limit_error" => LlmError::RateLimitError(error_message.to_string()),
-        "api_error" => LlmError::ProviderError {
-            provider: "anthropic".to_string(),
-            message: format!("Internal API error: {error_message}"),
-            error_code: Some("api_error".to_string()),
+        "api_error" => LlmError::ApiError {
+            code: status_code,
+            message: format!("Anthropic API error: {error_message}"),
+            details: Some(error_details),
         },
-        "overloaded_error" => LlmError::ProviderError {
-            provider: "anthropic".to_string(),
-            message: format!("API temporarily overloaded: {error_message}"),
-            error_code: Some("overloaded_error".to_string()),
+        "overloaded_error" => LlmError::ApiError {
+            // Vercel AI SDK parity: represent overloaded as a synthetic 529.
+            code: 529,
+            message: format!("Anthropic service overloaded: {error_message}"),
+            details: Some(error_details),
         },
         _ => LlmError::ApiError {
             code: status_code,
             message: format!("Anthropic API error ({error_type}): {error_message}"),
             details: Some(error_details),
         },
+    }
+}
+
+#[cfg(test)]
+mod error_mapping_tests {
+    use super::*;
+
+    #[test]
+    fn map_anthropic_error_overloaded_is_retryable() {
+        let err = map_anthropic_error(
+            200,
+            "overloaded_error",
+            "Overloaded",
+            serde_json::json!({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}),
+        );
+        match err {
+            LlmError::ApiError { code, .. } => assert_eq!(code, 529),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+        assert!(err.is_retryable());
     }
 }
 

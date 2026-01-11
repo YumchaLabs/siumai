@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Initial text"}],"role":"model"},"index":0}]}
+
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"tool_a","args":{"x":1}}},{"functionCall":{"name":"tool_b","args":{"y":2}}}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":34,"totalTokenCount":46}}
+

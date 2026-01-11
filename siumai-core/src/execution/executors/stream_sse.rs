@@ -144,13 +144,16 @@ where
             if !(200..300).contains(&response.status) {
                 let bytes = response.body.into_stream().try_concat().await?;
                 let text = String::from_utf8_lossy(&bytes);
+                let fallback_message = reqwest::StatusCode::from_u16(response.status)
+                    .ok()
+                    .and_then(|s| s.canonical_reason());
                 let error = crate::execution::executors::errors::classify_http_error(
                     provider_id,
                     provider_spec,
                     response.status,
                     &text,
                     &response.headers,
-                    None,
+                    fallback_message,
                 );
                 for interceptor in interceptors {
                     interceptor.on_error(&ctx, &error);

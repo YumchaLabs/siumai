@@ -296,6 +296,9 @@ impl Tool {
     ///
     /// This is equivalent to calling the corresponding factory in `siumai::tools::<provider>`,
     /// but works when you only have the tool id as a string.
+    ///
+    /// Note: some tools require mandatory provider args and therefore cannot be constructed from
+    /// an id alone (e.g. `google.file_search`, `google.vertex_rag_store`).
     pub fn provider_defined_id(id: &str) -> Option<Self> {
         crate::tools::provider_defined_tool(id)
     }

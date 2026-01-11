@@ -32,7 +32,9 @@ pub fn classify_anthropic_http_error(
         "rate_limit_error" => LlmError::RateLimitError(error_message.to_string()),
         "invalid_request_error" => LlmError::InvalidInput(error_message.to_string()),
         "overloaded_error" => LlmError::ApiError {
-            code: 503,
+            // Vercel AI SDK parity: treat overloaded as a synthetic 529 so callers can
+            // distinguish it from generic 5xx errors while keeping retry semantics.
+            code: 529,
             message: format!("{provider} service overloaded: {error_message}"),
             details: Some(details),
         },
@@ -72,6 +74,20 @@ mod tests {
         let err = classify_anthropic_http_error("anthropic", 429, body).expect("classified");
         match err {
             LlmError::RateLimitError(msg) => assert_eq!(msg, "Rate limited"),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn anthropic_error_mapping_overloaded_error_is_retryable() {
+        let body = r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
+        let err = classify_anthropic_http_error("anthropic", 200, body).expect("classified");
+        assert!(err.is_retryable());
+        match &err {
+            LlmError::ApiError { code, message, .. } => {
+                assert_eq!(*code, 529);
+                assert!(message.contains("Overloaded"));
+            }
             other => panic!("unexpected error variant: {other:?}"),
         }
     }

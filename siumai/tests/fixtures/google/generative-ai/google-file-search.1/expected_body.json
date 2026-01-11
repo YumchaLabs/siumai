@@ -15,9 +15,8 @@
       "fileSearch": {
         "fileSearchStoreNames": ["fileSearchStores/store-123"],
         "topK": 3,
-        "metadataFilter": { "source": "test" }
+        "metadataFilter": "source = \"test\""
       }
     }
   ]
 }
-

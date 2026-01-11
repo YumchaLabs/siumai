@@ -101,6 +101,124 @@ async fn responses_shape_finish_reason_emits_stream_end() {
 }
 
 #[tokio::test]
+async fn tool_call_deltas_without_id_are_mapped_by_tool_call_index() {
+    let conv = make_converter();
+
+    let event1 = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"lookup","arguments":""}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out1 = conv.convert_event(event1).await;
+    assert!(
+        out1.iter().any(|e| matches!(
+            e,
+            Ok(ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. })
+                if id == "call_1" && function_name.as_deref() == Some("lookup") && arguments_delta.as_deref() == Some("")
+        )),
+        "first chunk should include id + function name"
+    );
+
+    let event2 = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\": \""}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out2 = conv.convert_event(event2).await;
+    assert!(
+        out2.iter().any(|e| matches!(
+            e,
+            Ok(ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. })
+                if id == "call_1" && function_name.is_none() && arguments_delta.as_deref() == Some("{\"q\": \"")
+        )),
+        "follow-up chunk should reuse id by tool_call_index"
+    );
+
+    let event3 = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"rust\"}"}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out3 = conv.convert_event(event3).await;
+    assert!(
+        out3.iter().any(|e| matches!(
+            e,
+            Ok(ChatStreamEvent::ToolCallDelta { id, function_name, arguments_delta, .. })
+                if id == "call_1" && function_name.is_none() && arguments_delta.as_deref() == Some("rust\"}")
+        )),
+        "follow-up chunk should keep stable id"
+    );
+}
+
+#[tokio::test]
+async fn multi_tool_calls_are_mapped_by_index() {
+    let conv = make_converter();
+
+    let event1 = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"a","arguments":""}},{"index":1,"id":"call_b","function":{"name":"b","arguments":""}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out1 = conv.convert_event(event1).await;
+    assert!(out1.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::ToolCallDelta { id, function_name, .. })
+            if id == "call_a" && function_name.as_deref() == Some("a")
+    )));
+    assert!(out1.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::ToolCallDelta { id, function_name, .. })
+            if id == "call_b" && function_name.as_deref() == Some("b")
+    )));
+
+    let event2 = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"x\":1}"}},{"index":0,"function":{"arguments":"{\"y\":2}"}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out2 = conv.convert_event(event2).await;
+    assert!(out2.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::ToolCallDelta { id, arguments_delta, .. })
+            if id == "call_b" && arguments_delta.as_deref() == Some("{\"x\":1}")
+    )));
+    assert!(out2.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::ToolCallDelta { id, arguments_delta, .. })
+            if id == "call_a" && arguments_delta.as_deref() == Some("{\"y\":2}")
+    )));
+}
+
+#[tokio::test]
+async fn finish_reason_tool_calls_without_tool_calls_array_emits_stream_end() {
+    let conv = make_converter();
+
+    let event = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out = conv.convert_event(event).await;
+    assert!(
+        out.into_iter().any(|e| {
+            matches!(e, Ok(ChatStreamEvent::StreamEnd { response }) if matches!(response.finish_reason, Some(crate::types::FinishReason::ToolCalls)))
+        }),
+        "expected StreamEnd with finish_reason ToolCalls"
+    );
+}
+
+#[tokio::test]
 async fn multi_event_sequence() {
     let converter = make_converter();
 

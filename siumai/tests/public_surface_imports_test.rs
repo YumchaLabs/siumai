@@ -44,7 +44,8 @@ fn public_surface_openai_provider_ext_compiles() {
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::openai::web_search().build();
-    let _ = siumai::provider_ext::openai::tools::web_search().build();
+    let _ = siumai::provider_ext::openai::hosted_tools::web_search().build();
+    let _ = siumai::provider_ext::openai::tools::web_search();
 }
 
 #[cfg(feature = "protocol-openai")]
@@ -72,7 +73,8 @@ fn public_surface_anthropic_provider_ext_compiles() {
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::anthropic::web_search_20250305().build();
-    let _ = siumai::provider_ext::anthropic::tools::web_search_20250305().build();
+    let _ = siumai::provider_ext::anthropic::hosted_tools::web_search_20250305().build();
+    let _ = siumai::provider_ext::anthropic::tools::web_search_20250305();
 }
 
 #[cfg(feature = "protocol-anthropic")]
@@ -100,7 +102,25 @@ fn public_surface_gemini_provider_ext_compiles() {
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::google::google_search().build();
-    let _ = siumai::provider_ext::gemini::tools::google_search().build();
+    let _ = siumai::provider_ext::gemini::hosted_tools::google_search().build();
+    let _ = siumai::provider_ext::gemini::tools::google_search();
+}
+
+#[cfg(feature = "google-vertex")]
+#[test]
+fn public_surface_google_vertex_provider_ext_compiles() {
+    use siumai::provider_ext::google_vertex::{GoogleVertexClient, GoogleVertexConfig, options::*};
+
+    let _ = size_of::<GoogleVertexClient>();
+    let _ = size_of::<GoogleVertexConfig>();
+    let _ = size_of::<VertexEmbeddingOptions>();
+    let _ = size_of::<VertexImagenOptions>();
+
+    let _ = siumai::provider_ext::google_vertex::tools::google_search();
+    let _ = siumai::provider_ext::google_vertex::tools::file_search(vec![
+        "fileSearchStores/store-123".to_string(),
+    ]);
+    let _ = siumai::provider_ext::google_vertex::hosted_tools::google_search().build();
 }
 
 #[cfg(feature = "protocol-gemini")]

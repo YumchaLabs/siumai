@@ -25,7 +25,7 @@
   "provider_metadata": {
     "anthropic": {
       "cacheCreationInputTokens": 0,
-      "contextManagement": { "applied_edits": [] },
+      "contextManagement": { "appliedEdits": [] },
       "usage": {
         "input_tokens": 1614,
         "cache_creation_input_tokens": 0,

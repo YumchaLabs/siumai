@@ -520,7 +520,7 @@ impl StreamFactory {
                         status.as_u16(),
                         &text,
                         &headers,
-                        None,
+                        status.canonical_reason(),
                     );
                     for interceptor in interceptors {
                         interceptor.on_error(&ctx, &error);

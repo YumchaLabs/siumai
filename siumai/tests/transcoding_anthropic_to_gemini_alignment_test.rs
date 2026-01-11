@@ -83,14 +83,18 @@ fn run_anthropic_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
     events
 }
 
-fn encode_gemini_generate_content_sse(events: Vec<ChatStreamEvent>) -> Vec<u8> {
+fn encode_gemini_generate_content_sse(
+    events: Vec<ChatStreamEvent>,
+    emit_function_response_tool_results: bool,
+) -> Vec<u8> {
     use siumai::experimental::streaming::V3UnsupportedPartBehavior;
     use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::gemini::streaming::GeminiEventConverter;
     use siumai::protocol::gemini::types::GeminiConfig;
 
     let conv = GeminiEventConverter::new(GeminiConfig::default())
-        .with_v3_unsupported_part_behavior(V3UnsupportedPartBehavior::AsText);
+        .with_v3_unsupported_part_behavior(V3UnsupportedPartBehavior::AsText)
+        .with_emit_function_response_tool_results(emit_function_response_tool_results);
 
     let mut out = Vec::new();
     for ev in events {
@@ -110,7 +114,7 @@ fn anthropic_web_search_transcodes_to_gemini_sse() {
     let upstream = run_anthropic_converter(read_fixture_lines(&path));
     assert!(!upstream.is_empty(), "fixture produced no events");
 
-    let bytes = encode_gemini_generate_content_sse(upstream);
+    let bytes = encode_gemini_generate_content_sse(upstream, false);
     let frames = parse_sse_json_frames(&bytes);
 
     assert!(
@@ -151,5 +155,46 @@ fn anthropic_web_search_transcodes_to_gemini_sse() {
                 .is_some()
         }),
         "expected finishReason frame: {frames:?}"
+    );
+}
+
+#[test]
+fn anthropic_web_search_can_replay_tool_results_as_gemini_function_response_frames() {
+    let path = anthropic_fixtures_dir().join("anthropic-web-search-tool.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = run_anthropic_converter(read_fixture_lines(&path));
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_gemini_generate_content_sse(upstream, true);
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| {
+            v.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("functionResponse"))
+                .and_then(|fr| fr.get("name"))
+                .and_then(|n| n.as_str())
+                == Some("web_search")
+        }),
+        "expected functionResponse name=web_search: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
+            v.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())
+                .is_some_and(|s| s.contains("[tool-result]"))
+        }),
+        "expected non-lossy transcoding to avoid [tool-result] text downgrade: {frames:?}"
     );
 }

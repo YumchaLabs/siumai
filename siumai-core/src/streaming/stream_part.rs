@@ -533,6 +533,14 @@ impl LanguageModelV3StreamPart {
                 "[raw] {}",
                 serde_json::to_string(raw_value).unwrap_or_else(|_| "\"raw\"".to_string())
             )),
+            LanguageModelV3StreamPart::File(file) => {
+                let len_hint = match &file.data {
+                    LanguageModelV3FileData::Base64(s) => format!("base64_len={}", s.len()),
+                    LanguageModelV3FileData::Bytes(b) => format!("bytes_len={}", b.len()),
+                };
+
+                Some(format!("[file] mediaType={} {}", file.media_type, len_hint))
+            }
             _ => None,
         }
     }

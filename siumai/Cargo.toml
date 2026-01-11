@@ -242,6 +242,7 @@ mockito.workspace = true
 wiremock.workspace = true
 futures-util.workspace = true
 axum.workspace = true
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, features = ["openai-standard"] }
 
 # Examples configuration
 # Examples (0.11.0 refactored structure)

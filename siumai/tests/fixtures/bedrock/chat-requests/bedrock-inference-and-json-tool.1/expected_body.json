@@ -1,0 +1,51 @@
+{
+  "system": [{ "text": "You are a helpful assistant." }],
+  "messages": [
+    { "role": "user", "content": [{ "text": "What's the weather in SF?" }] }
+  ],
+  "toolConfig": {
+    "tools": [
+      {
+        "toolSpec": {
+          "name": "getWeather",
+          "inputSchema": {
+            "json": {
+              "type": "object",
+              "properties": { "location": { "type": "string" } },
+              "required": ["location"],
+              "additionalProperties": false
+            }
+          },
+          "description": "Get weather for a location."
+        }
+      },
+      {
+        "toolSpec": {
+          "name": "json",
+          "inputSchema": {
+            "json": {
+              "type": "object",
+              "properties": { "answer": { "type": "string" } },
+              "required": ["answer"],
+              "additionalProperties": false
+            }
+          },
+          "description": "Respond with a JSON object."
+        }
+      }
+    ],
+    "toolChoice": { "any": {} }
+  },
+  "inferenceConfig": {
+    "maxTokens": 123,
+    "temperature": 0.7,
+    "topP": 0.9,
+    "topK": 0.2,
+    "stopSequences": ["\n\n"]
+  },
+  "additionalModelRequestFields": {
+    "anthropic_beta": ["example-beta-flag-2025-01-01"],
+    "thinking": { "type": "enabled", "budget_tokens": 1024 }
+  }
+}
+

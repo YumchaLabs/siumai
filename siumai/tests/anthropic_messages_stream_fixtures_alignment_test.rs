@@ -205,6 +205,69 @@ fn anthropic_stream_agent_skills_emits_code_execution_events() {
 }
 
 #[test]
+fn anthropic_stream_agent_skills_finish_includes_container_provider_metadata() {
+    let path = fixtures_dir().join("anthropic-code-execution-20250825.pptx-skill.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let events = run_converter(lines);
+
+    let finish = custom_events_by_type(&events, "finish");
+    assert!(!finish.is_empty(), "expected finish event");
+
+    let container = finish[0]
+        .get("providerMetadata")
+        .and_then(|m| m.get("anthropic"))
+        .and_then(|m| m.get("container"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    assert!(
+        container.get("id").and_then(|v| v.as_str()).is_some(),
+        "expected providerMetadata.anthropic.container.id"
+    );
+    assert!(
+        container
+            .get("expiresAt")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "expected providerMetadata.anthropic.container.expiresAt"
+    );
+    assert!(
+        container
+            .get("skills")
+            .and_then(|v| v.as_array())
+            .is_some_and(|arr| arr
+                .iter()
+                .any(|s| s.get("skillId") == Some(&serde_json::json!("pptx")))),
+        "expected providerMetadata.anthropic.container.skills to include pptx"
+    );
+
+    let end = events
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            ChatStreamEvent::StreamEnd { response } => Some(response),
+            _ => None,
+        })
+        .expect("expected StreamEnd event");
+
+    let container = end
+        .provider_metadata
+        .as_ref()
+        .and_then(|m| m.get("anthropic"))
+        .and_then(|m| m.get("container"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    assert!(
+        container.get("id").and_then(|v| v.as_str()).is_some(),
+        "expected StreamEnd provider_metadata.anthropic.container.id"
+    );
+}
+
+#[test]
 fn anthropic_stream_programmatic_tool_calling_emits_code_execution_events() {
     let path = fixtures_dir().join("anthropic-programmatic-tool-calling.1.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);

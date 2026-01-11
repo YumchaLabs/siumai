@@ -21,10 +21,11 @@ pub fn classify_openai_compatible_http_error(
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown error");
     let error_type = error_obj.get("type").and_then(|v| v.as_str());
-    let error_code = error_obj
-        .get("code")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let error_code = error_obj.get("code").and_then(|v| match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    });
 
     let details = json.clone();
 
@@ -110,6 +111,35 @@ mod tests {
         let err = classify_openai_compatible_http_error("openai", 429, body).expect("classified");
         match err {
             LlmError::QuotaExceededError(msg) => assert!(msg.contains("quota")),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn openai_error_mapping_supports_numeric_code_field() {
+        let body = r#"{"error":{"message":"bad gateway","type":null,"code":123}}"#;
+        let err = classify_openai_compatible_http_error("openai", 502, body).expect("classified");
+        match err {
+            LlmError::ProviderError {
+                provider,
+                message,
+                error_code,
+            } => {
+                assert_eq!(provider, "openai");
+                assert_eq!(message, "bad gateway");
+                assert_eq!(error_code.as_deref(), Some("123"));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn openai_error_mapping_message_heuristics_resource_exhausted() {
+        let body =
+            r#"{"error":{"message":"{\"error\":{\"status\":\"RESOURCE_EXHAUSTED\"}}","type":""}}"#;
+        let err = classify_openai_compatible_http_error("openai", 429, body).expect("classified");
+        match err {
+            LlmError::RateLimitError(msg) => assert!(msg.contains("RESOURCE_EXHAUSTED")),
             other => panic!("unexpected error variant: {other:?}"),
         }
     }

@@ -346,66 +346,16 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             let mut anthropic_meta: std::collections::HashMap<String, serde_json::Value> =
                 std::collections::HashMap::new();
 
-            fn map_container(v: &serde_json::Value) -> Option<serde_json::Value> {
-                let obj = v.as_object()?;
-                let mut out = serde_json::Map::new();
-
-                if let Some(id) = obj.get("id") {
-                    out.insert("id".to_string(), id.clone());
-                }
-
-                out.insert(
-                    "expiresAt".to_string(),
-                    obj.get("expires_at")
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null),
-                );
-
-                let skills = obj
-                    .get("skills")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let mapped_skills = match skills {
-                    serde_json::Value::Array(arr) => {
-                        let mut out_arr: Vec<serde_json::Value> = Vec::new();
-                        for item in arr {
-                            let Some(skill) = item.as_object() else {
-                                out_arr.push(item);
-                                continue;
-                            };
-                            let mut out_skill = serde_json::Map::new();
-                            if let Some(t) = skill.get("type") {
-                                out_skill.insert("type".to_string(), t.clone());
-                            }
-                            out_skill.insert(
-                                "skillId".to_string(),
-                                skill
-                                    .get("skill_id")
-                                    .cloned()
-                                    .unwrap_or(serde_json::Value::Null),
-                            );
-                            if let Some(v) = skill.get("version") {
-                                out_skill.insert("version".to_string(), v.clone());
-                            }
-                            out_arr.push(serde_json::Value::Object(out_skill));
-                        }
-                        serde_json::Value::Array(out_arr)
-                    }
-                    other => other,
-                };
-                out.insert("skills".to_string(), mapped_skills);
-
-                Some(serde_json::Value::Object(out))
-            }
-
             // Raw envelope metadata: include nulls when provided by the API.
             if let Some(v) = raw.get("container")
-                && let Some(mapped) = map_container(v)
+                && let Some(mapped) = super::utils::map_container_provider_metadata(v)
             {
                 anthropic_meta.insert("container".to_string(), mapped);
             }
-            if let Some(v) = raw.get("context_management") {
-                anthropic_meta.insert("contextManagement".to_string(), v.clone());
+            if let Some(v) = raw.get("context_management")
+                && let Some(mapped) = super::utils::map_context_management_provider_metadata(v)
+            {
+                anthropic_meta.insert("contextManagement".to_string(), mapped);
             }
             if let Some(v) = raw.get("stop_sequence") {
                 anthropic_meta.insert("stopSequence".to_string(), v.clone());

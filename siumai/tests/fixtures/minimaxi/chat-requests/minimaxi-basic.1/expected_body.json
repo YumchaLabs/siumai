@@ -1,0 +1,12 @@
+{
+  "model": "MiniMax-M2",
+  "messages": [
+    {
+      "role": "user",
+      "content": [{ "type": "text", "text": "Hello" }]
+    }
+  ],
+  "max_tokens": 128,
+  "temperature": 0.7,
+  "stop_sequences": ["STOP"]
+}

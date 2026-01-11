@@ -37,12 +37,30 @@ fn google_vertex_tools_surface_exports_expected_ids() {
         "google_maps",
     );
 
-    let tool = google_vertex::tools::google_search().build();
+    assert_provider_tool(
+        google_vertex::tools::google_search(),
+        "google.google_search",
+        "google_search",
+    );
+    assert_provider_tool(
+        google_vertex::tools::file_search(vec!["fileSearchStores/store-123".to_string()]),
+        "google.file_search",
+        "file_search",
+    );
+    assert_provider_tool(
+        google_vertex::tools::vertex_rag_store("ragCorpora/123"),
+        "google.vertex_rag_store",
+        "vertex_rag_store",
+    );
+
+    let tool = google_vertex::hosted_tools::google_search().build();
     assert_provider_tool(tool, "google.google_search", "google_search");
 
-    let tool = google_vertex::tools::file_search().build();
+    let tool = google_vertex::hosted_tools::file_search()
+        .with_file_search_store_names(vec!["fileSearchStores/store-123".to_string()])
+        .build();
     assert_provider_tool(tool, "google.file_search", "file_search");
 
-    let tool = google_vertex::tools::vertex_rag_store("ragCorpora/123").build();
+    let tool = google_vertex::hosted_tools::vertex_rag_store("ragCorpora/123").build();
     assert_provider_tool(tool, "google.vertex_rag_store", "vertex_rag_store");
 }

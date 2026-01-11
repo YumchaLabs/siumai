@@ -56,5 +56,7 @@ structured-messages = [
 xai = [
     "siumai-core/xai",
     "siumai-protocol-openai/openai-standard",
+    "siumai-protocol-openai/openai-responses",
     "siumai-provider-openai-compatible/openai-standard",
+    "siumai-provider-openai-compatible/openai-responses",
 ]

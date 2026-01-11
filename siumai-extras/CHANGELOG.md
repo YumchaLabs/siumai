@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `siumai_extras::server::axum::{to_transcoded_sse_response, TargetSseFormat, TranscodeSseOptions}`
 - Runnable gateway example (Gemini backend, OpenAI Responses SSE output)
   - `siumai-extras/examples/openai-responses-gateway.rs`
+- Tool-loop gateway helper (keep one downstream stream open across tool calls)
+  - `siumai_extras::server::tool_loop::tool_loop_chat_stream(...)`
+- Runnable multi-protocol tool-loop gateway example
+  - `siumai-extras/examples/tool-loop-gateway.rs`
 
 ### Changed
 

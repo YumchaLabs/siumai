@@ -1,0 +1,20 @@
+{
+  "model": "claude-3-haiku-20240307",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "max_tokens": 4096,
+  "context_management": {
+    "edits": [
+      { "type": "clear_tool_uses_20250919" }
+    ]
+  }
+}

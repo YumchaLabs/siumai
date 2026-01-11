@@ -100,6 +100,20 @@ impl ProviderSpec for BedrockChatSpec {
         Ok(headers)
     }
 
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        crate::standards::bedrock::errors::classify_bedrock_http_error(
+            self.provider_id,
+            status,
+            body_text,
+            headers,
+        )
+    }
+
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
         let model = urlencoding::encode(&req.common_params.model);
         let suffix = if stream {
@@ -358,6 +372,39 @@ impl RequestTransformer for BedrockChatRequestTransformer {
         if let Some(cfg) = tool_config {
             body["toolConfig"] = cfg;
         }
+
+        let max_tokens = req
+            .common_params
+            .max_completion_tokens
+            .or(req.common_params.max_tokens);
+        let mut inference: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        if let Some(v) = max_tokens {
+            inference.insert("maxTokens".to_string(), serde_json::json!(v));
+        }
+        if let Some(v) = req.common_params.temperature {
+            inference.insert("temperature".to_string(), serde_json::json!(v));
+        }
+        if let Some(v) = req.common_params.top_p {
+            inference.insert("topP".to_string(), serde_json::json!(v));
+        }
+        if let Some(v) = req.common_params.top_k {
+            inference.insert("topK".to_string(), serde_json::json!(v));
+        }
+        if let Some(v) = req.common_params.stop_sequences.as_ref() {
+            inference.insert("stopSequences".to_string(), serde_json::json!(v));
+        }
+        if !inference.is_empty() {
+            body["inferenceConfig"] = serde_json::Value::Object(inference);
+        }
+
+        if let Some(opts) = req.provider_options_map.get_object("bedrock")
+            && let Some(fields) = opts
+                .get("additionalModelRequestFields")
+                .or_else(|| opts.get("additional_model_request_fields"))
+        {
+            body["additionalModelRequestFields"] = fields.clone();
+        }
+
         Ok(body)
     }
 }

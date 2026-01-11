@@ -7,6 +7,7 @@
 //! - Re-serialize into OpenAI Chat Completions SSE and OpenAI Responses SSE.
 
 use eventsource_stream::Event;
+use siumai::experimental::streaming::OpenAiResponsesStreamPartsBridge;
 use siumai::prelude::unified::*;
 use std::path::Path;
 use std::sync::Arc;
@@ -184,17 +185,21 @@ fn decode_openai_chat_completions(bytes: &[u8]) -> Vec<ChatStreamEvent> {
     events
 }
 
-fn encode_openai_responses(events: Vec<ChatStreamEvent>) -> Vec<u8> {
+fn encode_openai_responses_with_bridge(events: Vec<ChatStreamEvent>) -> Vec<u8> {
+    use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
 
+    let mut bridge = OpenAiResponsesStreamPartsBridge::new();
     let encoder = OpenAiResponsesEventConverter::new();
 
     let mut out = Vec::new();
     for ev in events {
-        let chunk = encoder
-            .serialize_event(&ev)
-            .expect("serialize OpenAI responses chunk");
-        out.extend_from_slice(&chunk);
+        for bridged in bridge.bridge_event(ev) {
+            let chunk = encoder
+                .serialize_event(&bridged)
+                .expect("serialize OpenAI responses chunk");
+            out.extend_from_slice(&chunk);
+        }
     }
     out
 }
@@ -232,6 +237,21 @@ fn decode_openai_responses(bytes: &[u8]) -> Vec<ChatStreamEvent> {
     events
 }
 
+fn custom_v3_tool_calls(events: &[ChatStreamEvent], tool_name: &str) -> Vec<serde_json::Value> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::json!("tool-call"))
+                    && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn gemini_simple_text_transcodes_to_openai_chat_completions_and_responses() {
     let path = gemini_fixtures_dir().join("simple_text_then_finish.sse");
@@ -261,7 +281,7 @@ fn gemini_simple_text_transcodes_to_openai_chat_completions_and_responses() {
         .collect();
     assert_eq!(chat_text, "Hello world");
 
-    let responses_bytes = encode_openai_responses(upstream);
+    let responses_bytes = encode_openai_responses_with_bridge(upstream);
     let responses_events = decode_openai_responses(&responses_bytes);
     let has_text_delta = responses_events.iter().any(|e| match e {
         ChatStreamEvent::Custom { data, .. } => {
@@ -314,7 +334,7 @@ fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
         "expected tool-call events in OpenAI chat completions stream"
     );
 
-    let responses_bytes = encode_openai_responses(upstream);
+    let responses_bytes = encode_openai_responses_with_bridge(upstream);
     let responses_events = decode_openai_responses(&responses_bytes);
 
     let has_responses_tool_call = responses_events.iter().any(|e| match e {
@@ -331,4 +351,107 @@ fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
         has_responses_tool_call,
         "expected tool call to be present after OpenAI Responses re-serialization"
     );
+}
+
+#[test]
+fn gemini_multi_function_calls_transcodes_to_openai_chat_completions_and_responses() {
+    let path = gemini_fixtures_dir().join("multi_function_calls_then_finish.sse");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = run_gemini_converter(read_gemini_sse_data_lines(&path));
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let tool_names: Vec<_> = upstream
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::ToolCallDelta { function_name, .. } => function_name.clone(),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        tool_names.iter().any(|n| n == "tool_a") && tool_names.iter().any(|n| n == "tool_b"),
+        "expected tool_a and tool_b tool calls, got: {tool_names:?}"
+    );
+
+    let chat_bytes = encode_openai_chat_completions(upstream.clone());
+    let chat_events = decode_openai_chat_completions(&chat_bytes);
+    let chat_tool_calls = chat_events
+        .iter()
+        .filter(|e| matches!(e, ChatStreamEvent::ToolCallDelta { .. }))
+        .count();
+    assert!(chat_tool_calls >= 2, "expected >=2 tool calls");
+
+    let responses_bytes = encode_openai_responses_with_bridge(upstream);
+    let responses_events = decode_openai_responses(&responses_bytes);
+    let a = custom_v3_tool_calls(&responses_events, "tool_a");
+    let b = custom_v3_tool_calls(&responses_events, "tool_b");
+    assert!(!a.is_empty(), "expected tool-call for tool_a");
+    assert!(!b.is_empty(), "expected tool-call for tool_b");
+}
+
+#[test]
+fn gemini_function_response_transcodes_to_openai_responses_tool_result() {
+    let path = gemini_fixtures_dir().join("function_response_then_finish.sse");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = run_gemini_converter(read_gemini_sse_data_lines(&path));
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_openai_responses_with_bridge(upstream);
+    let events = decode_openai_responses(&bytes);
+
+    let tool_results: Vec<serde_json::Value> = events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::json!("tool-result")) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(tool_results.len(), 1, "expected one tool-result event");
+    let tr = &tool_results[0];
+    assert_eq!(tr.get("toolCallId"), Some(&serde_json::json!("call_1")));
+    assert_eq!(tr.get("toolName"), Some(&serde_json::json!("test-tool")));
+    assert_eq!(tr.get("result"), Some(&serde_json::json!({"value":"ok"})));
+}
+
+#[test]
+fn gemini_function_call_thought_signature_can_be_exposed_as_v3_part() {
+    let path = gemini_fixtures_dir().join("function_call_with_thought_signature.sse");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let conv = siumai::protocol::gemini::streaming::GeminiEventConverter::new(
+        siumai::protocol::gemini::types::GeminiConfig::default(),
+    )
+    .with_emit_v3_tool_call_parts(true);
+
+    let mut events: Vec<ChatStreamEvent> = Vec::new();
+    for (i, line) in read_gemini_sse_data_lines(&path).into_iter().enumerate() {
+        let ev = Event {
+            event: "".to_string(),
+            data: line,
+            id: i.to_string(),
+            retry: None,
+        };
+        let out = futures::executor::block_on(conv.convert_event(ev));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to convert chunk: {err:?}"),
+            }
+        }
+    }
+
+    let v3_calls = custom_v3_tool_calls(&events, "test-tool");
+    assert!(!v3_calls.is_empty(), "expected v3 tool-call event");
+    let pm = v3_calls[0]
+        .get("providerMetadata")
+        .and_then(|v| v.get("google"))
+        .and_then(|v| v.get("thoughtSignature"))
+        .and_then(|v| v.as_str());
+    assert_eq!(pm, Some("sig_test_123"));
 }

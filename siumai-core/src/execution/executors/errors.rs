@@ -44,7 +44,7 @@ pub async fn classify_error_with_text(
         status.as_u16(),
         &text,
         &headers,
-        None,
+        status.canonical_reason(),
     );
     for it in interceptors {
         it.on_error(ctx, &error);

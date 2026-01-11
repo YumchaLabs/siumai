@@ -58,6 +58,9 @@ For the full rationale and architecture direction, see:
    - Keep the default profile fast (`openai` only).
    - Ensure `openai-compatible` (OpenAI + Groq + xAI) stays green for shared-protocol drift detection.
     - Keep builder ergonomics provider-owned (extension traits) to avoid re-coupling `siumai-core` to providers.
+   - For the “Core Trio” M1 smoke run (fixtures audit + transcoding + tool-loop gateway tests):
+     - Windows: `scripts/test-m1.bat` (expects `../ai` next to this repo)
+     - Unix: `scripts/test-m1.sh` (expects `../ai` next to this repo)
 
 ## Guardrails (refactor safety)
 
@@ -69,3 +72,5 @@ For the full rationale and architecture direction, see:
 ## Stable surface reference
 
 - `docs/public-surface.md` (recommended stable module paths for the `siumai` facade)
+- `docs/provider-feature-alignment.md` (high-level provider feature matrix; use as refactor acceptance criteria)
+- `docs/provider-feature-targets.md` (Alpha.5 target matrix; use as the prioritized roadmap)

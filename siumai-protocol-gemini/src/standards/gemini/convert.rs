@@ -615,29 +615,49 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
                                 let rag_corpus = obj
                                     .and_then(|o| o.get("ragCorpus"))
                                     .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
-                                let similarity_top_k = obj
-                                    .and_then(|o| o.get("topK"))
-                                    .and_then(|v| v.as_u64())
-                                    .map(|v| v as u32);
+                                    .ok_or_else(|| {
+                                        LlmError::InvalidInput(
+                                            "google.vertex_rag_store requires `ragCorpus`"
+                                                .to_string(),
+                                        )
+                                    })?
+                                    .to_string();
 
-                                if let Some(rag_corpus) = rag_corpus {
-                                    gemini_tools.push(GeminiTool::Retrieval {
-                                        retrieval: super::types::Retrieval {
-                                            vertex_rag_store: super::types::VertexRagStore {
-                                                rag_resources: super::types::VertexRagResources {
-                                                    rag_corpus,
-                                                },
-                                                similarity_top_k,
+                                let similarity_top_k = match obj.and_then(|o| o.get("topK")) {
+                                    None => None,
+                                    Some(v) => {
+                                        let n = v.as_u64().ok_or_else(|| {
+                                            LlmError::InvalidInput(
+                                                "google.vertex_rag_store `topK` must be a positive integer"
+                                                    .to_string(),
+                                            )
+                                        })?;
+                                        if n == 0 {
+                                            return Err(LlmError::InvalidInput(
+                                                "google.vertex_rag_store `topK` must be a positive integer"
+                                                    .to_string(),
+                                            ));
+                                        }
+                                        Some(n as u32)
+                                    }
+                                };
+
+                                gemini_tools.push(GeminiTool::Retrieval {
+                                    retrieval: super::types::Retrieval {
+                                        vertex_rag_store: super::types::VertexRagStore {
+                                            rag_resources: super::types::VertexRagResources {
+                                                rag_corpus,
                                             },
+                                            similarity_top_k,
                                         },
-                                    });
-                                }
+                                    },
+                                });
                             }
                         }
                         Some("file_search") => {
                             if supports_file_search(model) {
                                 let obj = provider_tool.args.as_object();
+
                                 let file_search_store_names = obj
                                     .and_then(|o| o.get("fileSearchStoreNames"))
                                     .and_then(|v| v.as_array())
@@ -645,17 +665,52 @@ pub fn convert_tools_to_gemini(model: &str, tools: &[Tool]) -> Result<Vec<Gemini
                                         arr.iter()
                                             .filter_map(|v| v.as_str().map(|s| s.to_string()))
                                             .collect::<Vec<_>>()
-                                    });
-                                let top_k = obj
-                                    .and_then(|o| o.get("topK"))
-                                    .and_then(|v| v.as_u64())
-                                    .map(|v| v as u32);
-                                let metadata_filter =
-                                    obj.and_then(|o| o.get("metadataFilter")).cloned();
+                                    })
+                                    .filter(|arr| !arr.is_empty())
+                                    .ok_or_else(|| {
+                                        LlmError::InvalidInput(
+                                            "google.file_search requires non-empty `fileSearchStoreNames`"
+                                                .to_string(),
+                                        )
+                                    })?;
+
+                                let top_k = match obj.and_then(|o| o.get("topK")) {
+                                    None => None,
+                                    Some(v) => {
+                                        let n = v.as_u64().ok_or_else(|| {
+                                            LlmError::InvalidInput(
+                                                "google.file_search `topK` must be a positive integer"
+                                                    .to_string(),
+                                            )
+                                        })?;
+                                        if n == 0 {
+                                            return Err(LlmError::InvalidInput(
+                                                "google.file_search `topK` must be a positive integer"
+                                                    .to_string(),
+                                            ));
+                                        }
+                                        Some(n as u32)
+                                    }
+                                };
+
+                                let metadata_filter = match obj.and_then(|o| o.get("metadataFilter"))
+                                {
+                                    None => None,
+                                    Some(v) => Some(
+                                        v.as_str()
+                                            .ok_or_else(|| {
+                                                LlmError::InvalidInput(
+                                                    "google.file_search `metadataFilter` must be a string expression"
+                                                        .to_string(),
+                                                )
+                                            })?
+                                            .to_string(),
+                                    ),
+                                };
 
                                 gemini_tools.push(GeminiTool::FileSearch {
                                     file_search: super::types::FileSearch {
-                                        file_search_store_names,
+                                        file_search_store_names: Some(file_search_store_names),
                                         top_k,
                                         metadata_filter,
                                     },
@@ -745,10 +800,12 @@ mod tests {
 
         // vertex_rag_store
         let tools = vec![
-            crate::tools::google::vertex_rag_store().with_args(serde_json::json!({
-                "ragCorpus": "projects/p/locations/l/ragCorpora/c",
-                "topK": 3
-            })),
+            Tool::provider_defined("google.vertex_rag_store", "vertex_rag_store").with_args(
+                serde_json::json!({
+                    "ragCorpus": "projects/p/locations/l/ragCorpora/c",
+                    "topK": 3
+                }),
+            ),
         ];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
@@ -759,10 +816,12 @@ mod tests {
 
         // file_search
         let tools = vec![
-            crate::tools::google::file_search().with_args(serde_json::json!({
-                "fileSearchStoreNames": ["fileSearchStores/abc123"],
-                "topK": 5
-            })),
+            Tool::provider_defined("google.file_search", "file_search").with_args(
+                serde_json::json!({
+                    "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                    "topK": 5
+                }),
+            ),
         ];
         let mapped = convert_tools_to_gemini("gemini-2.5-flash", &tools).expect("map ok");
         assert!(
@@ -793,10 +852,12 @@ mod tests {
     #[test]
     fn file_search_is_ignored_when_model_does_not_support_it() {
         let tools = vec![
-            crate::tools::google::file_search().with_args(serde_json::json!({
-                "fileSearchStoreNames": ["fileSearchStores/abc123"],
-                "topK": 5
-            })),
+            Tool::provider_defined("google.file_search", "file_search").with_args(
+                serde_json::json!({
+                    "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                    "topK": 5
+                }),
+            ),
         ];
 
         let mapped = convert_tools_to_gemini("gemini-2.0-flash", &tools).expect("map ok");
@@ -811,10 +872,12 @@ mod tests {
     #[test]
     fn file_search_is_allowed_on_gemini_3_models() {
         let tools = vec![
-            crate::tools::google::file_search().with_args(serde_json::json!({
-                "fileSearchStoreNames": ["fileSearchStores/abc123"],
-                "topK": 5
-            })),
+            Tool::provider_defined("google.file_search", "file_search").with_args(
+                serde_json::json!({
+                    "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                    "topK": 5
+                }),
+            ),
         ];
 
         let mapped = convert_tools_to_gemini("gemini-3-pro-preview", &tools).expect("map ok");
@@ -884,6 +947,66 @@ mod tests {
             .expect("function declarations");
         assert_eq!(decls.len(), 1);
         assert!(decls[0].parameters.is_none());
+    }
+
+    #[test]
+    fn google_file_search_requires_store_names() {
+        let tools = vec![Tool::provider_defined("google.file_search", "file_search")];
+        let err = convert_tools_to_gemini("gemini-2.5-flash", &tools).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("google.file_search requires non-empty `fileSearchStoreNames`"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn google_file_search_rejects_non_string_metadata_filter() {
+        let tool = Tool::provider_defined("google.file_search", "file_search").with_args(
+            serde_json::json!({
+                "fileSearchStoreNames": ["fileSearchStores/abc123"],
+                "metadataFilter": { "source": "test" }
+            }),
+        );
+
+        let err = convert_tools_to_gemini("gemini-2.5-flash", &[tool]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("google.file_search `metadataFilter` must be a string expression"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn google_vertex_rag_store_requires_rag_corpus() {
+        let tools = vec![Tool::provider_defined(
+            "google.vertex_rag_store",
+            "vertex_rag_store",
+        )];
+        let err = convert_tools_to_gemini("gemini-2.5-flash", &tools).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("google.vertex_rag_store requires `ragCorpus`"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn google_vertex_rag_store_rejects_non_positive_top_k() {
+        let tools = vec![
+            Tool::provider_defined("google.vertex_rag_store", "vertex_rag_store").with_args(
+                serde_json::json!({
+                    "ragCorpus": "projects/p/locations/l/ragCorpora/c",
+                    "topK": 0
+                }),
+            ),
+        ];
+        let err = convert_tools_to_gemini("gemini-2.5-flash", &tools).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("google.vertex_rag_store `topK` must be a positive integer"),
+            "unexpected error: {err:?}"
+        );
     }
 }
 

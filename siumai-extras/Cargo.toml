@@ -126,3 +126,8 @@ required-features = ["openai"]
 name = "openai-responses-gateway"
 path = "examples/openai-responses-gateway.rs"
 required-features = ["server", "google", "openai"]
+
+[[example]]
+name = "tool-loop-gateway"
+path = "examples/tool-loop-gateway.rs"
+required-features = ["server", "google", "openai"]

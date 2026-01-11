@@ -46,16 +46,16 @@ let web_search = tools::openai::web_search_named("mySearch");
 
 ### 1b) Use provider-scoped aliases (Vercel-style import paths)
 
-If you prefer a provider-scoped namespace (closer to the AI SDK mental model), you can also use
-the stable alias `siumai::providers::<provider>::provider_tools::*`:
+If you prefer a provider-scoped namespace (closer to the AI SDK mental model), you can use
+the stable alias `siumai::providers::<provider>::tools::*`:
 
 ```rust
 use siumai::prelude::*;
 use siumai::providers;
 
 let tools = vec![
-    providers::openai::provider_tools::web_search(),
-    providers::openai::provider_tools::file_search(),
+    providers::openai::tools::web_search(),
+    providers::openai::tools::file_search(),
 ];
 
 let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(tools);
@@ -83,7 +83,17 @@ to build a `Tool` with typed helpers (then call `.build()`):
 use siumai::hosted_tools::openai;
 
 let tool = openai::web_search()
-    .search_context_size("high")
+    .with_search_context_size("high")
+    .build();
+```
+
+Alternatively, you can access the same typed builders under the provider-scoped alias:
+
+```rust,no_run
+use siumai::providers;
+
+let tool = providers::openai::hosted_tools::web_search()
+    .with_search_context_size("high")
     .build();
 ```
 
@@ -91,3 +101,15 @@ let tool = openai::web_search()
 
 - `Tool::provider_defined(id, name)` remains available for full manual control, but prefer the
   factory APIs above to avoid naming mismatches during the refactor.
+- `Tool::provider_defined_id(...)` can only construct tools that do not require mandatory args.
+  For example, `google.file_search` and `google.vertex_rag_store` require args, so
+  `Tool::provider_defined_id("google.file_search")` will return `None`.
+- Google/Gemini File Search:
+  - `fileSearchStoreNames` is required.
+  - `metadataFilter` is a string expression (AIP-160).
+  - Prefer typed builders:
+    `siumai::hosted_tools::google::file_search().with_file_search_store_names(vec![...]).with_metadata_filter("source = \\\"test\\\"").build()`.
+- Google Vertex RAG Store:
+  - `ragCorpus` is required.
+  - Prefer typed builders:
+    `siumai::hosted_tools::google::vertex_rag_store("projects/.../ragCorpora/...").with_top_k(5).build()`.

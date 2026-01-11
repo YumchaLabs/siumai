@@ -161,12 +161,10 @@ async fn test_xai_error_response() {
 
     assert!(result.is_err());
     let error = result.unwrap_err();
-    let error_str = error.to_string();
-    assert!(
-        error_str.contains("model_not_found") || error_str.contains("invalid_request_error"),
-        "Error should contain API error details, got: {}",
-        error_str
-    );
+    match error {
+        LlmError::InvalidInput(msg) => assert_eq!(msg, "Invalid model specified"),
+        other => panic!("unexpected error variant: {other:?}"),
+    }
 }
 
 #[tokio::test]

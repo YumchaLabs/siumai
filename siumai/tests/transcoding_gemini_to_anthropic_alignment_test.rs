@@ -207,3 +207,27 @@ fn gemini_function_call_transcodes_to_anthropic_messages_sse() {
         "expected message_stop frame: {frames:?}"
     );
 }
+
+#[test]
+fn gemini_multi_function_calls_transcodes_to_anthropic_messages_sse() {
+    let path = gemini_fixtures_dir().join("multi_function_calls_then_finish.sse");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = run_gemini_converter(read_gemini_sse_data_lines(&path));
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_anthropic_messages_sse(upstream);
+    let frames = parse_sse_json_frames(&bytes);
+
+    let tool_use_names: Vec<_> = frames
+        .iter()
+        .filter(|v| v["type"] == "content_block_start" && v["content_block"]["type"] == "tool_use")
+        .filter_map(|v| v["content_block"]["name"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    assert!(
+        tool_use_names.iter().any(|n| n == "tool_a")
+            && tool_use_names.iter().any(|n| n == "tool_b"),
+        "expected tool_a and tool_b tool_use blocks, got: {tool_use_names:?}"
+    );
+}

@@ -138,7 +138,9 @@ async fn gemini_warns_on_unsupported_file_search_tool_for_non_gemini_2_5_or_3_mo
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![tools::google::file_search()]),
+            Some(vec![tools::google::file_search(vec![
+                "fileSearchStores/store-123".to_string(),
+            ])]),
         )
         .await
         .unwrap();
@@ -304,10 +306,9 @@ async fn gemini_warns_on_unsupported_vertex_rag_store_tool_for_non_gemini2_model
     let response = client
         .chat_with_tools(
             vec![ChatMessage::user("hi").build()],
-            Some(vec![tools::google::vertex_rag_store().with_args(json!({
-                "ragCorpus": "projects/my-project/locations/us-central1/ragCorpora/my-rag-corpus",
-                "topK": 5
-            }))]),
+            Some(vec![tools::google::vertex_rag_store(
+                "projects/my-project/locations/us-central1/ragCorpora/my-rag-corpus",
+            )]),
         )
         .await
         .unwrap();

@@ -452,3 +452,69 @@ impl ProviderSpec for AzureOpenAiSpec {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::header::HeaderMap;
+
+    #[test]
+    fn azure_classify_http_error_deployment_not_found() {
+        let spec = AzureOpenAiSpec::default();
+        let body = r#"{"error":{"code":"DeploymentNotFound","message":"The API deployment for this resource does not exist."}}"#;
+        let err = spec
+            .classify_http_error(404, body, &HeaderMap::new())
+            .expect("classified");
+        match err {
+            LlmError::NotFound(msg) => assert!(msg.contains("deployment")),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn azure_classify_http_error_unauthorized() {
+        let spec = AzureOpenAiSpec::default();
+        let body = r#"{"error":{"code":"Unauthorized","message":"Access denied due to invalid subscription key."}}"#;
+        let err = spec
+            .classify_http_error(401, body, &HeaderMap::new())
+            .expect("classified");
+        match err {
+            LlmError::AuthenticationError(msg) => assert!(msg.contains("subscription key")),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn azure_classify_http_error_rate_limited() {
+        let spec = AzureOpenAiSpec::default();
+        let body = r#"{"error":{"code":"TooManyRequests","message":"Rate limited."}}"#;
+        let err = spec
+            .classify_http_error(429, body, &HeaderMap::new())
+            .expect("classified");
+        match err {
+            LlmError::RateLimitError(msg) => assert!(msg.contains("Rate limited")),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn azure_classify_http_error_supports_numeric_code_field() {
+        let spec = AzureOpenAiSpec::default();
+        let body = r#"{"error":{"message":"bad gateway","type":null,"code":123}}"#;
+        let err = spec
+            .classify_http_error(502, body, &HeaderMap::new())
+            .expect("classified");
+        match err {
+            LlmError::ProviderError {
+                provider,
+                message,
+                error_code,
+            } => {
+                assert_eq!(provider, "azure");
+                assert_eq!(message, "bad gateway");
+                assert_eq!(error_code.as_deref(), Some("123"));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+}

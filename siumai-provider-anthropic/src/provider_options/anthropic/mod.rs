@@ -5,6 +5,14 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnthropicEffort {
+    Low,
+    Medium,
+    High,
+}
+
 /// Anthropic-specific options
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnthropicOptions {
@@ -16,6 +24,15 @@ pub struct AnthropicOptions {
     pub response_format: Option<AnthropicResponseFormat>,
     /// Container configuration (agent skills, etc.)
     pub container: Option<AnthropicContainerConfig>,
+    /// Context management configuration (Vercel `contextManagement` -> API `context_management`).
+    pub context_management: Option<serde_json::Value>,
+    /// Fine-grained tool streaming toggle (Vercel `toolStreaming`).
+    ///
+    /// Vercel default is `true` when streaming; when enabled we add the
+    /// `fine-grained-tool-streaming-2025-05-14` beta header token.
+    pub tool_streaming: Option<bool>,
+    /// Output effort (Vercel `effort`), sent as `output_config: { effort }`.
+    pub effort: Option<AnthropicEffort>,
 }
 
 impl AnthropicOptions {
@@ -60,6 +77,21 @@ impl AnthropicOptions {
     /// Configure container features (e.g., agent skills).
     pub fn with_container(mut self, container: AnthropicContainerConfig) -> Self {
         self.container = Some(container);
+        self
+    }
+
+    pub fn with_context_management(mut self, context_management: serde_json::Value) -> Self {
+        self.context_management = Some(context_management);
+        self
+    }
+
+    pub fn with_tool_streaming(mut self, enabled: bool) -> Self {
+        self.tool_streaming = Some(enabled);
+        self
+    }
+
+    pub fn with_effort(mut self, effort: AnthropicEffort) -> Self {
+        self.effort = Some(effort);
         self
     }
 }

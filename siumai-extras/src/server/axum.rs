@@ -58,6 +58,8 @@ pub struct TranscodeSseOptions {
     /// Whether to bridge multiplexed Vercel-aligned tool parts into richer OpenAI Responses
     /// output_item frames (adds rawItem scaffolding when possible).
     pub bridge_openai_responses_stream_parts: bool,
+    /// Whether to serialize v3 tool results as Gemini `functionResponse` frames (gateway-only).
+    pub gemini_emit_function_response_tool_results: bool,
 }
 
 impl Default for TranscodeSseOptions {
@@ -66,6 +68,7 @@ impl Default for TranscodeSseOptions {
             v3_unsupported_part_behavior:
                 siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
             bridge_openai_responses_stream_parts: true,
+            gemini_emit_function_response_tool_results: false,
         }
     }
 }
@@ -111,22 +114,14 @@ fn openai_responses_supports_v3_part_type(tpe: &str) -> bool {
 }
 
 #[cfg(feature = "openai")]
-fn apply_openai_responses_v3_lossy_fallback(
+fn apply_openai_responses_v3_policy(
     stream: ChatStream,
     behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
 ) -> ChatStream {
     use siumai::experimental::streaming::{LanguageModelV3StreamPart, transform_chat_event_stream};
 
-    if behavior != siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText {
-        return stream;
-    }
-
     transform_chat_event_stream(stream, move |ev| match ev {
         ChatStreamEvent::Custom { event_type, data } => {
-            if event_type.starts_with("openai:") {
-                return vec![ChatStreamEvent::Custom { event_type, data }];
-            }
-
             let Some(tpe) = data.get("type").and_then(|v| v.as_str()) else {
                 return vec![ChatStreamEvent::Custom { event_type, data }];
             };
@@ -136,16 +131,21 @@ fn apply_openai_responses_v3_lossy_fallback(
             }
 
             let Some(part) = LanguageModelV3StreamPart::parse_loose_json(&data) else {
+                // Unknown shape; keep it and let the downstream serializer decide.
                 return vec![ChatStreamEvent::Custom { event_type, data }];
             };
 
-            if let Some(text) = part.to_lossy_text() {
-                vec![ChatStreamEvent::ContentDelta {
-                    delta: text,
-                    index: None,
-                }]
-            } else {
-                vec![ChatStreamEvent::Custom { event_type, data }]
+            match behavior {
+                siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop => Vec::new(),
+                siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText => part
+                    .to_lossy_text()
+                    .map(|text| {
+                        vec![ChatStreamEvent::ContentDelta {
+                            delta: text,
+                            index: None,
+                        }]
+                    })
+                    .unwrap_or_default(),
             }
         }
         other => vec![other],
@@ -430,8 +430,7 @@ pub fn to_openai_responses_sse_stream_with_options(
 
     let mut bridge = OpenAiResponsesStreamPartsBridge::new();
 
-    let stream =
-        apply_openai_responses_v3_lossy_fallback(stream, opts.v3_unsupported_part_behavior);
+    let stream = apply_openai_responses_v3_policy(stream, opts.v3_unsupported_part_behavior);
     let bridged = transform_chat_event_stream(stream, move |ev| bridge.bridge_event(ev));
 
     let converter = OpenAiResponsesEventConverter::new();
@@ -616,10 +615,8 @@ pub fn to_transcoded_sse_response(
                 if opts.bridge_openai_responses_stream_parts {
                     return to_openai_responses_sse_response_with_options(stream, opts);
                 }
-                let stream = apply_openai_responses_v3_lossy_fallback(
-                    stream,
-                    opts.v3_unsupported_part_behavior,
-                );
+                let stream =
+                    apply_openai_responses_v3_policy(stream, opts.v3_unsupported_part_behavior);
                 // Without bridge: serialize directly (best-effort).
                 use futures::StreamExt;
                 use siumai::experimental::streaming::encode_chat_stream_as_sse;
@@ -717,7 +714,10 @@ pub fn to_transcoded_sse_response(
                 use siumai::protocol::gemini::types::GeminiConfig;
 
                 let converter = GeminiEventConverter::new(GeminiConfig::default())
-                    .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
+                    .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior)
+                    .with_emit_function_response_tool_results(
+                        opts.gemini_emit_function_response_tool_results,
+                    );
                 let bytes = encode_chat_stream_as_sse(stream, converter);
 
                 let body = Body::from_stream(bytes.map(|item| {
@@ -764,6 +764,202 @@ mod transcode_tests {
             siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop
         );
         assert!(opts.bridge_openai_responses_stream_parts);
+    }
+
+    #[tokio::test]
+    #[cfg(all(feature = "openai", feature = "anthropic", feature = "google"))]
+    async fn v3_raw_and_file_parts_follow_v3_unsupported_part_behavior_across_targets() {
+        use futures::StreamExt;
+        use siumai::experimental::streaming::{ChatByteStream, encode_chat_stream_as_sse};
+        use siumai::prelude::unified::{ChatResponse, MessageContent};
+
+        fn test_stream() -> ChatStream {
+            use futures::stream;
+            use siumai::prelude::unified::{ChatStreamEvent, ResponseMetadata};
+
+            let events = vec![
+                Ok(ChatStreamEvent::StreamStart {
+                    metadata: ResponseMetadata {
+                        id: Some("test-id".to_string()),
+                        model: Some("test-model".to_string()),
+                        created: None,
+                        provider: "test".to_string(),
+                        request_id: None,
+                    },
+                }),
+                Ok(ChatStreamEvent::Custom {
+                    event_type: "bridge:test".to_string(),
+                    data: serde_json::json!({
+                        "type": "raw",
+                        "rawValue": { "hello": "world" }
+                    }),
+                }),
+                Ok(ChatStreamEvent::Custom {
+                    event_type: "bridge:test".to_string(),
+                    data: serde_json::json!({
+                        "type": "file",
+                        "mediaType": "text/plain",
+                        "data": "aGVsbG8="
+                    }),
+                }),
+                Ok(ChatStreamEvent::StreamEnd {
+                    response: ChatResponse::new(MessageContent::Text("done".to_string())),
+                }),
+            ];
+
+            Box::pin(stream::iter(events))
+        }
+
+        async fn collect_bytes(mut s: ChatByteStream) -> Vec<u8> {
+            let mut out = Vec::new();
+            while let Some(item) = s.next().await {
+                let chunk = item.expect("encode ok");
+                out.extend_from_slice(chunk.as_ref());
+            }
+            out
+        }
+
+        async fn collect_infallible_bytes(
+            mut s: Pin<Box<dyn Stream<Item = Result<axum::body::Bytes, Infallible>> + Send>>,
+        ) -> Vec<u8> {
+            let mut out = Vec::new();
+            while let Some(item) = s.next().await {
+                let chunk = item.expect("encode ok");
+                out.extend_from_slice(chunk.as_ref());
+            }
+            out
+        }
+
+        // OpenAI Responses
+        {
+            let strict_opts = TranscodeSseOptions {
+                v3_unsupported_part_behavior:
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+                ..TranscodeSseOptions::default()
+            };
+            let lossy_opts = TranscodeSseOptions {
+                v3_unsupported_part_behavior:
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+                ..TranscodeSseOptions::default()
+            };
+
+            let strict = collect_infallible_bytes(to_openai_responses_sse_stream_with_options(
+                test_stream(),
+                strict_opts,
+            ))
+            .await;
+            let strict_text = String::from_utf8_lossy(&strict);
+            assert!(!strict_text.contains("[raw]"));
+            assert!(!strict_text.contains("[file]"));
+
+            let lossy = collect_infallible_bytes(to_openai_responses_sse_stream_with_options(
+                test_stream(),
+                lossy_opts,
+            ))
+            .await;
+            let lossy_text = String::from_utf8_lossy(&lossy);
+            assert!(lossy_text.contains("[raw]"));
+            assert!(lossy_text.contains("[file]"));
+        }
+
+        // OpenAI Chat Completions
+        {
+            use siumai::protocol::openai::compat::openai_config::OpenAiCompatibleConfig;
+            use siumai::protocol::openai::compat::provider_registry::{
+                ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+            };
+            use siumai::protocol::openai::compat::streaming::OpenAiCompatibleEventConverter;
+            use std::sync::Arc;
+
+            let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "openai".to_string(),
+                name: "OpenAI".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["tools".to_string()],
+                default_model: Some("gpt-4o-mini".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+
+            let cfg = OpenAiCompatibleConfig::new(
+                "openai",
+                "sk-siumai-encoding-only",
+                "https://api.openai.com/v1",
+                adapter.clone(),
+            )
+            .with_model("gpt-4o-mini");
+
+            let strict_conv = OpenAiCompatibleEventConverter::new(cfg.clone(), adapter.clone())
+                .with_v3_unsupported_part_behavior(
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+                );
+            let lossy_conv = OpenAiCompatibleEventConverter::new(cfg, adapter)
+                .with_v3_unsupported_part_behavior(
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+                );
+
+            let strict = collect_bytes(encode_chat_stream_as_sse(test_stream(), strict_conv)).await;
+            let strict_text = String::from_utf8_lossy(&strict);
+            assert!(!strict_text.contains("[raw]"));
+            assert!(!strict_text.contains("[file]"));
+
+            let lossy = collect_bytes(encode_chat_stream_as_sse(test_stream(), lossy_conv)).await;
+            let lossy_text = String::from_utf8_lossy(&lossy);
+            assert!(lossy_text.contains("[raw]"));
+            assert!(lossy_text.contains("[file]"));
+        }
+
+        // Anthropic Messages
+        {
+            use siumai::protocol::anthropic::params::AnthropicParams;
+            use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
+
+            let strict_conv = AnthropicEventConverter::new(AnthropicParams::default())
+                .with_v3_unsupported_part_behavior(
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+                );
+            let lossy_conv = AnthropicEventConverter::new(AnthropicParams::default())
+                .with_v3_unsupported_part_behavior(
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+                );
+
+            let strict = collect_bytes(encode_chat_stream_as_sse(test_stream(), strict_conv)).await;
+            let strict_text = String::from_utf8_lossy(&strict);
+            assert!(!strict_text.contains("[raw]"));
+            assert!(!strict_text.contains("[file]"));
+
+            let lossy = collect_bytes(encode_chat_stream_as_sse(test_stream(), lossy_conv)).await;
+            let lossy_text = String::from_utf8_lossy(&lossy);
+            assert!(lossy_text.contains("[raw]"));
+            assert!(lossy_text.contains("[file]"));
+        }
+
+        // Gemini GenerateContent
+        {
+            use siumai::protocol::gemini::streaming::GeminiEventConverter;
+            use siumai::protocol::gemini::types::GeminiConfig;
+
+            let strict_conv = GeminiEventConverter::new(GeminiConfig::default())
+                .with_v3_unsupported_part_behavior(
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+                );
+            let lossy_conv = GeminiEventConverter::new(GeminiConfig::default())
+                .with_v3_unsupported_part_behavior(
+                    siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+                );
+
+            let strict = collect_bytes(encode_chat_stream_as_sse(test_stream(), strict_conv)).await;
+            let strict_text = String::from_utf8_lossy(&strict);
+            assert!(!strict_text.contains("[raw]"));
+            assert!(!strict_text.contains("[file]"));
+
+            let lossy = collect_bytes(encode_chat_stream_as_sse(test_stream(), lossy_conv)).await;
+            let lossy_text = String::from_utf8_lossy(&lossy);
+            assert!(lossy_text.contains("[raw]"));
+            assert!(lossy_text.contains("[file]"));
+        }
     }
 }
 

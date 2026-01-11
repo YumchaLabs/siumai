@@ -51,6 +51,9 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 } else if let Some(max) = req.common_params.max_tokens {
                     body["max_tokens"] = serde_json::json!(max);
                 }
+                if let Some(seed) = req.common_params.seed {
+                    body["seed"] = serde_json::json!(seed);
+                }
                 if let Some(stops) = &req.common_params.stop_sequences {
                     body["stop_sequences"] = serde_json::json!(stops);
                 }

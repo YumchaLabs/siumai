@@ -229,6 +229,52 @@ impl ProviderSpec for AnthropicSpec {
             !skills.is_empty()
         }
 
+        fn has_context_management(req: &ChatRequest) -> bool {
+            let Some(v) = req.provider_options_map.get("anthropic") else {
+                return false;
+            };
+            let Some(obj) = v.as_object() else {
+                return false;
+            };
+
+            if obj.get("contextManagement").is_some() {
+                return true;
+            }
+            obj.get("context_management").is_some()
+        }
+
+        fn has_effort(req: &ChatRequest) -> bool {
+            let Some(v) = req.provider_options_map.get("anthropic") else {
+                return false;
+            };
+            let Some(obj) = v.as_object() else {
+                return false;
+            };
+            obj.get("effort").is_some()
+        }
+
+        fn fine_grained_tool_streaming_enabled(req: &ChatRequest) -> bool {
+            if !req.stream {
+                return false;
+            }
+
+            let Some(v) = req.provider_options_map.get("anthropic") else {
+                return true;
+            };
+            let Some(obj) = v.as_object() else {
+                return true;
+            };
+
+            if let Some(b) = obj.get("toolStreaming").and_then(|v| v.as_bool()) {
+                return b;
+            }
+            if let Some(b) = obj.get("tool_streaming").and_then(|v| v.as_bool()) {
+                return b;
+            }
+
+            true
+        }
+
         let mut tokens: Vec<String> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
 
@@ -249,7 +295,23 @@ impl ProviderSpec for AnthropicSpec {
             push_token(t);
         }
 
+        if has_context_management(req) {
+            push_token("context-management-2025-06-27");
+        }
+
+        // Vercel-aligned: only when streaming, enable fine-grained tool streaming by default.
+        if fine_grained_tool_streaming_enabled(req) {
+            push_token("fine-grained-tool-streaming-2025-05-14");
+        }
+
+        if has_effort(req) {
+            push_token("effort-2025-11-24");
+        }
+
         if has_agent_skills(req) {
+            // Vercel-aligned: skill containers require the code execution runtime beta even if the
+            // code execution tool is missing (a warning is emitted by the Anthropic client middleware).
+            push_token("code-execution-2025-08-25");
             push_token("skills-2025-10-02");
             push_token("files-api-2025-04-14");
         }
@@ -326,6 +388,8 @@ impl ProviderSpec for AnthropicSpec {
         let mcp_servers: Option<Vec<serde_json::Value>> =
             self.anthropic_mcp_servers_from_provider_options_map(req);
         let container = options.as_ref().and_then(|o| o.container.clone());
+        let context_management = options.as_ref().and_then(|o| o.context_management.clone());
+        let effort = options.as_ref().and_then(|o| o.effort);
 
         // Vercel-aligned: cap max_tokens for known models (warnings handled by middleware).
         let model_id = req.common_params.model.clone();
@@ -342,6 +406,8 @@ impl ProviderSpec for AnthropicSpec {
             && response_format.is_none()
             && mcp_servers.is_none()
             && container.is_none()
+            && context_management.is_none()
+            && effort.is_none()
             && !needs_max_tokens_cap
         {
             return None;
@@ -417,6 +483,16 @@ impl ProviderSpec for AnthropicSpec {
                 }
             }
 
+            if let Some(ref cm) = context_management {
+                out["context_management"] = cm.clone();
+            }
+
+            if let Some(effort) = effort {
+                out["output_config"] = serde_json::json!({
+                    "effort": effort,
+                });
+            }
+
             // Vercel-aligned: limit max_tokens to the model max for known models.
             if let Some(max_out) = max_output_tokens
                 && let Some(mt) = out.get("max_tokens").and_then(|v| v.as_u64())
@@ -455,6 +531,8 @@ impl AnthropicSpec {
                 "promptCaching" => "prompt_caching",
                 "thinkingMode" => "thinking_mode",
                 "responseFormat" => "response_format",
+                "contextManagement" => "context_management",
+                "toolStreaming" => "tool_streaming",
                 "expiresAt" => "expires_at",
                 // PromptCachingConfig
                 "cacheControl" => "cache_control",
@@ -465,6 +543,10 @@ impl AnthropicSpec {
                 "thinkingBudget" => "thinking_budget",
                 // Agent skills container
                 "skillId" => "skill_id",
+                // Context management edit fields (Vercel shape -> API snake_case)
+                "clearAtLeast" => "clear_at_least",
+                "clearToolInputs" => "clear_tool_inputs",
+                "excludeTools" => "exclude_tools",
                 _ => return None,
             })
         }
@@ -600,6 +682,82 @@ mod tests {
         assert_eq!(
             value,
             "web-fetch-2025-09-10,advanced-tool-use-2025-11-20,code-execution-2025-05-22"
+        );
+    }
+
+    #[test]
+    fn chat_request_headers_includes_agent_skills_betas() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "container": {
+                        "skills": [
+                            { "type": "anthropic", "skillId": "pptx", "version": "latest" }
+                        ]
+                    }
+                }),
+            );
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        assert_eq!(
+            headers.get("anthropic-beta").map(|s| s.as_str()),
+            Some("code-execution-2025-08-25,skills-2025-10-02,files-api-2025-04-14")
+        );
+    }
+
+    #[test]
+    fn chat_request_headers_includes_fine_grained_tool_streaming_beta_by_default() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_streaming(true)
+            .with_provider_option("anthropic", serde_json::json!({}));
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(true, &req, &ctx);
+        assert!(
+            headers.get("anthropic-beta").is_some_and(|v| v
+                .split(',')
+                .any(|t| t.trim() == "fine-grained-tool-streaming-2025-05-14")),
+            "missing fine-grained-tool-streaming beta token"
+        );
+    }
+
+    #[test]
+    fn chat_request_headers_omits_fine_grained_tool_streaming_beta_when_disabled() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_streaming(true)
+            .with_provider_option("anthropic", serde_json::json!({ "toolStreaming": false }));
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(true, &req, &ctx);
+        let beta = headers.get("anthropic-beta").cloned().unwrap_or_default();
+        assert!(
+            !beta
+                .split(',')
+                .any(|t| t.trim() == "fine-grained-tool-streaming-2025-05-14"),
+            "unexpected fine-grained-tool-streaming beta token: {beta}"
         );
     }
 }

@@ -75,6 +75,9 @@ impl RequestTransformer for CompatRequestTransformer {
         if let Some(max_tokens) = req.common_params.max_tokens {
             body["max_tokens"] = max_tokens.into();
         }
+        if let Some(max_completion_tokens) = req.common_params.max_completion_tokens {
+            body["max_completion_tokens"] = max_completion_tokens.into();
+        }
         if let Some(top_p) = req.common_params.top_p {
             body["top_p"] = top_p.into();
         }

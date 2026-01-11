@@ -17,7 +17,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - OpenAI: `siumai::hosted_tools::openai::web_search()` (Responses API via `OpenAiOptions::with_responses_api`)
   - Anthropic: `siumai::hosted_tools::anthropic::web_search_20250305()`
   - Gemini: `siumai::hosted_tools::google::*` (e.g. `google_search()`, `file_search()`)
-- The historical `siumai::providers::*` module path was removed.
+- `siumai::providers::<provider>::*` is now a stable alias for `siumai::provider_ext::<provider>::*` (Vercel-aligned).
   - Use `siumai::prelude::unified::*` for the unified surface.
   - Use `siumai::provider_ext::<provider>::*` for provider-specific APIs.
   - For protocol-layer helpers, use `siumai::experimental::*` (advanced) or depend on the relevant provider crate directly (e.g. `siumai-provider-openai`).
@@ -43,6 +43,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - `registry.reranking_model(..)`, `registry.speech_model(..)`, `registry.transcription_model(..)`
 - Local test tier scripts for faster iteration during fearless refactors:
   - `./scripts/test-fast.sh`, `./scripts/test-smoke.sh`, `./scripts/test-full.sh`
+- M1 “core trio” smoke scripts (fixture audit + transcoding + tool-loop gateway):
+  - Windows: `./scripts/test-m1.bat`
+  - Unix: `./scripts/test-m1.sh`
 - Split-phase architecture docs:
   - `docs/architecture-refactor-plan.md`
   - `docs/capability-surface.md`
@@ -67,6 +70,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - Cross-provider stream part bridge for gateway output:
     - `siumai_core::streaming::OpenAiResponsesStreamPartsBridge` (maps `gemini:*` / `anthropic:*` custom parts into `openai:*` parts)
   - Alignment notes: `docs/streaming-bridge-alignment.md`
+  - Fixture drift audit script (against `repo-ref/ai`): `./scripts/audit_vercel_fixtures.py`
 
 ### Changed
 
@@ -74,6 +78,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Model listing and model retrieval endpoints are now spec-driven (`ProviderSpec::{models_url, model_url}`) to support non-OpenAI routes (e.g. Anthropic `/v1/models`, Ollama `/api/tags`) without provider-specific URL plumbing.
 - Advanced orchestrator examples are now maintained under `siumai-extras/examples/*` (the `siumai` facade focuses on low-level provider/client APIs).
 - HTTP execution now supports an injectable transport (`fetch` / `HttpTransport`) across providers, including streaming use-cases (gateway parity with Vercel's `fetch(customTransport)`).
+- Gateway/proxy streaming policies are now explicit:
+  - V3 parts that cannot be represented in a target wire format follow `V3UnsupportedPartBehavior` (drop in strict mode, lossy text downgrade in `AsText` mode), including `tool-approval-request`, `raw`, and `file` parts.
 
 ### Deprecated
 

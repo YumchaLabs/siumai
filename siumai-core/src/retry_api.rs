@@ -286,10 +286,12 @@ pub fn classify_http_error(
     }
 
     // Fallback to ApiError with original status and body snippet
-    let msg = if body_text.is_empty() {
-        fallback_message.unwrap_or("api error")
+    let msg = if let Some(fallback) = fallback_message {
+        fallback.to_string()
+    } else if body_text.trim().is_empty() {
+        "api error".to_string()
     } else {
-        body_text
+        body_sample.clone()
     };
     // Build structured details for ApiError
     let details = match serde_json::from_str::<serde_json::Value>(body_text) {
@@ -313,6 +315,7 @@ pub fn classify_http_error(
 mod tests {
     use super::*;
     // no extra imports
+    use reqwest::header::HeaderMap;
 
     #[tokio::test]
     async fn retry_with_policy_backend_works() {
@@ -345,5 +348,28 @@ mod tests {
         .await;
         assert!(res.is_ok());
         assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn classify_http_error_uses_fallback_message_for_non_json_body() {
+        let headers = HeaderMap::new();
+        let err = classify_http_error(
+            "openai",
+            502,
+            "<html>bad gateway</html>",
+            &headers,
+            Some("Bad Gateway"),
+        );
+        match err {
+            LlmError::ApiError {
+                code,
+                message,
+                details: _,
+            } => {
+                assert_eq!(code, 502);
+                assert_eq!(message, "Bad Gateway");
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
     }
 }

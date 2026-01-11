@@ -38,6 +38,9 @@ struct GeminiStreamResponse {
     usage_metadata: Option<GeminiUsageMetadata>,
     #[serde(rename = "promptFeedback")]
     prompt_feedback: Option<super::types::PromptFeedback>,
+    /// Gateway-only metadata used for stable tool call id propagation in re-serialized streams.
+    #[serde(default)]
+    siumai: Option<GeminiSiumaiMetadata>,
 }
 
 /// Gemini candidate structure
@@ -82,6 +85,8 @@ struct GeminiPart {
     code_execution_result: Option<GeminiCodeExecutionResult>,
     #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
     function_call: Option<GeminiFunctionCall>,
+    #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
+    function_response: Option<GeminiFunctionResponse>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -100,6 +105,18 @@ struct GeminiCodeExecutionResult {
 struct GeminiFunctionCall {
     name: String,
     args: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeminiFunctionResponse {
+    name: String,
+    response: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeminiSiumaiMetadata {
+    #[serde(rename = "toolCallId")]
+    tool_call_id: Option<String>,
 }
 
 /// Gemini usage metadata
@@ -137,6 +154,8 @@ pub struct GeminiEventConverter {
 
     serialize_state: Arc<Mutex<GeminiSerializeState>>,
     v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
+    emit_v3_tool_call_parts: bool,
+    emit_function_response_tool_results: bool,
 }
 
 impl GeminiEventConverter {
@@ -152,6 +171,8 @@ impl GeminiEventConverter {
             current_reasoning_block_id: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(GeminiSerializeState::default())),
             v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
+            emit_v3_tool_call_parts: false,
+            emit_function_response_tool_results: false,
         }
     }
 
@@ -160,6 +181,31 @@ impl GeminiEventConverter {
         behavior: V3UnsupportedPartBehavior,
     ) -> Self {
         self.v3_unsupported_part_behavior = behavior;
+        self
+    }
+
+    /// Emit Vercel-aligned v3 `tool-call` parts (as `ChatStreamEvent::Custom`) for `functionCall`
+    /// stream chunks.
+    ///
+    /// Notes:
+    /// - When enabled, the converter emits `ChatStreamEvent::Custom` events instead of
+    ///   `ChatStreamEvent::ToolCallDelta` for `functionCall` chunks.
+    /// - This is useful for gateways/proxies that want to preserve Gemini-only metadata such as
+    ///   `thoughtSignature` across transcoding.
+    pub fn with_emit_v3_tool_call_parts(mut self, enabled: bool) -> Self {
+        self.emit_v3_tool_call_parts = enabled;
+        self
+    }
+
+    /// Emit Gemini `functionResponse` frames for v3 `tool-result` parts when serializing.
+    ///
+    /// Notes:
+    /// - This is primarily a gateway/proxy feature: Gemini responses usually don't contain
+    ///   functionResponse parts; they are commonly sent in the *next request*.
+    /// - When enabled, Siumai will include a `siumai.toolCallId` field in the JSON frame so the
+    ///   decoder can associate results with the original tool call id.
+    pub fn with_emit_function_response_tool_results(mut self, enabled: bool) -> Self {
+        self.emit_function_response_tool_results = enabled;
         self
     }
 
@@ -290,15 +336,59 @@ impl GeminiEventConverter {
             builder = builder.add_custom_event("gemini:tool".to_string(), data);
         }
 
-        // Process client-executed tool calls (functionCall parts) as unified ToolCallDelta events.
-        for (tool_name, args_json) in self.extract_function_call_events(&response) {
+        // Process client-executed tool calls (functionCall parts).
+        for (tool_name, args_json, thought_sig) in self.extract_function_call_events(&response) {
             let id_num = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
-            builder = builder.add_tool_call_delta(
-                format!("call_{id_num}"),
-                Some(tool_name),
-                Some(args_json),
-                None,
+            let call_id = format!("call_{id_num}");
+
+            if self.emit_v3_tool_call_parts {
+                let mut obj = serde_json::Map::new();
+                obj.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("tool-call".to_string()),
+                );
+                obj.insert("toolCallId".to_string(), serde_json::Value::String(call_id));
+                obj.insert("toolName".to_string(), serde_json::Value::String(tool_name));
+                obj.insert("input".to_string(), serde_json::Value::String(args_json));
+                if let Some(pm) =
+                    self.thought_signature_provider_metadata_value(thought_sig.as_ref())
+                {
+                    obj.insert("providerMetadata".to_string(), pm);
+                }
+                builder = builder
+                    .add_custom_event("gemini:tool".to_string(), serde_json::Value::Object(obj));
+            } else {
+                builder =
+                    builder.add_tool_call_delta(call_id, Some(tool_name), Some(args_json), None);
+            }
+        }
+
+        // Process client-provided tool results (functionResponse parts) as v3 tool-result events.
+        for (tool_name, result, thought_sig) in self.extract_function_response_events(&response) {
+            let id_num = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
+            let tool_call_id = response
+                .siumai
+                .as_ref()
+                .and_then(|m| m.tool_call_id.clone())
+                .unwrap_or_else(|| format!("call_{id_num}"));
+
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "type".to_string(),
+                serde_json::Value::String("tool-result".to_string()),
             );
+            obj.insert(
+                "toolCallId".to_string(),
+                serde_json::Value::String(tool_call_id),
+            );
+            obj.insert("toolName".to_string(), serde_json::Value::String(tool_name));
+            obj.insert("result".to_string(), result);
+            if let Some(pm) = self.thought_signature_provider_metadata_value(thought_sig.as_ref()) {
+                obj.insert("providerMetadata".to_string(), pm);
+            }
+
+            builder =
+                builder.add_custom_event("gemini:tool".to_string(), serde_json::Value::Object(obj));
         }
 
         // Process usage update if available
@@ -381,7 +471,7 @@ impl GeminiEventConverter {
     fn extract_function_call_events(
         &self,
         response: &GeminiStreamResponse,
-    ) -> Vec<(String, String)> {
+    ) -> Vec<(String, String, Option<String>)> {
         let mut out = Vec::new();
         let Some(candidates) = response.candidates.as_ref() else {
             return out;
@@ -402,7 +492,40 @@ impl GeminiEventConverter {
 
                 let args = call.args.clone().unwrap_or_else(|| serde_json::json!({}));
                 let args_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string());
-                out.push((call.name.clone(), args_json));
+                out.push((call.name.clone(), args_json, part.thought_signature.clone()));
+            }
+        }
+
+        out
+    }
+
+    fn extract_function_response_events(
+        &self,
+        response: &GeminiStreamResponse,
+    ) -> Vec<(String, serde_json::Value, Option<String>)> {
+        let mut out = Vec::new();
+        let Some(candidates) = response.candidates.as_ref() else {
+            return out;
+        };
+
+        for cand in candidates {
+            let Some(content) = cand.content.as_ref() else {
+                continue;
+            };
+            let Some(parts) = content.parts.as_ref() else {
+                continue;
+            };
+
+            for part in parts {
+                let Some(res) = part.function_response.as_ref() else {
+                    continue;
+                };
+
+                out.push((
+                    res.name.clone(),
+                    res.response.clone(),
+                    part.thought_signature.clone(),
+                ));
             }
         }
 
@@ -590,9 +713,10 @@ impl GeminiEventConverter {
                     }
                 }
                 "MAX_TOKENS" => FinishReason::Length,
-                "SAFETY" => FinishReason::ContentFilter,
-                "RECITATION" => FinishReason::ContentFilter,
-                _ => FinishReason::Stop,
+                "IMAGE_SAFETY" | "RECITATION" | "SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT"
+                | "SPII" => FinishReason::ContentFilter,
+                "MALFORMED_FUNCTION_CALL" => FinishReason::Error,
+                other => FinishReason::Other(other.to_string()),
             };
 
             // Mark that StreamEnd is being emitted
@@ -1134,6 +1258,31 @@ impl SseEventConverter for GeminiEventConverter {
                             return sse_data_frame(&payload);
                         }
 
+                        if self.emit_function_response_tool_results {
+                            let mut part = serde_json::Map::new();
+                            part.insert(
+                                "functionResponse".to_string(),
+                                serde_json::json!({
+                                    "name": tr.tool_name,
+                                    "response": tr.result
+                                }),
+                            );
+
+                            let mut payload = serde_json::Map::new();
+                            payload.insert(
+                                "candidates".to_string(),
+                                serde_json::json!([{
+                                    "content": { "parts": [serde_json::Value::Object(part)] }
+                                }]),
+                            );
+                            payload.insert(
+                                "siumai".to_string(),
+                                serde_json::json!({ "toolCallId": tr.tool_call_id }),
+                            );
+
+                            return sse_data_frame(&serde_json::Value::Object(payload));
+                        }
+
                         if self.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
                             && let Some(text) =
                                 LanguageModelV3StreamPart::ToolResult(tr).to_lossy_text()
@@ -1278,6 +1427,134 @@ mod tests {
 
         if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
             assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+        } else {
+            panic!("Expected StreamEnd event in results: {:?}", result);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_finish_reason_tool_calls_when_stop_with_function_call() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let json_data = r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"test-tool","args":{"a":1}}}]},"finishReason":"STOP"}]}"#;
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: json_data.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let result = converter.convert_event(event).await;
+        let stream_end_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::StreamEnd { .. })));
+
+        if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
+            assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
+        } else {
+            panic!("Expected StreamEnd event in results: {:?}", result);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_finish_reason_length() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let json_data = r#"{"candidates":[{"finishReason":"MAX_TOKENS"}]}"#;
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: json_data.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let result = converter.convert_event(event).await;
+        let stream_end_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::StreamEnd { .. })));
+
+        if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
+            assert_eq!(response.finish_reason, Some(FinishReason::Length));
+        } else {
+            panic!("Expected StreamEnd event in results: {:?}", result);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_finish_reason_content_filter() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let json_data = r#"{"candidates":[{"finishReason":"PROHIBITED_CONTENT"}]}"#;
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: json_data.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let result = converter.convert_event(event).await;
+        let stream_end_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::StreamEnd { .. })));
+
+        if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
+            assert_eq!(response.finish_reason, Some(FinishReason::ContentFilter));
+        } else {
+            panic!("Expected StreamEnd event in results: {:?}", result);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_finish_reason_error() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let json_data = r#"{"candidates":[{"finishReason":"MALFORMED_FUNCTION_CALL"}]}"#;
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: json_data.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let result = converter.convert_event(event).await;
+        let stream_end_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::StreamEnd { .. })));
+
+        if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
+            assert_eq!(response.finish_reason, Some(FinishReason::Error));
+        } else {
+            panic!("Expected StreamEnd event in results: {:?}", result);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_finish_reason_other() {
+        let config = create_test_config();
+        let converter = GeminiEventConverter::new(config);
+
+        let json_data = r#"{"candidates":[{"finishReason":"OTHER"}]}"#;
+        let event = eventsource_stream::Event {
+            event: "".to_string(),
+            data: json_data.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let result = converter.convert_event(event).await;
+        let stream_end_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::StreamEnd { .. })));
+
+        if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
+            assert_eq!(
+                response.finish_reason,
+                Some(FinishReason::Other("OTHER".to_string()))
+            );
         } else {
             panic!("Expected StreamEnd event in results: {:?}", result);
         }

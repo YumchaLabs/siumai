@@ -533,7 +533,11 @@ async fn factory_http_503_classified_as_api_error() {
     match res {
         Err(LlmError::ApiError { code, message, .. }) => {
             assert_eq!(code, 503);
-            assert!(message.contains("server error") || message.contains("backend down"));
+            assert!(
+                message.contains("Service Unavailable")
+                    || message.contains("server error")
+                    || message.contains("backend down")
+            );
         }
         Ok(_) => panic!("expected ApiError 503, got Ok"),
         Err(e) => panic!("expected ApiError 503, got: {e:?}"),

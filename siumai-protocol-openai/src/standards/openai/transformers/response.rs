@@ -1187,7 +1187,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         });
 
         // Finish reason
-        let finish_reason = root
+        //
+        // Vercel alignment (OpenAI Responses):
+        // - `finishReason.raw` comes from `response.incomplete_details?.reason`
+        // - `finishReason.unified` is derived from:
+        //   - `incomplete_details.reason` (e.g. `max_output_tokens`, `content_filter`)
+        //   - whether there was a *client-side* function call (`function_call`)
+        //
+        // Note: Provider-executed tools (e.g. `web_search_call`, `file_search_call`, `code_interpreter_call`,
+        // `image_generation_call`, `computer_call`, `mcp_call`) do NOT make the finish reason `tool-calls`.
+        let explicit_finish_reason = root
             .get("finish_reason")
             .or_else(|| root.get("stop_reason"))
             .and_then(|v| v.as_str())
@@ -1199,40 +1208,39 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 other => FinishReason::Other(other.to_string()),
             });
 
-        // Vercel alignment:
-        // - When a Responses API call completes normally, infer `stop` even if no explicit
-        //   finish reason is present on the response envelope.
-        // - When the response consists of tool calls (function or hosted tools), infer `tool_calls`.
-        let has_pending_tool_calls =
-            root.get("output")
-                .and_then(|v| v.as_array())
-                .is_some_and(|out| {
-                    out.iter().any(|item| {
-                        matches!(
-                            item.get("type").and_then(|v| v.as_str()),
-                            Some(
-                                "function_call"
-                                    | "local_shell_call"
-                                    | "shell_call"
-                                    | "apply_patch_call"
-                            )
-                        )
-                    })
-                });
+        let has_function_call = root
+            .get("output")
+            .and_then(|v| v.as_array())
+            .is_some_and(|out| {
+                out.iter()
+                    .any(|item| item.get("type").and_then(|v| v.as_str()) == Some("function_call"))
+            });
+
+        let incomplete_reason = root
+            .get("incomplete_details")
+            .and_then(|d| d.get("reason"))
+            .and_then(|v| v.as_str());
 
         let status = root.get("status").and_then(|v| v.as_str());
-        let finish_reason = finish_reason.or(match status {
-            Some("completed") => {
-                if has_pending_tool_calls {
-                    Some(FinishReason::ToolCalls)
-                } else {
-                    Some(FinishReason::Stop)
-                }
-            }
-            Some("incomplete") => Some(FinishReason::Length),
+        let inferred_finish_reason = match status {
             Some("failed") => Some(FinishReason::Error),
-            _ => None,
-        });
+            _ => match incomplete_reason {
+                None => Some(if has_function_call {
+                    FinishReason::ToolCalls
+                } else {
+                    FinishReason::Stop
+                }),
+                Some("max_output_tokens") => Some(FinishReason::Length),
+                Some("content_filter") => Some(FinishReason::ContentFilter),
+                Some(_) => Some(if has_function_call {
+                    FinishReason::ToolCalls
+                } else {
+                    FinishReason::Other("other".to_string())
+                }),
+            },
+        };
+
+        let finish_reason = explicit_finish_reason.or(inferred_finish_reason);
 
         // Determine final content
         let content = if content_parts.is_empty() {

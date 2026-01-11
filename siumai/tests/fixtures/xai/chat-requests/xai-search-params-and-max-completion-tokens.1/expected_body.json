@@ -1,0 +1,21 @@
+{
+  "model": "grok-3-latest",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Search the web and answer briefly." }
+  ],
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "seed": 42,
+  "max_completion_tokens": 123,
+  "reasoning_effort": "high",
+  "parallel_function_calling": true,
+  "search_parameters": {
+    "mode": "on",
+    "return_citations": true,
+    "max_search_results": 5,
+    "sources": [
+      { "type": "web", "country": "US", "safe_search": true }
+    ]
+  }
+}

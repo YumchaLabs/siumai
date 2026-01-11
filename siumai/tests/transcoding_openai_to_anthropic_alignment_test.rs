@@ -73,14 +73,16 @@ fn decode_openai_responses(lines: Vec<String>, tools: Vec<Tool>) -> Vec<ChatStre
     events
 }
 
-fn encode_anthropic_messages_sse(events: Vec<ChatStreamEvent>) -> Vec<u8> {
-    use siumai::experimental::streaming::V3UnsupportedPartBehavior;
+fn encode_anthropic_messages_sse(
+    events: Vec<ChatStreamEvent>,
+    behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
+) -> Vec<u8> {
     use siumai::prelude::unified::SseEventConverter;
     use siumai::protocol::anthropic::params::AnthropicParams;
     use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
 
     let conv = AnthropicEventConverter::new(AnthropicParams::default())
-        .with_v3_unsupported_part_behavior(V3UnsupportedPartBehavior::AsText);
+        .with_v3_unsupported_part_behavior(behavior);
 
     let mut out = Vec::new();
 
@@ -127,7 +129,10 @@ fn openai_responses_web_search_transcodes_to_anthropic_messages_sse() {
     let upstream = decode_openai_responses(read_fixture_lines(&path), tools);
     assert!(!upstream.is_empty(), "fixture produced no events");
 
-    let bytes = encode_anthropic_messages_sse(upstream);
+    let bytes = encode_anthropic_messages_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+    );
     let frames = parse_sse_json_frames(&bytes);
 
     assert!(
@@ -176,7 +181,10 @@ fn openai_responses_mcp_transcodes_to_anthropic_messages_sse() {
     let upstream = decode_openai_responses(read_fixture_lines(&path), Vec::new());
     assert!(!upstream.is_empty(), "fixture produced no events");
 
-    let bytes = encode_anthropic_messages_sse(upstream);
+    let bytes = encode_anthropic_messages_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+    );
     let frames = parse_sse_json_frames(&bytes);
 
     assert!(
@@ -208,5 +216,89 @@ fn openai_responses_mcp_transcodes_to_anthropic_messages_sse() {
     assert!(
         frames.iter().any(|v| v["type"] == "message_stop"),
         "expected message_stop frame: {frames:?}"
+    );
+}
+
+#[test]
+fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_anthropic_transcoding() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("openai")
+        .join("responses-stream")
+        .join("mcp")
+        .join("openai-mcp-tool-approval.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = decode_openai_responses(read_fixture_lines(&path), Vec::new());
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_anthropic_messages_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+    );
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| v["type"] == "message_start"),
+        "expected message_start frame: {frames:?}"
+    );
+
+    assert!(
+        frames.iter().any(|v| {
+            v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["name"].as_str().is_some()
+                && v["content_block"]["id"].as_str().is_some()
+        }),
+        "expected tool_use content_block_start: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
+            v["type"] == "content_block_delta"
+                && v["delta"]["type"] == "text_delta"
+                && v["delta"]["text"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("[tool-approval-request]"))
+        }),
+        "expected strict transcoding to drop tool-approval-request: {frames:?}"
+    );
+
+    assert!(
+        frames.iter().any(|v| v["type"] == "message_stop"),
+        "expected message_stop frame: {frames:?}"
+    );
+}
+
+#[test]
+fn openai_responses_mcp_tool_approval_request_is_downgraded_in_lossy_anthropic_transcoding() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("openai")
+        .join("responses-stream")
+        .join("mcp")
+        .join("openai-mcp-tool-approval.1.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let upstream = decode_openai_responses(read_fixture_lines(&path), Vec::new());
+    assert!(!upstream.is_empty(), "fixture produced no events");
+
+    let bytes = encode_anthropic_messages_sse(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
+    );
+    let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| {
+            v["type"] == "content_block_delta"
+                && v["delta"]["type"] == "text_delta"
+                && v["delta"]["text"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("[tool-approval-request]"))
+        }),
+        "expected lossy transcoding to downgrade tool-approval-request into text: {frames:?}"
     );
 }

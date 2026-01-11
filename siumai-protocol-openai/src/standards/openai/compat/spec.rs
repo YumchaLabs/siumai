@@ -13,7 +13,50 @@ fn provider_options_map_merge_hook(
     map: &crate::types::ProviderOptionsMap,
 ) -> Option<crate::execution::executors::BeforeSendHook> {
     let value = map.get(provider_id)?;
-    let obj = value.as_object()?.clone();
+    let mut obj = value.as_object()?.clone();
+
+    fn rename_field(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
+        if let Some(v) = obj.remove(from) {
+            obj.entry(to.to_string()).or_insert(v);
+        }
+    }
+
+    fn normalize_xai_search_parameters(v: &mut serde_json::Value) {
+        let Some(obj) = v.as_object_mut() else {
+            return;
+        };
+
+        rename_field(obj, "returnCitations", "return_citations");
+        rename_field(obj, "maxSearchResults", "max_search_results");
+        rename_field(obj, "fromDate", "from_date");
+        rename_field(obj, "toDate", "to_date");
+
+        if let Some(arr) = obj.get_mut("sources").and_then(|v| v.as_array_mut()) {
+            for src in arr {
+                let Some(src_obj) = src.as_object_mut() else {
+                    continue;
+                };
+
+                rename_field(src_obj, "allowedWebsites", "allowed_websites");
+                rename_field(src_obj, "excludedWebsites", "excluded_websites");
+                rename_field(src_obj, "safeSearch", "safe_search");
+
+                rename_field(src_obj, "excludedXHandles", "excluded_x_handles");
+                rename_field(src_obj, "includedXHandles", "included_x_handles");
+                rename_field(src_obj, "postFavoriteCount", "post_favorite_count");
+                rename_field(src_obj, "postViewCount", "post_view_count");
+                rename_field(src_obj, "xHandles", "x_handles");
+            }
+        }
+    }
+
+    if provider_id == "xai" {
+        rename_field(&mut obj, "reasoningEffort", "reasoning_effort");
+        rename_field(&mut obj, "searchParameters", "search_parameters");
+        if let Some(v) = obj.get_mut("search_parameters") {
+            normalize_xai_search_parameters(v);
+        }
+    }
     let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
         let mut out = body.clone();
         if let Some(body_obj) = out.as_object_mut() {
@@ -52,6 +95,20 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
         self.chat_spec().build_headers(ctx)
+    }
+
+    fn classify_http_error(
+        &self,
+        status: u16,
+        body_text: &str,
+        _headers: &HeaderMap,
+    ) -> Option<LlmError> {
+        let provider_id = self.adapter.provider_id();
+        crate::standards::openai::errors::classify_openai_compatible_http_error(
+            provider_id.as_ref(),
+            status,
+            body_text,
+        )
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {

@@ -91,8 +91,30 @@ google-vertex = [
     "siumai-provider-google-vertex/google-vertex",
 ]
 ollama = ["builtins", "siumai-core/ollama", "dep:siumai-provider-ollama", "siumai-provider-ollama/ollama"]
-xai = ["builtins", "siumai-core/xai", "dep:siumai-provider-xai", "siumai-provider-xai/xai"]
-groq = ["builtins", "siumai-core/groq", "dep:siumai-provider-groq", "siumai-provider-groq/groq"]
+xai = [
+    "builtins",
+    "siumai-core/xai",
+    "dep:siumai-provider-xai",
+    "siumai-provider-xai/xai",
+    # xAI is an OpenAI-compatible provider; the factory depends on the shared vendor adapter.
+    "siumai-core/openai",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+    "dep:siumai-protocol-openai",
+    "siumai-protocol-openai/openai-standard",
+]
+groq = [
+    "builtins",
+    "siumai-core/groq",
+    "dep:siumai-provider-groq",
+    "siumai-provider-groq/groq",
+    # Groq is an OpenAI-compatible provider; the factory depends on the shared vendor adapter.
+    "siumai-core/openai",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+    "dep:siumai-protocol-openai",
+    "siumai-protocol-openai/openai-standard",
+]
 minimaxi = ["builtins", "siumai-core/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
 cohere = ["builtins", "siumai-core/cohere", "dep:siumai-provider-cohere", "siumai-provider-cohere/cohere"]
 togetherai = [

@@ -247,16 +247,23 @@ pub mod provider_ext {
     pub mod openai {
         pub use siumai_provider_openai::providers::openai::{OpenAiClient, OpenAiConfig};
 
-        /// Provider-executed tool factories (Vercel-aligned).
+        /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         ///
-        /// These tools are executed on the provider side (e.g. OpenAI Responses hosted tools).
+        /// This mirrors the Vercel AI SDK `{ type: "provider", id, name, args }` convention.
         pub mod tools {
+            pub use crate::tools::openai::*;
+        }
+
+        /// Provider-executed tool builders (typed args).
+        ///
+        /// Prefer this module when you need provider-specific configuration helpers and want `.build()`.
+        pub mod hosted_tools {
             pub use crate::hosted_tools::openai::*;
         }
 
-        /// Vercel-style provider tool factories that return `Tool` directly.
+        /// Compatibility alias for older imports.
         ///
-        /// Prefer this module when you want the simplest `Vec<Tool>` construction without typed builders.
+        /// Prefer `siumai::providers::openai::tools`.
         pub mod provider_tools {
             pub use crate::tools::openai::*;
         }
@@ -331,12 +338,17 @@ pub mod provider_ext {
     pub mod anthropic {
         pub use siumai_provider_anthropic::providers::anthropic::AnthropicClient;
 
-        /// Provider-executed tool factories (Vercel-aligned).
+        /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         pub mod tools {
+            pub use crate::tools::anthropic::*;
+        }
+
+        /// Provider-executed tool builders (typed args).
+        pub mod hosted_tools {
             pub use crate::hosted_tools::anthropic::*;
         }
 
-        /// Vercel-style provider tool factories that return `Tool` directly.
+        /// Compatibility alias for older imports.
         pub mod provider_tools {
             pub use crate::tools::anthropic::*;
         }
@@ -382,12 +394,17 @@ pub mod provider_ext {
         pub use siumai_provider_gemini::providers::gemini::GeminiClient;
         pub use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
 
-        /// Provider-executed tool factories (Vercel-aligned).
+        /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         pub mod tools {
+            pub use crate::tools::google::*;
+        }
+
+        /// Provider-executed tool builders (typed args).
+        pub mod hosted_tools {
             pub use crate::hosted_tools::google::*;
         }
 
-        /// Vercel-style provider tool factories that return `Tool` directly.
+        /// Compatibility alias for older imports.
         pub mod provider_tools {
             pub use crate::tools::google::*;
         }
@@ -455,11 +472,35 @@ pub mod provider_ext {
             GoogleVertexClient, GoogleVertexConfig,
         };
 
-        /// Provider-hosted tools (Vercel-aligned `googleVertexTools`).
+        /// Provider tool factories that return `Tool` directly (Vercel-aligned `googleVertexTools`).
         pub mod tools {
-            pub use siumai_provider_google_vertex::tools::{
-                VertexRagStoreConfig, code_execution, enterprise_web_search, file_search,
-                google_maps, google_search, url_context, vertex_rag_store,
+            use siumai_core::types::Tool;
+
+            pub use crate::tools::google::{
+                code_execution, enterprise_web_search, google_maps, url_context,
+            };
+
+            pub fn google_search() -> Tool {
+                crate::hosted_tools::google::google_search().build()
+            }
+
+            pub fn file_search(file_search_store_names: Vec<String>) -> Tool {
+                crate::hosted_tools::google::file_search()
+                    .with_file_search_store_names(file_search_store_names)
+                    .build()
+            }
+
+            pub fn vertex_rag_store(rag_corpus: impl Into<String>) -> Tool {
+                crate::hosted_tools::google::vertex_rag_store(rag_corpus).build()
+            }
+        }
+
+        /// Provider-executed tool builders (typed args).
+        pub mod hosted_tools {
+            pub use crate::hosted_tools::google::{
+                FileSearchConfig, GoogleSearchConfig, VertexRagStoreConfig, code_execution,
+                enterprise_web_search, file_search, google_maps, google_search, url_context,
+                vertex_rag_store,
             };
         }
 
