@@ -2,8 +2,6 @@
 //! Requires network and OPENAI_API_KEY; run with:
 //!   cargo test --test openai_responses_builtins_ignored --features openai -- --ignored
 
-use siumai::prelude::unified::ChatCapability;
-
 #[cfg(feature = "openai")]
 #[tokio::test]
 #[ignore]

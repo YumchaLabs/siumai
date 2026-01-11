@@ -1,3 +1,9 @@
+#![cfg(any(
+    feature = "openai",
+    feature = "google",
+    feature = "anthropic",
+    feature = "google-vertex"
+))]
 //! Interceptor-based request assertions on the unified Siumai interface.
 //!
 //! This test ensures interceptors attached via `Siumai::builder()` are applied
@@ -7,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use reqwest::header::{ACCEPT, ACCEPT_ENCODING, HeaderMap};
 use siumai::experimental::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
-use siumai::prelude::unified::{ChatCapability, ChatMessage, LlmError};
+use siumai::prelude::unified::{ChatMessage, LlmError};
 use siumai::provider::SiumaiBuilder;
 
 #[derive(Clone, Debug)]

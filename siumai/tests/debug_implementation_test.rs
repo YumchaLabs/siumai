@@ -3,7 +3,6 @@
 //! This module tests that all client types properly implement Debug trait
 //! with appropriate security measures for sensitive information.
 
-use siumai::experimental::client::ClientWrapper;
 use siumai::provider::SiumaiBuilder;
 
 #[cfg(test)]
@@ -150,6 +149,7 @@ mod debug_tests {
     #[cfg(feature = "openai")]
     #[test]
     fn test_client_wrapper_debug() {
+        use siumai::experimental::client::ClientWrapper;
         use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
         let config = OpenAiConfig::new("test-key".to_string()).with_model("gpt-4o-mini");
