@@ -1,0 +1,56 @@
+{
+  "id": "resp_04f6b17429cf2b02006949a68dcefc81969600243221f290a7",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "id-0",
+        "toolName": "mcp.create_short_url",
+        "input": "{\"alias\":\"\",\"description\":\"\",\"max_clicks\":100,\"password\":\"\",\"url\":\"https://ai-sdk.dev/\"}",
+        "providerExecuted": true
+      },
+      {
+        "type": "tool-result",
+        "toolCallId": "id-0",
+        "toolName": "mcp.create_short_url",
+        "output": {
+          "type": "json",
+          "value": {
+            "type": "call",
+            "serverLabel": "zip1",
+            "name": "create_short_url",
+            "arguments": "{\"alias\":\"\",\"description\":\"\",\"max_clicks\":100,\"password\":\"\",\"url\":\"https://ai-sdk.dev/\"}",
+            "output": "✅ Short URL created: https://zip1.io/oMAchr\n🔤 Generated code: oMAchr\n🔢 Max clicks: 100\n🔗 Original URL: https://ai-sdk.dev/\n\n📊 View stats: https://zip1.io/stats/oMAchr"
+          }
+        },
+        "providerExecuted": true,
+        "providerMetadata": {
+          "openai": {
+            "itemId": "mcp_04f6b17429cf2b02006949a6908fc4819686c02f71f7faecc6"
+          }
+        }
+      },
+      {
+        "type": "text",
+        "text": "Done — I created a short link for you.\n\nShort URL: https://zip1.io/oMAchr\nOriginal URL: https://ai-sdk.dev/\nMax clicks: 100\nStats page: https://zip1.io/stats/oMAchr\n\nWould you like a custom alias, password protection, or a description added to this short link?"
+      }
+    ]
+  },
+  "model": "gpt-5-mini-2025-08-07",
+  "usage": {
+    "prompt_tokens": 765,
+    "completion_tokens": 74,
+    "total_tokens": 839,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "prompt_tokens_details": { "cached_tokens": 0 },
+    "completion_tokens_details": { "reasoning_tokens": 0 }
+  },
+  "finish_reason": "stop",
+  "service_tier": "default",
+  "provider_metadata": {
+    "openai": {
+      "itemId": "msg_04f6b17429cf2b02006949a6930b308196a3ad4f35aa6e0b1b"
+    }
+  }
+}

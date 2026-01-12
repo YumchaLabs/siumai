@@ -1,0 +1,23 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "apply_patch"
+    }
+  ],
+  "tool_choice": {
+    "type": "apply_patch"
+  }
+}
+

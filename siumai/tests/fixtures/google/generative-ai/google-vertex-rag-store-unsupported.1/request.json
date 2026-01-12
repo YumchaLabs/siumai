@@ -1,0 +1,35 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "google.vertex_rag_store",
+      "name": "vertex_rag_store",
+      "args": {
+        "ragCorpus": "projects/my-project/locations/us-central1/ragCorpora/my-rag-corpus",
+        "topK": 5
+      }
+    }
+  ],
+  "common_params": {
+    "model": "gemini-1.5-pro",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

@@ -1,0 +1,20 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I will search for that information."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_123",
+      "name": "search",
+      "arguments": "{\"query\":\"weather in San Francisco\"}"
+    }
+  ]
+}

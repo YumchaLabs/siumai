@@ -1,0 +1,27 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "testFunction",
+      "description": "A test function",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      },
+      "strict": true
+    }
+  ]
+}
+

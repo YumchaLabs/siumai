@@ -2,6 +2,11 @@
 
 The orchestrator module provides advanced multi-step tool calling capabilities with flexible control flow, similar to Vercel AI SDK's agent system.
 
+> Note: The orchestrator is implemented in the `siumai-extras` crate.
+> As part of the beta.5 split refactor, the runnable orchestrator examples live under
+> `siumai-extras/examples/*`. The `siumai` crate no longer ships duplicate orchestrator examples to
+> avoid workspace target name collisions.
+
 ## 🎯 What is Orchestration?
 
 Orchestration enables AI agents to:
@@ -15,13 +20,20 @@ Orchestration enables AI agents to:
 
 | Example | Complexity | Features Demonstrated |
 |---------|-----------|----------------------|
-| `basic-orchestrator.rs` | ⭐ Beginner | Multi-step execution, callbacks, usage tracking |
-| `agent-pattern.rs` | ⭐⭐ Intermediate | Reusable agents, builder pattern, multiple conversations |
-| `stop-conditions.rs` | ⭐⭐ Intermediate | Built-in conditions, combinators, custom predicates |
-| `tool-approval.rs` | ⭐⭐⭐ Advanced | Security workflows, argument modification, denial |
-| `streaming-orchestrator.rs` | ⭐⭐⭐ Advanced | Real-time streaming, progress tracking, cancellation |
+| `siumai-extras/examples/basic-orchestrator.rs` | ⭐ Beginner | Multi-step execution, callbacks, usage tracking |
+| `siumai-extras/examples/agent-pattern.rs` | ⭐⭐ Intermediate | Reusable agents, builder pattern, multiple conversations |
+| `siumai-extras/examples/stop-conditions.rs` | ⭐⭐ Intermediate | Built-in conditions, combinators, custom predicates |
+| `siumai-extras/examples/tool-approval.rs` | ⭐⭐⭐ Advanced | Security workflows, argument modification, denial |
+| `siumai-extras/examples/streaming-orchestrator.rs` | ⭐⭐⭐ Advanced | Real-time streaming, progress tracking, cancellation |
+| `siumai-extras/examples/streaming-tool-execution.rs` | ⭐⭐⭐ Advanced | Streaming + provider tool execution |
 
 ## 🚀 Quick Start
+
+Run any example via:
+
+```bash
+cargo run -p siumai-extras --example basic-orchestrator
+```
 
 ### Basic Multi-Step Tool Calling
 
@@ -82,7 +94,7 @@ Learn the fundamentals:
 
 **Run:**
 ```bash
-cargo run --example basic-orchestrator --features openai
+cargo run -p siumai-extras --example basic-orchestrator
 ```
 
 ### 2. Explore `agent-pattern.rs`
@@ -94,7 +106,7 @@ Understand reusable agents:
 
 **Run:**
 ```bash
-cargo run --example agent-pattern --features openai
+cargo run -p siumai-extras --example agent-pattern
 ```
 
 ### 3. Master `stop-conditions.rs`
@@ -106,7 +118,7 @@ Control execution flow:
 
 **Run:**
 ```bash
-cargo run --example stop-conditions --features openai
+cargo run -p siumai-extras --example stop-conditions
 ```
 
 ### 4. Implement `tool-approval.rs`
@@ -118,7 +130,7 @@ Add security workflows:
 
 **Run:**
 ```bash
-cargo run --example tool-approval --features openai
+cargo run -p siumai-extras --example tool-approval
 ```
 
 ### 5. Advanced: `streaming-orchestrator.rs`
@@ -130,7 +142,7 @@ Real-time execution:
 
 **Run:**
 ```bash
-cargo run --example streaming-orchestrator --features openai
+cargo run -p siumai-extras --example streaming-orchestrator
 ```
 
 ## 🔑 Key Concepts

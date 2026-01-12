@@ -1,0 +1,34 @@
+{
+  "id": "resp_67c97c0203188190a025beb4a75242bc",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "call_0NdsJqOS8N3J9l2p0p4WpYU9",
+        "toolName": "weather",
+        "input": "{\"location\":\"San Francisco\"}",
+        "providerMetadata": {
+          "openai": { "itemId": "fc_67caf7f4c1ec8190b27edfb5580cfd31" }
+        }
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "call_gexo0HtjUfmAIW4gjNOgyrcr",
+        "toolName": "cityAttractions",
+        "input": "{\"city\":\"San Francisco\"}",
+        "providerMetadata": {
+          "openai": { "itemId": "fc_67caf7f5071c81908209c2909c77af05" }
+        }
+      }
+    ]
+  },
+  "model": "gpt-4o-2024-07-18",
+  "usage": {
+    "prompt_tokens": 34,
+    "completion_tokens": 538,
+    "total_tokens": 572,
+    "reasoning_tokens": 0,
+    "completion_tokens_details": { "reasoning_tokens": 0 }
+  },
+  "finish_reason": "tool_calls"
+}

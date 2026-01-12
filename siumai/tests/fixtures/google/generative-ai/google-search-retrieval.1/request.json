@@ -1,0 +1,32 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "google.google_search",
+      "name": "google_search",
+      "args": {}
+    }
+  ],
+  "common_params": {
+    "model": "gemini-1.0-pro",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

@@ -236,7 +236,7 @@ async fn test_provider_vision(provider_name: &str, api_key_env: &str, model: &st
     match provider_name {
         "OpenAI" => {
             let api_key = env::var(api_key_env).unwrap();
-            let mut builder = LlmBuilder::new().openai().api_key(api_key).model(model);
+            let mut builder = Siumai::builder().openai().api_key(api_key).model(model);
 
             if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
                 builder = builder.base_url(base_url);
@@ -257,7 +257,7 @@ async fn test_provider_vision(provider_name: &str, api_key_env: &str, model: &st
         }
         "Anthropic" => {
             let api_key = env::var(api_key_env).unwrap();
-            let mut builder = LlmBuilder::new().anthropic().api_key(api_key).model(model);
+            let mut builder = Siumai::builder().anthropic().api_key(api_key).model(model);
 
             if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
                 builder = builder.base_url(base_url);
@@ -278,7 +278,7 @@ async fn test_provider_vision(provider_name: &str, api_key_env: &str, model: &st
         }
         "Gemini" => {
             let api_key = env::var(api_key_env).unwrap();
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .gemini()
                 .api_key(api_key)
                 .model(model)
@@ -299,7 +299,7 @@ async fn test_provider_vision(provider_name: &str, api_key_env: &str, model: &st
         }
         "xAI" => {
             let api_key = env::var(api_key_env).unwrap();
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .xai()
                 .api_key(api_key)
                 .model(model)

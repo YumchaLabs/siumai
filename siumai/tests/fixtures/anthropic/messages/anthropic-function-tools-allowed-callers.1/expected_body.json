@@ -1,0 +1,23 @@
+{
+  "max_tokens": 64000,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "tools": [
+    {
+      "allowed_callers": ["code_execution_20250825"],
+      "description": "Query a database",
+      "input_schema": { "type": "object", "properties": { "sql": { "type": "string" } } },
+      "name": "query_database"
+    }
+  ]
+}

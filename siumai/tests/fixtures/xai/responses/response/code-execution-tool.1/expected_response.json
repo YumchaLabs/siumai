@@ -1,0 +1,39 @@
+{
+  "id": "5138abcf-4c4e-b0ab-7e0b-f4c81b98f455_us-east-1",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "fc_5138abcf-4c4e-b0ab-7e0b-f4c81b98f455_us-east-1_0",
+        "toolName": "code_execution",
+        "input": "{\"code\":\"def fibonacci(n):\\n    if n <= 0:\\n        return 0\\n    elif n == 1:\\n        return 1\\n    else:\\n        a, b = 0, 1\\n        for _ in range(2, n + 1):\\n            a, b = b, a + b\\n        return b\\n\\nprint(fibonacci(10))\"}",
+        "providerExecuted": true
+      },
+      {
+        "type": "text",
+        "text": "55"
+      }
+    ]
+  },
+  "model": "grok-4-fast-reasoning",
+  "usage": {
+    "prompt_tokens": 1606,
+    "completion_tokens": 292,
+    "total_tokens": 1898,
+    "cached_tokens": 1235,
+    "prompt_tokens_details": {
+      "cached_tokens": 1235
+    },
+    "reasoning_tokens": 190,
+    "completion_tokens_details": {
+      "reasoning_tokens": 190
+    }
+  },
+  "finish_reason": "stop",
+  "provider_metadata": {
+    "openai": {
+      "itemId": "msg_5138abcf-4c4e-b0ab-7e0b-f4c81b98f455_us-east-1"
+    }
+  }
+}
+

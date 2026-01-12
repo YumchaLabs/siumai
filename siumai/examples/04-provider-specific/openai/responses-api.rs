@@ -22,8 +22,9 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::types::{
-    ChatRequest, OpenAiOptions, ReasoningEffort, ResponsesApiConfig, TextVerbosity, Truncation,
+use siumai::provider_ext::openai::{
+    OpenAiChatRequestExt, OpenAiOptions, ReasoningEffort, ResponsesApiConfig, TextVerbosity,
+    Truncation,
 };
 
 #[tokio::main]

@@ -8,13 +8,11 @@
 //!
 //! Run with: cargo run --example testing_executors
 
-use siumai::core::{ChatTransformers, ProviderContext, ProviderSpec};
-use siumai::error::LlmError;
-use siumai::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
-use siumai::execution::transformers::request::RequestTransformer;
-use siumai::execution::transformers::response::ResponseTransformer;
-use siumai::traits::ProviderCapabilities;
-use siumai::types::{ChatMessage, ChatRequest, ChatResponse, Usage};
+use siumai::experimental::core::{ChatTransformers, ProviderContext, ProviderSpec};
+use siumai::experimental::execution::executors::chat::{ChatExecutor, HttpChatExecutor};
+use siumai::experimental::execution::transformers::request::RequestTransformer;
+use siumai::experimental::execution::transformers::response::ResponseTransformer;
+use siumai::prelude::unified::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -103,18 +101,18 @@ impl RequestTransformer for MockRequestTransformer {
             "model": model,
             "messages": req.messages.iter().map(|m| {
                 let content_str = match &m.content {
-                    siumai::types::MessageContent::Text(text) => text.clone(),
-                    siumai::types::MessageContent::MultiModal(_) => "[multimodal content]".to_string(),
+                    MessageContent::Text(text) => text.clone(),
+                    MessageContent::MultiModal(_) => "[multimodal content]".to_string(),
                     #[cfg(feature = "structured-messages")]
-                    siumai::types::MessageContent::Json(_) => "[json content]".to_string(),
+                    MessageContent::Json(_) => "[json content]".to_string(),
                 };
                 serde_json::json!({
                     "role": match m.role {
-                        siumai::types::MessageRole::System => "system",
-                        siumai::types::MessageRole::User => "user",
-                        siumai::types::MessageRole::Assistant => "assistant",
-                        siumai::types::MessageRole::Tool => "tool",
-                        siumai::types::MessageRole::Developer => "developer",
+                        MessageRole::System => "system",
+                        MessageRole::User => "user",
+                        MessageRole::Assistant => "assistant",
+                        MessageRole::Tool => "tool",
+                        MessageRole::Developer => "developer",
                     },
                     "content": content_str,
                 })
@@ -143,11 +141,11 @@ impl ResponseTransformer for MockResponseTransformer {
         // Return a mock response
         Ok(ChatResponse {
             id: Some("mock-response-id".to_string()),
-            content: siumai::types::MessageContent::Text(
+            content: MessageContent::Text(
                 "This is a mock response from the test provider.".to_string(),
             ),
             model: Some("mock-model".to_string()),
-            finish_reason: Some(siumai::types::FinishReason::Stop),
+            finish_reason: Some(FinishReason::Stop),
             usage: Some(Usage::new(10, 20)),
             provider_metadata: None,
             audio: None,
@@ -180,19 +178,15 @@ async fn test_executor_with_spec(
         response_transformer: transformers.response,
         stream_transformer: transformers.stream,
         json_stream_converter: transformers.json,
-        policy: siumai::execution::ExecutionPolicy::new().with_stream_disable_compression(false),
+        policy: siumai::experimental::execution::ExecutionPolicy::new()
+            .with_stream_disable_compression(false),
         middlewares: vec![],
         provider_spec: spec.clone(),
         provider_context: ctx,
     };
 
     let request = ChatRequest::new(vec![ChatMessage::user("Test message").build()])
-        .with_model_params(
-            siumai::types::CommonParamsBuilder::new()
-                .model("mock-model")
-                .build()
-                .unwrap(),
-        );
+        .with_model_params(CommonParams::builder().model("mock-model").build().unwrap());
 
     // Note: This will fail with a connection error since we're not running a real server
     // In a real test, you would use wiremock or similar to mock the HTTP server

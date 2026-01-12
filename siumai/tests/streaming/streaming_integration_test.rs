@@ -4,14 +4,21 @@
 //! based streaming infrastructure correctly.
 
 use eventsource_stream::Event;
-use siumai::providers::anthropic::streaming::AnthropicEventConverter;
-use siumai::providers::gemini::streaming::GeminiEventConverter;
-use siumai::providers::ollama::streaming::OllamaEventConverter;
-use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
-use siumai::providers::openai_compatible::types::FieldMappings;
-use siumai::traits::ProviderCapabilities;
+use siumai::experimental::standards::openai::compat::adapter::{
+    ProviderAdapter, ProviderCompatibility,
+};
+use siumai::experimental::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
+use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
+use siumai::experimental::standards::openai::compat::types::FieldMappings;
+use siumai::prelude::unified::ProviderCapabilities;
+#[cfg(feature = "anthropic")]
+use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;
+#[cfg(feature = "google")]
+use siumai_provider_gemini::providers::gemini::streaming::GeminiEventConverter;
+#[cfg(feature = "google")]
+use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
+#[cfg(feature = "ollama")]
+use siumai_provider_ollama::providers::ollama::streaming::OllamaEventConverter;
 use std::sync::Arc;
 
 fn make_openai_converter() -> OpenAiCompatibleEventConverter {
@@ -20,15 +27,15 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         base_url: String,
     }
     impl ProviderAdapter for OpenAiStandardAdapter {
-        fn provider_id(&self) -> &'static str {
-            "openai"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("openai")
         }
         fn transform_request_params(
             &self,
             _params: &mut serde_json::Value,
             _model: &str,
-            _ty: siumai::providers::openai_compatible::types::RequestType,
-        ) -> Result<(), siumai::error::LlmError> {
+            _ty: siumai::experimental::standards::openai::compat::types::RequestType,
+        ) -> Result<(), siumai::prelude::unified::LlmError> {
             Ok(())
         }
         fn get_field_mappings(&self, _model: &str) -> FieldMappings {
@@ -37,7 +44,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         fn get_model_config(
             &self,
             _model: &str,
-        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+        ) -> siumai::experimental::standards::openai::compat::types::ModelConfig {
             Default::default()
         }
         fn capabilities(&self) -> ProviderCapabilities {
@@ -68,8 +75,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::streaming::ChatStreamEvent;
-use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::prelude::unified::{ChatStreamEvent, JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_openai_event_conversion() {
@@ -98,8 +104,10 @@ async fn test_openai_event_conversion() {
 }
 
 #[tokio::test]
+#[cfg(feature = "anthropic")]
 async fn test_anthropic_event_conversion() {
-    let config = siumai::params::AnthropicParams::default();
+    let config =
+        siumai_provider_anthropic::standards::anthropic::params::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Test content delta
@@ -126,8 +134,9 @@ async fn test_anthropic_event_conversion() {
 }
 
 #[tokio::test]
+#[cfg(feature = "google")]
 async fn test_gemini_json_conversion() {
-    let config = siumai::providers::gemini::types::GeminiConfig::default();
+    let config = GeminiConfig::default();
     let converter = GeminiEventConverter::new(config);
 
     // Test content delta
@@ -154,6 +163,7 @@ async fn test_gemini_json_conversion() {
 }
 
 #[tokio::test]
+#[cfg(feature = "ollama")]
 async fn test_ollama_json_conversion() {
     let converter = OllamaEventConverter::new();
 
@@ -260,9 +270,25 @@ async fn test_openai_content_prioritized_over_usage() {
 
 #[tokio::test]
 async fn test_xai_content_prioritized_over_usage() {
-    use siumai::providers::xai::streaming::XaiEventConverter;
+    use siumai::experimental::standards::openai::compat::provider_registry::{
+        ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+    };
 
-    let converter = XaiEventConverter::new();
+    // xAI is OpenAI-compatible; test via the OpenAI-compatible converter surface.
+    let provider_config = ProviderConfig {
+        id: "xai".to_string(),
+        name: "xAI".to_string(),
+        base_url: "https://api.x.ai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: Some("grok-beta".to_string()),
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: Vec::new(),
+    };
+    let adapter = std::sync::Arc::new(ConfigurableAdapter::new(provider_config));
+    let cfg = OpenAiCompatibleConfig::new("xai", "", "", adapter.clone()).with_model("grok-beta");
+    let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
 
     // Test event with both content and usage - content should be prioritized
     let event = Event {
@@ -290,10 +316,10 @@ async fn test_xai_content_prioritized_over_usage() {
 
 #[tokio::test]
 async fn test_openai_image_generation_capability() {
-    use siumai::providers::openai::OpenAiClient;
-    use siumai::traits::ImageGenerationCapability;
+    use siumai::extensions::ImageExtras;
+    use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
-    let config = siumai::providers::openai::OpenAiConfig::new("test-key");
+    let config = OpenAiConfig::new("test-key");
     let client = OpenAiClient::new(config, reqwest::Client::new());
 
     // Test supported sizes
@@ -313,12 +339,11 @@ async fn test_openai_image_generation_capability() {
 
 #[tokio::test]
 async fn test_siliconflow_image_generation_capability() {
-    use siumai::providers::openai::OpenAiClient;
-    use siumai::traits::ImageGenerationCapability;
+    use siumai::extensions::ImageExtras;
+    use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
     // Create a SiliconFlow-like client
-    let config = siumai::providers::openai::OpenAiConfig::new("test-key")
-        .with_base_url("https://api.siliconflow.cn/v1");
+    let config = OpenAiConfig::new("test-key").with_base_url("https://api.siliconflow.cn/v1");
     let client = OpenAiClient::new(config, reqwest::Client::new());
 
     // Test supported sizes for SiliconFlow
@@ -358,7 +383,7 @@ async fn test_openai_finish_reason_conversion() {
     if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
         assert_eq!(
             response.finish_reason,
-            Some(siumai::types::FinishReason::Stop)
+            Some(siumai::prelude::unified::FinishReason::Stop)
         );
     } else {
         // In the new architecture, finish_reason-only events might not generate StreamEnd
@@ -372,6 +397,7 @@ async fn test_openai_finish_reason_conversion() {
 }
 
 #[tokio::test]
+#[cfg(feature = "ollama")]
 async fn test_ollama_stream_end() {
     let converter = OllamaEventConverter::new();
 
@@ -395,8 +421,9 @@ async fn test_ollama_stream_end() {
 }
 
 #[tokio::test]
+#[cfg(feature = "google")]
 async fn test_gemini_finish_reason() {
-    let config = siumai::providers::gemini::types::GeminiConfig::default();
+    let config = GeminiConfig::default();
     let converter = GeminiEventConverter::new(config);
 
     // Test finish reason
@@ -418,7 +445,7 @@ async fn test_gemini_finish_reason() {
     if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
         assert_eq!(
             response.finish_reason,
-            Some(siumai::types::FinishReason::Stop)
+            Some(siumai::prelude::unified::FinishReason::Stop)
         );
     } else {
         panic!("Expected StreamEnd event");
@@ -426,8 +453,10 @@ async fn test_gemini_finish_reason() {
 }
 
 #[tokio::test]
+#[cfg(feature = "anthropic")]
 async fn test_anthropic_stream_end() {
-    let config = siumai::params::AnthropicParams::default();
+    let config =
+        siumai_provider_anthropic::standards::anthropic::params::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Test stream end
@@ -448,7 +477,7 @@ async fn test_anthropic_stream_end() {
     if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
         assert_eq!(
             response.finish_reason,
-            Some(siumai::types::FinishReason::Stop)
+            Some(siumai::prelude::unified::FinishReason::Stop)
         );
     } else {
         panic!("Expected StreamEnd event");

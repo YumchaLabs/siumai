@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"parts":[{"functionResponse":{"name":"test-tool","response":{"value":"ok"}}}],"role":"model"},"index":0}],"siumai":{"toolCallId":"call_1"}}
+
+data: {"candidates":[{"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}
+

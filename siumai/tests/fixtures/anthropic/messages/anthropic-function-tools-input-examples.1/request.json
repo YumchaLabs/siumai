@@ -1,0 +1,31 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "tool_with_examples",
+      "description": "tool with examples",
+      "parameters": {
+        "type": "object",
+        "properties": { "a": { "type": "number" } }
+      },
+      "inputExamples": [{ "input": { "a": 1 } }, { "input": { "a": 2 } }]
+    }
+  ],
+  "common_params": {
+    "model": "claude-sonnet-4-5",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

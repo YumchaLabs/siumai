@@ -1,0 +1,13 @@
+{
+  "model": "gemini-pro",
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hello"
+        }
+      ]
+    }
+  ]
+}

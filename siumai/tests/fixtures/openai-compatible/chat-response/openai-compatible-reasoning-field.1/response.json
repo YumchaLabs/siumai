@@ -1,0 +1,23 @@
+{
+  "id": "chatcmpl-test",
+  "object": "chat.completion",
+  "created": 1711115037,
+  "model": "grok-beta",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello, World!",
+        "reasoning": "This is the reasoning from the reasoning field"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 4,
+    "total_tokens": 34,
+    "completion_tokens": 30
+  }
+}
+

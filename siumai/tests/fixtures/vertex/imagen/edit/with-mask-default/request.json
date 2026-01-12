@@ -1,0 +1,9 @@
+{
+  "image": [1, 2, 3, 4],
+  "mask": [9, 9, 9],
+  "prompt": "A sunlit indoor lounge with a flamingo",
+  "model": "imagen-3.0-generate-002",
+  "count": 1,
+  "response_format": "b64_json",
+  "extra_params": {}
+}

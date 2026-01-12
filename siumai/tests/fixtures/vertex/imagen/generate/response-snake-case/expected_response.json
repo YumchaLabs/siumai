@@ -1,0 +1,12 @@
+{
+  "images": [
+    {
+      "b64_json": "BBB",
+      "format": "image/png",
+      "revised_prompt": "revised snake prompt",
+      "metadata": {
+        "someFutureField": "some future value"
+      }
+    }
+  ]
+}

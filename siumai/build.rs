@@ -22,17 +22,20 @@ fn check_feature_conflicts() {
 fn ensure_provider_available() {
     let providers = [
         cfg!(feature = "openai"),
+        cfg!(feature = "azure"),
         cfg!(feature = "anthropic"),
         cfg!(feature = "google"),
+        cfg!(feature = "google-vertex"),
         cfg!(feature = "ollama"),
         cfg!(feature = "xai"),
         cfg!(feature = "groq"),
         cfg!(feature = "minimaxi"),
+        cfg!(feature = "deepseek"),
     ];
 
     if !providers.iter().any(|&enabled| enabled) {
         panic!(
-            "At least one provider feature must be enabled. Available features: openai, anthropic, google, ollama, xai, groq, minimaxi"
+            "At least one provider feature must be enabled. Available features: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi, deepseek"
         );
     }
 }
@@ -45,11 +48,17 @@ fn add_build_info() {
     if cfg!(feature = "openai") {
         enabled_providers.push("openai");
     }
+    if cfg!(feature = "azure") {
+        enabled_providers.push("azure");
+    }
     if cfg!(feature = "anthropic") {
         enabled_providers.push("anthropic");
     }
     if cfg!(feature = "google") {
         enabled_providers.push("google");
+    }
+    if cfg!(feature = "google-vertex") {
+        enabled_providers.push("google-vertex");
     }
     if cfg!(feature = "ollama") {
         enabled_providers.push("ollama");
@@ -62,6 +71,9 @@ fn add_build_info() {
     }
     if cfg!(feature = "minimaxi") {
         enabled_providers.push("minimaxi");
+    }
+    if cfg!(feature = "deepseek") {
+        enabled_providers.push("deepseek");
     }
 
     // Set environment variables for runtime access

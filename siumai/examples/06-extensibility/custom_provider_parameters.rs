@@ -17,7 +17,6 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::types::{CustomProviderOptions, ProviderOptions};
 
 /// Example: Add new feature parameters for xAI
 ///
@@ -104,11 +103,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         parallel_function_calling: Some(true),
     };
 
-    // Convert to ProviderOptions
-    let options = ProviderOptions::from_custom(xai_features)?;
-
+    // Convert to a (provider_id, json) entry and attach via the open providerOptions map.
+    let (provider_id, value) = xai_features.to_provider_options_map_entry()?;
     println!("✅ Created custom xAI parameters:");
-    println!("   {:?}\n", options);
+    println!("   provider: {provider_id}");
+    println!("   value: {value}\n");
 
     // ============================================================
     // Example 2: Use with ChatRequest
@@ -122,10 +121,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let request = ChatRequest::new(vec![ChatMessage::user("Analyze this data").build()])
-        .with_provider_options(ProviderOptions::from_custom(openai_features)?);
+        .with_provider_option(openai_features.provider_id(), openai_features.to_json()?);
 
     println!("✅ Created ChatRequest with custom parameters");
-    println!("   Provider: {:?}", request.provider_options.provider_id());
+    println!(
+        "   providerOptions[openai] = {:?}",
+        request.provider_option("openai")
+    );
     println!();
 
     // ============================================================
@@ -134,19 +136,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 3: Direct HashMap usage (more flexible)");
     println!("====================================================\n");
 
-    use std::collections::HashMap;
-
-    let mut custom_params = HashMap::new();
-    custom_params.insert("new_feature".to_string(), serde_json::json!("enabled"));
-    custom_params.insert("priority_level".to_string(), serde_json::json!(5));
-
-    let options = ProviderOptions::Custom {
-        provider_id: "xai".to_string(),
-        options: custom_params,
-    };
+    let provider_id = "xai";
+    let value = serde_json::json!({
+        "new_feature": "enabled",
+        "priority_level": 5
+    });
 
     println!("✅ Created flexible custom parameters:");
-    println!("   {:?}\n", options);
+    println!("   provider: {provider_id}");
+    println!("   value: {value}\n");
 
     // ============================================================
     // Best Practices
@@ -173,11 +171,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("1. Implement CustomProviderOptions trait");
     println!();
 
-    println!("2. Convert using ProviderOptions::from_custom()");
+    println!("2. Attach via ChatRequest::with_provider_option(provider_id, json)");
     println!();
 
-    println!("3. Library automatically injects parameters into API request");
-    println!("   (via ProviderSpec::chat_before_send() hook)");
+    println!("3. Provider reads providerOptions and maps it into API requests");
     println!();
 
     println!("4. Provider receives complete request parameters");

@@ -1,0 +1,39 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Hello"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.image_generation",
+      "name": "generateImage",
+      "args": {
+        "outputFormat": "webp",
+        "quality": "low",
+        "size": "1024x1024",
+        "partialImages": 2
+      }
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

@@ -91,22 +91,22 @@ cargo run --example moonshot-long-context --features openai
 Use type-safe model constants from the library:
 
 ```rust
-use siumai::providers::openai_compatible::moonshot;
+use siumai::models;
 
 // Latest Kimi K2 model
-moonshot::KIMI_K2_0905_PREVIEW
+models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW
 
 // Auto-updated models
-moonshot::KIMI_LATEST
-moonshot::MOONSHOT_V1_AUTO
+models::openai_compatible::moonshot::KIMI_LATEST
+models::openai_compatible::moonshot::MOONSHOT_V1_AUTO
 
 // Specific context windows
-moonshot::MOONSHOT_V1_8K
-moonshot::MOONSHOT_V1_32K
-moonshot::MOONSHOT_V1_128K
+models::openai_compatible::moonshot::MOONSHOT_V1_8K
+models::openai_compatible::moonshot::MOONSHOT_V1_32K
+models::openai_compatible::moonshot::MOONSHOT_V1_128K
 
 // Vision models
-moonshot::MOONSHOT_V1_128K_VISION_PREVIEW
+models::openai_compatible::moonshot::MOONSHOT_V1_128K_VISION
 ```
 
 ### API Compatibility
@@ -202,7 +202,7 @@ let client = Siumai::builder()
 This directory is designed to hold examples for all OpenAI-compatible providers. To add examples for other providers (DeepSeek, OpenRouter, SiliconFlow, etc.), follow the same pattern:
 
 1. Create provider-specific example files
-2. Use model constants from `siumai::providers::openai_compatible::{provider}`
+2. Use model constants from `siumai::models::openai_compatible::{provider}`
 3. Document provider-specific features and capabilities
 4. Include setup instructions and API key information
 

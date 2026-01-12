@@ -1,0 +1,12 @@
+{
+  "input": ["hello"],
+  "model": "test-deployment",
+  "dimensions": null,
+  "encoding_format": null,
+  "user": null,
+  "task_type": null,
+  "title": null,
+  "provider_options_map": {},
+  "http_config": null
+}
+

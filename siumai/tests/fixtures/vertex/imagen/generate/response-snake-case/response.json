@@ -1,0 +1,10 @@
+{
+  "predictions": [
+    {
+      "bytes_base64_encoded": "BBB",
+      "mime_type": "image/png",
+      "prompt": "revised snake prompt",
+      "someFutureField": "some future value"
+    }
+  ]
+}

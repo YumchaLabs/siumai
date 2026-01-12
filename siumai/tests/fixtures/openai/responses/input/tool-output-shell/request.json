@@ -1,0 +1,54 @@
+{
+  "messages": [
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call_shell_1",
+            "toolName": "shell",
+            "output": {
+              "type": "json",
+              "value": {
+                "output": [
+                  {
+                    "stdout": "out",
+                    "stderr": "",
+                    "outcome": {
+                      "type": "exit",
+                      "exitCode": 0
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.shell",
+      "name": "shell",
+      "args": {}
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

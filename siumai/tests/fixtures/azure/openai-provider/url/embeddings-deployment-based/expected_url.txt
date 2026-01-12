@@ -1,0 +1,2 @@
+https://test-resource.openai.azure.com/openai/deployments/test-deployment/embeddings?api-version=v1
+

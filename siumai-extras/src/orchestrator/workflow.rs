@@ -16,9 +16,7 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
-use siumai::error::LlmError;
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatResponse, Tool};
+use siumai::prelude::unified::*;
 
 use super::{PrepareStepFn, StepResult, ToolApproval, ToolChoice, ToolLoopAgent, ToolResolver};
 use crate::structured_output::{OutputDecodeConfig, decode_typed};
@@ -224,13 +222,16 @@ where
     }
 
     /// Set telemetry configuration (applies to both variants).
-    pub fn telemetry(mut self, cfg: siumai::observability::telemetry::TelemetryConfig) -> Self {
+    pub fn telemetry(
+        mut self,
+        cfg: siumai::experimental::observability::telemetry::TelemetryConfig,
+    ) -> Self {
         self.builder = self.builder.telemetry(cfg);
         self
     }
 
     /// Set agent-level CommonParams (applies to both variants).
-    pub fn common_params(mut self, params: siumai::types::CommonParams) -> Self {
+    pub fn common_params(mut self, params: CommonParams) -> Self {
         self.builder = self.builder.common_params(params);
         self
     }
@@ -238,7 +239,7 @@ where
     /// Streaming on_chunk callback (stream variant only).
     pub fn on_chunk<F>(mut self, cb: F) -> Self
     where
-        F: Fn(&siumai::streaming::ChatStreamEvent) + Send + Sync + 'static,
+        F: Fn(&ChatStreamEvent) + Send + Sync + 'static,
     {
         self.builder = self.builder.on_chunk(cb);
         self
@@ -415,11 +416,11 @@ where
 
         // If memory is configured and a session key is provided, attempt to
         // load previous state into the working state before running.
-        if let (Some(memory), Some(key)) = (&self.memory, session_key) {
-            if let Some(prev) = memory.load(key).await? {
-                let mut guard = state.lock().unwrap();
-                *guard = prev;
-            }
+        if let (Some(memory), Some(key)) = (&self.memory, session_key)
+            && let Some(prev) = memory.load(key).await?
+        {
+            let mut guard = state.lock().unwrap();
+            *guard = prev;
         }
 
         // Local resolver that routes "worker:<id>" tools to the corresponding

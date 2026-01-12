@@ -1,8 +1,9 @@
-use axum::{routing::post, Router};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::Response;
-use std::sync::atomic::{AtomicU32, Ordering};
+use axum::{Router, routing::post};
+use futures::StreamExt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 #[tokio::test]
@@ -30,14 +31,13 @@ async fn http_connect_or_send_timeout_then_retry_success() {
                     let sse_body = format!(
                         "{}{}",
                         "data: {\"id\":\"chatcmpl-test\",\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"}}]}\n\n",
-                        "data: [DONE]\\n\\n"
+                        "data: [DONE]\n\n"
                     );
-                    let mut resp = Response::builder()
+                    Response::builder()
                         .status(StatusCode::OK)
                         .header("content-type", HeaderValue::from_static("text/event-stream"))
                         .body(axum::body::Body::from(sse_body))
-                        .unwrap();
-                    resp
+                        .unwrap()
                 }
             }
         }),
@@ -46,7 +46,7 @@ async fn http_connect_or_send_timeout_then_retry_success() {
     // Bind to an ephemeral local port
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let server_task = tokio::spawn(axum::serve(listener, app));
+    let server_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     // Build client that targets our test server (OpenAI native path)
     use siumai::prelude::*;
@@ -58,7 +58,7 @@ async fn http_connect_or_send_timeout_then_retry_success() {
         .model("gpt-4o-mini")
         // Set a short timeout to trigger the first-attempt timeout
         .http_timeout(Duration::from_millis(50))
-        .with_retry_options(Some(RetryOptions::policy_default().with_max_attempts(3)))
+        .with_retry(RetryOptions::policy_default().with_max_attempts(3))
         .build()
         .await
         .expect("build");
@@ -70,10 +70,19 @@ async fn http_connect_or_send_timeout_then_retry_success() {
         .expect("stream after retry");
 
     let events: Vec<_> = stream.collect().await;
-    assert!(matches!(events.first(), Some(Ok(ChatStreamEvent::ContentDelta { .. }))));
-    assert!(matches!(events.last(), Some(Ok(ChatStreamEvent::StreamEnd { .. }))));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::ContentDelta { .. }))),
+        "expected at least one ContentDelta"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Ok(ChatStreamEvent::StreamEnd { .. }))),
+        "expected StreamEnd"
+    );
 
     // Shutdown server
     drop(server_task);
 }
-

@@ -18,7 +18,9 @@
 
 use async_trait::async_trait;
 use futures::stream;
-use siumai::custom_provider::{CustomChatRequest, CustomChatResponse, CustomProvider};
+use siumai::experimental::custom_provider::{
+    CustomChatRequest, CustomChatResponse, CustomProvider,
+};
 use siumai::prelude::*;
 
 /// Custom provider example — simulates a simple AI service

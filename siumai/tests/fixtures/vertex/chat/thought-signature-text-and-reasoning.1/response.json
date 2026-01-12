@@ -1,0 +1,30 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          { "text": "Visible text part 1. ", "thoughtSignature": "sig1" },
+          {
+            "text": "This is a thought process.",
+            "thought": true,
+            "thoughtSignature": "sig2"
+          },
+          { "text": "Visible text part 2.", "thoughtSignature": "sig3" }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0,
+      "safetyRatings": [
+        { "category": "HARM_CATEGORY_DEROGATORY", "probability": "NEGLIGIBLE" }
+      ]
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 10,
+    "candidatesTokenCount": 20,
+    "totalTokenCount": 30
+  },
+  "modelVersion": "gemini-pro"
+}
+

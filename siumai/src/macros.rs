@@ -10,15 +10,15 @@
 macro_rules! user {
     // Simple text message - returns ChatMessage directly
     ($content:expr) => {
-        $crate::types::ChatMessage {
-            role: $crate::types::MessageRole::User,
-            content: $crate::types::MessageContent::Text($content.into()),
-            metadata: $crate::types::MessageMetadata::default(),
+        $crate::__private::types::ChatMessage {
+            role: $crate::__private::types::MessageRole::User,
+            content: $crate::__private::types::MessageContent::Text($content.into()),
+            metadata: $crate::__private::types::MessageMetadata::default(),
         }
     };
     // Message with cache control - returns ChatMessage via builder
     ($content:expr, cache: $cache:expr) => {
-        $crate::types::ChatMessage::user($content)
+        $crate::__private::types::ChatMessage::user($content)
             .cache_control($cache)
             .build()
     };
@@ -30,7 +30,7 @@ macro_rules! user {
 #[macro_export]
 macro_rules! user_builder {
     ($content:expr) => {
-        $crate::types::ChatMessage::user($content)
+        $crate::__private::types::ChatMessage::user($content)
     };
 }
 
@@ -41,15 +41,15 @@ macro_rules! user_builder {
 macro_rules! system {
     // Simple text message - returns ChatMessage directly
     ($content:expr) => {
-        $crate::types::ChatMessage {
-            role: $crate::types::MessageRole::System,
-            content: $crate::types::MessageContent::Text($content.into()),
-            metadata: $crate::types::MessageMetadata::default(),
+        $crate::__private::types::ChatMessage {
+            role: $crate::__private::types::MessageRole::System,
+            content: $crate::__private::types::MessageContent::Text($content.into()),
+            metadata: $crate::__private::types::MessageMetadata::default(),
         }
     };
     // Message with cache control - returns ChatMessage via builder
     ($content:expr, cache: $cache:expr) => {
-        $crate::types::ChatMessage::system($content)
+        $crate::__private::types::ChatMessage::system($content)
             .cache_control($cache)
             .build()
     };
@@ -62,10 +62,10 @@ macro_rules! system {
 macro_rules! assistant {
     // Simple text message - returns ChatMessage directly
     ($content:expr) => {
-        $crate::types::ChatMessage {
-            role: $crate::types::MessageRole::Assistant,
-            content: $crate::types::MessageContent::Text($content.into()),
-            metadata: $crate::types::MessageMetadata::default(),
+        $crate::__private::types::ChatMessage {
+            role: $crate::__private::types::MessageRole::Assistant,
+            content: $crate::__private::types::MessageContent::Text($content.into()),
+            metadata: $crate::__private::types::MessageMetadata::default(),
         }
     }; // Message with tool calls arm removed; use assistant_with_content instead
 }
@@ -76,12 +76,12 @@ macro_rules! assistant {
 #[macro_export]
 macro_rules! tool {
     ($content:expr, id: $id:expr, name: $name:expr) => {
-        $crate::types::ChatMessage {
-            role: $crate::types::MessageRole::Tool,
-            content: $crate::types::MessageContent::MultiModal(vec![
-                $crate::types::ContentPart::tool_result_text($id, $name, $content),
+        $crate::__private::types::ChatMessage {
+            role: $crate::__private::types::MessageRole::Tool,
+            content: $crate::__private::types::MessageContent::MultiModal(vec![
+                $crate::__private::types::ContentPart::tool_result_text($id, $name, $content),
             ]),
-            metadata: $crate::types::MessageMetadata::default(),
+            metadata: $crate::__private::types::MessageMetadata::default(),
         }
     };
 }
@@ -92,12 +92,12 @@ macro_rules! tool {
 #[macro_export]
 macro_rules! user_with_image {
     ($text:expr, $image_url:expr) => {
-        $crate::types::ChatMessage::user($text)
+        $crate::__private::types::ChatMessage::user($text)
             .with_image($image_url.to_string(), None)
             .build()
     };
     ($text:expr, $image_url:expr, detail: $detail:expr) => {
-        $crate::types::ChatMessage::user($text)
+        $crate::__private::types::ChatMessage::user($text)
             .with_image($image_url.to_string(), Some($detail.to_string()))
             .build()
     };
@@ -152,52 +152,5 @@ macro_rules! quick_chat {
     };
 }
 
-/// Enumerates all supported OpenAI-compatible providers.
-///
-/// This macro is defined at the crate root so it is always available
-/// regardless of feature flags. It accepts a callback macro `$mac` and
-/// invokes it as `$mac!(method_name, provider_id)` for each provider.
-#[macro_export]
-macro_rules! siumai_for_each_openai_compatible_provider {
-    ($mac:ident) => {
-        $mac!(deepseek, "deepseek");
-        $mac!(openrouter, "openrouter");
-        $mac!(siliconflow, "siliconflow");
-        $mac!(together, "together");
-        $mac!(fireworks, "fireworks");
-        $mac!(github_copilot, "github_copilot");
-        $mac!(perplexity, "perplexity");
-        $mac!(mistral, "mistral");
-        $mac!(cohere, "cohere");
-        $mac!(zhipu, "zhipu");
-        $mac!(moonshot, "moonshot");
-        $mac!(yi, "yi");
-        $mac!(doubao, "doubao");
-        $mac!(baichuan, "baichuan");
-        $mac!(qwen, "qwen");
-        // OpenAI-compatible variants of native providers
-        $mac!(groq_openai_compatible, "groq_openai_compatible");
-        $mac!(xai_openai_compatible, "xai_openai_compatible");
-        // International providers
-        $mac!(nvidia, "nvidia");
-        $mac!(hyperbolic, "hyperbolic");
-        $mac!(jina, "jina");
-        $mac!(github, "github");
-        $mac!(voyageai, "voyageai");
-        $mac!(poe, "poe");
-        // Chinese providers
-        $mac!(stepfun, "stepfun");
-        $mac!(minimax, "minimax");
-        $mac!(infini, "infini");
-        $mac!(modelscope, "modelscope");
-        // Extended providers seen in SiumaiBuilder convenience
-        $mac!(hunyuan, "hunyuan");
-        $mac!(baidu_cloud, "baidu_cloud");
-        $mac!(tencent_cloud_ti, "tencent_cloud_ti");
-        $mac!(xirang, "xirang");
-        $mac!(ai302, "302ai");
-        $mac!(aihubmix, "aihubmix");
-        $mac!(ppio, "ppio");
-        $mac!(ocoolai, "ocoolai");
-    };
-}
+// `siumai_for_each_openai_compatible_provider` is defined in `siumai-core` and
+// re-exported from this crate (see `siumai/src/lib.rs`).

@@ -1,0 +1,55 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Hello"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.file_search",
+      "name": "fileSearch",
+      "args": {
+        "vectorStoreIds": [
+          "vs_68caad8bd5d88191ab766cf043d89a18"
+        ],
+        "maxNumResults": 5,
+        "filters": {
+          "key": "author",
+          "type": "eq",
+          "value": "Jane Smith"
+        },
+        "ranking": {
+          "ranker": "auto",
+          "scoreThreshold": 0.5
+        }
+      }
+    }
+  ],
+  "providerOptions": {
+    "openai": {
+      "include": [
+        "file_search_call.results"
+      ]
+    }
+  },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

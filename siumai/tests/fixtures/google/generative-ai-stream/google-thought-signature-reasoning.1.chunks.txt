@@ -1,0 +1,2 @@
+{"candidates":[{"content":{"parts":[{"text":"thinking...","thought":true,"thoughtSignature":"stream_sig"}],"role":"model"}}]}
+{"candidates":[{"content":{"parts":[{"text":"Final answer"}],"role":"model"},"finishReason":"STOP","safetyRatings":[{"category":"HARM_CATEGORY_DEROGATORY","probability":"NEGLIGIBLE"}]}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2,"totalTokenCount":3}}

@@ -1,0 +1,45 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "text",
+            "text": "I will search for that information."
+          },
+          {
+            "type": "tool-call",
+            "toolCallId": "call_123",
+            "toolName": "search",
+            "input": {
+              "query": "weather in San Francisco"
+            },
+            "providerMetadata": {
+              "openai": {
+                "itemId": "id_456"
+              }
+            }
+          }
+        ]
+      },
+      "metadata": {
+        "id": "id_123"
+      }
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

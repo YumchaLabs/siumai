@@ -1,0 +1,39 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Hello"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.mcp",
+      "name": "MCP",
+      "args": {
+        "serverLabel": "zip1",
+        "serverUrl": "https://zip1.io/mcp",
+        "serverDescription": "Link shortener",
+        "requireApproval": "always"
+      }
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-mini",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

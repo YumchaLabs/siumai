@@ -1,0 +1,31 @@
+[package]
+name = "siumai-provider-anthropic-compatible"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Anthropic Messages protocol standard for siumai (legacy crate name: *-compatible)"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-provider-anthropic-compatible"
+readme = "../README.md"
+keywords = ["llm", "ai", "anthropic", "compat"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false }
+
+[features]
+default = []
+
+structured-messages = ["siumai-protocol-anthropic/structured-messages"]
+
+# Protocol standard only (no provider implementations).
+anthropic-standard = ["siumai-protocol-anthropic/anthropic-standard"]
+
+# Matches the feature name used by downstream crates.
+anthropic = ["siumai-protocol-anthropic/anthropic"]
+

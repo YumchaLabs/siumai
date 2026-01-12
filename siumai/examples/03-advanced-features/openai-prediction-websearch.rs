@@ -1,204 +1,171 @@
-//! OpenAI Predicted Outputs and Web Search Options Example
+//! OpenAI Predicted Outputs + Web Search Options
 //!
 //! This example demonstrates:
-//! 1. Using Predicted Outputs to speed up response times when regenerating content
-//! 2. Configuring web search options with context size and user location
+//! 1) Predicted outputs (provide prior content to speed up regeneration)
+//! 2) Web search via OpenAI provider-defined tools (Responses API)
 //!
 //! Learn more:
 //! - Predicted Outputs: https://platform.openai.com/docs/guides/predicted-outputs
 //! - Web Search: https://platform.openai.com/docs/guides/tools-web-search
+//!
+//! Run:
+//! ```bash
+//! cargo run --example openai-prediction-websearch --features openai
+//! ```
 
-use siumai::{
-    chat::ChatRequestBuilder,
-    types::{
-        provider_options::openai::{
-            OpenAiOptions, OpenAiWebSearchOptions, PredictionContent, WebSearchLocation,
-        },
-        ContentPart, Message, Role,
-    },
-    Client,
+use siumai::hosted_tools::openai as openai_tools;
+use siumai::prelude::*;
+use siumai::provider_ext::openai::{
+    OpenAiChatRequestExt, OpenAiOptions, PredictionContent, ResponsesApiConfig,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the client
-    let client = Client::builder()
-        .api_key(std::env::var("OPENAI_API_KEY")?)
-        .build()?;
+    let api_key = std::env::var("OPENAI_API_KEY")?;
 
-    println!("=== OpenAI Predicted Outputs and Web Search Options Demo ===\n");
+    let client = Siumai::builder()
+        .openai()
+        .api_key(&api_key)
+        .model("gpt-4o")
+        .build()
+        .await?;
 
-    // Example 1: Predicted Outputs
-    // When you're regenerating a file with minor changes, you can provide the original
-    // content as a prediction to significantly speed up the response time.
-    println!("1. Predicted Outputs Example");
-    println!("   Regenerating a file with minor changes...\n");
+    println!("OpenAI Predicted Outputs + Web Search Options Demo\n");
+
+    predicted_outputs(&client).await?;
+    web_search_context_size(&client).await?;
+    web_search_location(&client).await?;
+    two_phase_workflow(&client).await?;
+
+    Ok(())
+}
+
+async fn predicted_outputs(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+    println!("1) Predicted Outputs\n");
 
     let original_content = r#"
 # Project Documentation
-
+#
 ## Overview
 This is a sample project that demonstrates various features.
-
+#
 ## Installation
 ```bash
 npm install my-package
 ```
-
+#
 ## Usage
 Import the package and use it in your code:
 ```javascript
 import { myFunction } from 'my-package';
 myFunction();
 ```
-
+#
 ## License
 MIT License
 "#;
 
-    let request = ChatRequestBuilder::new("gpt-4o")
-        .message(Message::user(vec![ContentPart::text(format!(
-            "Update the installation section to use 'pnpm' instead of 'npm'. \
-             Here's the original content:\n\n{}",
-            original_content
-        ))]))
-        .openai_options(
-            OpenAiOptions::new().with_prediction(PredictionContent::text(original_content)),
-        )
-        .build()?;
+    let req = ChatRequest::new(vec![user!(format!(
+        "Update the installation section to use 'pnpm' instead of 'npm'. \
+Here is the original content:\n\n{}",
+        original_content
+    ))])
+    .with_openai_options(
+        OpenAiOptions::new().with_prediction(PredictionContent::text(original_content)),
+    );
 
-    match client.chat(request).await {
-        Ok(response) => {
-            println!("✅ Response (with prediction):");
-            println!("{}\n", response.content);
-        }
-        Err(e) => {
-            println!("❌ Error: {}\n", e);
-        }
-    }
+    let resp = client.chat_request(req).await?;
+    println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
+    Ok(())
+}
 
-    // Example 2: Web Search Options with Context Size
-    println!("2. Web Search Options - Context Size");
-    println!("   Searching with high context size...\n");
+async fn web_search_context_size(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+    println!("2) Web Search (Responses API): context size\n");
 
-    let request = ChatRequestBuilder::new("gpt-4o")
-        .message(Message::user("What are the latest developments in Rust async runtime?"))
-        .openai_options(
-            OpenAiOptions::new()
-                .with_web_search_options(OpenAiWebSearchOptions::new().with_context_size("high")),
-        )
-        .build()?;
+    let req = ChatRequest::new(vec![user!(
+        "What are the latest developments in Rust async runtime?"
+    )])
+    .with_tools(vec![
+        openai_tools::web_search()
+            .with_search_context_size("high")
+            .build(),
+    ])
+    .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    match client.chat(request).await {
-        Ok(response) => {
-            println!("✅ Response (high context):");
-            println!("{}\n", response.content);
-        }
-        Err(e) => {
-            println!("❌ Error: {}\n", e);
-        }
-    }
+    let resp = client.chat_request(req).await?;
+    println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
+    Ok(())
+}
 
-    // Example 3: Web Search Options with User Location
-    println!("3. Web Search Options - User Location");
-    println!("   Searching with specific location (San Francisco, US)...\n");
+async fn web_search_location(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+    println!("3) Web Search (Responses API): user location\n");
 
-    let request = ChatRequestBuilder::new("gpt-4o")
-        .message(Message::user("What's the weather like today?"))
-        .openai_options(
-            OpenAiOptions::new().with_web_search_options(
-                OpenAiWebSearchOptions::new()
-                    .with_context_size("medium")
-                    .with_location(
-                        WebSearchLocation::new()
-                            .with_country("US")
-                            .with_region("California")
-                            .with_city("San Francisco")
-                            .with_timezone("America/Los_Angeles"),
-                    ),
-            ),
-        )
-        .build()?;
+    let req = ChatRequest::new(vec![user!("What's the weather like today?")])
+        .with_tools(vec![
+            openai_tools::web_search()
+                .with_search_context_size("medium")
+                .with_user_location(
+                    openai_tools::UserLocation::new("approximate")
+                        .with_country("US")
+                        .with_region("California")
+                        .with_city("San Francisco")
+                        .with_timezone("America/Los_Angeles"),
+                )
+                .build(),
+        ])
+        .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    match client.chat(request).await {
-        Ok(response) => {
-            println!("✅ Response (with location):");
-            println!("{}\n", response.content);
-        }
-        Err(e) => {
-            println!("❌ Error: {}\n", e);
-        }
-    }
+    let resp = client.chat_request(req).await?;
+    println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
+    Ok(())
+}
 
-    // Example 4: Combined - Prediction + Web Search
-    println!("4. Combined Example - Prediction + Web Search");
-    println!("   Using both predicted outputs and web search...\n");
+async fn two_phase_workflow(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+    println!("4) Two-phase workflow: prediction (Chat Completions) + web search (Responses)\n");
 
     let template_content = r#"
 # Weekly Tech News Summary
-
+#
 ## AI & Machine Learning
 [Latest developments will be inserted here]
-
+#
 ## Programming Languages
 [Latest developments will be inserted here]
-
+#
 ## Cloud & Infrastructure
 [Latest developments will be inserted here]
 "#;
 
-    let request = ChatRequestBuilder::new("gpt-4o")
-        .message(Message::user(vec![ContentPart::text(format!(
-            "Fill in the latest tech news for this week. Use the template:\n\n{}",
-            template_content
-        ))]))
-        .openai_options(
-            OpenAiOptions::new()
-                .with_prediction(PredictionContent::text(template_content))
-                .with_web_search_options(
-                    OpenAiWebSearchOptions::new()
-                        .with_context_size("high")
-                        .with_location(WebSearchLocation::new().with_country("US")),
-                ),
-        )
-        .build()?;
+    // Phase 1: predicted outputs are currently supported on the Chat Completions path.
+    let req1 = ChatRequest::new(vec![user!(format!(
+        "Fill in the latest tech news for this week using the template:\n\n{}",
+        template_content
+    ))])
+    .with_openai_options(
+        OpenAiOptions::new().with_prediction(PredictionContent::text(template_content)),
+    );
 
-    match client.chat(request).await {
-        Ok(response) => {
-            println!("✅ Response (prediction + web search):");
-            println!("{}\n", response.content);
-        }
-        Err(e) => {
-            println!("❌ Error: {}\n", e);
-        }
-    }
+    let resp1 = client.chat_request(req1).await?;
+    println!(
+        "Phase 1 (prediction) text:\n{}\n",
+        resp1.content_text().unwrap_or_default()
+    );
 
-    // Example 5: Prediction with Content Parts
-    println!("5. Prediction with Content Parts");
-    println!("   Using multimodal content parts for prediction...\n");
+    // Phase 2: web search is configured as a provider-defined tool on the Responses API path.
+    let req2 = ChatRequest::new(vec![user!(
+        "Summarize the latest tech news for this week (AI/ML, Programming Languages, Cloud/Infra)."
+    )])
+    .with_tools(vec![
+        openai_tools::web_search()
+            .with_search_context_size("high")
+            .build(),
+    ])
+    .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let request = ChatRequestBuilder::new("gpt-4o")
-        .message(Message::user("Add a conclusion section to this document"))
-        .openai_options(
-            OpenAiOptions::new().with_prediction(PredictionContent::parts(vec![
-                ContentPart::text("# Introduction\n\nThis is the introduction."),
-                ContentPart::text("# Main Content\n\nThis is the main content."),
-            ])),
-        )
-        .build()?;
-
-    match client.chat(request).await {
-        Ok(response) => {
-            println!("✅ Response (with content parts):");
-            println!("{}\n", response.content);
-        }
-        Err(e) => {
-            println!("❌ Error: {}\n", e);
-        }
-    }
-
-    println!("=== Demo Complete ===");
-
+    let resp2 = client.chat_request(req2).await?;
+    println!(
+        "Phase 2 (web search) text:\n{}\n",
+        resp2.content_text().unwrap_or_default()
+    );
     Ok(())
 }
-

@@ -1,18 +1,25 @@
 use eventsource_stream::Event;
-use siumai::providers::gemini::streaming::GeminiEventConverter;
-use siumai::providers::gemini::types::GeminiConfig;
-use siumai::providers::ollama::streaming::OllamaEventConverter;
-use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
+use siumai::experimental::standards::openai::compat::adapter::{
+    ProviderAdapter, ProviderCompatibility,
+};
+use siumai::experimental::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
 /// Critical test to verify that first event content is preserved in streaming responses
 /// This test validates the multi-event emission architecture that prevents content loss
 ///
 /// Background: Before the refactor, the first SSE event content was lost because
 /// converters would return StreamStart instead of preserving the actual content.
 /// The new architecture allows multiple events to be emitted from a single SSE event.
-use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
-use siumai::providers::openai_compatible::types::FieldMappings;
-use siumai::traits::ProviderCapabilities;
+use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
+use siumai::experimental::standards::openai::compat::types::{
+    FieldMappings, ModelConfig, RequestType,
+};
+use siumai::prelude::unified::ProviderCapabilities;
+#[cfg(feature = "google")]
+use siumai_provider_gemini::providers::gemini::streaming::GeminiEventConverter;
+#[cfg(feature = "google")]
+use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
+#[cfg(feature = "ollama")]
+use siumai_provider_ollama::providers::ollama::streaming::OllamaEventConverter;
 use std::sync::Arc;
 
 fn make_openai_converter() -> OpenAiCompatibleEventConverter {
@@ -21,24 +28,21 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         base_url: String,
     }
     impl ProviderAdapter for OpenAiStandardAdapter {
-        fn provider_id(&self) -> &'static str {
-            "openai"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("openai")
         }
         fn transform_request_params(
             &self,
             _params: &mut serde_json::Value,
             _model: &str,
-            _ty: siumai::providers::openai_compatible::types::RequestType,
-        ) -> Result<(), siumai::error::LlmError> {
+            _ty: RequestType,
+        ) -> Result<(), siumai::prelude::unified::LlmError> {
             Ok(())
         }
         fn get_field_mappings(&self, _model: &str) -> FieldMappings {
             FieldMappings::standard()
         }
-        fn get_model_config(
-            &self,
-            _model: &str,
-        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+        fn get_model_config(&self, _model: &str) -> ModelConfig {
             Default::default()
         }
         fn capabilities(&self) -> ProviderCapabilities {
@@ -69,8 +73,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::streaming::ChatStreamEvent;
-use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::prelude::unified::{ChatStreamEvent, JsonEventConverter, SseEventConverter};
 
 #[tokio::test]
 async fn test_openai_first_event_with_content_preservation() {
@@ -232,6 +235,7 @@ async fn test_openai_subsequent_events_single_emission() {
 }
 
 #[tokio::test]
+#[cfg(feature = "google")]
 async fn test_gemini_first_event_with_content_preservation() {
     let config = GeminiConfig::default();
     let converter = GeminiEventConverter::new(config);
@@ -290,6 +294,7 @@ async fn test_gemini_first_event_with_content_preservation() {
 }
 
 #[tokio::test]
+#[cfg(feature = "ollama")]
 async fn test_ollama_first_event_with_content_preservation() {
     let converter = OllamaEventConverter::new();
 

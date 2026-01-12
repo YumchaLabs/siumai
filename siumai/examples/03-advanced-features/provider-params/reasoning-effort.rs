@@ -9,7 +9,7 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::types::{OpenAiOptions, ReasoningEffort};
+use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ReasoningEffort};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,11 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ✅ New API: Use type-safe OpenAiOptions with reasoning_effort
     let request = ChatRequest::builder()
         .message(user!("Solve this logic puzzle: If all bloops are razzies and all razzies are lazzies, are all bloops definitely lazzies?"))
-        .openai_options(
-            OpenAiOptions::new()
-                .with_reasoning_effort(ReasoningEffort::High)
-        )
-        .build();
+        .build()
+        .with_openai_options(
+            OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::High),
+        );
 
     let response = client.chat_request(request).await?;
 

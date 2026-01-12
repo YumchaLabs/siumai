@@ -6,12 +6,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::prepare_step::PrepareStepFn;
-use siumai::error::LlmError;
-use siumai::observability::telemetry::TelemetryConfig;
-use siumai::streaming::ChatStreamEvent;
-use siumai::types::{
-    ChatMessage, ChatResponse, CommonParams, ContentPart, FinishReason, Usage, Warning,
-};
+use siumai::experimental::observability::telemetry::TelemetryConfig;
+use siumai::prelude::unified::*;
 
 /// Result of a single step during orchestration.
 #[derive(Debug, Clone)]
@@ -79,7 +75,7 @@ impl StepResult {
     pub fn text(&self) -> Option<&str> {
         self.messages
             .iter()
-            .find(|msg| matches!(msg.role, siumai::types::MessageRole::Assistant))
+            .find(|msg| matches!(msg.role, MessageRole::Assistant))
             .and_then(|msg| msg.content_text())
     }
 

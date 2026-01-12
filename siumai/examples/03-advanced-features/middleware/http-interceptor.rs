@@ -8,7 +8,7 @@
 //! cargo run --example http-interceptor --features openai
 //! ```
 
-use siumai::execution::http::{HttpInterceptor, HttpRequestContext};
+use siumai::experimental::execution::http::{HttpInterceptor, HttpRequestContext};
 use siumai::prelude::*;
 use std::sync::Arc;
 

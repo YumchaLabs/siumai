@@ -1,0 +1,6 @@
+[
+  {
+    "type": "other",
+    "message": "Cannot append empty reasoning part to existing reasoning sequence. Skipping reasoning part: {\"type\":\"reasoning\",\"text\":\"\",\"providerOptions\":{\"openai\":{\"itemId\":\"reasoning_001\"}}}."
+  }
+]

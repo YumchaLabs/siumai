@@ -1,0 +1,7 @@
+{
+  "api-key": "test-api-key",
+  "content-type": "application/json",
+  "custom-provider-header": "provider-header-value",
+  "custom-request-header": "request-header-value"
+}
+

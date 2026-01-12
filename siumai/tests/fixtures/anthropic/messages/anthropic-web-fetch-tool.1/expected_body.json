@@ -1,0 +1,23 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-3-haiku-20240307",
+  "tools": [
+    {
+      "max_uses": 1,
+      "name": "web_fetch",
+      "type": "web_fetch_20250910"
+    }
+  ]
+}
+

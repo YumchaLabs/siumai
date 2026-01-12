@@ -15,8 +15,8 @@
 //! ```
 
 use serde_json::json;
+use siumai::models;
 use siumai::prelude::*;
-use siumai::providers::openai_compatible::moonshot;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,9 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build Moonshot client
     // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .moonshot()
-        .model(moonshot::KIMI_K2_0905_PREVIEW)
+        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
         .build()
         .await?;
 

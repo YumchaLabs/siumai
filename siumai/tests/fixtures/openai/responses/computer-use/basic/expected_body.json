@@ -1,0 +1,19 @@
+{
+  "model": "gpt-4o-mini",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Use the computer to complete a task."
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "computer_use_preview"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Hello"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.code_interpreter",
+      "name": "codeExecution",
+      "args": {
+        "container": {
+          "fileIds": [
+            "file_1",
+            "file_2"
+          ]
+        }
+      }
+    }
+  ],
+  "tool_choice": {
+    "tool": {
+      "name": "code_interpreter"
+    }
+  },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

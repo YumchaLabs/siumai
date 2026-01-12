@@ -1,0 +1,16 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "apply_patch_call_output",
+      "call_id": "call_apply_patch_1",
+      "status": "completed",
+      "output": "applied"
+    }
+  ],
+  "tools": [
+    {
+      "type": "apply_patch"
+    }
+  ]
+}

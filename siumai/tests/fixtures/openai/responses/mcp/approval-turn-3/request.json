@@ -1,0 +1,83 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "shorten ai-sdk.dev"
+      },
+      "metadata": {}
+    },
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-call",
+            "toolCallId": "mcpr_04f6b17429cf2b02006949a6712b1081968b3c7a72dec695d8",
+            "toolName": "mcp.create_short_url",
+            "input": {
+              "url": "https://ai-sdk.dev/"
+            },
+            "providerExecuted": true
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-approval-response",
+            "approvalId": "mcpr_04f6b17429cf2b02006949a6712b1081968b3c7a72dec695d8",
+            "approved": false
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "assistant",
+      "content": {
+        "Text": "The tool was not approved."
+      },
+      "metadata": {}
+    },
+    {
+      "role": "user",
+      "content": {
+        "Text": "try again"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.mcp",
+      "name": "MCP",
+      "args": {
+        "serverLabel": "zip1",
+        "serverUrl": "https://zip1.io/mcp",
+        "serverDescription": "Link shortener",
+        "requireApproval": "always"
+      }
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-mini",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

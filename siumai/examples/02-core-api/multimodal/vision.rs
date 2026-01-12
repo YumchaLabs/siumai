@@ -1,6 +1,6 @@
-//! Vision - Image understanding
+//! Multimodal Chat - Image understanding
 //!
-//! This example demonstrates how to send images to vision-capable models.
+//! This example demonstrates how to send images to multimodal chat models.
 //! Supports: OpenAI GPT-4o, Anthropic Claude 3.5, Google Gemini.
 //!
 //! ## Run

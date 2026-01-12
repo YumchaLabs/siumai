@@ -13,7 +13,7 @@ async fn test_openai_image_generation_integration() -> Result<(), Box<dyn std::e
         .expect("OPENAI_API_KEY environment variable not set");
 
     // Build OpenAI client (images via images/generations)
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .api_key(api_key)
         .model("gpt-image-1")
@@ -34,4 +34,3 @@ async fn test_openai_image_generation_integration() -> Result<(), Box<dyn std::e
     println!("🖼️ Image URL: {}", img.url.as_deref().unwrap());
     Ok(())
 }
-

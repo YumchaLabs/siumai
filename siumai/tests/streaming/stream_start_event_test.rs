@@ -4,15 +4,24 @@
 //! with proper metadata when streaming begins.
 
 use eventsource_stream::Event;
-use siumai::providers::anthropic::streaming::AnthropicEventConverter;
-use siumai::providers::gemini::streaming::GeminiEventConverter;
-use siumai::providers::groq::streaming::GroqEventConverter;
-use siumai::providers::ollama::streaming::OllamaEventConverter;
-use siumai::providers::openai_compatible::adapter::{ProviderAdapter, ProviderCompatibility};
-use siumai::providers::openai_compatible::openai_config::OpenAiCompatibleConfig;
-use siumai::providers::openai_compatible::streaming::OpenAiCompatibleEventConverter;
-use siumai::providers::openai_compatible::types::FieldMappings;
-use siumai::traits::ProviderCapabilities;
+use siumai::experimental::standards::openai::compat::adapter::{
+    ProviderAdapter, ProviderCompatibility,
+};
+use siumai::experimental::standards::openai::compat::openai_config::OpenAiCompatibleConfig;
+use siumai::experimental::standards::openai::compat::provider_registry::{
+    ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+};
+use siumai::experimental::standards::openai::compat::streaming::OpenAiCompatibleEventConverter;
+use siumai::experimental::standards::openai::compat::types::FieldMappings;
+use siumai::prelude::unified::ProviderCapabilities;
+#[cfg(feature = "anthropic")]
+use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;
+#[cfg(feature = "google")]
+use siumai_provider_gemini::providers::gemini::streaming::GeminiEventConverter;
+#[cfg(feature = "google")]
+use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
+#[cfg(feature = "ollama")]
+use siumai_provider_ollama::providers::ollama::streaming::OllamaEventConverter;
 use std::sync::Arc;
 
 fn make_openai_converter() -> OpenAiCompatibleEventConverter {
@@ -21,15 +30,15 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         base_url: String,
     }
     impl ProviderAdapter for OpenAiStandardAdapter {
-        fn provider_id(&self) -> &'static str {
-            "openai"
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("openai")
         }
         fn transform_request_params(
             &self,
             _params: &mut serde_json::Value,
             _model: &str,
-            _ty: siumai::providers::openai_compatible::types::RequestType,
-        ) -> Result<(), siumai::error::LlmError> {
+            _ty: siumai::experimental::standards::openai::compat::types::RequestType,
+        ) -> Result<(), siumai::prelude::unified::LlmError> {
             Ok(())
         }
         fn get_field_mappings(&self, _model: &str) -> FieldMappings {
@@ -38,7 +47,7 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
         fn get_model_config(
             &self,
             _model: &str,
-        ) -> siumai::providers::openai_compatible::types::ModelConfig {
+        ) -> siumai::experimental::standards::openai::compat::types::ModelConfig {
             Default::default()
         }
         fn capabilities(&self) -> ProviderCapabilities {
@@ -69,9 +78,42 @@ fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     .with_model("gpt-4");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
 }
-use siumai::providers::xai::streaming::XaiEventConverter;
-use siumai::streaming::ChatStreamEvent;
-use siumai::utils::streaming::{JsonEventConverter, SseEventConverter};
+use siumai::prelude::unified::{ChatStreamEvent, JsonEventConverter, SseEventConverter};
+
+fn make_groq_converter() -> OpenAiCompatibleEventConverter {
+    let provider_config = ProviderConfig {
+        id: "groq".to_string(),
+        name: "Groq".to_string(),
+        base_url: "https://api.groq.com/openai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: Some("llama-3.1-70b".to_string()),
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: Vec::new(),
+    };
+    let adapter = Arc::new(ConfigurableAdapter::new(provider_config));
+    let cfg =
+        OpenAiCompatibleConfig::new("groq", "", "", adapter.clone()).with_model("llama-3.1-70b");
+    OpenAiCompatibleEventConverter::new(cfg, adapter)
+}
+
+fn make_xai_converter() -> OpenAiCompatibleEventConverter {
+    let provider_config = ProviderConfig {
+        id: "xai".to_string(),
+        name: "xAI".to_string(),
+        base_url: "https://api.x.ai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: Some("grok-beta".to_string()),
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: Vec::new(),
+    };
+    let adapter = Arc::new(ConfigurableAdapter::new(provider_config));
+    let cfg = OpenAiCompatibleConfig::new("xai", "", "", adapter.clone()).with_model("grok-beta");
+    OpenAiCompatibleEventConverter::new(cfg, adapter)
+}
 
 #[tokio::test]
 async fn test_openai_stream_start_event() {
@@ -103,8 +145,10 @@ async fn test_openai_stream_start_event() {
 }
 
 #[tokio::test]
+#[cfg(feature = "anthropic")]
 async fn test_anthropic_stream_start_event() {
-    let config = siumai::params::AnthropicParams::default();
+    let config =
+        siumai_provider_anthropic::standards::anthropic::params::AnthropicParams::default();
     let converter = AnthropicEventConverter::new(config);
 
     // Test message_start event generates StreamStart
@@ -132,8 +176,9 @@ async fn test_anthropic_stream_start_event() {
 }
 
 #[tokio::test]
+#[cfg(feature = "google")]
 async fn test_gemini_stream_start_event() {
-    let config = siumai::providers::gemini::types::GeminiConfig {
+    let config = GeminiConfig {
         model: "gemini-pro".to_string(),
         ..Default::default()
     };
@@ -164,7 +209,7 @@ async fn test_gemini_stream_start_event() {
 
 #[tokio::test]
 async fn test_groq_stream_start_event() {
-    let converter = GroqEventConverter::new();
+    let converter = make_groq_converter();
 
     // Test that first event with metadata generates StreamStart
     let event = Event {
@@ -192,7 +237,7 @@ async fn test_groq_stream_start_event() {
 
 #[tokio::test]
 async fn test_xai_stream_start_event() {
-    let converter = XaiEventConverter::new();
+    let converter = make_xai_converter();
 
     // Test that first event with metadata generates StreamStart
     let event = Event {
@@ -219,6 +264,7 @@ async fn test_xai_stream_start_event() {
 }
 
 #[tokio::test]
+#[cfg(feature = "ollama")]
 async fn test_ollama_stream_start_event() {
     let converter = OllamaEventConverter::new();
 

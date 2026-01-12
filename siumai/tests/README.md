@@ -12,22 +12,12 @@ tests/
 │   ├── complete_stream_events_test.rs # Complete streaming event sequence tests
 │   ├── streaming_integration_test.rs  # General streaming integration tests
 │   └── tool_call_streaming_integration_test.rs # Tool call streaming tests
-├── providers/                          # Provider-specific tests
-│   ├── provider_interface_test.rs     # Provider interface compliance tests
-│   ├── provider_headers_test.rs       # HTTP header validation tests
-│   └── gemini_thinking_test.rs        # Gemini thinking capability tests
 ├── capabilities/                       # Feature capability tests
 │   ├── audio_capability_test.rs       # Audio processing capability tests
 │   ├── tool_capability_test.rs        # Tool calling capability tests
 │   ├── vision_capability_test.rs      # Vision/image processing capability tests
 │   ├── image_generation_test.rs       # Image generation capability tests
 │   └── embedding_integration_tests.rs # Embedding generation tests
-├── parameters/                         # Parameter handling tests
-│   ├── parameter_validation_test.rs   # Parameter validation tests
-│   ├── parameter_advanced_tests.rs    # Advanced parameter handling tests
-│   ├── parameter_mapping_consistency.rs # Parameter mapping consistency tests
-│   ├── parameter_internal_verification_test.rs # Internal parameter verification
-│   └── siumai_parameter_passing_test.rs # Parameter passing tests
 ├── mock/                              # Mock testing framework
 │   ├── mock_framework.rs             # HTTP mock testing framework
 │   └── mock_streaming_provider.rs    # Mock streaming provider for testing
@@ -44,8 +34,6 @@ tests/
 ├── request_builder_integration_test.rs # Request builder integration tests
 ├── request_builder_consistency.rs     # Request builder consistency tests
 ├── siumai_unified_interface_test.rs   # Unified interface tests
-├── unified_reasoning_test.rs          # Unified reasoning capability tests
-├── max_tokens_default_test.rs         # Max tokens default behavior tests
 └── url_compatibility_test.rs          # URL compatibility tests
 ```
 
@@ -58,11 +46,10 @@ Tests for streaming functionality across all providers:
 - **Integration Tests** - General streaming functionality
 - **Tool Call Streaming** - Tool call specific streaming tests
 
-### 🔌 Provider Tests (`tests/providers/`)
-Tests for provider-specific functionality:
-- **Interface Compliance** - Ensure providers implement required interfaces
-- **Header Validation** - HTTP header handling tests
-- **Provider-Specific Features** - Tests for unique provider capabilities
+### 🔌 Provider/Protocol Tests
+Provider-specific mapping, protocol drift detection, and HTTP contract tests are maintained as unit
+tests in provider crates and `siumai-core` (see below). We intentionally keep the facade test
+suite lighter to avoid cross-crate coupling during the split-crate refactor.
 
 ### 🎯 Capability Tests (`tests/capabilities/`)
 Tests for specific AI capabilities:
@@ -72,12 +59,10 @@ Tests for specific AI capabilities:
 - **Image Generation** - Image creation capabilities
 - **Embeddings** - Text embedding generation
 
-### ⚙️ Parameter Tests (`tests/parameters/`)
-Tests for parameter handling and validation:
-- **Validation** - Parameter validation logic
-- **Advanced Handling** - Complex parameter scenarios
-- **Mapping Consistency** - Parameter mapping across providers
-- **Internal Verification** - Internal parameter processing
+### ⚙️ Parameter/Mapping Tests
+Spec-aligned parameter mapping and OpenAI-compatible wiring tests are maintained as unit tests in:
+- `siumai-core` (run by `./scripts/test-smoke.sh`)
+- provider crates (run by `./scripts/test-smoke.sh`)
 
 ### 🎭 Mock Tests (`tests/mock/`)
 Mock testing framework and utilities:
@@ -102,22 +87,16 @@ cargo test
 ### By Category
 ```bash
 # Streaming tests
-cargo test --test "streaming/*"
-
-# Provider tests
-cargo test --test "providers/*"
+cargo test --test streaming_tests
 
 # Capability tests
-cargo test --test "capabilities/*"
-
-# Parameter tests
-cargo test --test "parameters/*"
+cargo test --test capability_tests
 
 # Mock tests
-cargo test --test "mock/*"
+cargo test --test mock_api_tests
 
 # Core tests
-cargo test --test "core/*"
+cargo test --test integration_tests
 ```
 
 ### Individual Test Files
@@ -156,7 +135,7 @@ When adding new tests, place them in the appropriate category:
 1. **Streaming-related** → `tests/streaming/`
 2. **Provider-specific** → `tests/providers/`
 3. **Capability/feature** → `tests/capabilities/`
-4. **Parameter handling** → `tests/parameters/`
+4. **Parameter/mapping (unit tests)** → `siumai-core/src/**` and `siumai-provider-*/src/**` (run via `./scripts/test-smoke.sh`)
 5. **Mock/testing utilities** → `tests/mock/`
 6. **Core functionality** → `tests/core/`
 

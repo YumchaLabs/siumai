@@ -1,0 +1,56 @@
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": { "Text": "You are a helpful assistant." },
+      "metadata": {}
+    },
+    {
+      "role": "user",
+      "content": { "Text": "What's the weather in SF?" },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "getWeather",
+      "description": "Get weather for a location.",
+      "parameters": {
+        "type": "object",
+        "properties": { "location": { "type": "string" } },
+        "required": ["location"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "responseFormat": {
+    "type": "json",
+    "schema": {
+      "type": "object",
+      "properties": { "answer": { "type": "string" } },
+      "required": ["answer"],
+      "additionalProperties": false
+    }
+  },
+  "common_params": {
+    "model": "anthropic.claude-3-haiku-20240307-v1:0",
+    "temperature": 0.7,
+    "max_tokens": 123,
+    "max_completion_tokens": null,
+    "top_p": 0.9,
+    "top_k": 0.2,
+    "stop_sequences": ["\n\n"],
+    "seed": null
+  },
+  "providerOptions": {
+    "bedrock": {
+      "additionalModelRequestFields": {
+        "anthropic_beta": ["example-beta-flag-2025-01-01"],
+        "thinking": { "type": "enabled", "budget_tokens": 1024 }
+      }
+    }
+  },
+  "stream": false
+}
+

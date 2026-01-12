@@ -4,7 +4,7 @@
 
 #![cfg(feature = "openai")]
 
-use siumai::execution::middleware::samples::chain_default_and_clamp;
+use siumai::experimental::execution::middleware::samples::chain_default_and_clamp;
 use siumai::registry::entry::{RegistryOptions, create_provider_registry};
 use std::collections::HashMap;
 

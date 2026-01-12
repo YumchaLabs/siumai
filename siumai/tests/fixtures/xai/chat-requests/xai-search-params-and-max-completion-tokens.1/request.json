@@ -1,0 +1,40 @@
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": { "Text": "You are a helpful assistant." },
+      "metadata": {}
+    },
+    {
+      "role": "user",
+      "content": { "Text": "Search the web and answer briefly." },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "grok-3-latest",
+    "temperature": 0.7,
+    "max_tokens": null,
+    "max_completion_tokens": 123,
+    "top_p": 0.9,
+    "top_k": 0.5,
+    "stop_sequences": ["STOP"],
+    "seed": 42
+  },
+  "providerOptions": {
+    "xai": {
+      "reasoningEffort": "high",
+      "parallel_function_calling": true,
+      "searchParameters": {
+        "mode": "on",
+        "returnCitations": true,
+        "maxSearchResults": 5,
+        "sources": [
+          { "type": "web", "country": "US", "safeSearch": true }
+        ]
+      }
+    }
+  },
+  "stream": false
+}

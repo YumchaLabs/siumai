@@ -1,0 +1,35 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-call",
+            "toolCallId": "call1",
+            "toolName": "calculator",
+            "input": { "x": 1, "y": 2 },
+            "providerMetadata": { "openaiCompatible": { "cacheControl": { "type": "ephemeral" } } }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "grok-beta",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

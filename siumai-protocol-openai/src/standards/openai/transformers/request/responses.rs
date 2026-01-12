@@ -1,0 +1,1369 @@
+use crate::error::LlmError;
+use crate::execution::transformers::request::RequestTransformer;
+use crate::types::{ChatRequest, ModerationRequest, RerankRequest};
+use base64::Engine;
+
+/// Request transformer for OpenAI Responses API
+#[derive(Clone)]
+#[cfg(feature = "openai-responses")]
+pub struct OpenAiResponsesRequestTransformer;
+
+#[cfg(feature = "openai-responses")]
+#[derive(Debug, Default)]
+struct ResponsesInputConversionState {
+    // Vercel parity: reasoning parts are merged by `itemId` across the entire prompt.
+    // For store=false we keep the index of the first emitted reasoning item so we can
+    // append subsequent summary parts in-place.
+    reasoning_item_index: std::collections::HashMap<String, usize>,
+    // For store=true we only emit a single item_reference per reasoning id.
+    reasoning_item_seen: std::collections::HashSet<String>,
+}
+
+#[cfg(feature = "openai-responses")]
+impl OpenAiResponsesRequestTransformer {
+    fn system_message_mode(req: &ChatRequest) -> Option<&str> {
+        req.provider_options_map
+            .get_object("openai")
+            .and_then(|m| {
+                m.get("systemMessageMode")
+                    .or_else(|| m.get("system_message_mode"))
+            })
+            .and_then(|v| v.as_str())
+    }
+
+    fn file_id_prefixes(req: &ChatRequest) -> Option<Vec<String>> {
+        req.provider_options_map
+            .get_object("openai")
+            .and_then(|m| {
+                m.get("fileIdPrefixes")
+                    .or_else(|| m.get("file_id_prefixes"))
+            })
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+    }
+
+    fn is_file_id(data: &str, prefixes: Option<&[String]>) -> bool {
+        let Some(prefixes) = prefixes else {
+            return false;
+        };
+        if prefixes.is_empty() {
+            return false;
+        }
+        prefixes.iter().any(|p| data.starts_with(p))
+    }
+
+    fn should_include_item_reference(req: &ChatRequest) -> bool {
+        // Vercel alignment:
+        // - `convertToOpenAIResponsesInput` takes `store` as a parameter.
+        // - In Siumai, `store` lives in `providerOptions.openai` (Responses API config).
+        // - Default to true when unspecified (matches Vercel fixtures expectations).
+        let openai = req.provider_options_map.get_object("openai");
+
+        let store = openai
+            .and_then(|m| m.get("store"))
+            .and_then(|v| v.as_bool())
+            .or_else(|| {
+                openai
+                    .and_then(|m| m.get("responsesApi").or_else(|| m.get("responses_api")))
+                    .and_then(|v| v.as_object())
+                    .and_then(|m| m.get("store"))
+                    .and_then(|v| v.as_bool())
+            });
+
+        store != Some(false)
+    }
+
+    fn extend_message(
+        req: &ChatRequest,
+        msg: &crate::types::ChatMessage,
+        state: &mut ResponsesInputConversionState,
+        input: &mut Vec<serde_json::Value>,
+    ) -> Result<(), LlmError> {
+        use crate::types::{ContentPart, MessageContent, MessageRole};
+        use siumai_core::standards::tool_name_mapping::create_tool_name_mapping;
+
+        // Tool role message becomes one or many `function_call_output` items (one per tool result).
+        if matches!(msg.role, MessageRole::Tool) {
+            let store = Self::should_include_item_reference(req);
+            let tool_name_mapping = req.tools.as_deref().map(|tools| {
+                create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
+            });
+            let tool_name_mapping = tool_name_mapping.unwrap_or_default();
+
+            let mut items: Vec<serde_json::Value> = Vec::new();
+            let mut processed_approval_ids: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+
+            if let MessageContent::MultiModal(parts) = &msg.content {
+                for part in parts {
+                    match part {
+                        ContentPart::ToolApprovalResponse {
+                            approval_id,
+                            approved,
+                        } => {
+                            if !processed_approval_ids.insert(approval_id.clone()) {
+                                continue;
+                            }
+
+                            if store {
+                                items.push(serde_json::json!({
+                                    "type": "item_reference",
+                                    "id": approval_id,
+                                }));
+                            }
+
+                            items.push(serde_json::json!({
+                                "type": "mcp_approval_response",
+                                "approval_request_id": approval_id,
+                                "approve": approved,
+                            }));
+                        }
+                        ContentPart::ToolResult {
+                            tool_call_id,
+                            tool_name,
+                            output,
+                            provider_metadata,
+                            ..
+                        } => {
+                            // Vercel parity: skip execution-denied tool results that carry an approval id.
+                            if matches!(
+                                output,
+                                crate::types::ToolResultOutput::ExecutionDenied { .. }
+                            ) && provider_metadata
+                                .as_ref()
+                                .and_then(|m| m.get("openai"))
+                                .and_then(|v| v.get("approvalId").or_else(|| v.get("approval_id")))
+                                .and_then(|v| v.as_str())
+                                .is_some()
+                            {
+                                continue;
+                            }
+
+                            let resolved_tool_name =
+                                tool_name_mapping.to_provider_tool_name(tool_name);
+
+                            // Vercel parity: provider tool outputs use dedicated output item types.
+                            if resolved_tool_name == "local_shell"
+                                && let crate::types::ToolResultOutput::Json { value } = output
+                                && let Some(s) = value.get("output").and_then(|v| v.as_str())
+                            {
+                                items.push(serde_json::json!({
+                                    "type": "local_shell_call_output",
+                                    "call_id": tool_call_id,
+                                    "output": s,
+                                }));
+                                continue;
+                            }
+
+                            if resolved_tool_name == "shell"
+                                && let crate::types::ToolResultOutput::Json { value } = output
+                                && let Some(arr) = value.get("output").and_then(|v| v.as_array())
+                            {
+                                let mapped: Vec<serde_json::Value> = arr
+                                    .iter()
+                                    .filter_map(|item| {
+                                        let stdout = item.get("stdout")?.clone();
+                                        let stderr = item.get("stderr")?.clone();
+                                        let outcome = item.get("outcome")?.as_object()?;
+                                        let outcome_type = outcome.get("type")?.as_str()?;
+                                        let mapped_outcome = match outcome_type {
+                                            "timeout" => serde_json::json!({ "type": "timeout" }),
+                                            "exit" => serde_json::json!({
+                                                "type": "exit",
+                                                "exit_code": outcome.get("exitCode").or_else(|| outcome.get("exit_code"))?.clone()
+                                            }),
+                                            _ => return None,
+                                        };
+                                        Some(serde_json::json!({
+                                            "stdout": stdout,
+                                            "stderr": stderr,
+                                            "outcome": mapped_outcome,
+                                        }))
+                                    })
+                                    .collect();
+
+                                items.push(serde_json::json!({
+                                    "type": "shell_call_output",
+                                    "call_id": tool_call_id,
+                                    "output": mapped,
+                                }));
+                                continue;
+                            }
+
+                            if resolved_tool_name == "apply_patch"
+                                && let crate::types::ToolResultOutput::Json { value } = output
+                                && let Some(status) = value.get("status")
+                            {
+                                let output_text = value
+                                    .get("output")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                items.push(serde_json::json!({
+                                    "type": "apply_patch_call_output",
+                                    "call_id": tool_call_id,
+                                    "status": status,
+                                    "output": output_text,
+                                }));
+                                continue;
+                            }
+
+                            // OpenAI Responses expects `output` (string or output content list). Keep it stable by
+                            // sending a string form for simple outputs and a list for multipart outputs.
+                            let output_value: serde_json::Value = match output {
+                                crate::types::ToolResultOutput::Text { value } => {
+                                    serde_json::Value::String(value.clone())
+                                }
+                                crate::types::ToolResultOutput::Json { value } => {
+                                    serde_json::Value::String(
+                                        serde_json::to_string(value).unwrap_or_default(),
+                                    )
+                                }
+                                crate::types::ToolResultOutput::ErrorText { value } => {
+                                    serde_json::Value::String(value.clone())
+                                }
+                                crate::types::ToolResultOutput::ErrorJson { value } => {
+                                    serde_json::Value::String(
+                                        serde_json::to_string(value).unwrap_or_default(),
+                                    )
+                                }
+                                crate::types::ToolResultOutput::ExecutionDenied { reason } => {
+                                    serde_json::Value::String(
+                                        reason
+                                            .clone()
+                                            .unwrap_or_else(|| "Execution denied".to_string()),
+                                    )
+                                }
+                                crate::types::ToolResultOutput::Content { value } => {
+                                    let mut out: Vec<serde_json::Value> = Vec::new();
+                                    for part in value {
+                                        match part {
+                                            crate::types::ToolResultContentPart::Text { text } => {
+                                                out.push(serde_json::json!({
+                                                    "type": "input_text",
+                                                    "text": text,
+                                                }));
+                                            }
+                                            crate::types::ToolResultContentPart::Image {
+                                                source,
+                                                detail,
+                                            } => {
+                                                let url = match source {
+                                                    crate::types::chat::MediaSource::Url {
+                                                        url,
+                                                    } => url.clone(),
+                                                    crate::types::chat::MediaSource::Base64 {
+                                                        data,
+                                                    } => {
+                                                        format!("data:image/jpeg;base64,{}", data)
+                                                    }
+                                                    crate::types::chat::MediaSource::Binary {
+                                                        data,
+                                                    } => {
+                                                        let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                                                        format!(
+                                                            "data:image/jpeg;base64,{}",
+                                                            encoded
+                                                        )
+                                                    }
+                                                };
+
+                                                let mut image = serde_json::json!({
+                                                    "type": "input_image",
+                                                    "image_url": url,
+                                                });
+                                                if matches!(
+                                                    detail,
+                                                    Some(
+                                                        crate::types::ImageDetail::Low
+                                                            | crate::types::ImageDetail::High
+                                                    )
+                                                ) {
+                                                    image["detail"] =
+                                                        serde_json::json!(detail.clone().unwrap());
+                                                }
+                                                out.push(image);
+                                            }
+                                            crate::types::ToolResultContentPart::File {
+                                                source,
+                                                media_type,
+                                                filename,
+                                            } => {
+                                                if media_type.starts_with("image/") {
+                                                    let media_type = if media_type == "image/*" {
+                                                        "image/jpeg"
+                                                    } else {
+                                                        media_type.as_str()
+                                                    };
+
+                                                    let url = match source {
+                                                        crate::types::chat::MediaSource::Url { url } => url.clone(),
+                                                        crate::types::chat::MediaSource::Base64 { data } => {
+                                                            format!("data:{};base64,{}", media_type, data)
+                                                        }
+                                                        crate::types::chat::MediaSource::Binary { data } => {
+                                                            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                                                            format!("data:{};base64,{}", media_type, encoded)
+                                                        }
+                                                    };
+                                                    out.push(serde_json::json!({
+                                                        "type": "input_image",
+                                                        "image_url": url,
+                                                    }));
+                                                    continue;
+                                                }
+
+                                                if media_type == "application/pdf" {
+                                                    match source {
+                                                        crate::types::chat::MediaSource::Url { url } => {
+                                                            out.push(serde_json::json!({
+                                                                "type": "input_file",
+                                                                "file_url": url,
+                                                            }));
+                                                        }
+                                                        crate::types::chat::MediaSource::Base64 { data } => {
+                                                            let filename = filename
+                                                                .clone()
+                                                                .unwrap_or_else(|| "data".to_string());
+                                                            out.push(serde_json::json!({
+                                                                "type": "input_file",
+                                                                "filename": filename,
+                                                                "file_data": format!("data:application/pdf;base64,{}", data),
+                                                            }));
+                                                        }
+                                                        crate::types::chat::MediaSource::Binary { data } => {
+                                                            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+                                                            let filename = filename
+                                                                .clone()
+                                                                .unwrap_or_else(|| "data".to_string());
+                                                            out.push(serde_json::json!({
+                                                                "type": "input_file",
+                                                                "filename": filename,
+                                                                "file_data": format!("data:application/pdf;base64,{}", encoded),
+                                                            }));
+                                                        }
+                                                    }
+                                                    continue;
+                                                }
+
+                                                // Fallback: keep unknown tool output parts as text hints.
+                                                out.push(serde_json::json!({
+                                                    "type": "input_text",
+                                                    "text": format!("[Unsupported file type: {}]", media_type),
+                                                }));
+                                            }
+                                        }
+                                    }
+
+                                    serde_json::Value::Array(out)
+                                }
+                            };
+
+                            items.push(serde_json::json!({
+                                "type": "function_call_output",
+                                "call_id": tool_call_id,
+                                "output": output_value,
+                            }));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if items.is_empty() {
+                return Err(LlmError::InvalidInput(
+                    "Tool message missing tool result".into(),
+                ));
+            }
+
+            input.extend(items);
+            return Ok(());
+        }
+
+        let store = Self::should_include_item_reference(req);
+        let file_id_prefixes = Self::file_id_prefixes(req);
+        let file_id_prefixes = file_id_prefixes.as_deref();
+
+        // Vercel alignment: optionally remove system messages for some models.
+        if matches!(msg.role, MessageRole::System)
+            && matches!(Self::system_message_mode(req), Some("remove"))
+        {
+            return Ok(());
+        }
+
+        // Assistant messages (Vercel-aligned: expand to message + tool call items).
+        if matches!(msg.role, MessageRole::Assistant) {
+            let tool_name_mapping = req.tools.as_deref().map(|tools| {
+                create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
+            });
+            let tool_name_mapping = tool_name_mapping.unwrap_or_default();
+
+            match &msg.content {
+                MessageContent::Text(text) => {
+                    if store && msg.metadata.id.is_some() {
+                        input.push(serde_json::json!({
+                            "type": "item_reference",
+                            "id": msg.metadata.id.clone().unwrap(),
+                        }));
+                        return Ok(());
+                    }
+
+                    let mut api_message = serde_json::json!({
+                        "role": "assistant",
+                        "content": [{ "type": "output_text", "text": text }],
+                    });
+                    if let Some(id) = msg.metadata.id.clone() {
+                        api_message["id"] = serde_json::json!(id);
+                    }
+                    input.push(api_message);
+                    return Ok(());
+                }
+                MessageContent::MultiModal(parts) => {
+                    // Vercel parity: prefer item references when IDs are provided and store is enabled.
+                    if store
+                        && (msg.metadata.id.is_some()
+                            || parts.iter().any(|p| {
+                                matches!(
+                                    p,
+                                    ContentPart::ToolCall {
+                                        provider_metadata: Some(_),
+                                        ..
+                                    } | ContentPart::ToolResult {
+                                        provider_metadata: Some(_),
+                                        ..
+                                    }
+                                )
+                            }))
+                    {
+                        let mut refs: Vec<serde_json::Value> = Vec::new();
+                        if let Some(id) = msg.metadata.id.clone() {
+                            refs.push(serde_json::json!({ "type": "item_reference", "id": id }));
+                        }
+
+                        for part in parts {
+                            let item_id = match part {
+                                ContentPart::ToolCall {
+                                    provider_metadata, ..
+                                }
+                                | ContentPart::ToolResult {
+                                    provider_metadata, ..
+                                } => provider_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.get("openai"))
+                                    .and_then(|v| v.get("itemId").or_else(|| v.get("item_id")))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string()),
+                                _ => None,
+                            };
+                            if let Some(id) = item_id {
+                                refs.push(
+                                    serde_json::json!({ "type": "item_reference", "id": id }),
+                                );
+                            }
+                        }
+
+                        if !refs.is_empty() {
+                            input.extend(refs);
+                            return Ok(());
+                        }
+                    }
+
+                    let mut content_parts: Vec<serde_json::Value> = Vec::new();
+
+                    let flush_assistant =
+                        |out: &mut Vec<serde_json::Value>,
+                         content_parts: &mut Vec<serde_json::Value>| {
+                            if content_parts.is_empty() {
+                                return;
+                            }
+                            let parts = std::mem::take(content_parts);
+                            out.push(serde_json::json!({
+                                "role": "assistant",
+                                "content": parts,
+                            }));
+                        };
+
+                    for part in parts {
+                        match part {
+                            ContentPart::Text { text, .. } => {
+                                content_parts.push(
+                                    serde_json::json!({ "type": "output_text", "text": text }),
+                                );
+                            }
+                            ContentPart::ToolCall {
+                                tool_call_id,
+                                tool_name,
+                                arguments,
+                                provider_executed,
+                                provider_metadata,
+                            } => {
+                                if provider_executed == &Some(true) {
+                                    // Provider-executed tool calls are not sent back to the API.
+                                    // Flush any accumulated assistant text to preserve ordering.
+                                    flush_assistant(input, &mut content_parts);
+                                    continue;
+                                }
+
+                                flush_assistant(input, &mut content_parts);
+
+                                let resolved_tool_name =
+                                    tool_name_mapping.to_provider_tool_name(tool_name);
+                                let item_id = provider_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.get("openai"))
+                                    .and_then(|v| v.get("itemId").or_else(|| v.get("item_id")))
+                                    .and_then(|v| v.as_str());
+
+                                if resolved_tool_name == "local_shell" {
+                                    let action =
+                                        arguments.get("action").cloned().unwrap_or_default();
+                                    let mut mapped_action = serde_json::Map::new();
+                                    if let Some(obj) = action.as_object() {
+                                        if let Some(v) = obj.get("type") {
+                                            mapped_action.insert("type".to_string(), v.clone());
+                                        }
+                                        if let Some(v) = obj.get("command") {
+                                            mapped_action.insert("command".to_string(), v.clone());
+                                        }
+                                        if let Some(v) =
+                                            obj.get("timeoutMs").or_else(|| obj.get("timeout_ms"))
+                                        {
+                                            mapped_action
+                                                .insert("timeout_ms".to_string(), v.clone());
+                                        }
+                                        if let Some(v) = obj.get("user") {
+                                            mapped_action.insert("user".to_string(), v.clone());
+                                        }
+                                        if let Some(v) = obj
+                                            .get("workingDirectory")
+                                            .or_else(|| obj.get("working_directory"))
+                                        {
+                                            mapped_action
+                                                .insert("working_directory".to_string(), v.clone());
+                                        }
+                                        if let Some(v) = obj.get("env") {
+                                            mapped_action.insert("env".to_string(), v.clone());
+                                        }
+                                    }
+
+                                    let mut call = serde_json::json!({
+                                        "type": "local_shell_call",
+                                        "call_id": tool_call_id,
+                                        "action": serde_json::Value::Object(mapped_action),
+                                    });
+                                    if let Some(id) = item_id {
+                                        call["id"] = serde_json::json!(id);
+                                    }
+                                    input.push(call);
+                                    continue;
+                                }
+
+                                if resolved_tool_name == "shell" {
+                                    let action =
+                                        arguments.get("action").cloned().unwrap_or_default();
+                                    let mut mapped_action = serde_json::Map::new();
+                                    if let Some(obj) = action.as_object() {
+                                        if let Some(v) = obj.get("commands") {
+                                            mapped_action.insert("commands".to_string(), v.clone());
+                                        }
+                                        if let Some(v) =
+                                            obj.get("timeoutMs").or_else(|| obj.get("timeout_ms"))
+                                        {
+                                            mapped_action
+                                                .insert("timeout_ms".to_string(), v.clone());
+                                        }
+                                        if let Some(v) = obj
+                                            .get("maxOutputLength")
+                                            .or_else(|| obj.get("max_output_length"))
+                                        {
+                                            mapped_action
+                                                .insert("max_output_length".to_string(), v.clone());
+                                        }
+                                    }
+
+                                    let mut call = serde_json::json!({
+                                        "type": "shell_call",
+                                        "call_id": tool_call_id,
+                                        "status": "completed",
+                                        "action": serde_json::Value::Object(mapped_action),
+                                    });
+                                    if let Some(id) = item_id {
+                                        call["id"] = serde_json::json!(id);
+                                    }
+                                    input.push(call);
+                                    continue;
+                                }
+
+                                let mut call = serde_json::json!({
+                                    "type": "function_call",
+                                    "call_id": tool_call_id,
+                                    "name": resolved_tool_name,
+                                    "arguments": serde_json::to_string(arguments).unwrap_or_default(),
+                                });
+                                if let Some(id) = item_id {
+                                    call["id"] = serde_json::json!(id);
+                                }
+                                input.push(call);
+                            }
+                            ContentPart::ToolResult {
+                                tool_call_id,
+                                provider_metadata,
+                                provider_executed,
+                                ..
+                            } => {
+                                flush_assistant(input, &mut content_parts);
+
+                                // Assistant tool results are typically provider-executed and stored.
+                                if store
+                                    && (provider_executed == &Some(true)
+                                        || provider_executed.is_none())
+                                {
+                                    let item_id = provider_metadata
+                                        .as_ref()
+                                        .and_then(|m| m.get("openai"))
+                                        .and_then(|v| v.get("itemId").or_else(|| v.get("item_id")))
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(tool_call_id);
+
+                                    input.push(serde_json::json!({
+                                        "type": "item_reference",
+                                        "id": item_id,
+                                    }));
+                                }
+                            }
+                            ContentPart::Reasoning {
+                                text,
+                                provider_metadata,
+                            } => {
+                                flush_assistant(input, &mut content_parts);
+
+                                let openai_meta = provider_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.get("openai"))
+                                    .and_then(|v| v.as_object());
+
+                                let item_id = openai_meta
+                                    .and_then(|m| m.get("itemId").or_else(|| m.get("item_id")))
+                                    .and_then(|v| v.as_str());
+
+                                let encrypted = openai_meta.and_then(|m| {
+                                    m.get("reasoningEncryptedContent")
+                                        .or_else(|| m.get("reasoning_encrypted_content"))
+                                });
+
+                                if store {
+                                    let Some(id) = item_id else {
+                                        // Vercel parity: non-OpenAI reasoning parts are not supported.
+                                        continue;
+                                    };
+
+                                    if state.reasoning_item_seen.insert(id.to_string()) {
+                                        input.push(serde_json::json!({
+                                            "type": "item_reference",
+                                            "id": id,
+                                        }));
+                                    }
+                                    continue;
+                                }
+
+                                let Some(id) = item_id else {
+                                    // Vercel parity: non-OpenAI reasoning parts are not supported.
+                                    continue;
+                                };
+
+                                let idx = state.reasoning_item_index.get(id).copied();
+                                if let Some(idx) = idx {
+                                    if !text.is_empty()
+                                        && let Some(obj) =
+                                            input.get_mut(idx).and_then(|v| v.as_object_mut())
+                                    {
+                                        let arr = obj
+                                            .entry("summary")
+                                            .or_insert_with(|| serde_json::Value::Array(vec![]))
+                                            .as_array_mut();
+                                        if let Some(arr) = arr {
+                                            arr.push(serde_json::json!({
+                                                "type": "summary_text",
+                                                "text": text,
+                                            }));
+                                        }
+                                    }
+
+                                    // Vercel parity: only overwrite when the provider option is not nullish.
+                                    if let Some(enc) = encrypted
+                                        && !enc.is_null()
+                                        && let Some(obj) =
+                                            input.get_mut(idx).and_then(|v| v.as_object_mut())
+                                    {
+                                        obj.insert("encrypted_content".to_string(), enc.clone());
+                                    }
+
+                                    continue;
+                                }
+
+                                let mut obj = serde_json::Map::new();
+                                obj.insert("type".to_string(), serde_json::json!("reasoning"));
+                                obj.insert("id".to_string(), serde_json::json!(id));
+
+                                if let Some(enc) = encrypted {
+                                    obj.insert("encrypted_content".to_string(), enc.clone());
+                                }
+
+                                let summary = if text.is_empty() {
+                                    Vec::new()
+                                } else {
+                                    vec![serde_json::json!({
+                                        "type": "summary_text",
+                                        "text": text,
+                                    })]
+                                };
+                                obj.insert(
+                                    "summary".to_string(),
+                                    serde_json::Value::Array(summary),
+                                );
+
+                                let idx = input.len();
+                                input.push(serde_json::Value::Object(obj));
+                                state.reasoning_item_index.insert(id.to_string(), idx);
+                            }
+                            ContentPart::ToolApprovalResponse { .. }
+                            | ContentPart::ToolApprovalRequest { .. }
+                            | ContentPart::Image { .. }
+                            | ContentPart::Audio { .. }
+                            | ContentPart::File { .. }
+                            | ContentPart::Source { .. } => {}
+                        }
+                    }
+
+                    flush_assistant(input, &mut content_parts);
+                    return Ok(());
+                }
+                #[cfg(feature = "structured-messages")]
+                MessageContent::Json(v) => {
+                    input.push(serde_json::json!({
+                        "role": "assistant",
+                        "content": [{ "type": "output_text", "text": serde_json::to_string(v).unwrap_or_default() }],
+                    }));
+                    return Ok(());
+                }
+            }
+        }
+
+        // Base message with role (system/user/developer)
+        let role = match msg.role {
+            MessageRole::System => match Self::system_message_mode(req) {
+                Some("developer") => "developer",
+                _ => "system",
+            },
+            MessageRole::Developer => "developer",
+            MessageRole::User => "user",
+            MessageRole::Tool => "user",
+            MessageRole::Assistant => "assistant",
+        };
+        let mut api_message = serde_json::json!({ "role": role });
+
+        // Default content handling
+        match &msg.content {
+            MessageContent::Text(text) => {
+                if role == "system" || role == "developer" {
+                    api_message["content"] = serde_json::Value::String(text.clone());
+                } else {
+                    api_message["content"] = serde_json::Value::Array(vec![serde_json::json!({
+                        "type": "input_text",
+                        "text": text
+                    })]);
+                }
+            }
+            MessageContent::MultiModal(parts) => {
+                let mut content_parts = Vec::new();
+                for (part_index, part) in parts.iter().enumerate() {
+                    match part {
+                        ContentPart::Text { text, .. } => {
+                            content_parts
+                                .push(serde_json::json!({ "type": "input_text", "text": text }));
+                        }
+                        ContentPart::Image { source, detail, .. } => {
+                            // Responses API prefers `input_image` items
+                            let url = match source {
+                                crate::types::chat::MediaSource::Url { url } => url.clone(),
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    format!("data:image/jpeg;base64,{}", data)
+                                }
+                                crate::types::chat::MediaSource::Binary { data } => {
+                                    let encoded =
+                                        base64::engine::general_purpose::STANDARD.encode(data);
+                                    format!("data:image/jpeg;base64,{}", encoded)
+                                }
+                            };
+
+                            // OpenAI Responses `input_image`: `image_url` is a string and `detail` is top-level.
+                            let mut image_part = serde_json::json!({
+                                "type": "input_image",
+                                "image_url": url,
+                            });
+                            if matches!(
+                                detail,
+                                Some(
+                                    crate::types::ImageDetail::Low
+                                        | crate::types::ImageDetail::High
+                                )
+                            ) {
+                                image_part["detail"] = serde_json::json!(detail.clone().unwrap());
+                            }
+                            content_parts.push(image_part);
+                        }
+                        ContentPart::Audio {
+                            source, media_type, ..
+                        } => {
+                            // Responses API input does not currently accept audio inside message content.
+                            // Keep a stable fallback representation.
+                            let hint = match source {
+                                crate::types::chat::MediaSource::Url { url } => {
+                                    format!("[Audio: {}]", url)
+                                }
+                                crate::types::chat::MediaSource::Base64 { .. }
+                                | crate::types::chat::MediaSource::Binary { .. } => {
+                                    let mt =
+                                        media_type.clone().unwrap_or_else(|| "audio".to_string());
+                                    format!("[Audio: {mt}]")
+                                }
+                            };
+                            content_parts
+                                .push(serde_json::json!({ "type": "input_text", "text": hint }));
+                        }
+                        ContentPart::File {
+                            source,
+                            media_type,
+                            filename,
+                            provider_metadata,
+                            ..
+                        } => {
+                            // Responses API file support
+                            if media_type.starts_with("image/") {
+                                let media_type = if media_type == "image/*" {
+                                    "image/jpeg"
+                                } else {
+                                    media_type.as_str()
+                                };
+
+                                match source {
+                                    crate::types::chat::MediaSource::Url { url } => {
+                                        let mut image_part = serde_json::json!({
+                                            "type": "input_image",
+                                            "image_url": url,
+                                        });
+
+                                        // Vercel parity: image detail can be specified via provider metadata.
+                                        let provider_detail = provider_metadata
+                                            .as_ref()
+                                            .and_then(|m| {
+                                                m.get("openai").or_else(|| m.get("azure"))
+                                            })
+                                            .and_then(|v| {
+                                                v.get("imageDetail")
+                                                    .or_else(|| v.get("image_detail"))
+                                            })
+                                            .and_then(|v| v.as_str());
+                                        if matches!(provider_detail, Some("low" | "high")) {
+                                            image_part["detail"] =
+                                                serde_json::json!(provider_detail.unwrap());
+                                        }
+
+                                        content_parts.push(image_part);
+                                    }
+                                    crate::types::chat::MediaSource::Base64 { data } => {
+                                        if Self::is_file_id(data, file_id_prefixes) {
+                                            let mut image_part = serde_json::json!({
+                                                "type": "input_image",
+                                                "file_id": data,
+                                            });
+
+                                            let provider_detail = provider_metadata
+                                                .as_ref()
+                                                .and_then(|m| {
+                                                    m.get("openai").or_else(|| m.get("azure"))
+                                                })
+                                                .and_then(|v| {
+                                                    v.get("imageDetail")
+                                                        .or_else(|| v.get("image_detail"))
+                                                })
+                                                .and_then(|v| v.as_str());
+                                            if matches!(provider_detail, Some("low" | "high")) {
+                                                image_part["detail"] =
+                                                    serde_json::json!(provider_detail.unwrap());
+                                            }
+
+                                            content_parts.push(image_part);
+                                        } else {
+                                            let mut image_part = serde_json::json!({
+                                                "type": "input_image",
+                                                "image_url": format!("data:{};base64,{}", media_type, data),
+                                            });
+
+                                            let provider_detail = provider_metadata
+                                                .as_ref()
+                                                .and_then(|m| {
+                                                    m.get("openai").or_else(|| m.get("azure"))
+                                                })
+                                                .and_then(|v| {
+                                                    v.get("imageDetail")
+                                                        .or_else(|| v.get("image_detail"))
+                                                })
+                                                .and_then(|v| v.as_str());
+                                            if matches!(provider_detail, Some("low" | "high")) {
+                                                image_part["detail"] =
+                                                    serde_json::json!(provider_detail.unwrap());
+                                            }
+
+                                            content_parts.push(image_part);
+                                        }
+                                    }
+                                    crate::types::chat::MediaSource::Binary { data } => {
+                                        let encoded =
+                                            base64::engine::general_purpose::STANDARD.encode(data);
+                                        let mut image_part = serde_json::json!({
+                                            "type": "input_image",
+                                            "image_url": format!("data:{};base64,{}", media_type, encoded),
+                                        });
+
+                                        let provider_detail = provider_metadata
+                                            .as_ref()
+                                            .and_then(|m| {
+                                                m.get("openai").or_else(|| m.get("azure"))
+                                            })
+                                            .and_then(|v| {
+                                                v.get("imageDetail")
+                                                    .or_else(|| v.get("image_detail"))
+                                            })
+                                            .and_then(|v| v.as_str());
+                                        if matches!(provider_detail, Some("low" | "high")) {
+                                            image_part["detail"] =
+                                                serde_json::json!(provider_detail.unwrap());
+                                        }
+
+                                        content_parts.push(image_part);
+                                    }
+                                }
+                            } else if media_type == "application/pdf" {
+                                match source {
+                                    crate::types::chat::MediaSource::Url { url } => {
+                                        content_parts.push(serde_json::json!({
+                                            "type": "input_file",
+                                            "file_url": url,
+                                        }));
+                                    }
+                                    crate::types::chat::MediaSource::Base64 { data } => {
+                                        if Self::is_file_id(data, file_id_prefixes) {
+                                            content_parts.push(serde_json::json!({
+                                                "type": "input_file",
+                                                "file_id": data,
+                                            }));
+                                        } else {
+                                            let filename = filename.clone().unwrap_or_else(|| {
+                                                format!("part-{}.pdf", part_index)
+                                            });
+                                            content_parts.push(serde_json::json!({
+                                                "type": "input_file",
+                                                "filename": filename,
+                                                "file_data": format!("data:application/pdf;base64,{}", data),
+                                            }));
+                                        }
+                                    }
+                                    crate::types::chat::MediaSource::Binary { data } => {
+                                        let encoded =
+                                            base64::engine::general_purpose::STANDARD.encode(data);
+                                        let filename = filename
+                                            .clone()
+                                            .unwrap_or_else(|| format!("part-{}.pdf", part_index));
+                                        content_parts.push(serde_json::json!({
+                                            "type": "input_file",
+                                            "filename": filename,
+                                            "file_data": format!("data:application/pdf;base64,{}", encoded),
+                                        }));
+                                    }
+                                }
+                            } else {
+                                return Err(LlmError::InvalidParameter(format!(
+                                    "file part media type {}",
+                                    media_type
+                                )));
+                            }
+                        }
+                        ContentPart::ToolCall { .. } => {
+                            if let ContentPart::ToolCall {
+                                provider_executed, ..
+                            } = part
+                                && provider_executed == &Some(true)
+                            {
+                                continue;
+                            }
+
+                            // Assistant tool calls are represented as `tool_use` content parts with
+                            // structured `input` (aligned with the official Responses API semantics).
+                            if let ContentPart::ToolCall {
+                                tool_call_id,
+                                tool_name,
+                                arguments,
+                                ..
+                            } = part
+                            {
+                                content_parts.push(serde_json::json!({
+                                    "type": "tool_use",
+                                    "id": tool_call_id,
+                                    "name": tool_name,
+                                    "input": arguments,
+                                }));
+                            }
+                        }
+                        ContentPart::ToolResult { .. } => {}
+                        ContentPart::Reasoning { text, .. } => {
+                            // Reasoning content as text
+                            content_parts.push(serde_json::json!({
+                                "type": "input_text",
+                                "text": format!("<thinking>{}</thinking>", text)
+                            }));
+                        }
+                        ContentPart::ToolApprovalResponse { .. } => {}
+                        ContentPart::ToolApprovalRequest { .. } => {}
+                        ContentPart::Source { .. } => {}
+                    }
+                }
+
+                // Vercel alignment: if a message only contained provider-executed tool calls
+                // (or other skipped parts), omit the message entirely.
+                if content_parts.is_empty() {
+                    return Ok(());
+                }
+
+                api_message["content"] = serde_json::Value::Array(content_parts);
+            }
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(v) => {
+                // Responses API does not define an `input_json` content part; serialize as text.
+                if role == "system" || role == "developer" {
+                    api_message["content"] =
+                        serde_json::Value::String(serde_json::to_string(v).unwrap_or_default());
+                } else {
+                    api_message["content"] = serde_json::Value::Array(vec![serde_json::json!({
+                        "type": "input_text",
+                        "text": serde_json::to_string(v).unwrap_or_default()
+                    })]);
+                }
+            }
+        }
+
+        input.push(api_message);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "openai-responses")]
+impl RequestTransformer for OpenAiResponsesRequestTransformer {
+    fn provider_id(&self) -> &str {
+        "openai_responses"
+    }
+
+    fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
+        struct ResponsesHooks;
+        impl crate::execution::transformers::request::ProviderRequestHooks for ResponsesHooks {
+            fn build_base_chat_body(
+                &self,
+                req: &ChatRequest,
+            ) -> Result<serde_json::Value, LlmError> {
+                // Build base body
+                let mut body = serde_json::json!({
+                    "model": req.common_params.model,
+                });
+
+                if req.stream {
+                    body["stream"] = serde_json::Value::Bool(true);
+                }
+
+                // input
+                let mut input_items: Vec<serde_json::Value> = Vec::new();
+                let mut state = ResponsesInputConversionState::default();
+                for m in &req.messages {
+                    OpenAiResponsesRequestTransformer::extend_message(
+                        req,
+                        m,
+                        &mut state,
+                        &mut input_items,
+                    )?;
+                }
+                body["input"] = serde_json::Value::Array(input_items);
+
+                // tools (flattened)
+                if let Some(tools) = &req.tools {
+                    let openai_tools =
+                        crate::standards::openai::utils::convert_tools_to_responses_format(tools)?;
+                    if !openai_tools.is_empty() {
+                        body["tools"] = serde_json::Value::Array(openai_tools);
+
+                        // Add tool_choice if specified
+                        if let Some(choice) = &req.tool_choice {
+                            body["tool_choice"] =
+                                crate::standards::openai::utils::convert_responses_tool_choice(
+                                    choice,
+                                    req.tools.as_deref(),
+                                );
+                        }
+                    }
+                }
+
+                // stream options
+                if req.stream {
+                    body["stream_options"] = serde_json::json!({ "include_usage": true });
+                }
+
+                // temperature
+                if let Some(temp) = req.common_params.temperature {
+                    body["temperature"] = serde_json::json!(temp);
+                }
+
+                // top_p
+                if let Some(tp) = req.common_params.top_p {
+                    body["top_p"] = serde_json::json!(tp);
+                }
+
+                // max_output_tokens (prefer max_completion_tokens, fallback to max_tokens)
+                if let Some(max_tokens) = req.common_params.max_completion_tokens {
+                    body["max_output_tokens"] = serde_json::json!(max_tokens);
+                } else if let Some(max_tokens) = req.common_params.max_tokens {
+                    body["max_output_tokens"] = serde_json::json!(max_tokens);
+                }
+
+                // seed
+                if let Some(seed) = req.common_params.seed {
+                    body["seed"] = serde_json::json!(seed);
+                }
+
+                Ok(body)
+            }
+
+            fn post_process_chat(
+                &self,
+                _req: &crate::types::ChatRequest,
+                _body: &mut serde_json::Value,
+            ) -> Result<(), LlmError> {
+                // All provider-specific features are now handled via provider_options
+                // in ProviderSpec::chat_before_send()
+                Ok(())
+            }
+        }
+        let hooks = ResponsesHooks;
+        let profile = crate::execution::transformers::request::MappingProfile {
+            provider_id: "openai_responses",
+            rules: vec![crate::execution::transformers::request::Rule::Range {
+                field: "temperature",
+                min: 0.0,
+                max: 2.0,
+                mode: crate::execution::transformers::request::RangeMode::Error,
+                message: None,
+            }],
+            merge_strategy:
+                crate::execution::transformers::request::ProviderParamsMergeStrategy::Flatten,
+        };
+        let generic =
+            crate::execution::transformers::request::GenericRequestTransformer { profile, hooks };
+        generic.transform_chat(req)
+    }
+
+    fn transform_rerank(&self, req: &RerankRequest) -> Result<serde_json::Value, LlmError> {
+        let mut payload = serde_json::json!({
+            "model": req.model,
+            "query": req.query,
+            "documents": req.documents,
+        });
+        if let Some(instr) = &req.instruction {
+            payload["instruction"] = serde_json::json!(instr);
+        }
+        if let Some(top_n) = req.top_n {
+            payload["top_n"] = serde_json::json!(top_n);
+        }
+        if let Some(rd) = req.return_documents {
+            payload["return_documents"] = serde_json::json!(rd);
+        }
+        if let Some(maxc) = req.max_chunks_per_doc {
+            payload["max_chunks_per_doc"] = serde_json::json!(maxc);
+        }
+        if let Some(over) = req.overlap_tokens {
+            payload["overlap_tokens"] = serde_json::json!(over);
+        }
+        Ok(payload)
+    }
+
+    fn transform_moderation(&self, req: &ModerationRequest) -> Result<serde_json::Value, LlmError> {
+        let model = req
+            .model
+            .clone()
+            .unwrap_or_else(|| "text-moderation-latest".to_string());
+
+        // OpenAI Moderations accepts either string or string[] for `input`.
+        // Prefer array when provided in request.
+        let input_value = if let Some(arr) = &req.inputs {
+            serde_json::Value::Array(
+                arr.iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            )
+        } else {
+            serde_json::Value::String(req.input.clone())
+        };
+
+        let json = serde_json::json!({ "model": model, "input": input_value });
+        Ok(json)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::OpenAiRequestTransformer;
+    use super::*;
+
+    #[test]
+    fn transform_chat_stream_includes_stream_options_include_usage() {
+        use crate::types::ChatMessage;
+
+        let tx = OpenAiRequestTransformer;
+        let req = ChatRequest::builder()
+            .message(ChatMessage::user("hi").build())
+            .model("gpt-4o-mini")
+            .stream(true)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn transform_rerank_includes_optional_fields() {
+        use crate::types::RerankRequest;
+
+        let tx = OpenAiRequestTransformer;
+        let req = RerankRequest::new(
+            "bge-reranker".to_string(),
+            "rust async".to_string(),
+            vec!["doc1".into(), "doc2".into()],
+        )
+        .with_instruction("rank by semantic relevance".to_string())
+        .with_top_n(3)
+        .with_return_documents(true)
+        .with_max_chunks_per_doc(8)
+        .with_overlap_tokens(16);
+
+        let body = tx.transform_rerank(&req).expect("transform rerank");
+
+        assert_eq!(body["model"], "bge-reranker");
+        assert_eq!(body["query"], "rust async");
+        let docs = body["documents"].as_array().expect("documents array");
+        assert_eq!(docs.len(), 2);
+        assert_eq!(body["top_n"], 3);
+        assert_eq!(body["return_documents"], true);
+        assert_eq!(body["max_chunks_per_doc"], 8);
+        assert_eq!(body["overlap_tokens"], 16);
+        // instruction is optional and may be adapted per provider; if present, assert matches
+        assert_eq!(body["instruction"], "rank by semantic relevance");
+    }
+
+    #[cfg(all(feature = "structured-messages", feature = "openai-responses"))]
+    #[test]
+    fn convert_message_json_maps_to_input_text_json_string() {
+        use crate::types::ChatRequest;
+        use crate::types::{ChatMessage, MessageContent, MessageMetadata, MessageRole};
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::Json(serde_json::json!({"a":1})),
+            metadata: MessageMetadata::default(),
+        };
+        let req = ChatRequest::new(vec![]);
+        let mut state = super::ResponsesInputConversionState::default();
+        let mut items = Vec::new();
+        super::OpenAiResponsesRequestTransformer::extend_message(
+            &req, &msg, &mut state, &mut items,
+        )
+        .expect("convert");
+        assert_eq!(items.len(), 1);
+        let v = &items[0];
+        // Expect content array with input_text JSON string
+        let content = v
+            .get("content")
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap();
+        assert!(!content.is_empty());
+        let first = &content[0];
+        assert_eq!(
+            first.get("type").and_then(|t| t.as_str()).unwrap_or(""),
+            "input_text"
+        );
+        let s = first.get("text").and_then(|t| t.as_str()).unwrap_or("");
+        let parsed: serde_json::Value = serde_json::from_str(s).unwrap();
+        assert_eq!(parsed.get("a").and_then(|x| x.as_i64()).unwrap_or(0), 1);
+    }
+
+    #[cfg(all(feature = "structured-messages", feature = "openai-responses"))]
+    #[test]
+    fn convert_tool_output_json_maps_to_output_string() {
+        use crate::types::{
+            ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
+        };
+        let msg = ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![ContentPart::tool_result_json(
+                "call-1",
+                "test_tool",
+                serde_json::json!({"r":42}),
+            )]),
+            metadata: MessageMetadata::default(),
+        };
+        let req = ChatRequest::new(vec![]);
+        let mut state = super::ResponsesInputConversionState::default();
+        let mut items = Vec::new();
+        super::OpenAiResponsesRequestTransformer::extend_message(
+            &req, &msg, &mut state, &mut items,
+        )
+        .expect("convert");
+        assert_eq!(items.len(), 1);
+        let v = &items[0];
+        assert_eq!(
+            v.get("type").and_then(|t| t.as_str()).unwrap_or(""),
+            "function_call_output"
+        );
+        assert_eq!(
+            v.get("call_id").and_then(|x| x.as_str()).unwrap_or(""),
+            "call-1"
+        );
+        let s = v.get("output").and_then(|o| o.as_str()).unwrap_or("");
+        let parsed: serde_json::Value = serde_json::from_str(s).unwrap();
+        assert_eq!(parsed.get("r").and_then(|x| x.as_i64()).unwrap_or(0), 42);
+
+        // Fallback to output text for Text output
+        let msg2 = ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![ContentPart::tool_result_text(
+                "call-2",
+                "test_tool",
+                "ok",
+            )]),
+            metadata: MessageMetadata::default(),
+        };
+        let mut items2 = Vec::new();
+        super::OpenAiResponsesRequestTransformer::extend_message(
+            &req,
+            &msg2,
+            &mut state,
+            &mut items2,
+        )
+        .expect("convert");
+        assert_eq!(items2.len(), 1);
+        let v2 = &items2[0];
+        assert_eq!(
+            v2.get("output").and_then(|x| x.as_str()).unwrap_or(""),
+            "ok"
+        );
+    }
+}

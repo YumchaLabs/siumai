@@ -1,0 +1,10 @@
+{
+  "max_tokens": 123456,
+  "messages": [
+    {
+      "content": [{ "text": "Hello", "type": "text" }],
+      "role": "user"
+    }
+  ],
+  "model": "future-model"
+}

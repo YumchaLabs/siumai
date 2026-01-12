@@ -1,0 +1,11 @@
+{
+  "id": "chatcmpl-test",
+  "content": {
+    "Text": "{\"name\":\"weather$weather#get_weather\",\"arguments\":{\"addr\":\"Guangzhou\",\"date\":\"2026-01-09\"}}"
+  },
+  "model": "grok-beta",
+  "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 },
+  "finish_reason": "stop",
+  "audio": null
+}
+

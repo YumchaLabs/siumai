@@ -8,22 +8,20 @@ use super::prepare_step::{PrepareStepContext, filter_active_tools};
 use super::stop_condition::StopCondition;
 use super::types::{OrchestratorOptions, StepResult, ToolApproval, ToolResolver};
 use super::validation::validate_args_with_schema;
-use siumai::error::LlmError;
-use siumai::observability::telemetry::{
+use siumai::experimental::observability::telemetry::{
     TelemetryConfig,
     events::{OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
 };
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatResponse, ContentPart, MessageContent, Tool};
+use siumai::prelude::unified::*;
 
 /// Convert orchestrator ToolChoice to types::ToolChoice
-fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> siumai::types::ToolChoice {
+fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> ToolChoice {
     match choice {
-        super::prepare_step::ToolChoice::Auto => siumai::types::ToolChoice::Auto,
-        super::prepare_step::ToolChoice::Required => siumai::types::ToolChoice::Required,
-        super::prepare_step::ToolChoice::None => siumai::types::ToolChoice::None,
+        super::prepare_step::ToolChoice::Auto => ToolChoice::Auto,
+        super::prepare_step::ToolChoice::Required => ToolChoice::Required,
+        super::prepare_step::ToolChoice::None => ToolChoice::None,
         super::prepare_step::ToolChoice::Specific { tool_name } => {
-            siumai::types::ToolChoice::Tool { name: tool_name }
+            ToolChoice::Tool { name: tool_name }
         }
     }
 }
@@ -77,7 +75,8 @@ pub async fn generate(
             .with_attribute("max_steps", max_steps.to_string())
             .with_attribute("has_tools", tools.is_some().to_string());
 
-            siumai::observability::telemetry::emit(TelemetryEvent::SpanStart(span)).await;
+            siumai::experimental::observability::telemetry::emit(TelemetryEvent::SpanStart(span))
+                .await;
         }
     }
 
@@ -85,7 +84,7 @@ pub async fn generate(
         // Call prepare_step callback if provided
         let mut current_tools = tools.clone();
         let mut current_messages = history.clone();
-        let mut current_tool_choice: Option<siumai::types::ToolChoice> = None;
+        let mut current_tool_choice: Option<ToolChoice> = None;
         let mut current_system: Option<String> = None;
 
         if let Some(ref prepare_fn) = opts.prepare_step {
@@ -126,7 +125,7 @@ pub async fn generate(
 
         // Use chat_request if we have tool_choice override or common_params
         let resp = if current_tool_choice.is_some() || opts.common_params.is_some() {
-            let mut request = siumai::types::ChatRequest::new(current_messages.clone());
+            let mut request = ChatRequest::new(current_messages.clone());
 
             if let Some(tools) = current_tools.clone() {
                 request = request.with_tools(tools);
@@ -156,9 +155,9 @@ pub async fn generate(
             .unwrap_or_default();
         // The response content already contains tool calls, so we just use it directly
         let assistant_built = ChatMessage {
-            role: siumai::types::MessageRole::Assistant,
+            role: MessageRole::Assistant,
             content: resp.content.clone(),
-            metadata: siumai::types::MessageMetadata::default(),
+            metadata: MessageMetadata::default(),
         };
         history.push(assistant_built.clone());
         step_msgs.push(assistant_built);
@@ -168,7 +167,7 @@ pub async fn generate(
         if !tool_calls.is_empty() {
             if let Some(resolver) = resolver {
                 for call in tool_calls.iter() {
-                    if let siumai::types::ContentPart::ToolCall {
+                    if let ContentPart::ToolCall {
                         tool_call_id,
                         tool_name,
                         arguments,
@@ -286,7 +285,7 @@ pub async fn generate(
         // Extract tool results from tool messages
         let tool_results: Vec<ContentPart> = step_msgs
             .iter()
-            .filter(|msg| matches!(msg.role, siumai::types::MessageRole::Tool))
+            .filter(|msg| matches!(msg.role, MessageRole::Tool))
             .flat_map(|msg| msg.tool_results())
             .cloned()
             .collect();
@@ -373,7 +372,8 @@ async fn emit_telemetry_success(
             .with_attribute("total_steps", steps.len().to_string())
             .with_attribute("finish_reason", format!("{:?}", resp.finish_reason));
 
-            siumai::observability::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::experimental::observability::telemetry::emit(TelemetryEvent::SpanEnd(span))
+                .await;
 
             let orch_event = OrchestratorEvent {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -386,7 +386,10 @@ async fn emit_telemetry_success(
                 total_duration: std::time::SystemTime::now().duration_since(start_time).ok(),
                 metadata: std::collections::HashMap::new(),
             };
-            siumai::observability::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+            siumai::experimental::observability::telemetry::emit(TelemetryEvent::Orchestrator(
+                orch_event,
+            ))
+            .await;
         }
     }
 }
@@ -411,7 +414,8 @@ async fn emit_telemetry_max_steps(
             .with_attribute("total_steps", steps.len().to_string())
             .with_attribute("max_steps_reached", "true");
 
-            siumai::observability::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::experimental::observability::telemetry::emit(TelemetryEvent::SpanEnd(span))
+                .await;
 
             let orch_event = OrchestratorEvent {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -424,7 +428,10 @@ async fn emit_telemetry_max_steps(
                 total_duration: std::time::SystemTime::now().duration_since(start_time).ok(),
                 metadata: std::collections::HashMap::new(),
             };
-            siumai::observability::telemetry::emit(TelemetryEvent::Orchestrator(orch_event)).await;
+            siumai::experimental::observability::telemetry::emit(TelemetryEvent::Orchestrator(
+                orch_event,
+            ))
+            .await;
         }
     }
 }
@@ -440,7 +447,8 @@ async fn emit_telemetry_error(telemetry: &Option<TelemetryConfig>, span_id: &str
             )
             .end_error("orchestrator: no steps produced".to_string());
 
-            siumai::observability::telemetry::emit(TelemetryEvent::SpanEnd(span)).await;
+            siumai::experimental::observability::telemetry::emit(TelemetryEvent::SpanEnd(span))
+                .await;
         }
     }
 }

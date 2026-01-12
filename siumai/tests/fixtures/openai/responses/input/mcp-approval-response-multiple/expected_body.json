@@ -1,0 +1,9 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    { "type": "item_reference", "id": "approval-1" },
+    { "type": "mcp_approval_response", "approval_request_id": "approval-1", "approve": true },
+    { "type": "item_reference", "id": "approval-2" },
+    { "type": "mcp_approval_response", "approval_request_id": "approval-2", "approve": false }
+  ]
+}

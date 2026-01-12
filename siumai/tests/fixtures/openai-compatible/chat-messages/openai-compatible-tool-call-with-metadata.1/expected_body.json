@@ -1,0 +1,18 @@
+{
+  "model": "grok-beta",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call1",
+          "type": "function",
+          "function": { "name": "calculator", "arguments": "{\"x\":1,\"y\":2}" },
+          "cacheControl": { "type": "ephemeral" }
+        }
+      ]
+    }
+  ]
+}
+

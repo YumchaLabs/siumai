@@ -1,0 +1,24 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "tools": [],
+  "common_params": {
+    "model": "gemini-2.5-flash",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

@@ -77,10 +77,10 @@
 //! | xAI        | ✅   | ✅        | ❌         | ✅ (Grok) |
 
 use futures::StreamExt;
+use siumai::extensions::ModelListingCapability;
+use siumai::models::groq;
+use siumai::models::openai_compatible::deepseek;
 use siumai::prelude::*;
-use siumai::providers::openai_compatible::providers::models::{deepseek, groq};
-use siumai::streaming::ChatStreamEvent;
-use siumai::traits::ModelListingCapability;
 use std::env;
 
 /// Test configuration for a provider
@@ -140,7 +140,7 @@ fn get_provider_configs() -> Vec<ProviderTestConfig> {
         ProviderTestConfig {
             name: "Groq",
             api_key_env: "GROQ_API_KEY",
-            default_model: groq::LLAMA_3_1_8B,
+            default_model: groq::LLAMA_3_1_8B_INSTANT,
             supports_embedding: false,
             supports_reasoning: false,
             reasoning_model: None,
@@ -179,7 +179,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
     match config.name {
         "OpenAI" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let mut builder = LlmBuilder::new()
+            let mut builder = Siumai::builder()
                 .openai()
                 .api_key(api_key)
                 .model(config.default_model);
@@ -198,7 +198,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
             test_model_listing(&client, config.name).await;
             if config.supports_embedding {
                 // Create a separate client with embedding model for OpenAI
-                let embedding_client = LlmBuilder::new()
+                let embedding_client = Siumai::builder()
                     .openai()
                     .api_key(env::var(config.api_key_env).unwrap())
                     .model("text-embedding-3-small")
@@ -213,7 +213,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         }
         "Anthropic" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let mut builder = LlmBuilder::new()
+            let mut builder = Siumai::builder()
                 .anthropic()
                 .api_key(api_key)
                 .model(config.default_model);
@@ -236,7 +236,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         }
         "Gemini" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .gemini()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -249,7 +249,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
             test_model_listing(&client, config.name).await;
             if config.supports_embedding {
                 // Create a separate client with embedding model for Gemini
-                let embedding_client = LlmBuilder::new()
+                let embedding_client = Siumai::builder()
                     .gemini()
                     .api_key(env::var(config.api_key_env).unwrap())
                     .model("text-embedding-004")
@@ -264,7 +264,8 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         }
         "DeepSeek" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
+                .openai()
                 .deepseek()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -281,7 +282,8 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         }
         "OpenRouter" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
+                .openai()
                 .openrouter()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -300,7 +302,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         }
         "Groq" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .groq()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -314,7 +316,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
         }
         "xAI" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .xai()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -333,7 +335,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
             let base_url = env::var(config.api_key_env)
                 .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .ollama()
                 .base_url(&base_url)
                 .model(config.default_model)
@@ -347,7 +349,7 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
 
             if config.supports_embedding {
                 // Create a separate client with embedding model for Ollama
-                let embedding_client = LlmBuilder::new()
+                let embedding_client = Siumai::builder()
                     .ollama()
                     .base_url(&base_url)
                     .model("nomic-embed-text") // Common Ollama embedding model
@@ -528,13 +530,13 @@ async fn test_reasoning_openai(config: &ProviderTestConfig) {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let mut builder = LlmBuilder::new()
+    let mut builder = Siumai::builder()
         .openai()
         .api_key(api_key)
         .model(reasoning_model)
         // Explicitly route to Responses API to exercise that code path
         // alongside the default Chat Completions path tested earlier.
-        .use_responses_api(true);
+        .openai_responses();
 
     // Only set base URL if environment variable exists
     if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
@@ -591,11 +593,11 @@ async fn test_reasoning_anthropic(config: &ProviderTestConfig) {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let mut builder = LlmBuilder::new()
+    let mut builder = Siumai::builder()
         .anthropic()
         .api_key(api_key)
         .model(reasoning_model)
-        .thinking_budget(2000); // Enable thinking with budget
+        .reasoning_budget(2000); // Enable thinking with budget
 
     // Only set base URL if environment variable exists
     if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
@@ -652,11 +654,11 @@ async fn test_reasoning_gemini(config: &ProviderTestConfig) {
 
     println!("    🔍 Using model: {}", reasoning_model);
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .gemini()
         .api_key(api_key)
         .model(reasoning_model)
-        .thinking_budget(-1) // Dynamic thinking (automatically enables thought summaries)
+        .reasoning_budget(-1) // Dynamic thinking (automatically enables thought summaries)
         .build()
         .await
         .expect("Failed to build Gemini thinking client");
@@ -715,7 +717,8 @@ async fn test_reasoning_deepseek(config: &ProviderTestConfig) {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
+        .openai()
         .deepseek()
         .api_key(api_key)
         .model(reasoning_model)
@@ -769,7 +772,8 @@ async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
+        .openai()
         .openrouter()
         .api_key(api_key)
         .model(reasoning_model)
@@ -824,7 +828,7 @@ async fn test_reasoning_xai(config: &ProviderTestConfig) {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .xai()
         .api_key(api_key)
         .model(reasoning_model)
@@ -876,7 +880,7 @@ async fn test_reasoning_ollama(config: &ProviderTestConfig) {
         env::var(config.api_key_env).unwrap_or_else(|_| "http://localhost:11434".to_string());
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .ollama()
         .base_url(&base_url)
         .model(reasoning_model)
@@ -1005,7 +1009,7 @@ async fn test_provider_model_listing(
     match config.name {
         "OpenAI" => {
             let api_key = env::var(config.api_key_env)?;
-            let mut builder = LlmBuilder::new()
+            let mut builder = Siumai::builder()
                 .openai()
                 .api_key(api_key)
                 .model(config.default_model);
@@ -1019,7 +1023,7 @@ async fn test_provider_model_listing(
         }
         "Anthropic" => {
             let api_key = env::var(config.api_key_env)?;
-            let mut builder = LlmBuilder::new()
+            let mut builder = Siumai::builder()
                 .anthropic()
                 .api_key(api_key)
                 .model(config.default_model);
@@ -1033,7 +1037,7 @@ async fn test_provider_model_listing(
         }
         "Gemini" => {
             let api_key = env::var(config.api_key_env)?;
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .gemini()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -1043,7 +1047,8 @@ async fn test_provider_model_listing(
         }
         "DeepSeek" => {
             let api_key = env::var(config.api_key_env)?;
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
+                .openai()
                 .deepseek()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -1053,7 +1058,8 @@ async fn test_provider_model_listing(
         }
         "OpenRouter" => {
             let api_key = env::var(config.api_key_env)?;
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
+                .openai()
                 .openrouter()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -1063,7 +1069,7 @@ async fn test_provider_model_listing(
         }
         "Groq" => {
             let api_key = env::var(config.api_key_env)?;
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .groq()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -1073,7 +1079,7 @@ async fn test_provider_model_listing(
         }
         "xAI" => {
             let api_key = env::var(config.api_key_env)?;
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .xai()
                 .api_key(api_key)
                 .model(config.default_model)
@@ -1084,7 +1090,7 @@ async fn test_provider_model_listing(
         "Ollama" => {
             let base_url = env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string());
-            let client = LlmBuilder::new()
+            let client = Siumai::builder()
                 .ollama()
                 .base_url(&base_url)
                 .model(config.default_model)
@@ -1117,7 +1123,7 @@ mod tests {
         let api_key = env::var(config.api_key_env).unwrap();
 
         // Build client with optional base URL override
-        let mut builder = LlmBuilder::new()
+        let mut builder = Siumai::builder()
             .openai()
             .api_key(api_key)
             .model(config.default_model);
@@ -1141,7 +1147,7 @@ mod tests {
         // Test embedding if supported
         if config.supports_embedding {
             // Create a separate client with embedding model for OpenAI
-            let mut embedding_builder = LlmBuilder::new()
+            let mut embedding_builder = Siumai::builder()
                 .openai()
                 .api_key(env::var(config.api_key_env).unwrap())
                 .model("text-embedding-3-small");
@@ -1177,7 +1183,7 @@ mod tests {
         let api_key = env::var(config.api_key_env).unwrap();
 
         // Build client with optional base URL override
-        let mut builder = LlmBuilder::new()
+        let mut builder = Siumai::builder()
             .anthropic()
             .api_key(api_key)
             .model(config.default_model);
@@ -1216,7 +1222,7 @@ mod tests {
 
         let api_key = env::var(config.api_key_env).unwrap();
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .gemini()
             .api_key(api_key)
             .model(config.default_model)
@@ -1233,7 +1239,7 @@ mod tests {
         // Test embedding if supported
         if config.supports_embedding {
             // Create a separate client with embedding model for Gemini
-            let embedding_client = LlmBuilder::new()
+            let embedding_client = Siumai::builder()
                 .gemini()
                 .api_key(env::var(config.api_key_env).unwrap())
                 .model("text-embedding-004")
@@ -1261,7 +1267,8 @@ mod tests {
 
         let api_key = env::var(config.api_key_env).unwrap();
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
+            .openai()
             .deepseek()
             .api_key(api_key)
             .model(config.default_model)
@@ -1296,7 +1303,8 @@ mod tests {
 
         let api_key = env::var(config.api_key_env).unwrap();
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
+            .openai()
             .openrouter()
             .api_key(api_key)
             .model(config.default_model)
@@ -1330,7 +1338,7 @@ mod tests {
 
         let api_key = env::var(config.api_key_env).unwrap();
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .groq()
             .api_key(api_key)
             .model(config.default_model)
@@ -1359,7 +1367,7 @@ mod tests {
 
         let api_key = env::var(config.api_key_env).unwrap();
 
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .xai()
             .api_key(api_key)
             .model(config.default_model)
@@ -1411,7 +1419,7 @@ mod tests {
         println!("🦙 Testing Ollama provider...");
 
         // Test non-streaming chat
-        let client = LlmBuilder::new()
+        let client = Siumai::builder()
             .ollama()
             .base_url(&base_url)
             .model(config.default_model)
@@ -1426,7 +1434,7 @@ mod tests {
 
         // Test embedding if supported
         if config.supports_embedding {
-            let embedding_client = LlmBuilder::new()
+            let embedding_client = Siumai::builder()
                 .ollama()
                 .base_url(&base_url)
                 .model("nomic-embed-text")

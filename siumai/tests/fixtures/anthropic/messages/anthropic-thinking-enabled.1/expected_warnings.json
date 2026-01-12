@@ -1,0 +1,17 @@
+[
+  {
+    "type": "unsupported-setting",
+    "setting": "temperature",
+    "details": "temperature is not supported when thinking is enabled"
+  },
+  {
+    "type": "unsupported-setting",
+    "setting": "topK",
+    "details": "topK is not supported when thinking is enabled"
+  },
+  {
+    "type": "unsupported-setting",
+    "setting": "topP",
+    "details": "topP is not supported when thinking is enabled"
+  }
+]

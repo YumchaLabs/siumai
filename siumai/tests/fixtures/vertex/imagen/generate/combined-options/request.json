@@ -1,0 +1,15 @@
+{
+  "prompt": "a cat",
+  "count": 2,
+  "model": "imagen-3.0-generate-002",
+  "seed": 42,
+  "extra_params": {
+    "aspectRatio": "1:1"
+  },
+  "providerOptions": {
+    "vertex": {
+      "addWatermark": false,
+      "negativePrompt": "negative prompt"
+    }
+  }
+}

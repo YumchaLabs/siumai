@@ -1,0 +1,6 @@
+{
+  "prompt": "nested response test",
+  "count": 1,
+  "model": "imagen-3.0-generate-002",
+  "extra_params": {}
+}

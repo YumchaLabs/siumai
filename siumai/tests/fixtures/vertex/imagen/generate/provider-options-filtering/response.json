@@ -1,0 +1,9 @@
+{
+  "predictions": [
+    {
+      "mimeType": "image/png",
+      "prompt": "revised prompt 1",
+      "bytesBase64Encoded": "base64-image-1"
+    }
+  ]
+}

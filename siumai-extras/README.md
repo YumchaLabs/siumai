@@ -127,10 +127,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 You can attach telemetry to the agent or orchestrator using
-`siumai::observability::telemetry::TelemetryConfig`:
+`siumai::experimental::observability::telemetry::TelemetryConfig`:
 
 ```rust
-use siumai::observability::telemetry::TelemetryConfig;
+use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai_extras::orchestrator::OrchestratorBuilder;
 
 let telemetry = TelemetryConfig::builder()
@@ -168,6 +168,97 @@ use siumai_extras::server::axum::to_sse_response;
 
 // Convert ChatStream to Axum SSE response
 let sse = to_sse_response(stream, options);
+```
+
+If you are building an OpenAI-compatible gateway and need to output **OpenAI Responses SSE**,
+`siumai-extras` also provides a helper that:
+- bridges provider-specific `ChatStreamEvent::Custom` parts into `openai:*` stream parts, and
+- serializes the stream into OpenAI Responses SSE frames.
+
+```rust
+use axum::response::Response;
+use axum::body::Body;
+use siumai_extras::server::axum::to_openai_responses_sse_response;
+use siumai::prelude::unified::ChatStream;
+
+fn handler(stream: ChatStream) -> Response<Body> {
+    to_openai_responses_sse_response(stream)
+}
+```
+
+See the runnable example: `siumai-extras/examples/openai-responses-gateway.rs` (streaming + non-streaming).
+For custom conversion hooks, see: `siumai-extras/examples/gateway-custom-transform.rs`.
+
+If you need to expose multiple downstream protocol surfaces from the same upstream stream,
+use the transcoder helper:
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::unified::ChatStream;
+use siumai_extras::server::axum::{
+    TargetSseFormat, TranscodeSseOptions, to_transcoded_sse_response,
+};
+
+fn handler(stream: ChatStream) -> Response<Body> {
+    to_transcoded_sse_response(stream, TargetSseFormat::OpenAiResponses, TranscodeSseOptions::strict())
+}
+```
+
+If you need to customize the conversion logic (redaction/rewrites/custom part mapping),
+you can provide an event transform hook:
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
+use siumai_extras::server::axum::{
+    TargetSseFormat, TranscodeSseOptions, to_transcoded_sse_response_with_transform,
+};
+
+fn handler(stream: ChatStream) -> Response<Body> {
+    to_transcoded_sse_response_with_transform(
+        stream,
+        TargetSseFormat::OpenAiResponses,
+        TranscodeSseOptions::strict(),
+        |ev: ChatStreamEvent| vec![ev],
+    )
+}
+```
+
+For non-streaming gateways, you can also transcode a `ChatResponse` into a provider-native
+JSON response body:
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::*;
+use siumai_extras::server::axum::{
+    TargetJsonFormat, TranscodeJsonOptions, to_transcoded_json_response,
+};
+
+fn handler(resp: ChatResponse) -> Response<Body> {
+    to_transcoded_json_response(resp, TargetJsonFormat::OpenAiResponses, TranscodeJsonOptions::default())
+}
+```
+
+If you want to customize conversion for non-streaming responses, prefer the response-level transform
+hook (no JSON parse/round-trip):
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::*;
+use siumai_extras::server::axum::{
+    TargetJsonFormat, TranscodeJsonOptions, to_transcoded_json_response_with_response_transform,
+};
+
+fn handler(resp: ChatResponse) -> Response<Body> {
+    to_transcoded_json_response_with_response_transform(
+        resp,
+        TargetJsonFormat::OpenAiResponses,
+        TranscodeJsonOptions::default(),
+        |r| {
+            r.content = MessageContent::Text("[REDACTED]".to_string());
+        },
+    )
+}
 ```
 
 ### MCP Integration

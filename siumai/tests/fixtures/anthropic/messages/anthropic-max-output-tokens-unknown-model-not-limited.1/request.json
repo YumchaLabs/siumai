@@ -1,0 +1,20 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "common_params": {
+    "model": "future-model",
+    "temperature": null,
+    "max_tokens": 123456,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "top_k": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

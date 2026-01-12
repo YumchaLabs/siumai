@@ -11,6 +11,7 @@ documentation = "https://docs.rs/siumai"
 readme = "../README.md"
 keywords = ["llm", "ai", "openai", "anthropic", "async"]
 categories = ["api-bindings"]
+autoexamples = false
 
 exclude = [
     "../docs/**",
@@ -32,6 +33,29 @@ features = ["openai"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+# Workspace split crates (beta.5)
+siumai-core = { workspace = true, default-features = false }
+siumai-registry = { workspace = true, default-features = false }
+
+# Provider crates (direct dependencies; breaking from the legacy umbrella `siumai-providers`)
+siumai-provider-openai = { version = "0.11.0-beta.5", path = "../siumai-provider-openai", default-features = false, optional = true }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
+siumai-provider-azure = { version = "0.11.0-beta.5", path = "../siumai-provider-azure", default-features = false, optional = true }
+siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false, optional = true }
+siumai-provider-anthropic = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic", default-features = false, optional = true }
+siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false, optional = true }
+siumai-provider-gemini = { version = "0.11.0-beta.5", path = "../siumai-provider-gemini", default-features = false, optional = true }
+siumai-protocol-gemini = { version = "0.11.0-beta.5", path = "../siumai-protocol-gemini", default-features = false, optional = true }
+siumai-provider-google-vertex = { version = "0.11.0-beta.5", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
+siumai-provider-ollama = { version = "0.11.0-beta.5", path = "../siumai-provider-ollama", default-features = false, optional = true }
+siumai-provider-groq = { version = "0.11.0-beta.5", path = "../siumai-provider-groq", default-features = false, optional = true }
+siumai-provider-xai = { version = "0.11.0-beta.5", path = "../siumai-provider-xai", default-features = false, optional = true }
+siumai-provider-minimaxi = { version = "0.11.0-beta.5", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
+siumai-provider-deepseek = { version = "0.11.0-beta.5", path = "../siumai-provider-deepseek", default-features = false, optional = true }
+siumai-provider-cohere = { version = "0.11.0-beta.5", path = "../siumai-provider-cohere", default-features = false, optional = true }
+siumai-provider-togetherai = { version = "0.11.0-beta.5", path = "../siumai-provider-togetherai", default-features = false, optional = true }
+siumai-provider-amazon-bedrock = { version = "0.11.0-beta.5", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
+
 # Async traits
 async-trait.workspace = true
 
@@ -85,60 +109,140 @@ base64 = "0.22.1"
 hex = { version = "0.4.3", optional = true }
 
 [features]
-# Default features - include all providers for convenience
-default = ["all-providers"]
+# Default features - keep builds minimal by enabling OpenAI only.
+# Enable other providers explicitly or use `all-providers`.
+default = ["openai"]
 
 # Enable structured JSON messages (MessageContent::Json)
-structured-messages = []
+structured-messages = [
+    "siumai-core/structured-messages",
+    "siumai-registry/structured-messages",
+    "siumai-provider-openai/structured-messages",
+    "siumai-provider-azure/structured-messages",
+    "siumai-provider-anthropic/structured-messages",
+    "siumai-provider-gemini/structured-messages",
+    "siumai-provider-google-vertex/structured-messages",
+    "siumai-provider-ollama/structured-messages",
+    "siumai-provider-groq/structured-messages",
+    "siumai-provider-xai/structured-messages",
+    "siumai-provider-minimaxi/structured-messages",
+    "siumai-provider-deepseek/structured-messages",
+    "siumai-provider-cohere/structured-messages",
+    "siumai-provider-togetherai/structured-messages",
+    "siumai-provider-amazon-bedrock/structured-messages",
+    "siumai-protocol-openai/structured-messages",
+    "siumai-protocol-anthropic/structured-messages",
+    "siumai-protocol-gemini/structured-messages",
+]
 
-# Provider features - each provider can be enabled independently
-openai = []
-anthropic = []
-google = []
-ollama = []
-xai = []
-groq = []
-minimaxi = ["dep:hex", "openai", "anthropic"]
+# Provider features - forwarded to split crates
+openai = [
+    "siumai-core/openai",
+    "siumai-registry/openai",
+    "dep:siumai-provider-openai",
+    "siumai-provider-openai/openai",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+    "dep:siumai-protocol-openai",
+    "siumai-protocol-openai/openai-standard",
+]
+azure = [
+    "siumai-core/openai",
+    "siumai-registry/azure",
+    "dep:siumai-provider-azure",
+    "siumai-provider-azure/azure",
+]
+anthropic = [
+    "siumai-core/anthropic",
+    "siumai-registry/anthropic",
+    "dep:siumai-provider-anthropic",
+    "siumai-provider-anthropic/anthropic",
+    "dep:siumai-protocol-anthropic",
+    "siumai-protocol-anthropic/anthropic-standard",
+]
+google = [
+    "siumai-core/google",
+    "siumai-registry/google",
+    "dep:siumai-provider-gemini",
+    "siumai-provider-gemini/google",
+    "dep:siumai-protocol-gemini",
+    "siumai-protocol-gemini/google",
+]
+google-vertex = [
+    "siumai-core/google",
+    "siumai-registry/google-vertex",
+    "dep:siumai-provider-google-vertex",
+    "siumai-provider-google-vertex/google-vertex",
+]
+ollama = ["siumai-core/ollama", "siumai-registry/ollama", "dep:siumai-provider-ollama", "siumai-provider-ollama/ollama"]
+xai = ["siumai-core/xai", "siumai-registry/xai", "dep:siumai-provider-xai", "siumai-provider-xai/xai"]
+groq = ["siumai-core/groq", "siumai-registry/groq", "dep:siumai-provider-groq", "siumai-provider-groq/groq"]
+minimaxi = ["siumai-core/minimaxi", "siumai-registry/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
+deepseek = [
+    "siumai-core/openai",
+    "dep:siumai-provider-deepseek",
+    "siumai-provider-deepseek/deepseek",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+    "dep:siumai-protocol-openai",
+    "siumai-protocol-openai/openai-standard",
+]
+cohere = ["siumai-core/cohere", "siumai-registry/cohere", "dep:siumai-provider-cohere", "siumai-provider-cohere/cohere"]
+togetherai = [
+    "siumai-core/togetherai",
+    "siumai-registry/togetherai",
+    "dep:siumai-provider-togetherai",
+    "siumai-provider-togetherai/togetherai",
+]
+bedrock = [
+    "siumai-core/bedrock",
+    "siumai-registry/bedrock",
+    "dep:siumai-provider-amazon-bedrock",
+    "siumai-provider-amazon-bedrock/bedrock",
+]
 
 # GCP authentication feature (for Google Vertex AI, ADC, Service Account)
-gcp = ["dep:jsonwebtoken", "google"]
+gcp = ["siumai-core/gcp", "siumai-registry/gcp", "google", "google-vertex"]
 
 # JSON repair support for handling malformed LLM outputs
-json-repair = ["dep:jsonrepair"]
+json-repair = [
+    "dep:jsonrepair",
+    "siumai-core/json-repair",
+    "siumai-registry/json-repair",
+    "siumai-provider-gemini/json-repair",
+]
 
 # HTTP client features (passed through to reqwest)
-gzip = []
-brotli = []
+gzip = ["siumai-core/gzip", "siumai-registry/gzip"]
+brotli = ["siumai-core/brotli", "siumai-registry/brotli"]
 
 # Convenience features for common combinations
-all-providers = ["openai", "anthropic", "google", "ollama", "xai", "groq", "minimaxi"]
+all-providers = [
+    "openai",
+    "anthropic",
+    "google",
+    "ollama",
+    "xai",
+    "groq",
+    "minimaxi",
+    "deepseek",
+    "cohere",
+    "togetherai",
+    "bedrock",
+]
+
+# Protocol-only facade (stable imports for protocol mapping).
+protocol-openai = ["siumai-core/openai", "dep:siumai-protocol-openai", "siumai-protocol-openai/openai-standard"]
+protocol-anthropic = ["siumai-core/anthropic", "dep:siumai-protocol-anthropic", "siumai-protocol-anthropic/anthropic-standard"]
+protocol-gemini = ["siumai-core/google", "dep:siumai-protocol-gemini", "siumai-protocol-gemini/google"]
+protocols = ["protocol-openai", "protocol-anthropic", "protocol-gemini"]
 
 [dev-dependencies]
-tokio-test.workspace = true
 mockito.workspace = true
 wiremock.workspace = true
-tracing-test.workspace = true
-tempfile.workspace = true
 futures-util.workspace = true
-tokio-util.workspace = true
-proptest.workspace = true
-rmcp = { workspace = true, features = [
-    "transport-io",
-    "transport-child-process",
-    "transport-sse-client-reqwest",
-    "transport-sse-server",
-    "transport-streamable-http-client-reqwest",
-    "transport-streamable-http-server",
-    "transport-streamable-http-server-session",
-    "macros",
-    "server",
-    "client",
-] }
-serde = { version = "1.0", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
-axum = "0.8.4"
-actix-web = "4"
-siumai-extras = { path = "../siumai-extras" }
+axum.workspace = true
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, features = ["openai-standard"] }
 
 # Examples configuration
 # Examples (0.11.0 refactored structure)
@@ -146,117 +250,131 @@ siumai-extras = { path = "../siumai-extras" }
 [[example]]
 name = "basic-chat"
 path = "examples/01-quickstart/basic-chat.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "streaming"
 path = "examples/01-quickstart/streaming.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "provider-switching"
 path = "examples/01-quickstart/provider-switching.rs"
-required-features = ["openai", "anthropic", "google", "ollama", "xai", "groq"]
+required-features = ["openai", "anthropic", "google"]
 
 # 02-core-api/chat
 [[example]]
 name = "simple-chat"
 path = "examples/02-core-api/chat/simple-chat.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "chat-with-tools"
 path = "examples/02-core-api/chat/chat-with-tools.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "chat-request"
 path = "examples/02-core-api/chat/chat-request.rs"
+required-features = ["openai"]
 
 # 02-core-api/streaming
 [[example]]
 name = "basic-stream"
 path = "examples/02-core-api/streaming/basic-stream.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "stream-request"
 path = "examples/02-core-api/streaming/stream-request.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "stream-with-cancel"
 path = "examples/02-core-api/streaming/stream-with-cancel.rs"
+required-features = ["openai"]
 
 # 02-core-api/tools
 [[example]]
 name = "function-calling"
 path = "examples/02-core-api/tools/function-calling.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "tool-loop"
 path = "examples/02-core-api/tools/tool-loop.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "tool-choice-demo"
+path = "examples/02-core-api/tools/tool-choice-demo.rs"
+required-features = ["openai"]
 
 # 02-core-api/multimodal
 [[example]]
 name = "vision"
 path = "examples/02-core-api/multimodal/vision.rs"
+required-features = ["openai"]
+
+# 02-core-api/misc
+[[example]]
+name = "usage-builder-demo"
+path = "examples/02-core-api/usage-builder-demo.rs"
 
 # 03-advanced-features/provider-params
 [[example]]
 name = "structured-output"
 path = "examples/03-advanced-features/provider-params/structured-output.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "reasoning-effort"
 path = "examples/03-advanced-features/provider-params/reasoning-effort.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/request-building
 [[example]]
 name = "complex-request"
 path = "examples/03-advanced-features/request-building/complex-request.rs"
+required-features = ["openai"]
+
+# 03-advanced-features/openai
+[[example]]
+name = "openai-audio-multimodal"
+path = "examples/03-advanced-features/openai-audio-multimodal.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-prediction-websearch"
+path = "examples/03-advanced-features/openai-prediction-websearch.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/middleware
 [[example]]
 name = "http-interceptor"
 path = "examples/03-advanced-features/middleware/http-interceptor.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "advanced-middleware"
 path = "examples/03-advanced-features/middleware/advanced-middleware.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "middleware-builder"
 path = "examples/03-advanced-features/middleware_builder.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/retry
 [[example]]
 name = "retry-config"
 path = "examples/03-advanced-features/retry/retry-config.rs"
+required-features = ["openai"]
 
 # 03-advanced-features/error-handling
 [[example]]
 name = "error-types"
 path = "examples/03-advanced-features/error-handling/error-types.rs"
-
-# 03-advanced-features/orchestrator
-[[example]]
-name = "basic-orchestrator"
-path = "examples/03-advanced-features/orchestrator/basic-orchestrator.rs"
-
-[[example]]
-name = "agent-pattern"
-path = "examples/03-advanced-features/orchestrator/agent-pattern.rs"
-
-[[example]]
-name = "stop-conditions"
-path = "examples/03-advanced-features/orchestrator/stop-conditions.rs"
-
-[[example]]
-name = "tool-approval"
-path = "examples/03-advanced-features/orchestrator/tool-approval.rs"
-
-[[example]]
-name = "streaming-orchestrator"
-path = "examples/03-advanced-features/orchestrator/streaming-orchestrator.rs"
-
-[[example]]
-name = "streaming-tool-execution"
-path = "examples/03-advanced-features/orchestrator/streaming-tool-execution.rs"
 required-features = ["openai"]
 
 # 04-provider-specific/openai
@@ -265,10 +383,70 @@ name = "responses-api"
 path = "examples/04-provider-specific/openai/responses-api.rs"
 required-features = ["openai"]
 
+[[example]]
+name = "responses-ext"
+path = "examples/04-provider-specific/openai/responses-ext.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-responses-streaming-tools"
+path = "examples/04-provider-specific/openai/responses-streaming-tools.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "responses-multi-turn"
+path = "examples/04-provider-specific/openai/responses-multi-turn.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-web-search"
+path = "examples/04-provider-specific/openai/web_search.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-file-search"
+path = "examples/04-provider-specific/openai/file_search.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-file-search-results"
+path = "examples/04-provider-specific/openai/file_search_results.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-computer-use"
+path = "examples/04-provider-specific/openai/computer_use.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-tts-sse-streaming"
+path = "examples/04-provider-specific/openai/tts_sse_streaming.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-stt-sse-streaming"
+path = "examples/04-provider-specific/openai/stt_sse_streaming.rs"
+required-features = ["openai"]
+
 # 04-provider-specific/minimaxi
 [[example]]
 name = "minimaxi_basic"
 path = "examples/04-provider-specific/minimaxi/minimaxi_basic.rs"
+required-features = ["minimaxi"]
+
+[[example]]
+name = "minimaxi_tts-ext"
+path = "examples/04-provider-specific/minimaxi/tts-ext.rs"
+required-features = ["minimaxi"]
+
+[[example]]
+name = "minimaxi_video-ext"
+path = "examples/04-provider-specific/minimaxi/video-ext.rs"
+required-features = ["minimaxi"]
+
+[[example]]
+name = "minimaxi_music-ext"
+path = "examples/04-provider-specific/minimaxi/music-ext.rs"
 required-features = ["minimaxi"]
 
 # 04-provider-specific/anthropic
@@ -278,8 +456,28 @@ path = "examples/04-provider-specific/anthropic/extended-thinking.rs"
 required-features = ["anthropic"]
 
 [[example]]
+name = "extended-thinking-ext"
+path = "examples/04-provider-specific/anthropic/extended-thinking-ext.rs"
+required-features = ["anthropic"]
+
+[[example]]
+name = "thinking-replay-ext"
+path = "examples/04-provider-specific/anthropic/thinking-replay-ext.rs"
+required-features = ["anthropic"]
+
+[[example]]
 name = "prompt-caching"
 path = "examples/04-provider-specific/anthropic/prompt-caching.rs"
+required-features = ["anthropic"]
+
+[[example]]
+name = "anthropic-web-search"
+path = "examples/04-provider-specific/anthropic/web_search.rs"
+required-features = ["anthropic"]
+
+[[example]]
+name = "anthropic-web-search-streaming"
+path = "examples/04-provider-specific/anthropic/web_search_streaming.rs"
 required-features = ["anthropic"]
 
 # 04-provider-specific/google
@@ -289,8 +487,33 @@ path = "examples/04-provider-specific/google/grounding.rs"
 required-features = ["google"]
 
 [[example]]
+name = "google-url-context"
+path = "examples/04-provider-specific/google/url_context.rs"
+required-features = ["google"]
+
+[[example]]
+name = "google-enterprise-web-search"
+path = "examples/04-provider-specific/google/enterprise_web_search.rs"
+required-features = ["google"]
+
+[[example]]
+name = "vertex_chat"
+path = "examples/04-provider-specific/google/vertex_chat.rs"
+required-features = ["google", "gcp"]
+
+[[example]]
+name = "vertex_imagen_edit"
+path = "examples/04-provider-specific/google/vertex_imagen_edit.rs"
+required-features = ["google", "gcp"]
+
+[[example]]
 name = "file_search"
 path = "examples/04-provider-specific/google/file_search.rs"
+required-features = ["google"]
+
+[[example]]
+name = "file_search-ext"
+path = "examples/04-provider-specific/google/file_search-ext.rs"
 required-features = ["google"]
 
 # 04-provider-specific/ollama
@@ -330,14 +553,22 @@ required-features = ["openai"]
 [[example]]
 name = "basic-registry"
 path = "examples/05-integrations/registry/basic-registry.rs"
+required-features = ["openai", "anthropic", "google"]
+
+[[example]]
+name = "registry_quickstart"
+path = "examples/05-integrations/registry/quickstart.rs"
+required-features = ["all-providers"]
 
 [[example]]
 name = "registry-with-cache"
 path = "examples/05-integrations/registry/registry-with-cache.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "custom-middleware"
 path = "examples/05-integrations/registry/custom-middleware.rs"
+required-features = ["openai"]
 
 # 05-integrations/mcp
 [[example]]
@@ -358,7 +589,11 @@ required-features = ["openai"]
 # example removed; use siumai-extras::server feature examples instead
 
 # 05-integrations/telemetry (moved to siumai-extras)
-# example removed; use siumai-extras::telemetry feature examples instead
+# Keep a minimal example here; advanced exporters live in siumai-extras.
+[[example]]
+name = "basic-telemetry"
+path = "examples/05-integrations/telemetry/basic-telemetry.rs"
+required-features = ["openai"]
 
 # 06-extensibility
 [[example]]
@@ -375,19 +610,34 @@ required-features = ["xai"]
 name = "custom_provider_implementation"
 path = "examples/06-extensibility/custom_provider_implementation.rs"
 
+[[example]]
+name = "custom_provider_spec"
+path = "examples/06-extensibility/custom-provider-spec.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "complete_custom_provider"
+path = "examples/06-extensibility/complete-custom-provider.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "testing_executors"
+path = "examples/06-extensibility/executor-testing.rs"
+
 # 07-applications
 [[example]]
 name = "chatbot"
 path = "examples/07-applications/chatbot.rs"
+required-features = ["openai"]
 
 [[example]]
 name = "code-assistant"
 path = "examples/07-applications/code-assistant.rs"
+required-features = ["openai"]
 
-# 07-applications/api-server (moved to siumai-extras server adapters)
-# example removed; see siumai-extras for server adapters integration
+[[example]]
+name = "api-server"
+path = "examples/07-applications/api-server.rs"
+required-features = ["openai"]
 
-# The profile that 'dist' will build with
-[profile.dist]
-inherits = "release"
-lto = "thin"
+# 07-applications/api-server (advanced server adapters live in siumai-extras)

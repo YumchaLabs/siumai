@@ -1,0 +1,49 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Hello"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "openai.web_search",
+      "name": "web_search",
+      "args": {
+        "externalWebAccess": true,
+        "filters": {
+          "allowedDomains": [
+            "example.com",
+            "test.org"
+          ]
+        },
+        "searchContextSize": "high",
+        "userLocation": {
+          "type": "approximate",
+          "country": "US",
+          "city": "San Francisco",
+          "region": "California",
+          "timezone": "America/Los_Angeles"
+        }
+      }
+    }
+  ],
+  "common_params": {
+    "model": "gpt-4.1-mini",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

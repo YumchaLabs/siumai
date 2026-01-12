@@ -1,0 +1,27 @@
+{
+  "messages": [
+    {
+      "role": "developer",
+      "content": { "Text": "You are a helpful assistant." },
+      "metadata": {}
+    },
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "llama-3.3-70b-versatile",
+    "temperature": 0.7,
+    "max_tokens": null,
+    "max_completion_tokens": 123,
+    "top_p": 0.9,
+    "stop_sequences": ["STOP"],
+    "seed": null
+  },
+  "providerOptions": { "groq": { "service_tier": "auto" } },
+  "stream": true
+}
+

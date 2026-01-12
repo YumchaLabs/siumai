@@ -1,259 +1,57 @@
-//! Unified model catalogs and constants across providers
+//! Unified model catalogs and constants across providers.
 //!
-//! This module aggregates provider-specific model constant sets into a single,
-//! ergonomic surface. It is intentionally kept outside of `types` so that core
-//! data structures remain provider-agnostic.
+//! This module aggregates provider-owned model constant sets into a single,
+//! ergonomic facade surface.
 //!
 //! Public entry points:
 //! - `siumai::models`     → simplified constants (`model_constants` module)
 //! - `siumai::constants`  → detailed provider catalogs (`constants` module)
-//!
-//! # Examples
-//!
-//! ```rust
-//! use siumai::{models, constants};
-//!
-//! // Simple access to popular models
-//! let openai_model = models::openai::GPT_4O;
-//! let anthropic_model = models::anthropic::CLAUDE_OPUS_4_1;
-//! let gemini_model = models::gemini::GEMINI_2_5_PRO;
-//!
-//! // Access popular recommendations
-//! let flagship_models = [
-//!     constants::popular::flagship::OPENAI,
-//!     constants::popular::flagship::ANTHROPIC,
-//!     constants::popular::flagship::GEMINI,
-//! ];
-//! ```
 
-/// Unified model constants for easy access across all providers
+/// Unified model constants for detailed access across providers.
 pub mod constants {
-    /// Re-export OpenAI model constants (detailed structure)
+    /// Re-export OpenAI model constants (detailed structure).
     #[cfg(feature = "openai")]
-    pub use crate::providers::openai::model_constants as openai;
+    pub use siumai_provider_openai::providers::openai::model_constants as openai;
 
-    /// Re-export Anthropic model constants (detailed structure)
+    /// Re-export Anthropic model constants (detailed structure).
     #[cfg(feature = "anthropic")]
-    pub use crate::providers::anthropic::model_constants as anthropic;
+    pub use siumai_provider_anthropic::providers::anthropic::model_constants as anthropic;
 
-    /// Re-export Gemini model constants (detailed structure)
+    /// Re-export Gemini model constants (detailed structure).
     #[cfg(feature = "google")]
-    pub use crate::providers::gemini::model_constants as gemini;
+    pub use siumai_provider_gemini::providers::gemini::model_constants as gemini;
 
-    /// Re-export OpenAI-compatible provider model constants
+    /// Re-export OpenAI-compatible provider model constants.
     #[cfg(feature = "openai")]
-    pub use crate::providers::openai_compatible::providers::models as openai_compatible;
+    pub use siumai_provider_openai_compatible::providers::openai_compatible::providers::models as openai_compatible;
 
-    /// Re-export Ollama model constants (detailed structure)
+    /// Re-export Ollama model constants (detailed structure).
     #[cfg(feature = "ollama")]
-    pub use crate::providers::ollama::model_constants as ollama;
+    pub use siumai_provider_ollama::providers::ollama::model_constants as ollama;
 
-    /// Re-export xAI model constants (detailed structure)
+    /// Re-export xAI model constants (detailed structure).
     #[cfg(feature = "xai")]
-    pub use crate::providers::xai::models as xai;
+    pub use siumai_provider_xai::providers::xai::models as xai;
 
-    /// Re-export Groq model constants (detailed structure)
+    /// Re-export Groq model constants (detailed structure).
     #[cfg(feature = "groq")]
-    pub use crate::providers::groq::models as groq;
+    pub use siumai_provider_groq::providers::groq::models as groq;
 
-    /// Popular models across all providers
-    ///
-    /// This module provides curated selections of popular models from each provider,
-    /// organized by use case (flagship, balanced, reasoning, etc.).
-    pub mod popular {
-        /// Most capable models from each provider
-        pub mod flagship {
-            /// OpenAI's most capable model
-            #[cfg(feature = "openai")]
-            pub const OPENAI: &str = super::super::openai::popular::FLAGSHIP;
-            /// Anthropic's most capable model
-            #[cfg(feature = "anthropic")]
-            pub const ANTHROPIC: &str = super::super::anthropic::popular::FLAGSHIP;
-            /// Google's most capable model
-            #[cfg(feature = "google")]
-            pub const GEMINI: &str = super::super::gemini::popular::FLAGSHIP;
-            /// xAI's most capable model
-            #[cfg(feature = "xai")]
-            pub const XAI: &str = super::super::xai::popular::FLAGSHIP;
-            /// Groq's most capable model
-            #[cfg(feature = "groq")]
-            pub const GROQ: &str = super::super::groq::popular::FLAGSHIP;
-        }
+    /// Re-export MiniMaxi model constants (detailed structure).
+    #[cfg(feature = "minimaxi")]
+    pub use siumai_provider_minimaxi::providers::minimaxi::model_constants as minimaxi;
 
-        /// Best balanced models (capability vs cost)
-        pub mod balanced {
-            /// OpenAI's balanced model
-            #[cfg(feature = "openai")]
-            pub const OPENAI: &str = super::super::openai::popular::BALANCED;
-            /// Anthropic's balanced model
-            #[cfg(feature = "anthropic")]
-            pub const ANTHROPIC: &str = super::super::anthropic::popular::BALANCED;
-            /// Google's balanced model
-            #[cfg(feature = "google")]
-            pub const GEMINI: &str = super::super::gemini::popular::BALANCED;
-            /// xAI's balanced model
-            #[cfg(feature = "xai")]
-            pub const XAI: &str = super::super::xai::popular::BALANCED;
-            /// Groq's balanced model
-            #[cfg(feature = "groq")]
-            pub const GROQ: &str = super::super::groq::popular::BALANCED;
-        }
-
-        /// Best reasoning models
-        pub mod reasoning {
-            /// OpenAI's reasoning model
-            #[cfg(feature = "openai")]
-            pub const OPENAI: &str = super::super::openai::popular::REASONING;
-            /// Anthropic's thinking model
-            #[cfg(feature = "anthropic")]
-            pub const ANTHROPIC: &str = super::super::anthropic::popular::THINKING;
-            /// Google's flagship model (has thinking)
-            #[cfg(feature = "google")]
-            pub const GEMINI: &str = super::super::gemini::popular::FLAGSHIP;
-            /// Ollama's reasoning model
-            #[cfg(feature = "ollama")]
-            pub const OLLAMA: &str = super::super::ollama::popular::REASONING;
-            /// xAI's reasoning model
-            #[cfg(feature = "xai")]
-            pub const XAI: &str = super::super::xai::popular::REASONING;
-            /// Groq's reasoning model
-            #[cfg(feature = "groq")]
-            pub const GROQ: &str = super::super::groq::popular::REASONING;
-        }
-
-        /// Most economical models
-        pub mod economical {
-            /// OpenAI's economical model
-            #[cfg(feature = "openai")]
-            pub const OPENAI: &str = super::super::openai::popular::ECONOMICAL;
-            /// Anthropic's fast model
-            #[cfg(feature = "anthropic")]
-            pub const ANTHROPIC: &str = super::super::anthropic::popular::FAST;
-            /// Google's economical model
-            #[cfg(feature = "google")]
-            pub const GEMINI: &str = super::super::gemini::popular::ECONOMICAL;
-            /// Ollama's lightweight model (free local)
-            #[cfg(feature = "ollama")]
-            pub const OLLAMA: &str = super::super::ollama::popular::LIGHTWEIGHT;
-            /// xAI's lightweight model
-            #[cfg(feature = "xai")]
-            pub const XAI: &str = super::super::xai::popular::LIGHTWEIGHT;
-            /// Groq's lightweight model
-            #[cfg(feature = "groq")]
-            pub const GROQ: &str = super::super::groq::popular::LIGHTWEIGHT;
-        }
-
-        /// Latest and most advanced models
-        pub mod latest {
-            /// OpenAI's latest model
-            #[cfg(feature = "openai")]
-            pub const OPENAI: &str = super::super::openai::popular::LATEST;
-            /// Anthropic's latest model
-            #[cfg(feature = "anthropic")]
-            pub const ANTHROPIC: &str = super::super::anthropic::popular::LATEST;
-            /// Google's latest model
-            #[cfg(feature = "google")]
-            pub const GEMINI: &str = super::super::gemini::popular::LATEST;
-            /// xAI's latest model
-            #[cfg(feature = "xai")]
-            pub const XAI: &str = super::super::xai::popular::LATEST;
-            /// Groq's latest model
-            #[cfg(feature = "groq")]
-            pub const GROQ: &str = super::super::groq::popular::LATEST;
-        }
-    }
-
-    /// Get all available chat models from all providers
-    pub fn all_chat_models() -> Vec<&'static str> {
-        #[allow(unused_mut)]
-        let mut models = Vec::new();
-        #[cfg(feature = "openai")]
-        models.extend_from_slice(&openai::all_chat_models());
-        #[cfg(feature = "anthropic")]
-        models.extend_from_slice(&anthropic::all_chat_models());
-        #[cfg(feature = "google")]
-        models.extend_from_slice(&gemini::all_chat_models());
-        models
-    }
-
-    /// Get all reasoning models from all providers
-    pub fn all_reasoning_models() -> Vec<&'static str> {
-        #[allow(unused_mut)]
-        let mut models = Vec::new();
-        #[cfg(feature = "openai")]
-        models.extend_from_slice(&openai::all_reasoning_models());
-        #[cfg(feature = "anthropic")]
-        models.extend_from_slice(&anthropic::all_thinking_models());
-        #[cfg(feature = "google")]
-        models.extend_from_slice(&gemini::all_thinking_models());
-        models
-    }
-
-    /// Get all multimodal models from all providers
-    pub fn all_multimodal_models() -> Vec<&'static str> {
-        #[allow(unused_mut)]
-        let mut models: Vec<&'static str> = Vec::new();
-        #[cfg(feature = "openai")]
-        models.extend_from_slice(&openai::all_multimodal_models());
-        #[cfg(feature = "anthropic")]
-        models.extend_from_slice(&anthropic::all_vision_models());
-        #[cfg(feature = "google")]
-        models.extend_from_slice(&gemini::all_chat_models()); // Most Gemini models are multimodal
-        models
-    }
-
-    /// Get all audio generation models from all providers
-    pub fn all_audio_generation_models() -> Vec<&'static str> {
-        #[allow(unused_mut)]
-        let mut models: Vec<&'static str> = Vec::new();
-        #[cfg(feature = "openai")]
-        models.extend_from_slice(openai::audio::ALL);
-        #[cfg(feature = "google")]
-        models.extend_from_slice(&gemini::all_audio_generation_models());
-        models
-    }
-
-    /// Get all image generation models from all providers
-    pub fn all_image_generation_models() -> Vec<&'static str> {
-        #[allow(unused_mut)]
-        let mut models: Vec<&'static str> = Vec::new();
-        #[cfg(feature = "openai")]
-        models.extend_from_slice(openai::images::ALL);
-        #[cfg(feature = "google")]
-        models.extend_from_slice(&gemini::all_image_generation_models());
-        models
-    }
-
-    /// Get all embedding models from all providers
-    pub fn all_embedding_models() -> Vec<&'static str> {
-        #[cfg(feature = "openai")]
-        return openai::embeddings::ALL.to_vec();
-
-        #[cfg(not(feature = "openai"))]
-        Vec::new()
-    }
+    /// Re-export DeepSeek model constants (detailed structure).
+    #[cfg(feature = "deepseek")]
+    pub use siumai_provider_deepseek::providers::deepseek::models as deepseek;
 }
 
-/// Simplified model constants with shorter namespaces
-///
-/// This module provides a more concise way to access model constants
-/// with shorter namespaces for better developer experience.
-///
-/// # Examples
-///
-/// ```rust
-/// use siumai::models;
-///
-/// // Short and sweet access
-/// let model = models::openai::GPT_4O;
-/// let claude = models::anthropic::CLAUDE_OPUS_4_1;
-/// let gemini = models::gemini::GEMINI_2_5_PRO;
-/// ```
+/// Simplified model constants for easy access across providers.
 pub mod model_constants {
-    /// OpenAI models with simplified access
+    /// OpenAI models with simplified access.
     #[cfg(feature = "openai")]
     pub mod openai {
-        use crate::providers::openai::model_constants as c;
+        use siumai_provider_openai::providers::openai::model_constants as c;
 
         // GPT-4o family
         pub const GPT_4O: &str = c::gpt_4o::GPT_4O;
@@ -310,10 +108,10 @@ pub mod model_constants {
         pub const TEXT_EMBEDDING_3_LARGE: &str = c::embeddings::TEXT_EMBEDDING_3_LARGE;
     }
 
-    /// Anthropic models with simplified access
+    /// Anthropic models with simplified access.
     #[cfg(feature = "anthropic")]
     pub mod anthropic {
-        use crate::providers::anthropic::model_constants as c;
+        use siumai_provider_anthropic::providers::anthropic::model_constants as c;
 
         // Claude Opus 4.1 (latest flagship)
         pub const CLAUDE_OPUS_4_1: &str = c::claude_opus_4_1::CLAUDE_OPUS_4_1;
@@ -340,10 +138,10 @@ pub mod model_constants {
         pub const CLAUDE_HAIKU_3: &str = c::claude_haiku_3::CLAUDE_3_HAIKU_20240307;
     }
 
-    /// Gemini models with simplified access
+    /// Gemini models with simplified access.
     #[cfg(feature = "google")]
     pub mod gemini {
-        use crate::providers::gemini::model_constants as c;
+        use siumai_provider_gemini::providers::gemini::model_constants as c;
 
         // Gemini 2.5 Pro (flagship)
         pub const GEMINI_2_5_PRO: &str = c::gemini_2_5_pro::GEMINI_2_5_PRO;
@@ -372,207 +170,20 @@ pub mod model_constants {
         pub const GEMINI_LIVE_2_0_FLASH: &str = c::gemini_2_0_flash_live::GEMINI_2_0_FLASH_LIVE_001;
     }
 
-    /// OpenAI-compatible provider models
+    /// OpenAI-compatible provider models.
+    ///
+    /// Note: this module intentionally mirrors the OpenAI provider crate's model catalog
+    /// so that `siumai::models::openai_compatible::*` keeps working without depending on
+    /// the legacy umbrella crate.
     #[cfg(feature = "openai")]
     pub mod openai_compatible {
-        use crate::providers::openai_compatible::providers::models as c;
-
-        /// DeepSeek models
-        pub mod deepseek {
-            use super::c;
-
-            pub const CHAT: &str = c::deepseek::CHAT;
-            pub const REASONER: &str = c::deepseek::REASONER;
-            pub const V3: &str = c::deepseek::DEEPSEEK_V3_0324;
-            pub const R1: &str = c::deepseek::DEEPSEEK_R1_0528;
-        }
-
-        /// OpenRouter models (popular selections)
-        pub mod openrouter {
-            use super::c;
-
-            pub const GPT_4O: &str = c::openrouter::openai::GPT_4O;
-            pub const CLAUDE_3_5_SONNET: &str = c::openrouter::anthropic::CLAUDE_3_5_SONNET;
-            pub const CLAUDE_OPUS_4_1: &str = c::openrouter::anthropic::CLAUDE_OPUS_4_1;
-            pub const GEMINI_2_5_PRO: &str = c::openrouter::google::GEMINI_2_5_PRO;
-        }
-
-        /// SiliconFlow models (Chinese provider focusing on DeepSeek/Qwen/etc.)
-        pub mod siliconflow {
-            use super::c;
-
-            /// DeepSeek V3.1 - Latest flagship reasoning model
-            pub const DEEPSEEK_V3_1: &str = c::siliconflow::DEEPSEEK_V3_1;
-            /// DeepSeek V3.1 Pro version
-            pub const DEEPSEEK_V3_1_PRO: &str = c::siliconflow::DEEPSEEK_V3_1_PRO;
-            /// DeepSeek V3 - Previous flagship model
-            pub const DEEPSEEK_V3: &str = c::siliconflow::DEEPSEEK_V3;
-            /// DeepSeek V3 Pro version
-            pub const DEEPSEEK_V3_PRO: &str = c::siliconflow::DEEPSEEK_V3_PRO;
-            /// DeepSeek R1 - Reasoning model
-            pub const DEEPSEEK_R1: &str = c::siliconflow::DEEPSEEK_R1;
-            /// DeepSeek R1 Pro version
-            pub const DEEPSEEK_R1_PRO: &str = c::siliconflow::DEEPSEEK_R1_PRO;
-            /// DeepSeek V2.5 - Previous generation
-            pub const DEEPSEEK_V2_5: &str = c::siliconflow::DEEPSEEK_V2_5;
-            /// DeepSeek VL2 - Vision-language model
-            pub const DEEPSEEK_VL2: &str = c::siliconflow::DEEPSEEK_VL2;
-
-            /// Qwen 3 235B A22B - Latest flagship
-            pub const QWEN3_235B_A22B: &str = c::siliconflow::QWEN3_235B_A22B;
-            /// Qwen 3 235B A22B Instruct
-            pub const QWEN3_235B_A22B_INSTRUCT: &str = c::siliconflow::QWEN3_235B_A22B_INSTRUCT;
-            /// Qwen 3 235B A22B Thinking
-            pub const QWEN3_235B_A22B_THINKING: &str = c::siliconflow::QWEN3_235B_A22B_THINKING;
-            /// Qwen 3 32B
-            pub const QWEN3_32B: &str = c::siliconflow::QWEN3_32B;
-            /// Qwen 3 30B A3B
-            pub const QWEN3_30B_A3B: &str = c::siliconflow::QWEN3_30B_A3B;
-            /// Qwen 3 30B A3B Instruct
-            pub const QWEN3_30B_A3B_INSTRUCT: &str = c::siliconflow::QWEN3_30B_A3B_INSTRUCT;
-            /// Qwen 3 30B A3B Thinking
-            pub const QWEN3_30B_A3B_THINKING: &str = c::siliconflow::QWEN3_30B_A3B_THINKING;
-            /// Qwen 3 14B
-            pub const QWEN3_14B: &str = c::siliconflow::QWEN3_14B;
-            /// Qwen 3 8B
-            pub const QWEN3_8B: &str = c::siliconflow::QWEN3_8B;
-
-            /// Qwen 2.5 72B Instruct
-            pub const QWEN_2_5_72B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_72B_INSTRUCT;
-            /// Qwen 2.5 72B Instruct 128K context
-            pub const QWEN_2_5_72B_INSTRUCT_128K: &str = c::siliconflow::QWEN_2_5_72B_INSTRUCT_128K;
-            /// Qwen 2.5 32B Instruct
-            pub const QWEN_2_5_32B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_32B_INSTRUCT;
-            /// Qwen 2.5 14B Instruct
-            pub const QWEN_2_5_14B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_14B_INSTRUCT;
-            /// Qwen 2.5 7B Instruct
-            pub const QWEN_2_5_7B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_7B_INSTRUCT;
-
-            /// Qwen 2.5 VL 72B Instruct - Vision-language model
-            pub const QWEN_2_5_VL_72B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_VL_72B_INSTRUCT;
-            /// Qwen 2.5 VL 32B Instruct - Vision-language model
-            pub const QWEN_2_5_VL_32B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_VL_32B_INSTRUCT;
-            /// Qwen 2.5 VL 7B Instruct Pro - Vision-language model
-            pub const QWEN_2_5_VL_7B_INSTRUCT_PRO: &str =
-                c::siliconflow::QWEN_2_5_VL_7B_INSTRUCT_PRO;
-
-            /// Qwen 2.5 Coder models
-            pub const QWEN_2_5_CODER_32B_INSTRUCT: &str =
-                c::siliconflow::QWEN_2_5_CODER_32B_INSTRUCT;
-            pub const QWEN_2_5_CODER_7B_INSTRUCT: &str = c::siliconflow::QWEN_2_5_CODER_7B_INSTRUCT;
-            pub const QWEN_2_5_CODER_7B_INSTRUCT_PRO: &str =
-                c::siliconflow::QWEN_2_5_CODER_7B_INSTRUCT_PRO;
-
-            /// Qwen 3 Coder models
-            pub const QWEN3_CODER_480B_A35B_INSTRUCT: &str =
-                c::siliconflow::QWEN3_CODER_480B_A35B_INSTRUCT;
-            pub const QWEN3_CODER_30B_A3B_INSTRUCT: &str =
-                c::siliconflow::QWEN3_CODER_30B_A3B_INSTRUCT;
-
-            /// QwQ 32B - Reasoning model
-            pub const QWQ_32B: &str = c::siliconflow::QWQ_32B;
-            /// QVQ 72B Preview - Vision-question model
-            pub const QVQ_72B_PREVIEW: &str = c::siliconflow::QVQ_72B_PREVIEW;
-
-            /// Kimi K2 Instruct
-            pub const KIMI_K2_INSTRUCT: &str = c::siliconflow::KIMI_K2_INSTRUCT;
-            /// Kimi K2 Instruct Pro
-            pub const KIMI_K2_INSTRUCT_PRO: &str = c::siliconflow::KIMI_K2_INSTRUCT_PRO;
-
-            /// GLM models
-            pub const GLM_4_5: &str = c::siliconflow::GLM_4_5;
-            pub const GLM_4_5_AIR: &str = c::siliconflow::GLM_4_5_AIR;
-            pub const GLM_4_5V: &str = c::siliconflow::GLM_4_5V;
-            pub const GLM_4_1V_9B_THINKING: &str = c::siliconflow::GLM_4_1V_9B_THINKING;
-            pub const GLM_4_1V_9B_THINKING_PRO: &str = c::siliconflow::GLM_4_1V_9B_THINKING_PRO;
-
-            // ========================================================================
-            // Embedding Models
-            // ========================================================================
-
-            /// BCE Embedding Base V1 - NetEase Youdao (Recommended)
-            pub const BCE_EMBEDDING_BASE_V1: &str = c::siliconflow::BCE_EMBEDDING_BASE_V1;
-
-            /// Qwen 3 Embedding models (Latest)
-            pub const QWEN3_EMBEDDING_8B: &str = c::siliconflow::QWEN3_EMBEDDING_8B;
-            pub const QWEN3_EMBEDDING_4B: &str = c::siliconflow::QWEN3_EMBEDDING_4B;
-            pub const QWEN3_EMBEDDING_0_6B: &str = c::siliconflow::QWEN3_EMBEDDING_0_6B;
-
-            /// BGE models (Legacy but still available)
-            pub const BGE_LARGE_EN_V1_5: &str = c::siliconflow::BGE_LARGE_EN_V1_5;
-            pub const BGE_LARGE_ZH_V1_5: &str = c::siliconflow::BGE_LARGE_ZH_V1_5;
-            pub const BGE_M3: &str = c::siliconflow::BGE_M3;
-            pub const BGE_M3_PRO: &str = c::siliconflow::BGE_M3_PRO;
-
-            // ========================================================================
-            // Rerank Models
-            // ========================================================================
-
-            /// BGE Reranker V2 M3 (Recommended)
-            pub const BGE_RERANKER_V2_M3: &str = c::siliconflow::BGE_RERANKER_V2_M3;
-            /// BGE Reranker V2 M3 Pro
-            pub const BGE_RERANKER_V2_M3_PRO: &str = c::siliconflow::BGE_RERANKER_V2_M3_PRO;
-
-            /// BCE Reranker Base V1 - NetEase Youdao
-            pub const BCE_RERANKER_BASE_V1: &str = c::siliconflow::BCE_RERANKER_BASE_V1;
-
-            /// Qwen 3 Reranker models (Latest)
-            pub const QWEN3_RERANKER_8B: &str = c::siliconflow::QWEN3_RERANKER_8B;
-            pub const QWEN3_RERANKER_4B: &str = c::siliconflow::QWEN3_RERANKER_4B;
-            pub const QWEN3_RERANKER_0_6B: &str = c::siliconflow::QWEN3_RERANKER_0_6B;
-
-            // ========================================================================
-            // Image Generation Models
-            // ========================================================================
-
-            /// FLUX.1 models (Recommended)
-            pub const FLUX_1_PRO: &str = c::siliconflow::FLUX_1_PRO;
-            pub const FLUX_1_DEV: &str = c::siliconflow::FLUX_1_DEV;
-            pub const FLUX_1_SCHNELL: &str = c::siliconflow::FLUX_1_SCHNELL;
-            pub const FLUX_1_SCHNELL_PRO: &str = c::siliconflow::FLUX_1_SCHNELL_PRO;
-            pub const FLUX_1_DEV_LORA: &str = c::siliconflow::FLUX_1_DEV_LORA;
-
-            /// Stable Diffusion models
-            pub const STABLE_DIFFUSION_3_5_LARGE: &str = c::siliconflow::STABLE_DIFFUSION_3_5_LARGE;
-            pub const STABLE_DIFFUSION_XL_BASE_1_0: &str =
-                c::siliconflow::STABLE_DIFFUSION_XL_BASE_1_0;
-
-            /// Kolors
-            pub const KOLORS: &str = c::siliconflow::KOLORS;
-        }
-
-        /// Moonshot AI (Kimi) models
-        pub mod moonshot {
-            use super::c;
-
-            // Kimi K2 series (Latest)
-            pub const KIMI_K2_0905_PREVIEW: &str = c::moonshot::KIMI_K2_0905_PREVIEW;
-            pub const KIMI_K2_0711_PREVIEW: &str = c::moonshot::KIMI_K2_0711_PREVIEW;
-            pub const KIMI_LATEST: &str = c::moonshot::KIMI_LATEST;
-
-            // V1 Chat series
-            pub const MOONSHOT_V1_AUTO: &str = c::moonshot::MOONSHOT_V1_AUTO;
-            pub const MOONSHOT_V1_8K: &str = c::moonshot::MOONSHOT_V1_8K;
-            pub const MOONSHOT_V1_32K: &str = c::moonshot::MOONSHOT_V1_32K;
-            pub const MOONSHOT_V1_128K: &str = c::moonshot::MOONSHOT_V1_128K;
-
-            // Vision models
-            pub const MOONSHOT_V1_8K_VISION: &str = c::moonshot::MOONSHOT_V1_8K_VISION_PREVIEW;
-            pub const MOONSHOT_V1_32K_VISION: &str = c::moonshot::MOONSHOT_V1_32K_VISION_PREVIEW;
-            pub const MOONSHOT_V1_128K_VISION: &str = c::moonshot::MOONSHOT_V1_128K_VISION_PREVIEW;
-
-            // Recommended models
-            pub const CHAT: &str = c::moonshot::recommended::CHAT;
-            pub const LONG_CONTEXT: &str = c::moonshot::recommended::LONG_CONTEXT;
-            pub const COST_EFFECTIVE: &str = c::moonshot::recommended::COST_EFFECTIVE;
-            pub const VISION: &str = c::moonshot::recommended::VISION;
-        }
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::providers::models::*;
     }
 
-    /// Ollama models with simplified access
+    /// Ollama models with simplified access.
     #[cfg(feature = "ollama")]
     pub mod ollama {
-        use crate::providers::ollama::model_constants as c;
+        use siumai_provider_ollama::providers::ollama::model_constants as c;
 
         // Llama 3.2 family
         pub const LLAMA_3_2: &str = c::llama_3_2::LLAMA_3_2;
@@ -602,54 +213,43 @@ pub mod model_constants {
         pub const NOMIC_EMBED_TEXT: &str = c::embeddings::NOMIC_EMBED_TEXT;
     }
 
-    /// xAI models with simplified access
+    /// xAI models with simplified access.
     #[cfg(feature = "xai")]
     pub mod xai {
-        use crate::providers::xai::models as c;
-
-        // Grok 4 family (latest flagship)
-        pub const GROK_4: &str = c::grok_4::GROK_4;
-        pub const GROK_4_0709: &str = c::grok_4::GROK_4_0709;
-        pub const GROK_4_LATEST: &str = c::grok_4::GROK_4_LATEST;
-
-        // Grok 3 family
-        pub const GROK_3: &str = c::grok_3::GROK_3;
-        pub const GROK_3_LATEST: &str = c::grok_3::GROK_3_LATEST;
-        pub const GROK_3_MINI: &str = c::grok_3::GROK_3_MINI;
-        pub const GROK_3_FAST: &str = c::grok_3::GROK_3_FAST;
-
-        // Grok 2 family
-        pub const GROK_2: &str = c::grok_2::GROK_2;
-        pub const GROK_2_LATEST: &str = c::grok_2::GROK_2_LATEST;
-
-        // Image generation
-        pub const GROK_2_IMAGE: &str = c::images::GROK_2_IMAGE;
-
-        // Legacy
-        pub const GROK_BETA: &str = c::legacy::GROK_BETA;
+        pub use siumai_provider_xai::providers::xai::models::*;
     }
 
-    /// Groq models with simplified access
+    /// Groq models with simplified access.
     #[cfg(feature = "groq")]
     pub mod groq {
-        use crate::providers::groq::models as c;
+        pub use siumai_provider_groq::providers::groq::models::*;
+    }
 
-        // Production models
-        pub const LLAMA_3_1_8B_INSTANT: &str = c::production::LLAMA_3_1_8B_INSTANT;
-        pub const LLAMA_3_3_70B_VERSATILE: &str = c::production::LLAMA_3_3_70B_VERSATILE;
-        pub const LLAMA_GUARD_4_12B: &str = c::production::LLAMA_GUARD_4_12B;
-        pub const WHISPER_LARGE_V3: &str = c::production::WHISPER_LARGE_V3;
-        pub const WHISPER_LARGE_V3_TURBO: &str = c::production::WHISPER_LARGE_V3_TURBO;
+    /// DeepSeek models with simplified access.
+    #[cfg(feature = "deepseek")]
+    pub mod deepseek {
+        pub use siumai_provider_deepseek::providers::deepseek::models::*;
+    }
 
-        // Preview models (experimental)
-        pub const DEEPSEEK_R1_DISTILL_LLAMA_70B: &str = c::preview::DEEPSEEK_R1_DISTILL_LLAMA_70B;
-        pub const GPT_OSS_120B: &str = c::preview::GPT_OSS_120B;
-        pub const GPT_OSS_20B: &str = c::preview::GPT_OSS_20B;
-        pub const QWEN3_32B: &str = c::preview::QWEN3_32B;
-        pub const PLAYAI_TTS: &str = c::preview::PLAYAI_TTS;
+    /// MiniMaxi models with simplified access.
+    #[cfg(feature = "minimaxi")]
+    pub mod minimaxi {
+        use siumai_provider_minimaxi::providers::minimaxi::model_constants as c;
 
-        // System models
-        pub const COMPOUND_BETA: &str = c::systems::COMPOUND_BETA;
-        pub const COMPOUND_BETA_MINI: &str = c::systems::COMPOUND_BETA_MINI;
+        // Text
+        pub const MINIMAX_M2: &str = c::text::MINIMAX_M2;
+        pub const MINIMAX_M2_STABLE: &str = c::text::MINIMAX_M2_STABLE;
+
+        // Audio (TTS)
+        pub const SPEECH_2_6_HD: &str = c::audio::SPEECH_2_6_HD;
+        pub const SPEECH_2_6_TURBO: &str = c::audio::SPEECH_2_6_TURBO;
+
+        // Voices (subset)
+        pub const MALE_QN_QINGSE: &str = c::voice::MALE_QN_QINGSE;
+        pub const FEMALE_SHAONV: &str = c::voice::FEMALE_SHAONV;
+
+        // Images
+        pub const IMAGE_01: &str = c::images::IMAGE_01;
+        pub const IMAGE_01_LIVE: &str = c::images::IMAGE_01_LIVE;
     }
 }

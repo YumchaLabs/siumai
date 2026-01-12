@@ -14,7 +14,7 @@
 //! cargo run --example custom-middleware --features openai
 //! ```
 
-use siumai::execution::middleware::language_model::LanguageModelMiddleware;
+use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
 use siumai::prelude::*;
 use siumai::registry::{RegistryOptions, create_provider_registry};
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ use std::sync::Arc;
 // Middleware 1: Set default temperature
 #[derive(Clone)]
 struct DefaultTemperatureMiddleware {
-    temperature: f32,
+    temperature: f64,
 }
 
 impl LanguageModelMiddleware for DefaultTemperatureMiddleware {

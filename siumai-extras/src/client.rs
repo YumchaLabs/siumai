@@ -1,11 +1,11 @@
 //! Client utilities for Siumai (extras crate)
 //!
-//! This module hosts helper types for managing and pooling `siumai::client::ClientWrapper`
+//! This module hosts helper types for managing and pooling `siumai::experimental::client::ClientWrapper`
 //! instances. These utilities were originally part of the core crate and are now
 //! considered application-level helpers.
 
-use siumai::client::ClientWrapper;
-use siumai::types::{CommonParams, HttpConfig};
+use siumai::experimental::client::ClientWrapper;
+use siumai::prelude::unified::{CommonParams, HttpConfig};
 
 /// Client configuration for advanced client setup.
 #[derive(Debug, Clone)]

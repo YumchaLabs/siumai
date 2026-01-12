@@ -1,0 +1,7 @@
+[
+  {
+    "type": "unsupported-tool",
+    "tool_name": "google.enterprise_web_search",
+    "details": "Enterprise Web Search requires Gemini 2.0 or newer."
+  }
+]

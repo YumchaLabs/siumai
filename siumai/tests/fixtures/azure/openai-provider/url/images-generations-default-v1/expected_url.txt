@@ -1,0 +1,2 @@
+https://test-resource.openai.azure.com/openai/v1/images/generations?api-version=v1
+

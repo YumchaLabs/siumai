@@ -1,0 +1,59 @@
+[package]
+name = "siumai-provider-openai-compatible"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "OpenAI-like protocol standard for siumai (legacy crate name: *-compatible)"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-provider-openai-compatible"
+readme = "../README.md"
+keywords = ["llm", "ai", "openai", "compat"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
+
+# Keep versions aligned with the workspace for consistent behavior.
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+async-stream.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+rand.workspace = true
+urlencoding.workspace = true
+infer.workspace = true
+secrecy.workspace = true
+backoff.workspace = true
+lru.workspace = true
+base64.workspace = true
+once_cell.workspace = true
+
+[features]
+default = []
+
+structured-messages = ["siumai-protocol-openai/structured-messages"]
+
+# Enable the OpenAI(-like) protocol types in core. This crate is intentionally
+# "protocol-first" and does not include the native OpenAI provider.
+openai-standard = ["siumai-protocol-openai/openai-standard"]
+
+# Reserved: OpenAI Responses API mapping (kept out of the default OpenAI-compatible surface).
+# The native OpenAI provider owns this in `siumai-provider-openai`.
+openai-responses = ["siumai-protocol-openai/openai-responses"]
+
+[dev-dependencies]
+tokio-test.workspace = true

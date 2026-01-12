@@ -1,0 +1,45 @@
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": { "Text": "You are a helpful assistant." },
+      "metadata": {}
+    },
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "getWeather",
+      "description": "Get weather for a location.",
+      "parameters": {
+        "type": "object",
+        "properties": { "location": { "type": "string" } },
+        "required": ["location"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "common_params": {
+    "model": "llama3.2",
+    "temperature": 0.3,
+    "max_tokens": 42,
+    "max_completion_tokens": null,
+    "top_p": 0.9,
+    "stop_sequences": ["STOP"],
+    "seed": 123
+  },
+  "providerOptions": {
+    "ollama": {
+      "keep_alive": "10m",
+      "format": "json",
+      "extra_params": { "think": false, "top_k": 40 }
+    }
+  },
+  "stream": false
+}
+

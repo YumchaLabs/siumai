@@ -1,0 +1,60 @@
+[package]
+name = "siumai-provider-google-vertex"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Google Vertex AI provider implementation for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-provider-google-vertex"
+readme = "../README.md"
+keywords = ["llm", "ai", "google", "vertex"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+siumai-protocol-gemini = { version = "0.11.0-beta.5", path = "../siumai-protocol-gemini", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false, optional = true }
+
+# Keep versions aligned with the workspace for consistent behavior.
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+async-stream.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+rand.workspace = true
+urlencoding.workspace = true
+infer.workspace = true
+secrecy.workspace = true
+backoff.workspace = true
+lru.workspace = true
+base64.workspace = true
+
+[features]
+default = []
+
+structured-messages = [
+    "siumai-core/structured-messages",
+]
+
+# Enables Google-related shared types in `siumai-core`.
+google-vertex = [
+    "siumai-core/google",
+    "siumai-protocol-gemini/google",
+    "siumai-core/anthropic",
+    "dep:siumai-protocol-anthropic",
+    "siumai-protocol-anthropic/anthropic-standard",
+]

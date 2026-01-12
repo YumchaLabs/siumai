@@ -1,0 +1,30 @@
+{
+  "instances": [
+    {
+      "prompt": "Edit this image",
+      "referenceImages": [
+        {
+          "referenceId": 1,
+          "referenceType": "REFERENCE_TYPE_RAW",
+          "referenceImage": {
+            "bytesBase64Encoded": "aGVsbG8="
+          }
+        },
+        {
+          "referenceId": 2,
+          "referenceType": "REFERENCE_TYPE_MASK",
+          "referenceImage": {
+            "bytesBase64Encoded": "d29ybGQ="
+          },
+          "maskImageConfig": {
+            "maskMode": "MASK_MODE_USER_PROVIDED"
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "editMode": "EDIT_MODE_INPAINT_INSERTION",
+    "sampleCount": 1
+  }
+}

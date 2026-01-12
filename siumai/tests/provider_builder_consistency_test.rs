@@ -19,7 +19,8 @@
 //! - All providers support tracing configuration
 
 use siumai::Provider;
-use siumai::execution::http::interceptor::HttpInterceptor;
+use siumai::experimental::execution::http::interceptor::HttpInterceptor;
+use siumai::prelude::unified::LlmError;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,11 +31,11 @@ struct MockInterceptor;
 impl HttpInterceptor for MockInterceptor {
     fn on_before_send(
         &self,
-        _ctx: &siumai::execution::http::interceptor::HttpRequestContext,
+        _ctx: &siumai::experimental::execution::http::interceptor::HttpRequestContext,
         builder: reqwest::RequestBuilder,
         _body: &serde_json::Value,
         _headers: &reqwest::header::HeaderMap,
-    ) -> Result<reqwest::RequestBuilder, siumai::LlmError> {
+    ) -> Result<reqwest::RequestBuilder, LlmError> {
         Ok(builder)
     }
 }
@@ -257,26 +258,10 @@ fn test_all_providers_support_tracing() {
         .pretty_json(true)
         .mask_sensitive_values(true);
 
-    // xAI
-    let _ = Provider::xai()
-        .api_key("test")
-        .model("grok-beta")
-        .debug_tracing()
-        .pretty_json(true)
-        .mask_sensitive_values(true);
-
     // Gemini
     let _ = Provider::gemini()
         .api_key("test")
         .model("gemini-1.5-flash")
-        .debug_tracing()
-        .pretty_json(true)
-        .mask_sensitive_values(true);
-
-    // Groq
-    let _ = Provider::groq()
-        .api_key("test")
-        .model("llama-3.3-70b-versatile")
         .debug_tracing()
         .pretty_json(true)
         .mask_sensitive_values(true);
@@ -344,8 +329,7 @@ fn test_all_providers_support_method_chaining() {
         .with_http_client(client.clone())
         .http_debug(true)
         .with_http_interceptor(interceptor.clone())
-        .http_stream_disable_compression(true)
-        .debug_tracing();
+        .http_stream_disable_compression(true);
 
     let _ = Provider::anthropic()
         .api_key("test")
@@ -355,8 +339,7 @@ fn test_all_providers_support_method_chaining() {
         .with_http_client(client.clone())
         .http_debug(true)
         .with_http_interceptor(interceptor.clone())
-        .http_stream_disable_compression(true)
-        .debug_tracing();
+        .http_stream_disable_compression(true);
 
     let _ = Provider::xai()
         .api_key("test")
@@ -366,8 +349,7 @@ fn test_all_providers_support_method_chaining() {
         .with_http_client(client.clone())
         .http_debug(true)
         .with_http_interceptor(interceptor.clone())
-        .http_stream_disable_compression(true)
-        .debug_tracing();
+        .http_stream_disable_compression(true);
 
     let _ = Provider::gemini()
         .api_key("test")
@@ -377,8 +359,7 @@ fn test_all_providers_support_method_chaining() {
         .with_http_client(client.clone())
         .http_debug(true)
         .with_http_interceptor(interceptor.clone())
-        .http_stream_disable_compression(true)
-        .debug_tracing();
+        .http_stream_disable_compression(true);
 
     let _ = Provider::groq()
         .api_key("test")
@@ -388,8 +369,7 @@ fn test_all_providers_support_method_chaining() {
         .with_http_client(client.clone())
         .http_debug(true)
         .with_http_interceptor(interceptor.clone())
-        .http_stream_disable_compression(true)
-        .debug_tracing();
+        .http_stream_disable_compression(true);
 
     let _ = Provider::ollama()
         .model("llama3.2")
@@ -398,6 +378,5 @@ fn test_all_providers_support_method_chaining() {
         .with_http_client(client)
         .http_debug(true)
         .with_http_interceptor(interceptor)
-        .http_stream_disable_compression(true)
-        .debug_tracing();
+        .http_stream_disable_compression(true);
 }

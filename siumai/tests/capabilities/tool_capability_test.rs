@@ -20,54 +20,47 @@
 use futures::StreamExt;
 use serde_json::json;
 use siumai::prelude::*;
-use siumai::streaming::ChatStreamEvent;
 use std::env;
 
 /// Create a simple calculator tool for testing
 fn create_calculator_tool() -> Tool {
-    Tool {
-        r#type: "function".to_string(),
-        function: ToolFunction {
-            name: "calculate".to_string(),
-            description: "Perform basic mathematical calculations".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "Mathematical expression to evaluate (e.g., '2 + 3', '10 * 5')"
-                    }
-                },
-                "required": ["expression"]
-            }),
-        },
-    }
+    Tool::function(
+        "calculate",
+        "Perform basic mathematical calculations",
+        json!({
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "Mathematical expression to evaluate (e.g., '2 + 3', '10 * 5')"
+                }
+            },
+            "required": ["expression"]
+        }),
+    )
 }
 
 /// Create a weather tool for testing
 fn create_weather_tool() -> Tool {
-    Tool {
-        r#type: "function".to_string(),
-        function: ToolFunction {
-            name: "get_weather".to_string(),
-            description: "Get current weather information for a location".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "City name or location"
-                    },
-                    "unit": {
-                        "type": "string",
-                        "enum": ["celsius", "fahrenheit"],
-                        "description": "Temperature unit"
-                    }
+    Tool::function(
+        "get_weather",
+        "Get current weather information for a location",
+        json!({
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "City name or location"
                 },
-                "required": ["location"]
-            }),
-        },
-    }
+                "unit": {
+                    "type": "string",
+                    "enum": ["celsius", "fahrenheit"],
+                    "description": "Temperature unit"
+                }
+            },
+            "required": ["location"]
+        }),
+    )
 }
 
 /// Test basic tool calling functionality
@@ -87,19 +80,18 @@ async fn test_basic_tool_calling<T: ChatCapability>(client: &T, provider_name: &
             println!("    ✅ Tool calling successful");
 
             // Check if tool calls were made
-            if let Some(tool_calls) = &response.tool_calls {
+            let tool_calls = response.tool_calls();
+            if !tool_calls.is_empty() {
                 println!("    🔧 Tool calls made: {}", tool_calls.len());
-                for (i, tool_call) in tool_calls.iter().enumerate() {
-                    println!(
-                        "      Tool {}: {} ({})",
-                        i + 1,
-                        tool_call
-                            .function
-                            .as_ref()
-                            .map(|f| f.name.as_str())
-                            .unwrap_or("unknown"),
-                        tool_call.id
-                    );
+                for (i, call) in tool_calls.iter().enumerate() {
+                    if let Some(info) = call.as_tool_call() {
+                        println!(
+                            "      Tool {}: {} ({})",
+                            i + 1,
+                            info.tool_name,
+                            info.tool_call_id
+                        );
+                    }
                 }
             } else {
                 println!("    ⚠️ No tool calls in response (model may have answered directly)");
@@ -174,8 +166,9 @@ async fn test_streaming_tool_calling<T: ChatCapability>(client: &T, provider_nam
                                 );
                             }
 
-                            if let Some(tool_calls) = &response.tool_calls {
-                                println!("    🔧 Final tool calls: {}", tool_calls.len());
+                            let final_calls = response.tool_calls();
+                            if !final_calls.is_empty() {
+                                println!("    🔧 Final tool calls: {}", final_calls.len());
                             }
 
                             let final_content = response.content_text().unwrap_or_default();
@@ -229,11 +222,12 @@ async fn test_multiple_tools<T: ChatCapability>(client: &T, provider_name: &str)
         Ok(response) => {
             println!("    ✅ Multiple tools test successful");
 
-            if let Some(tool_calls) = &response.tool_calls {
+            let tool_calls = response.tool_calls();
+            if !tool_calls.is_empty() {
                 println!("    🔧 Tool calls made: {}", tool_calls.len());
-                for tool_call in tool_calls {
-                    if let Some(function) = &tool_call.function {
-                        println!("      - {}: {}", function.name, function.arguments);
+                for call in tool_calls {
+                    if let Some(info) = call.as_tool_call() {
+                        println!("      - {}: {}", info.tool_name, info.arguments);
                     }
                 }
             }
@@ -264,7 +258,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
     match provider_name {
         "OpenAI" => {
             let api_key = env::var(api_key_env).unwrap();
-            let mut builder = LlmBuilder::new().openai().api_key(api_key).model(model);
+            let mut builder = Siumai::builder().openai().api_key(api_key).model(model);
 
             if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
                 builder = builder.base_url(base_url);
@@ -284,7 +278,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         }
         "Anthropic" => {
             let api_key = env::var(api_key_env).unwrap();
-            let mut builder = LlmBuilder::new().anthropic().api_key(api_key).model(model);
+            let mut builder = Siumai::builder().anthropic().api_key(api_key).model(model);
 
             if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
                 builder = builder.base_url(base_url);
@@ -304,7 +298,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         }
         "Gemini" => {
             let api_key = env::var(api_key_env).unwrap();
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .gemini()
                 .api_key(api_key)
                 .model(model)
@@ -324,7 +318,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         }
         "xAI" => {
             let api_key = env::var(api_key_env).unwrap();
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .xai()
                 .api_key(api_key)
                 .model(model)
@@ -345,7 +339,7 @@ async fn test_provider_tools(provider_name: &str, api_key_env: &str, model: &str
         "Ollama" => {
             let base_url = env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string());
-            match LlmBuilder::new()
+            match Siumai::builder()
                 .ollama()
                 .base_url(&base_url)
                 .model(model)

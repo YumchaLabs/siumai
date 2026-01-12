@@ -73,11 +73,8 @@ use opentelemetry::{
     KeyValue, global,
     trace::{Span, Status, Tracer},
 };
-use siumai::{
-    error::LlmError,
-    execution::middleware::LanguageModelMiddleware,
-    types::{ChatRequest, ChatResponse},
-};
+use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
+use siumai::prelude::unified::{ChatRequest, ChatResponse, LlmError};
 
 /// OpenTelemetry middleware for automatic tracing and metrics
 #[derive(Clone)]
@@ -108,11 +105,11 @@ impl OpenTelemetryMiddleware {
         }
 
         if let Some(temperature) = req.common_params.temperature {
-            attributes.push(KeyValue::new("llm.temperature", temperature as f64));
+            attributes.push(KeyValue::new("llm.temperature", temperature));
         }
 
         if let Some(top_p) = req.common_params.top_p {
-            attributes.push(KeyValue::new("llm.top_p", top_p as f64));
+            attributes.push(KeyValue::new("llm.top_p", top_p));
         }
 
         // Add message count

@@ -1,0 +1,14 @@
+{
+  "instances": [
+    {
+      "prompt": "a cat"
+    }
+  ],
+  "parameters": {
+    "sampleCount": 2,
+    "seed": 42,
+    "aspectRatio": "1:1",
+    "negativePrompt": "negative prompt",
+    "addWatermark": false
+  }
+}

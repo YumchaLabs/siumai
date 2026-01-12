@@ -28,8 +28,7 @@
 
 use crate::error::{ExtrasError, Result};
 use serde_json::Value;
-use siumai::error::LlmError;
-use siumai::types::SchemaValidator as SchemaValidatorTrait;
+use siumai::prelude::unified::{LlmError, SchemaValidator as SchemaValidatorTrait};
 
 /// Validate a JSON value against a JSON Schema
 ///
@@ -238,7 +237,7 @@ mod tests {
         let validator = JsonSchemaValidator::new(&schema).unwrap();
 
         // Test using the trait method
-        use siumai::types::SchemaValidator;
+        use siumai::prelude::unified::SchemaValidator;
         assert!(validator.validate(&json!("hello")).is_ok());
         assert!(validator.validate(&json!(123)).is_err());
         assert!(validator.is_valid(&json!("world")));

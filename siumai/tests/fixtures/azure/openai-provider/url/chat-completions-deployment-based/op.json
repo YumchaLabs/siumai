@@ -1,0 +1,5 @@
+{
+  "operation": "chat",
+  "chat_mode": "chat_completions"
+}
+

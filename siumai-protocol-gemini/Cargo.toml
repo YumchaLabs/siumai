@@ -1,0 +1,54 @@
+[package]
+name = "siumai-protocol-gemini"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Google Gemini protocol standard (mapping + streaming) for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-protocol-gemini"
+readme = "../README.md"
+keywords = ["llm", "ai", "gemini", "google"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+
+# Keep versions aligned with the workspace for consistent behavior.
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+async-stream.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+rand.workspace = true
+urlencoding.workspace = true
+infer.workspace = true
+secrecy.workspace = true
+backoff.workspace = true
+lru.workspace = true
+base64.workspace = true
+
+[features]
+default = []
+
+structured-messages = ["siumai-core/structured-messages"]
+
+# Matches the feature name used by downstream crates (`siumai` uses `google`).
+google = ["siumai-core/google"]
+
+# Optional JSON repair utilities used by Gemini streaming helpers.
+json-repair = ["siumai-core/json-repair"]
+

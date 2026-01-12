@@ -1,0 +1,10 @@
+{
+  "instances": [
+    {
+      "prompt": "nested response test"
+    }
+  ],
+  "parameters": {
+    "sampleCount": 1
+  }
+}

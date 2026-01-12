@@ -1,0 +1,9 @@
+{
+  "input": ["test text one", "test text two"],
+  "model": "textembedding-gecko@001",
+  "provider_options_map": {
+    "google": {
+      "title": "test title"
+    }
+  }
+}

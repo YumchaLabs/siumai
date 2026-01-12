@@ -1,0 +1,9 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "user",
+      "content": [{ "type": "input_file", "file_id": "assistant-abc123" }]
+    }
+  ]
+}

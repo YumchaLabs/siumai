@@ -1,3 +1,4 @@
+#![cfg(any(feature = "openai", feature = "google"))]
 //! Base URL behavior tests for unified builder (`SiumaiBuilder`).
 //!
 //! These tests ensure that when a custom `base_url` is provided to the
@@ -23,7 +24,7 @@ async fn openai_custom_base_url_is_used_as_full_prefix() {
     let inner = client.client();
     let any = inner.as_any();
     let openai = any
-        .downcast_ref::<siumai::providers::openai::OpenAiClient>()
+        .downcast_ref::<siumai::provider_ext::openai::OpenAiClient>()
         .expect("expected OpenAiClient");
 
     assert_eq!(
@@ -50,7 +51,7 @@ async fn openai_custom_base_url_trailing_slash_is_trimmed() {
     let inner = client.client();
     let any = inner.as_any();
     let openai = any
-        .downcast_ref::<siumai::providers::openai::OpenAiClient>()
+        .downcast_ref::<siumai::provider_ext::openai::OpenAiClient>()
         .expect("expected OpenAiClient");
 
     assert_eq!(
@@ -76,7 +77,7 @@ async fn gemini_custom_base_url_is_used_as_full_prefix() {
     let inner = client.client();
     let any = inner.as_any();
     let gemini = any
-        .downcast_ref::<siumai::providers::gemini::GeminiClient>()
+        .downcast_ref::<siumai::provider_ext::gemini::GeminiClient>()
         .expect("expected GeminiClient");
 
     assert_eq!(
@@ -103,7 +104,7 @@ async fn gemini_custom_base_url_trailing_slash_is_trimmed() {
     let inner = client.client();
     let any = inner.as_any();
     let gemini = any
-        .downcast_ref::<siumai::providers::gemini::GeminiClient>()
+        .downcast_ref::<siumai::provider_ext::gemini::GeminiClient>()
         .expect("expected GeminiClient");
 
     assert_eq!(

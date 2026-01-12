@@ -5,9 +5,10 @@
 
 use async_trait::async_trait;
 use futures::{stream, StreamExt};
-use siumai::streaming::{ChatStream, ChatStreamEvent};
-use siumai::types::{ChatMessage, ChatResponse, MessageContent, ResponseMetadata, Usage};
-use siumai::error::LlmError;
+use siumai::prelude::unified::{
+    ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, FinishReason, LlmError, MessageContent,
+    ResponseMetadata, Usage,
+};
 use std::time::Duration;
 
 /// Mock streaming provider for testing complete event sequences
@@ -172,7 +173,7 @@ impl MockStreamingProvider {
                 } else {
                     None
                 },
-                finish_reason: Some(siumai::types::FinishReason::Stop),
+                finish_reason: Some(FinishReason::Stop),
                 tool_calls: None,
                 thinking: if self.include_thinking {
                     Some("Let me think about this...".to_string())

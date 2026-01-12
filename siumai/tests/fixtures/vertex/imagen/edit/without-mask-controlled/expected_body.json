@@ -1,0 +1,20 @@
+{
+  "instances": [
+    {
+      "prompt": "Upscale this image",
+      "referenceImages": [
+        {
+          "referenceId": 1,
+          "referenceType": "REFERENCE_TYPE_RAW",
+          "referenceImage": {
+            "bytesBase64Encoded": "AQIDBA=="
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "editMode": "EDIT_MODE_CONTROLLED_EDITING",
+    "sampleCount": 1
+  }
+}

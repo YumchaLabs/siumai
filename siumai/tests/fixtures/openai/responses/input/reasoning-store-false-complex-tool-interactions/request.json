@@ -1,0 +1,132 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "reasoning",
+            "text": "Initial analysis step 1",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "reasoning_001",
+                "reasoningEncryptedContent": "encrypted_content_001"
+              }
+            }
+          },
+          {
+            "type": "reasoning",
+            "text": "Initial analysis step 2",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "reasoning_001",
+                "reasoningEncryptedContent": "encrypted_content_001"
+              }
+            }
+          },
+          {
+            "type": "tool-call",
+            "toolCallId": "call_001",
+            "toolName": "search",
+            "input": { "query": "initial search" }
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call_001",
+            "toolName": "search",
+            "output": { "type": "json", "value": { "results": ["result1", "result2"] } }
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "reasoning",
+            "text": "Processing results step 1",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "reasoning_002",
+                "reasoningEncryptedContent": "encrypted_content_002"
+              }
+            }
+          },
+          {
+            "type": "reasoning",
+            "text": "Processing results step 2",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "reasoning_002",
+                "reasoningEncryptedContent": "encrypted_content_002"
+              }
+            }
+          },
+          {
+            "type": "reasoning",
+            "text": "Processing results step 3",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "reasoning_002",
+                "reasoningEncryptedContent": "encrypted_content_002"
+              }
+            }
+          },
+          {
+            "type": "tool-call",
+            "toolCallId": "call_002",
+            "toolName": "calculator",
+            "input": { "expression": "2 + 2" }
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call_002",
+            "toolName": "calculator",
+            "output": { "type": "json", "value": { "result": 4 } }
+          }
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "role": "assistant",
+      "content": {
+        "Text": "Based on my analysis and calculations, here is the final answer."
+      },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": { "openai": { "store": false } },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

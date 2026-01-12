@@ -1,0 +1,19 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "executableCode": { "language": "PYTHON", "code": "print(1+1)" }
+          },
+          {
+            "codeExecutionResult": { "outcome": "OUTCOME_OK", "output": "2" }
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP"
+    }
+  ]
+}
+

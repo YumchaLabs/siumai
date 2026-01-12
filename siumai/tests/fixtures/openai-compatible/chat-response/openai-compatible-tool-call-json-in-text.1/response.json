@@ -1,0 +1,16 @@
+{
+  "id": "chatcmpl-test",
+  "model": "grok-beta",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"name\":\"weather$weather#get_weather\",\"arguments\":{\"addr\":\"Guangzhou\",\"date\":\"2026-01-09\"}}"
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+}
+

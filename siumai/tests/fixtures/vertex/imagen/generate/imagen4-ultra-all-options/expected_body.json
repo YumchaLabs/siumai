@@ -1,0 +1,15 @@
+{
+  "instances": [
+    {
+      "prompt": "comprehensive test prompt"
+    }
+  ],
+  "parameters": {
+    "addWatermark": true,
+    "negativePrompt": "avoid this content",
+    "personGeneration": "dont_allow",
+    "safetySetting": "block_only_high",
+    "sampleCount": 1,
+    "storageUri": "gs://my-bucket/images/"
+  }
+}

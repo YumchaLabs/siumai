@@ -1,0 +1,24 @@
+{
+  "model": "gemini-1.5-flash",
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "googleSearchRetrieval": {
+        "dynamicRetrievalConfig": {
+          "mode": "MODE_DYNAMIC",
+          "dynamicThreshold": 1
+        }
+      }
+    }
+  ]
+}
+

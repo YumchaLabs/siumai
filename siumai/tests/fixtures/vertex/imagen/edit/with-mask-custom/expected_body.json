@@ -1,0 +1,35 @@
+{
+  "instances": [
+    {
+      "prompt": "fill the masked area",
+      "referenceImages": [
+        {
+          "referenceId": 1,
+          "referenceType": "REFERENCE_TYPE_RAW",
+          "referenceImage": {
+            "bytesBase64Encoded": "AQIDBA=="
+          }
+        },
+        {
+          "referenceId": 2,
+          "referenceType": "REFERENCE_TYPE_MASK",
+          "referenceImage": {
+            "bytesBase64Encoded": "CQkJ"
+          },
+          "maskImageConfig": {
+            "maskMode": "MASK_MODE_USER_PROVIDED",
+            "dilation": 0.01
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "guidanceScale": 7.5,
+    "sampleCount": 1,
+    "editMode": "EDIT_MODE_INPAINT_REMOVAL",
+    "editConfig": {
+      "baseSteps": 50
+    }
+  }
+}

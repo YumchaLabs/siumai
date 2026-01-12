@@ -1,0 +1,16 @@
+{
+  "prompt": "A highly detailed photorealistic portrait",
+  "count": 1,
+  "model": "imagen-4.0-ultra-generate-preview-06-06",
+  "seed": 999,
+  "extra_params": {
+    "aspectRatio": "4:3"
+  },
+  "providerOptions": {
+    "vertex": {
+      "negativePrompt": "blurry, low quality",
+      "addWatermark": true
+    }
+  }
+}
+

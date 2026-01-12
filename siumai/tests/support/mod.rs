@@ -4,12 +4,10 @@
 //! - Reduce boilerplate and soften the impact of API changes
 
 pub mod mockito;
-pub mod stream_fixture;
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
-use siumai::core::{ChatTransformers, ProviderContext, ProviderSpec};
-use siumai::traits::ProviderCapabilities;
-use siumai::types::ChatRequest;
+use siumai::experimental::core::{ChatTransformers, ProviderContext, ProviderSpec};
+use siumai::prelude::unified::{ChatRequest, LlmError, ProviderCapabilities};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -31,7 +29,7 @@ impl ProviderSpec for FlippingAuthSpec {
         ProviderCapabilities::new().with_audio()
     }
 
-    fn build_headers(&self, _ctx: &ProviderContext) -> Result<HeaderMap, siumai::LlmError> {
+    fn build_headers(&self, _ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
         let n = self.counter.fetch_add(1, Ordering::SeqCst);
         let token = if n == 0 { "bad" } else { "ok" };
         let mut headers = HeaderMap::new();

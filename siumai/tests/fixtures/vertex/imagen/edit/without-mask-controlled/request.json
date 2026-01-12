@@ -1,0 +1,16 @@
+{
+  "image": [1, 2, 3, 4],
+  "mask": null,
+  "prompt": "Upscale this image",
+  "model": "imagen-3.0-generate-002",
+  "count": 1,
+  "response_format": "b64_json",
+  "extra_params": {},
+  "providerOptions": {
+    "vertex": {
+      "edit": {
+        "mode": "EDIT_MODE_CONTROLLED_EDITING"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "developer",
+      "content": "Hello"
+    }
+  ]
+}

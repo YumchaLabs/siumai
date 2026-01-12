@@ -13,9 +13,9 @@
 
 #![allow(unsafe_code)]
 
-use siumai::error::LlmError;
+use siumai::prelude::unified::LlmError;
+use siumai::prelude::unified::{ChatMessage, MessageContent, MessageRole, ProviderType};
 use siumai::provider::SiumaiBuilder;
-use siumai::types::{ChatMessage, MessageContent, MessageRole, ProviderType};
 
 /// Test that all providers can be created through the unified interface
 #[tokio::test]
@@ -146,6 +146,7 @@ async fn test_all_providers_supported() {
 
     // Test DeepSeek (OpenAI-compatible)
     let deepseek_result = SiumaiBuilder::new()
+        .openai()
         .deepseek()
         .api_key("test-key")
         .model("deepseek-chat")
@@ -168,6 +169,7 @@ async fn test_all_providers_supported() {
 
     // Test OpenRouter (OpenAI-compatible)
     let openrouter_result = SiumaiBuilder::new()
+        .openai()
         .openrouter()
         .api_key("test-key")
         .model("openai/gpt-4")
@@ -235,8 +237,8 @@ async fn test_common_parameters_consistency() {
         SiumaiBuilder::new().ollama(),
         SiumaiBuilder::new().xai(),
         SiumaiBuilder::new().groq(),
-        SiumaiBuilder::new().deepseek(),
-        SiumaiBuilder::new().openrouter(),
+        SiumaiBuilder::new().openai().deepseek(),
+        SiumaiBuilder::new().openai().openrouter(),
     ];
 
     for builder in providers {
@@ -425,10 +427,12 @@ fn test_builder_pattern_consistency() {
         SiumaiBuilder::new().xai().api_key("test").model("test"),
         SiumaiBuilder::new().groq().api_key("test").model("test"),
         SiumaiBuilder::new()
+            .openai()
             .deepseek()
             .api_key("test")
             .model("test"),
         SiumaiBuilder::new()
+            .openai()
             .openrouter()
             .api_key("test")
             .model("test"),

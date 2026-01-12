@@ -1,0 +1,18 @@
+{
+  "model": "gemini-2.5-flash",
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    { "googleSearch": {} },
+    { "urlContext": {} },
+    { "fileSearch": { "fileSearchStoreNames": ["projects/foo/fileSearchStores/bar"] } }
+  ]
+}

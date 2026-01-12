@@ -10,9 +10,13 @@
 
 use futures::Stream;
 use serde::de::DeserializeOwned;
-use siumai::error::LlmError;
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatRequest, ChatResponse, Tool, Usage};
+use siumai::prelude::unified::*;
+#[cfg(feature = "anthropic")]
+use siumai::provider_ext::anthropic::AnthropicChatRequestExt;
+#[cfg(feature = "google")]
+use siumai::provider_ext::gemini::GeminiChatRequestExt;
+#[cfg(feature = "openai")]
+use siumai::provider_ext::openai::OpenAiChatRequestExt;
 use std::pin::Pin;
 
 use crate::structured_output::{
@@ -74,7 +78,7 @@ pub async fn generate_object<T: DeserializeOwned>(
     let text = {
         let tool_calls = resp.tool_calls();
         if let Some(first) = tool_calls.first() {
-            if let siumai::types::ContentPart::ToolCall { arguments, .. } = first {
+            if let ContentPart::ToolCall { arguments, .. } = first {
                 serde_json::to_string(arguments).unwrap_or_default()
             } else {
                 resp.content_text()
@@ -94,14 +98,11 @@ pub async fn generate_object<T: DeserializeOwned>(
     }
 
     let cfg = OutputDecodeConfig {
-        schema: opts
-            .schema
-            .clone()
-            .map(|schema| siumai::types::OutputSchema {
-                schema,
-                name: opts.schema_name.clone(),
-                description: opts.schema_description.clone(),
-            }),
+        schema: opts.schema.clone().map(|schema| OutputSchema {
+            schema,
+            name: opts.schema_name.clone(),
+            description: opts.schema_description.clone(),
+        }),
         kind: opts.output.clone(),
         mode: opts.mode,
         emit_partial: false,
@@ -213,7 +214,7 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
         let mut last_partial: Option<serde_json::Value> = None;
         while let Some(item) = stream.next().await {
             match item? {
-                siumai::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+                ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
                     if emit_partial {
@@ -233,13 +234,13 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                         }
                     }
                 }
-                siumai::streaming::ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
+                ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
                     tool_args_acc.push_str(&d);
                 }
-                siumai::streaming::ChatStreamEvent::UsageUpdate { usage } => {
+                ChatStreamEvent::UsageUpdate { usage } => {
                     yield StreamObjectEvent::UsageUpdate { usage };
                 }
-                siumai::streaming::ChatStreamEvent::StreamEnd { response } => {
+                ChatStreamEvent::StreamEnd { response } => {
                     final_resp = Some(response);
                     break;
                 }
@@ -247,19 +248,19 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
             }
         }
         let resp = final_resp
-            .unwrap_or_else(|| ChatResponse::new(siumai::types::MessageContent::Text(acc.clone())));
+            .unwrap_or_else(|| ChatResponse::new(MessageContent::Text(acc.clone())));
         // Try parse/validate/deserialize with optional repair
         // Prefer tool arguments if present
         let text = if !tool_args_acc.is_empty() { tool_args_acc } else { acc };
         let cfg = OutputDecodeConfig {
-            schema: opts.schema.clone().map(|schema| siumai::types::OutputSchema {
+            schema: opts.schema.clone().map(|schema| OutputSchema {
                 schema,
                 name: opts.schema_name.clone(),
                 description: opts.schema_description.clone(),
             }),
             kind: output_kind,
             mode,
-            emit_partial: emit_partial,
+            emit_partial,
             repair_text: repair,
             max_repair_rounds: max_rounds,
         };
@@ -270,11 +271,7 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
     Ok(Box::pin(s))
 }
 
-/// Extract a balanced JSON substring from the given text if possible.
-///
-/// This scans for the first '{' or '[' and then tracks brace/bracket balance,
-/// ignoring occurrences within string literals. When balance returns to zero,
-/// returns the substring covering that balanced JSON block.
+// Extracting balanced JSON slices is handled by `crate::structured_output`.
 // Balanced-slice helpers now live in `crate::structured_output` and are reused
 // here for computing partial JSON objects.
 
@@ -366,7 +363,7 @@ fn build_chat_request_with_hints(
     if let Some(schema) = opts.schema.clone() {
         #[cfg(feature = "openai")]
         {
-            use siumai::types::{OpenAiOptions, ResponsesApiConfig};
+            use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
             let response_format = if let Some(name) = opts.schema_name.clone() {
                 serde_json::json!({
                     "type": "json_schema",
@@ -393,7 +390,7 @@ fn build_chat_request_with_hints(
 
         #[cfg(feature = "anthropic")]
         {
-            use siumai::types::AnthropicOptions;
+            use siumai::provider_ext::anthropic::AnthropicOptions;
             if let Some(name) = opts.schema_name.clone() {
                 let opts_an = AnthropicOptions::new().with_json_schema(name, schema.clone(), true);
                 req = req.with_anthropic_options(opts_an);
@@ -405,7 +402,7 @@ fn build_chat_request_with_hints(
 
         #[cfg(feature = "google")]
         {
-            use siumai::types::GeminiOptions;
+            use siumai::provider_ext::gemini::GeminiOptions;
             // Ask Gemini to return JSON by setting the response MIME type
             let opts_g = GeminiOptions::new().with_response_mime_type("application/json");
             req = req.with_gemini_options(opts_g);
@@ -441,13 +438,13 @@ pub async fn stream_object_auto<T: DeserializeOwned + Send + 'static>(
 /// Generate a typed object using OpenAI Responses API structured outputs when possible.
 /// This helper creates a ChatRequest with appropriate provider_options for structured output.
 pub async fn generate_object_openai<T: DeserializeOwned>(
-    client: &siumai::providers::openai::OpenAiClient,
-    messages: Vec<siumai::types::ChatMessage>,
-    tools: Option<Vec<siumai::types::Tool>>,
+    client: &siumai::provider_ext::openai::OpenAiClient,
+    messages: Vec<ChatMessage>,
+    tools: Option<Vec<Tool>>,
     opts: GenerateObjectOptions,
-) -> Result<(T, siumai::types::ChatResponse), LlmError> {
+) -> Result<(T, ChatResponse), LlmError> {
     // Build a ChatRequest with provider_options for structured output
-    use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
 
     let mut request = ChatRequest::new(messages);
     if let Some(t) = tools {
@@ -489,7 +486,7 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     let text = {
         let tool_calls = resp.tool_calls();
         if let Some(first) = tool_calls.first() {
-            if let siumai::types::ContentPart::ToolCall { arguments, .. } = first {
+            if let ContentPart::ToolCall { arguments, .. } = first {
                 serde_json::to_string(arguments).unwrap_or_default()
             } else {
                 resp.content_text()
@@ -510,14 +507,11 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     }
 
     let cfg = OutputDecodeConfig {
-        schema: opts
-            .schema
-            .clone()
-            .map(|schema| siumai::types::OutputSchema {
-                schema,
-                name: opts.schema_name.clone(),
-                description: opts.schema_description.clone(),
-            }),
+        schema: opts.schema.clone().map(|schema| OutputSchema {
+            schema,
+            name: opts.schema_name.clone(),
+            description: opts.schema_description.clone(),
+        }),
         kind: opts.output.clone(),
         mode: opts.mode,
         emit_partial: false,
@@ -533,13 +527,13 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
 /// Stream a typed object using OpenAI Responses API structured outputs when possible.
 /// Creates a ChatRequest with appropriate provider_options for structured output.
 pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
-    client: &siumai::providers::openai::OpenAiClient,
-    messages: Vec<siumai::types::ChatMessage>,
-    tools: Option<Vec<siumai::types::Tool>>,
+    client: &siumai::provider_ext::openai::OpenAiClient,
+    messages: Vec<ChatMessage>,
+    tools: Option<Vec<Tool>>,
     opts: StreamObjectOptions,
 ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamObjectEvent<T>, LlmError>> + Send>>, LlmError> {
     // Build a ChatRequest with provider_options for structured output
-    use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+    use siumai::provider_ext::openai::{OpenAiOptions, ResponsesApiConfig};
 
     let mut request = ChatRequest::new(messages);
     if let Some(t) = tools {
@@ -591,7 +585,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
 
         while let Some(item) = stream.next().await {
             match item? {
-                siumai::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
+                ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
                     if emit_partial {
@@ -610,7 +604,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
                         }
                     }
                 }
-                siumai::streaming::ChatStreamEvent::StreamEnd { response } => {
+                ChatStreamEvent::StreamEnd { response } => {
                     final_resp = Some(response);
                     break;
                 }
@@ -626,7 +620,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
             .unwrap_or(acc);
 
         let cfg = OutputDecodeConfig {
-            schema: schema.clone().map(|schema| siumai::types::OutputSchema {
+            schema: schema.clone().map(|schema| OutputSchema {
                 schema,
                 name: opts.schema_name.clone(),
                 description: opts.schema_description.clone(),

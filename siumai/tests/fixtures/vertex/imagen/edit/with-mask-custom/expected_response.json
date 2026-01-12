@@ -1,0 +1,11 @@
+{
+  "images": [
+    {
+      "b64_json": "edited-base64-image",
+      "format": "image/png"
+    }
+  ],
+  "metadata": {
+    "deployedModelId": "d"
+  }
+}

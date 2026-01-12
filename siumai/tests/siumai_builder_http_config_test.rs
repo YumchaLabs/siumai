@@ -1,5 +1,7 @@
 //! Tests for SiumaiBuilder HTTP configuration after simplification.
 
+#![cfg(feature = "openai")]
+
 use siumai::prelude::Siumai;
 use std::time::Duration;
 

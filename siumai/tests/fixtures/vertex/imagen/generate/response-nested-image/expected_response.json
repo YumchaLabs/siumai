@@ -1,0 +1,12 @@
+{
+  "images": [
+    {
+      "b64_json": "AAA",
+      "format": "image/jpeg",
+      "revised_prompt": "revised nested prompt"
+    }
+  ],
+  "metadata": {
+    "deployedModelId": "d"
+  }
+}

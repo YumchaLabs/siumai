@@ -1,0 +1,7 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    { "role": "developer", "content": "You are a helpful assistant." }
+  ]
+}
+

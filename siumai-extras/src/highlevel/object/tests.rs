@@ -15,25 +15,25 @@ struct StreamOnlyModel {
 impl ChatCapability for StreamOnlyModel {
     async fn chat_with_tools(
         &self,
-        _messages: Vec<siumai::types::ChatMessage>,
-        _tools: Option<Vec<siumai::types::Tool>>,
-    ) -> Result<siumai::types::ChatResponse, LlmError> {
+        _messages: Vec<ChatMessage>,
+        _tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
         Err(LlmError::UnsupportedOperation("non-stream".into()))
     }
 
     async fn chat_stream(
         &self,
-        _messages: Vec<siumai::types::ChatMessage>,
-        _tools: Option<Vec<siumai::types::Tool>>,
-    ) -> Result<siumai::streaming::ChatStream, LlmError> {
+        _messages: Vec<ChatMessage>,
+        _tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStream, LlmError> {
         let chunks = self.deltas.clone();
         let s = async_stream::try_stream! {
             for d in chunks {
-                yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
+                yield ChatStreamEvent::ContentDelta { delta: d.to_string(), index: None };
             }
-            yield siumai::streaming::ChatStreamEvent::StreamEnd {
-                response: siumai::types::ChatResponse::new(
-                    siumai::types::MessageContent::Text(String::new())
+            yield ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(
+                    MessageContent::Text(String::new())
                 ),
             };
         };
@@ -95,19 +95,19 @@ struct MockModel;
 impl ChatCapability for MockModel {
     async fn chat_with_tools(
         &self,
-        _messages: Vec<siumai::types::ChatMessage>,
-        _tools: Option<Vec<siumai::types::Tool>>,
-    ) -> Result<siumai::types::ChatResponse, LlmError> {
-        Ok(siumai::types::ChatResponse::new(
-            siumai::types::MessageContent::Text("{\"name\":\"Ada\",\"age\":36}".to_string()),
-        ))
+        _messages: Vec<ChatMessage>,
+        _tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponse, LlmError> {
+        Ok(ChatResponse::new(MessageContent::Text(
+            "{\"name\":\"Ada\",\"age\":36}".to_string(),
+        )))
     }
 
     async fn chat_stream(
         &self,
-        _messages: Vec<siumai::types::ChatMessage>,
-        _tools: Option<Vec<siumai::types::Tool>>,
-    ) -> Result<siumai::streaming::ChatStream, LlmError> {
+        _messages: Vec<ChatMessage>,
+        _tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStream, LlmError> {
         Err(LlmError::UnsupportedOperation("no stream".into()))
     }
 }
@@ -125,7 +125,7 @@ async fn generate_object_happy_path() {
     });
     let (user, _resp): (User, _) = generate_object(
         &model,
-        vec![siumai::types::ChatMessage::user("give me user json").build()],
+        vec![ChatMessage::user("give me user json").build()],
         None,
         GenerateObjectOptions {
             schema: Some(schema),
@@ -154,25 +154,25 @@ async fn stream_object_emits_partial_updates() {
     impl ChatCapability for MockStreamModel {
         async fn chat_with_tools(
             &self,
-            _messages: Vec<siumai::types::ChatMessage>,
-            _tools: Option<Vec<siumai::types::Tool>>,
-        ) -> Result<siumai::types::ChatResponse, LlmError> {
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatResponse, LlmError> {
             Err(LlmError::UnsupportedOperation("no sync".into()))
         }
 
         async fn chat_stream(
             &self,
-            _messages: Vec<siumai::types::ChatMessage>,
-            _tools: Option<Vec<siumai::types::Tool>>,
-        ) -> Result<siumai::streaming::ChatStream, LlmError> {
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatStream, LlmError> {
             let s = async_stream::try_stream! {
-                yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: "{".into(), index: None };
-                yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: "\"name\"".into(), index: None };
-                yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: ":\"Ada\",".into(), index: None };
-                yield siumai::streaming::ChatStreamEvent::ContentDelta { delta: "\"age\":36}".into(), index: None };
-                yield siumai::streaming::ChatStreamEvent::StreamEnd {
-                    response: siumai::types::ChatResponse::new(
-                        siumai::types::MessageContent::Text("".into())
+                yield ChatStreamEvent::ContentDelta { delta: "{".into(), index: None };
+                yield ChatStreamEvent::ContentDelta { delta: "\"name\"".into(), index: None };
+                yield ChatStreamEvent::ContentDelta { delta: ":\"Ada\",".into(), index: None };
+                yield ChatStreamEvent::ContentDelta { delta: "\"age\":36}".into(), index: None };
+                yield ChatStreamEvent::StreamEnd {
+                    response: ChatResponse::new(
+                        MessageContent::Text("".into())
                     ),
                 };
             };
@@ -189,7 +189,7 @@ async fn stream_object_emits_partial_updates() {
     let model = MockStreamModel;
     let mut s = stream_object::<U>(
         &model,
-        vec![siumai::types::ChatMessage::user("user").build()],
+        vec![ChatMessage::user("user").build()],
         None,
         StreamObjectOptions {
             emit_partial_object: true,

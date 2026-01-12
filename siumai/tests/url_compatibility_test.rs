@@ -8,8 +8,8 @@
 //!
 //! Tests to ensure all providers handle base URLs with and without trailing slashes correctly.
 
+use siumai::experimental::utils::url::{join_url, normalize_url};
 use siumai::prelude::*;
-use siumai::utils::url::{join_url, normalize_url};
 
 #[test]
 fn test_url_join_compatibility() {
@@ -70,7 +70,7 @@ async fn test_provider_url_building() {
 
     for base_url in base_urls {
         // These should all succeed in building (though may fail on actual requests)
-        let _openai = LlmBuilder::new()
+        let _openai = Siumai::builder()
             .openai()
             .base_url(base_url)
             .api_key("test")
@@ -78,7 +78,7 @@ async fn test_provider_url_building() {
             .build()
             .await;
 
-        let _anthropic = LlmBuilder::new()
+        let _anthropic = Siumai::builder()
             .anthropic()
             .base_url(base_url)
             .api_key("test")
@@ -86,14 +86,14 @@ async fn test_provider_url_building() {
             .build()
             .await;
 
-        let _ollama = LlmBuilder::new()
+        let _ollama = Siumai::builder()
             .ollama()
             .base_url(base_url)
             .model("llama3.2")
             .build()
             .await;
 
-        let _gemini = LlmBuilder::new()
+        let _gemini = Siumai::builder()
             .gemini()
             .base_url(base_url)
             .api_key("test")
@@ -126,6 +126,10 @@ fn test_real_world_url_cases() {
         join_url("https://api.anthropic.com/", "v1/messages"),
         "https://api.anthropic.com/v1/messages"
     );
+    assert_eq!(
+        join_url("https://api.anthropic.com/v1", "messages"),
+        "https://api.anthropic.com/v1/messages"
+    );
 
     // Ollama
     assert_eq!(
@@ -154,6 +158,34 @@ fn test_real_world_url_cases() {
             "models/gemini-1.5-pro:generateContent"
         ),
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+    );
+}
+
+#[test]
+fn test_anthropic_base_url_accepts_v1_suffix() {
+    use siumai::experimental::core::ProviderContext;
+    use siumai::experimental::core::ProviderSpec;
+    use siumai::experimental::standards::anthropic::chat::AnthropicChatStandard;
+
+    let ctx = ProviderContext::new(
+        "anthropic",
+        "https://api.anthropic.com/v1".to_string(),
+        Some("test-key".to_string()),
+        Default::default(),
+    );
+
+    let req = ChatRequest::builder()
+        .messages(vec![user!("hi")])
+        .common_params(CommonParams {
+            model: "claude-3-5-haiku-20241022".to_string(),
+            ..Default::default()
+        })
+        .build();
+
+    let spec = AnthropicChatStandard::new().create_spec("anthropic");
+    assert_eq!(
+        spec.chat_url(false, &req, &ctx),
+        "https://api.anthropic.com/v1/messages"
     );
 }
 

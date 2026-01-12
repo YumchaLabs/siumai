@@ -1,0 +1,7 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    { "type": "item_reference", "id": "denied-approval" },
+    { "type": "mcp_approval_response", "approval_request_id": "denied-approval", "approve": false }
+  ]
+}

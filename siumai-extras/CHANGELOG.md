@@ -5,6 +5,34 @@ All notable changes to the `siumai-extras` package will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0-beta.5] - Unreleased
+
+### Added
+
+- OpenAI Responses SSE gateway helpers (Axum)
+  - `siumai_extras::server::axum::to_openai_responses_sse_stream(...)`
+  - `siumai_extras::server::axum::to_openai_responses_sse_response(...)`
+- Unified SSE transcoder helper (Axum)
+  - `siumai_extras::server::axum::{to_transcoded_sse_response, TargetSseFormat, TranscodeSseOptions}`
+- Unified SSE transcoder transform hook (Axum)
+  - `siumai_extras::server::axum::to_transcoded_sse_response_with_transform(...)`
+- Unified JSON (non-streaming) transcoder helper (Axum)
+  - `siumai_extras::server::axum::{transcode_chat_response_to_json, to_transcoded_json_response, to_transcoded_json_response_with_transform, TargetJsonFormat, TranscodeJsonOptions}`
+  - Backed by protocol-level encoders (`siumai::experimental::encoding::JsonResponseConverter`) for lower overhead than `serde_json::Value` round-trips.
+- Runnable gateway example (Gemini backend, OpenAI Responses SSE output)
+  - `siumai-extras/examples/openai-responses-gateway.rs`
+    - Added non-streaming JSON endpoints (`*.json`)
+- Runnable custom conversion example (stream + JSON)
+  - `siumai-extras/examples/gateway-custom-transform.rs`
+- Tool-loop gateway helper (keep one downstream stream open across tool calls)
+  - `siumai_extras::server::tool_loop::tool_loop_chat_stream(...)`
+- Runnable multi-protocol tool-loop gateway example
+  - `siumai-extras/examples/tool-loop-gateway.rs`
+
+### Changed
+
+- Workspace version alignment for the `.5` split phase (no siumai-extras-specific behavior changes).
+
 ## [0.11.0-beta.4] - 2025-12-09
 
 ### Added

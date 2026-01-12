@@ -1,0 +1,29 @@
+# Nextest workspace configuration
+#
+# Location: `.config/nextest.toml` (nextest default)
+# Docs: https://nexte.st/docs/configuration/
+
+[store]
+dir = "target/nextest"
+
+[profile.default]
+retries = 0
+test-threads = "num-cpus"
+status-level = "pass"
+final-status-level = "flaky"
+failure-output = "immediate"
+success-output = "never"
+fail-fast = true
+slow-timeout = { period = "60s", on-timeout = "fail" }
+leak-timeout = "200ms"
+global-timeout = "30y"
+
+# CI profile: less noisy output, allow small retries, never fail-fast.
+[profile.ci]
+inherits = "default"
+fail-fast = false
+retries = { backoff = "fixed", count = 1, delay = "1s" }
+failure-output = "immediate-final"
+status-level = "retry"
+final-status-level = "fail"
+

@@ -1,10 +1,9 @@
 #![cfg(feature = "google")]
-use siumai::prelude::*;
+use siumai::Provider;
 
 #[tokio::test]
 async fn gemini_builder_sets_common_params() {
-    let client = LlmBuilder::new()
-        .gemini()
+    let client = Provider::gemini()
         .api_key("test-key")
         .base_url("https://example.googleapis.com/v1beta")
         .model("gemini-1.5-flash")

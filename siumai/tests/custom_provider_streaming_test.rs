@@ -5,11 +5,9 @@
 //! the streaming event sequence.
 
 use futures_util::StreamExt;
-use siumai::error::LlmError;
-use siumai::streaming::{ChatStream, ChatStreamEvent};
-use siumai::traits::ChatCapability;
-use siumai::types::{
-    ChatMessage, ChatResponse, FinishReason, MessageContent, ResponseMetadata, Tool, Usage,
+use siumai::prelude::unified::{
+    ChatCapability, ChatMessage, ChatResponse, ChatStream, ChatStreamEvent, FinishReason, LlmError,
+    MessageContent, ResponseMetadata, Tool, Usage,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;

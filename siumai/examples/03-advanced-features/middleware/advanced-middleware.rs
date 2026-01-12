@@ -14,11 +14,10 @@
 //! ```
 
 use futures::StreamExt;
-use siumai::execution::middleware::language_model::{
+use siumai::experimental::execution::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn,
 };
 use siumai::prelude::*;
-use siumai::streaming::ChatStreamEvent;
 use std::sync::Arc;
 
 // Middleware 1: Logging middleware using wrap_generate_async
@@ -169,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Logging middleware with wrap_generate_async
     println!("\n📝 Example 1: Logging Middleware (wrap_generate_async)");
-    let client = LlmBuilder::new().openai().api_key(&api_key).build().await?;
+    let client = Siumai::builder().openai().api_key(&api_key).build().await?;
 
     // Note: This example shows the concept. In practice, you'd apply middleware
     // through the registry or by wrapping the executor directly.

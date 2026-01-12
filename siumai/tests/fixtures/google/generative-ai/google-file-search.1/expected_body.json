@@ -1,0 +1,22 @@
+{
+  "model": "gemini-2.5-flash",
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "fileSearch": {
+        "fileSearchStoreNames": ["fileSearchStores/store-123"],
+        "topK": 3,
+        "metadataFilter": "source = \"test\""
+      }
+    }
+  ]
+}

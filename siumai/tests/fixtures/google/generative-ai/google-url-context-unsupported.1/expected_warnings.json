@@ -1,0 +1,7 @@
+[
+  {
+    "type": "unsupported-tool",
+    "tool_name": "google.url_context",
+    "details": "The URL context tool is not supported with other Gemini models than Gemini 2."
+  }
+]

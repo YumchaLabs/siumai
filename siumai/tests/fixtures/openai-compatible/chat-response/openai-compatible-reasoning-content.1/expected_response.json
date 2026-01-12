@@ -1,0 +1,17 @@
+{
+  "id": "chatcmpl-test",
+  "content": {
+    "MultiModal": [
+      { "type": "text", "text": "Hello, World!" },
+      { "type": "reasoning", "text": "This is the reasoning behind the response" }
+    ]
+  },
+  "model": "grok-beta",
+  "usage": {
+    "prompt_tokens": 4,
+    "completion_tokens": 30,
+    "total_tokens": 34
+  },
+  "finish_reason": "stop",
+  "audio": null
+}

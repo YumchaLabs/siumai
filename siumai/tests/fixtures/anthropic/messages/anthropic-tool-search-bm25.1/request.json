@@ -1,0 +1,44 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "What is the weather in San Francisco?"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "anthropic.tool_search_bm25_20251119",
+      "name": "tool_search",
+      "args": {}
+    },
+    {
+      "type": "function",
+      "name": "get_weather",
+      "description": "Get the current weather at a specific location",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": { "type": "string" },
+          "unit": { "type": "string", "enum": ["celsius", "fahrenheit"] }
+        }
+      },
+      "providerOptions": {
+        "anthropic": { "deferLoading": true }
+      }
+    }
+  ],
+  "common_params": {
+    "model": "claude-sonnet-4-5",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

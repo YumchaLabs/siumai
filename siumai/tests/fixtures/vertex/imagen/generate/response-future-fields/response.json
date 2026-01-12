@@ -1,0 +1,18 @@
+{
+  "deployedModelId": "deployed-model-id-1",
+  "model": "imagen-3.0-generate-002",
+  "predictions": [
+    {
+      "mimeType": "image/png",
+      "prompt": "revised prompt 1",
+      "bytesBase64Encoded": "base64-image-1"
+    },
+    {
+      "mimeType": "image/png",
+      "prompt": "revised prompt 2",
+      "bytesBase64Encoded": "base64-image-2",
+      "someFutureField": "some future value"
+    }
+  ]
+}
+

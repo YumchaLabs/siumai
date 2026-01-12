@@ -1,0 +1,57 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          { "type": "text", "text": "Let me search for recent news from San Francisco." },
+          {
+            "type": "tool-call",
+            "toolCallId": "ws_67cf2b3051e88190b006770db6fdb13d",
+            "toolName": "web_search",
+            "input": { "query": "San Francisco major news events June 22 2025" },
+            "providerExecuted": true
+          },
+          {
+            "type": "tool-result",
+            "toolCallId": "ws_67cf2b3051e88190b006770db6fdb13d",
+            "toolName": "web_search",
+            "output": {
+              "type": "json",
+              "value": {
+                "action": {
+                  "type": "search",
+                  "query": "San Francisco major news events June 22 2025"
+                },
+                "sources": [
+                  { "type": "url", "url": "https://patch.com/california/san-francisco/calendar" }
+                ]
+              }
+            }
+          },
+          {
+            "type": "text",
+            "text": "Based on the search results, several significant events took place in San Francisco yesterday (June 22, 2025)."
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": { "openai": { "store": false } },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}
+

@@ -1,0 +1,35 @@
+{
+  "model": "llama3.2",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Hello" }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "getWeather",
+        "description": "Get weather for a location.",
+        "parameters": {
+          "type": "object",
+          "properties": { "location": { "type": "string" } },
+          "required": ["location"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "stream": false,
+  "format": "json",
+  "options": {
+    "temperature": 0.3,
+    "num_predict": 42,
+    "top_p": 0.9,
+    "stop": ["STOP"],
+    "seed": 123,
+    "top_k": 40
+  },
+  "keep_alive": "10m",
+  "think": false
+}
+

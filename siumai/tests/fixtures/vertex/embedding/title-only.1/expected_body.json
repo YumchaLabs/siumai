@@ -1,0 +1,7 @@
+{
+  "instances": [
+    { "content": "test text one", "title": "test title" },
+    { "content": "test text two", "title": "test title" }
+  ],
+  "parameters": {}
+}

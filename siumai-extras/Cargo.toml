@@ -111,3 +111,28 @@ required-features = ["opentelemetry"]
 name = "workflow_planner_coder"
 path = "examples/workflow_planner_coder.rs"
 required-features = ["openai"]
+
+[[example]]
+name = "orchestrator_structured_output"
+path = "examples/orchestrator/structured-output.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "orchestrator_advanced_agent_features"
+path = "examples/orchestrator/advanced-agent-features.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "openai-responses-gateway"
+path = "examples/openai-responses-gateway.rs"
+required-features = ["server", "google", "openai"]
+
+[[example]]
+name = "gateway-custom-transform"
+path = "examples/gateway-custom-transform.rs"
+required-features = ["server", "google", "openai"]
+
+[[example]]
+name = "tool-loop-gateway"
+path = "examples/tool-loop-gateway.rs"
+required-features = ["server", "google", "openai"]

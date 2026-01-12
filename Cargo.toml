@@ -1,9 +1,32 @@
 [workspace]
 resolver = "2"
-members = ["siumai", "siumai-extras"]
+members = [
+    "siumai",
+    "siumai-core",
+    "siumai-registry",
+    "siumai-extras",
+    "siumai-provider-openai",
+    "siumai-provider-azure",
+    "siumai-provider-openai-compatible",
+    "siumai-protocol-openai",
+    "siumai-provider-anthropic",
+    "siumai-provider-anthropic-compatible",
+    "siumai-protocol-anthropic",
+    "siumai-provider-ollama",
+    "siumai-provider-gemini",
+    "siumai-protocol-gemini",
+    "siumai-provider-google-vertex",
+    "siumai-provider-groq",
+    "siumai-provider-xai",
+    "siumai-provider-minimaxi",
+    "siumai-provider-deepseek",
+    "siumai-provider-cohere",
+    "siumai-provider-togetherai",
+    "siumai-provider-amazon-bedrock",
+]
 
 [workspace.package]
-version = "0.11.0-beta.4"
+version = "0.11.0-beta.5"
 edition = "2024"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -16,7 +39,7 @@ async-trait = "0.1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["preserve_order"] }
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 
 # HTTP client
@@ -27,10 +50,11 @@ tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "time", "syn
 futures = "0.3"
 
 # Streaming
+bytes = "1"
 futures-util = "0.3"
 async-stream = "0.3"
 eventsource-stream = "0.2"
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["codec"] }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -56,7 +80,9 @@ infer = "0.19"
 
 # Core crate (for workspace consumption)
 # Disable default features; downstream crates must opt-in provider features explicitly
-siumai = { version = "0.11.0-beta.4", path = "siumai", default-features = false }
+siumai = { version = "0.11.0-beta.5", path = "siumai", default-features = false }
+siumai-core = { version = "0.11.0-beta.5", path = "siumai-core", default-features = false }
+siumai-registry = { version = "0.11.0-beta.5", path = "siumai-registry", default-features = false }
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }
@@ -91,3 +117,7 @@ mockito = "1.0"
 wiremock = "0.6"
 tracing-test = "0.2"
 tempfile = "3.0"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

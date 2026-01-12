@@ -1,0 +1,29 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "functionCall": {
+              "name": "test-tool",
+              "args": { "value": "test" }
+            },
+            "thoughtSignature": "tool_sig"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0,
+      "safetyRatings": [
+        { "category": "HARM_CATEGORY_DEROGATORY", "probability": "NEGLIGIBLE" }
+      ]
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 10,
+    "candidatesTokenCount": 20,
+    "totalTokenCount": 30
+  },
+  "modelVersion": "gemini-pro"
+}

@@ -1,0 +1,68 @@
+{
+  "id": "msg_014rjTcNMwWRYQkjnCre2pi4",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "srvtoolu_01SACvPAnp6ucMJsstB5qb3f",
+        "toolName": "tool_search",
+        "input": {
+          "pattern": "weather|SF|San Francisco|forecast|temperature|climate",
+          "limit": 10
+        },
+        "providerExecuted": true
+      },
+      {
+        "type": "tool-result",
+        "toolCallId": "srvtoolu_01SACvPAnp6ucMJsstB5qb3f",
+        "toolName": "tool_search",
+        "output": {
+          "type": "json",
+          "value": [{ "type": "tool_reference", "toolName": "get_temp_data" }]
+        },
+        "providerExecuted": true
+      },
+      {
+        "type": "text",
+        "text": "I found a tool to get temperature data! Let me use it to get the weather information for San Francisco."
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "toolu_01X4r989CAhzqnFqDJn1gVvp",
+        "toolName": "get_temp_data",
+        "input": { "location": "San Francisco, CA", "unit": "fahrenheit" },
+        "providerMetadata": { "anthropic": { "caller": { "type": "direct" } } }
+      }
+    ]
+  },
+  "model": "claude-sonnet-4-5-20250929",
+  "usage": {
+    "prompt_tokens": 1676,
+    "completion_tokens": 184,
+    "total_tokens": 1860,
+    "cached_tokens": 0,
+    "prompt_tokens_details": { "cached_tokens": 0 }
+  },
+  "finish_reason": "tool_calls",
+  "service_tier": "standard",
+  "provider_metadata": {
+    "anthropic": {
+      "cacheCreationInputTokens": 0,
+      "usage": {
+        "input_tokens": 1676,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 184,
+        "service_tier": "standard",
+        "server_tool_use": {
+          "web_search_requests": 0
+        }
+      }
+    }
+  },
+  "audio": null
+}

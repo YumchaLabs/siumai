@@ -1,0 +1,11 @@
+{
+  "max_tokens": 21000,
+  "messages": [
+    {
+      "content": [{ "text": "Hello", "type": "text" }],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "thinking": { "budget_tokens": 1000, "type": "enabled" }
+}

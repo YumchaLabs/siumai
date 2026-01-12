@@ -1,0 +1,55 @@
+{
+  "messages": [
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          { "type": "tool-approval-response", "approvalId": "approval_1", "approved": true },
+          {
+            "type": "tool-result",
+            "toolCallId": "json-tool",
+            "toolName": "json-tool",
+            "output": { "type": "json", "value": { "step": 1 } }
+          },
+          {
+            "type": "tool-result",
+            "toolCallId": "error-json-tool",
+            "toolName": "error-json-tool",
+            "output": { "type": "error-json", "value": { "error": "bad" } }
+          },
+          {
+            "type": "tool-result",
+            "toolCallId": "content-tool",
+            "toolName": "content-tool",
+            "output": {
+              "type": "content",
+              "value": [{ "type": "text", "text": "ok" }]
+            }
+          },
+          {
+            "type": "tool-result",
+            "toolCallId": "denied-tool",
+            "toolName": "denied-tool",
+            "output": { "type": "execution-denied" }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "gpt-4o-mini",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

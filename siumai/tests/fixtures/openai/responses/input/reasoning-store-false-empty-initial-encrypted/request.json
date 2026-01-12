@@ -1,0 +1,37 @@
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "reasoning",
+            "text": "",
+            "providerMetadata": {
+              "openai": {
+                "itemId": "reasoning_001",
+                "reasoningEncryptedContent": "encrypted_content_001"
+              }
+            }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": { "openai": { "store": false } },
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

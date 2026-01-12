@@ -1,0 +1,17 @@
+{
+  "images": [
+    {
+      "b64_json": "base64-image-1",
+      "format": "image/png",
+      "revised_prompt": "revised prompt 1"
+    },
+    {
+      "b64_json": "base64-image-2",
+      "format": "image/png",
+      "revised_prompt": "revised prompt 2",
+      "metadata": {
+        "someFutureField": "some future value"
+      }
+    }
+  ]
+}

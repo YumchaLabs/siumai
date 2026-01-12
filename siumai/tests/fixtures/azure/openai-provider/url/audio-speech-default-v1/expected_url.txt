@@ -1,0 +1,2 @@
+https://test-resource.openai.azure.com/openai/v1/audio/speech?api-version=v1
+

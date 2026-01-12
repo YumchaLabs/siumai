@@ -1,0 +1,10 @@
+{
+  "predictions": [
+    {
+      "mimeType": "image/png",
+      "prompt": "revised imagen 4 fast prompt",
+      "bytesBase64Encoded": "base64-imagen4-fast-image"
+    }
+  ]
+}
+

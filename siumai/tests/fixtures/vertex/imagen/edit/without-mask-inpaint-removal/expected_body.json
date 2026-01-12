@@ -1,0 +1,24 @@
+{
+  "instances": [
+    {
+      "prompt": "Remove the object",
+      "referenceImages": [
+        {
+          "referenceId": 1,
+          "referenceType": "REFERENCE_TYPE_RAW",
+          "referenceImage": {
+            "bytesBase64Encoded": "AQIDBA=="
+          }
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "guidanceScale": 7.5,
+    "sampleCount": 1,
+    "editMode": "EDIT_MODE_INPAINT_REMOVAL",
+    "editConfig": {
+      "baseSteps": 50
+    }
+  }
+}

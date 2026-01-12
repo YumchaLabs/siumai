@@ -5,8 +5,8 @@
 
 use futures::StreamExt;
 use serde_json::json;
+use siumai::prelude::unified::ChatStreamEvent;
 use siumai::prelude::*;
-use siumai::streaming::ChatStreamEvent;
 
 #[tokio::test]
 #[ignore] // Requires API key
@@ -21,7 +21,7 @@ async fn test_tool_call_streaming_vs_non_streaming() {
     };
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
         .openai()
         .api_key(&api_key)
         .model("gpt-3.5-turbo")
@@ -62,16 +62,17 @@ async fn test_tool_call_streaming_vs_non_streaming() {
         .await
         .expect("Non-streaming tool call failed");
 
-    let non_streaming_tool_calls = non_streaming_result.tool_calls.unwrap_or_default();
+    let non_streaming_tool_calls = non_streaming_result.tool_calls();
     assert!(
         !non_streaming_tool_calls.is_empty(),
         "Should have tool calls"
     );
 
-    let first_tool_call = &non_streaming_tool_calls[0];
-    let non_streaming_args: serde_json::Value =
-        serde_json::from_str(&first_tool_call.function.as_ref().unwrap().arguments)
-            .expect("Failed to parse non-streaming arguments");
+    let first_tool_call = non_streaming_tool_calls[0];
+    let non_streaming_args: serde_json::Value = match first_tool_call {
+        ContentPart::ToolCall { arguments, .. } => arguments.clone(),
+        other => panic!("Expected ToolCall content part, got: {other:?}"),
+    };
 
     // Test 2: Streaming tool calls
     println!("🌊 Test 2: Using chat_stream");
@@ -147,7 +148,8 @@ async fn test_deepseek_tool_call_streaming() {
     };
 
     // Create client
-    let client = LlmBuilder::new()
+    let client = Siumai::builder()
+        .openai()
         .deepseek()
         .api_key(&api_key)
         .model("deepseek-chat")

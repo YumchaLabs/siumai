@@ -2,9 +2,8 @@
 //!
 //! Tests for image generation capabilities across different providers.
 
+use siumai::prelude::unified::ImageGenerationRequest;
 use siumai::prelude::*;
-use siumai::traits::ImageGenerationCapability;
-use siumai::types::ImageGenerationRequest;
 
 #[tokio::test]
 async fn test_openai_image_generation_request_conversion() {
@@ -25,6 +24,8 @@ async fn test_openai_image_generation_request_conversion() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
+        http_config: None,
     };
 
     // Test that the request can be created without errors
@@ -52,6 +53,8 @@ async fn test_siliconflow_image_generation_request_conversion() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
+        http_config: None,
     };
 
     // Test that the request can be created without errors
@@ -62,10 +65,10 @@ async fn test_siliconflow_image_generation_request_conversion() {
 
 #[tokio::test]
 async fn test_openai_client_image_generation_capability() {
-    use siumai::client::LlmClient;
-    use siumai::providers::openai::OpenAiClient;
+    use siumai::experimental::client::LlmClient;
+    use siumai::provider_ext::openai::OpenAiClient;
 
-    let config = siumai::providers::openai::OpenAiConfig::new("test-key")
+    let config = siumai::provider_ext::openai::OpenAiConfig::new("test-key")
         .with_base_url("https://api.openai.com/v1"); // Explicitly use OpenAI endpoint
     let client = OpenAiClient::new(config, reqwest::Client::new());
 
@@ -73,30 +76,34 @@ async fn test_openai_client_image_generation_capability() {
     let image_capability = client.as_image_generation_capability();
     assert!(image_capability.is_some());
 
-    if let Some(capability) = image_capability {
+    if let Some(_capability) = image_capability {
+        let extras = client.as_image_extras();
+        assert!(extras.is_some());
+        let extras = extras.unwrap();
+
         // Test supported sizes
-        let sizes = capability.get_supported_sizes();
+        let sizes = extras.get_supported_sizes();
         assert!(!sizes.is_empty());
         assert!(sizes.contains(&"1024x1024".to_string()));
 
         // Test supported formats
-        let formats = capability.get_supported_formats();
+        let formats = extras.get_supported_formats();
         assert!(!formats.is_empty());
         assert!(formats.contains(&"url".to_string()));
 
         // Test capabilities
-        assert!(capability.supports_image_editing());
-        assert!(capability.supports_image_variations());
+        assert!(extras.supports_image_editing());
+        assert!(extras.supports_image_variations());
     }
 }
 
 #[tokio::test]
 async fn test_siliconflow_client_image_generation_capability() {
-    use siumai::client::LlmClient;
-    use siumai::providers::openai::OpenAiClient;
+    use siumai::experimental::client::LlmClient;
+    use siumai::provider_ext::openai::OpenAiClient;
 
     // Create SiliconFlow client using OpenAI client with SiliconFlow endpoint
-    let config = siumai::providers::openai::OpenAiConfig::new("test-key")
+    let config = siumai::provider_ext::openai::OpenAiConfig::new("test-key")
         .with_base_url("https://api.siliconflow.cn/v1");
     let client = OpenAiClient::new(config, reqwest::Client::new());
 
@@ -104,27 +111,33 @@ async fn test_siliconflow_client_image_generation_capability() {
     let image_capability = client.as_image_generation_capability();
     assert!(image_capability.is_some());
 
-    if let Some(capability) = image_capability {
+    if let Some(_capability) = image_capability {
+        let extras = client.as_image_extras();
+        assert!(extras.is_some());
+        let extras = extras.unwrap();
+
         // Test SiliconFlow-specific supported sizes
-        let sizes = capability.get_supported_sizes();
+        let sizes = extras.get_supported_sizes();
         assert!(!sizes.is_empty());
         assert!(sizes.contains(&"1024x1024".to_string()));
         assert!(sizes.contains(&"960x1280".to_string()));
 
         // Test SiliconFlow-specific supported formats
-        let formats = capability.get_supported_formats();
+        let formats = extras.get_supported_formats();
         assert_eq!(formats, vec!["url".to_string()]);
 
         // Test SiliconFlow-specific capabilities
-        assert!(!capability.supports_image_editing()); // SiliconFlow doesn't support editing
-        assert!(!capability.supports_image_variations()); // SiliconFlow doesn't support variations
+        assert!(!extras.supports_image_editing()); // SiliconFlow doesn't support editing
+        assert!(!extras.supports_image_variations()); // SiliconFlow doesn't support variations
     }
 }
 
 #[tokio::test]
 async fn test_image_generation_builder_integration() {
+    use siumai::experimental::client::LlmClient;
+
     // Test OpenAI builder
-    let openai_result = LlmBuilder::new()
+    let openai_result = Siumai::builder()
         .openai()
         .api_key("test-key")
         .model("gpt-4")
@@ -137,7 +150,8 @@ async fn test_image_generation_builder_integration() {
     }
 
     // Test SiliconFlow builder
-    let siliconflow_result = LlmBuilder::new()
+    let siliconflow_result = Siumai::builder()
+        .openai()
         .siliconflow()
         .api_key("test-key")
         .model("deepseek-chat")
@@ -152,7 +166,7 @@ async fn test_image_generation_builder_integration() {
 
 #[test]
 fn test_image_generation_model_constants() {
-    use siumai::providers::openai_compatible::siliconflow;
+    use siumai::constants::openai_compatible::siliconflow;
 
     // Test SiliconFlow model constants
     assert_eq!(siliconflow::KOLORS, "Kwai-Kolors/Kolors");
@@ -195,6 +209,8 @@ fn test_image_generation_request_validation() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
+        http_config: None,
     };
 
     assert!(!valid_request.prompt.is_empty());
@@ -215,6 +231,8 @@ fn test_image_generation_request_validation() {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: std::collections::HashMap::new(),
+        provider_options_map: Default::default(),
+        http_config: None,
     };
 
     assert_eq!(

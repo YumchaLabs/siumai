@@ -63,9 +63,7 @@ pub use stream::{StreamOrchestration, generate_stream, generate_stream_owned};
 
 use crate::structured_output::{OutputDecodeConfig, decode_typed};
 use serde::de::DeserializeOwned;
-use siumai::error::LlmError;
-use siumai::traits::ChatCapability;
-use siumai::types::{ChatMessage, ChatResponse, Tool};
+use siumai::prelude::unified::*;
 
 /// High-level orchestrator facade that binds a model and tools, inspired by
 /// Vercel AI SDK's `Orchestrator`.
@@ -86,12 +84,12 @@ use siumai::types::{ChatMessage, ChatResponse, Tool};
 /// #         &self,
 /// #         _name: &str,
 /// #         _args: serde_json::Value,
-/// #     ) -> Result<serde_json::Value, siumai::error::LlmError> {
+/// #     ) -> Result<serde_json::Value, siumai::prelude::unified::LlmError> {
 /// #         Ok(serde_json::json!({}))
 /// #     }
 /// # }
 /// #
-/// # async fn demo(model: impl ChatCapability) -> Result<(), siumai::error::LlmError> {
+/// # async fn demo(model: impl ChatCapability) -> Result<(), siumai::prelude::unified::LlmError> {
 /// let tools = vec![
 ///     Tool::function(
 ///         "get_weather",
@@ -219,13 +217,16 @@ where
     }
 
     /// Set telemetry configuration (applies to both variants).
-    pub fn telemetry(mut self, cfg: siumai::observability::telemetry::TelemetryConfig) -> Self {
+    pub fn telemetry(
+        mut self,
+        cfg: siumai::experimental::observability::telemetry::TelemetryConfig,
+    ) -> Self {
         self.builder = self.builder.telemetry(cfg);
         self
     }
 
     /// Set agent-level CommonParams (applies to both variants).
-    pub fn common_params(mut self, params: siumai::types::CommonParams) -> Self {
+    pub fn common_params(mut self, params: CommonParams) -> Self {
         self.builder = self.builder.common_params(params);
         self
     }
@@ -233,7 +234,7 @@ where
     /// Streaming on_chunk callback (stream variant only).
     pub fn on_chunk<F>(mut self, cb: F) -> Self
     where
-        F: Fn(&siumai::streaming::ChatStreamEvent) + Send + Sync + 'static,
+        F: Fn(&ChatStreamEvent) + Send + Sync + 'static,
     {
         self.builder = self.builder.on_chunk(cb);
         self
@@ -327,7 +328,7 @@ where
         &self,
         messages: Vec<ChatMessage>,
         resolver: Option<&dyn ToolResolver>,
-        schema: siumai::types::OutputSchema,
+        schema: OutputSchema,
     ) -> Result<(T, Vec<StepResult>), LlmError> {
         let cfg = OutputDecodeConfig::from_schema(schema);
         self.run_typed(messages, resolver, cfg).await

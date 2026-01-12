@@ -1,0 +1,12 @@
+{
+  "input": ["test text one", "test text two"],
+  "model": "textembedding-gecko@001",
+  "provider_options_map": {
+    "google": {
+      "outputDimensionality": 768,
+      "taskType": "SEMANTIC_SIMILARITY",
+      "title": "test title",
+      "autoTruncate": false
+    }
+  }
+}

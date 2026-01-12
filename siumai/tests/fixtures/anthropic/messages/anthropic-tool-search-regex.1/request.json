@@ -1,0 +1,44 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Find out weather data in SF"
+      },
+      "metadata": {}
+    }
+  ],
+  "tools": [
+    {
+      "type": "provider",
+      "id": "anthropic.tool_search_regex_20251119",
+      "name": "tool_search",
+      "args": {}
+    },
+    {
+      "type": "function",
+      "name": "get_temp_data",
+      "description": "For a location",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": { "type": "string" },
+          "unit": { "type": "string", "enum": ["celsius", "fahrenheit"] }
+        }
+      },
+      "providerOptions": {
+        "anthropic": { "deferLoading": true }
+      }
+    }
+  ],
+  "common_params": {
+    "model": "claude-sonnet-4-5",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

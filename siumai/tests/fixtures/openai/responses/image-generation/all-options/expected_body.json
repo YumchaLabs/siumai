@@ -1,0 +1,25 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Hello"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "image_generation",
+      "background": "opaque",
+      "size": "1536x1024",
+      "quality": "high",
+      "moderation": "auto",
+      "output_format": "png",
+      "output_compression": 100
+    }
+  ]
+}

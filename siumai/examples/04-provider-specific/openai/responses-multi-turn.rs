@@ -16,7 +16,7 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::types::{ChatRequest, OpenAiOptions, ResponsesApiConfig};
+use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,8 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ResponsesApiConfig::new()
                     .with_store(true) // Store for later reference
                     .with_instructions(
-                        "You are a helpful programming tutor. Keep responses concise."
-                            .to_string(),
+                        "You are a helpful programming tutor. Keep responses concise.".to_string(),
                     ),
             ),
         );
@@ -162,4 +161,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

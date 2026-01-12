@@ -1,0 +1,76 @@
+[package]
+name = "siumai-provider-openai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "OpenAI provider implementation for siumai (plus OpenAI-compatible vendor presets)"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-provider-openai"
+readme = "../README.md"
+keywords = ["llm", "ai", "openai", "compat"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+# Always depend on the shared OpenAI-like protocol crate.
+# This keeps provider-owned typed metadata available via re-exports.
+siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
+
+# OpenAI-compatible providers (vendor presets + adapter registry) live in a dedicated crate.
+siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
+
+# Keep versions aligned with the workspace for consistent behavior.
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+async-stream.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+rand.workspace = true
+urlencoding.workspace = true
+infer.workspace = true
+secrecy.workspace = true
+backoff.workspace = true
+lru.workspace = true
+base64.workspace = true
+once_cell.workspace = true
+
+[features]
+default = []
+
+# Forwarded feature flags used by the OpenAI-like standard implementation.
+structured-messages = ["siumai-core/structured-messages", "siumai-protocol-openai/structured-messages"]
+
+# Protocol standard only (no provider implementations).
+#
+# Note: we still enable `siumai-core/openai` to keep OpenAI protocol types available.
+openai-standard = [
+    "siumai-core/openai",
+    "siumai-protocol-openai/openai-standard",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+]
+
+# Matches the feature name used by downstream crates.
+openai = ["openai-standard", "siumai-protocol-openai/openai-responses"]
+
+[dev-dependencies]
+tokio-test.workspace = true
+mockito.workspace = true
+wiremock.workspace = true
+tracing-test.workspace = true
+tempfile.workspace = true
+proptest.workspace = true

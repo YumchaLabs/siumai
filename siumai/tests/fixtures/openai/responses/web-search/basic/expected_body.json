@@ -1,0 +1,30 @@
+{
+  "model": "gpt-4.1-mini",
+  "include": [
+    "web_search_call.action.sources"
+  ],
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Search the web for today's tech headlines."
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "web_search",
+      "search_context_size": "low",
+      "user_location": {
+        "type": "approximate",
+        "city": null,
+        "country": "US",
+        "region": null,
+        "timezone": null
+      }
+    }
+  ]
+}

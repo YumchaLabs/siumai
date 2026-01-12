@@ -2,6 +2,134 @@
 
 This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
 
+## [0.11.0-beta.5] - Unreleased
+
+### Highlights
+
+- The public API is explicitly Vercel-aligned and fixed to the 6 stable model families: Language / Embedding / Image / Rerank / Speech (TTS) / Transcription (STT).
+- Provider-specific features (web search, file search stores, thinking replay, etc.) are **extensions by design**: provider-hosted tools (`hosted_tools::*`) + `providerOptions` + typed `provider_ext::*`.
+- Gemini now supports a clean Vertex AI setup (regional base URL helper, ADC token provider, and resource-style model id normalization).
+- Fearless refactor phase: workspace split into `siumai-core` (runtime/types/standards), provider crates (`siumai-provider-*`), and `siumai-registry` (factories/handles); `siumai` remains the recommended facade crate.
+
+### Breaking changes
+
+- Unified web search was removed. Use provider-hosted tools instead:
+  - OpenAI: `siumai::hosted_tools::openai::web_search()` (Responses API via `OpenAiOptions::with_responses_api`)
+  - Anthropic: `siumai::hosted_tools::anthropic::web_search_20250305()`
+  - Gemini: `siumai::hosted_tools::google::*` (e.g. `google_search()`, `file_search()`)
+- `siumai::providers::<provider>::*` is now a stable alias for `siumai::provider_ext::<provider>::*` (Vercel-aligned).
+  - Use `siumai::prelude::unified::*` for the unified surface.
+  - Use `siumai::provider_ext::<provider>::*` for provider-specific APIs.
+  - For protocol-layer helpers, use `siumai::experimental::*` (advanced) or depend on the relevant provider crate directly (e.g. `siumai-provider-openai`).
+- The facade surface was tightened to reduce accidental cross-layer coupling.
+  - Removed stable entry points: `siumai::{types,traits,error,streaming}::*`
+  - Prefer: `use siumai::prelude::unified::*;`
+  - For non-unified extension capabilities: `use siumai::extensions::*;` + `use siumai::extensions::types::*;`
+- `LlmBuilder` is no longer re-exported from `siumai::prelude::unified::*` (breaking).
+  - Prefer `Siumai::builder()` (unified) or `Provider::<provider>()` / `siumai::provider_ext::<provider>::*` (provider-specific).
+- Provider-specific capability traits were removed from the core surface (e.g. `traits::{OpenAiCapability, AnthropicCapability, GeminiCapability, ...}`).
+  - Use `siumai::prelude::unified::*` for the stable surface, and `siumai::prelude::extensions::*` / `siumai::provider_ext::<provider>` for opt-in provider-specific features.
+- “Audio” is no longer a first-class unified family: prefer `SpeechCapability` (TTS) and `TranscriptionCapability` (STT).
+  - For OpenAI SSE audio/transcript streaming, use provider extensions: `siumai::provider_ext::openai::{speech_streaming, transcription_streaming}`.
+- OpenAI’s public API does not expose a rerank endpoint.
+  - If you call rerank with the default OpenAI base URL (`https://api.openai.com/v1`), Siumai returns `UnsupportedOperation`.
+  - For rerank, use a rerank-capable provider (e.g. `cohere`, `togetherai`, `bedrock`) or an OpenAI-compatible vendor that exposes `/rerank` (e.g. `siliconflow`).
+- Vertex base URL helper now prefers the regional host (`https://{location}-aiplatform.googleapis.com`); if you hardcoded `https://aiplatform.googleapis.com` you may want to update.
+
+### Added
+
+- New unified prelude modules:
+  - `siumai::prelude::unified::*` (6 model families only; recommended for new code)
+  - `siumai::prelude::extensions::*` (non-family capabilities; opt-in)
+- Registry handles for all six model families:
+  - `registry.reranking_model(..)`, `registry.speech_model(..)`, `registry.transcription_model(..)`
+- Local test tier scripts for faster iteration during fearless refactors:
+  - `./scripts/test-fast.sh`, `./scripts/test-smoke.sh`, `./scripts/test-full.sh`
+- M1 “core trio” smoke scripts (fixture audit + transcoding + tool-loop gateway):
+  - Windows: `./scripts/test-m1.bat`
+  - Unix: `./scripts/test-m1.sh`
+- Split-phase architecture docs:
+  - `docs/architecture/architecture-refactor-plan.md`
+  - `docs/architecture/capability-surface.md`
+  - `docs/architecture/provider-extensions.md`
+- Vertex (Gemini) example:
+  - `siumai/examples/04-provider-specific/google/vertex_chat.rs` (`--features "google gcp"`)
+- Vercel-aligned provider-hosted tools (provider-executed tools)
+  - OpenAI Responses API: `hosted_tools::openai::{web_search,web_search_preview}`
+  - Anthropic Messages: `hosted_tools::anthropic::web_search_20250305`
+  - Gemini: `hosted_tools::google::{google_search,file_search,code_execution,url_context,enterprise_web_search}`
+- OpenAI provider extensions (non-unified streaming)
+  - TTS SSE audio streaming: `siumai::provider_ext::openai::speech_streaming::tts_sse_stream`
+  - STT SSE transcript streaming: `siumai::provider_ext::openai::transcription_streaming::stt_sse_stream` (see `examples/04-provider-specific/openai/stt_sse_streaming.rs`)
+- Anthropic provider extension example
+  - Thinking replay: `examples/04-provider-specific/anthropic/thinking-replay-ext.rs`
+- Gateway/proxy streaming utilities (Vercel-aligned `parseStreamPart` / `formatStreamPart` concept):
+  - Stream encoders: `siumai::experimental::streaming::{encode_chat_stream_as_sse, encode_chat_stream_as_jsonl}` (serialize `ChatStreamEvent` back into provider-native wire formats)
+  - Non-streaming JSON encoders: `siumai::experimental::encoding::{JsonResponseConverter, encode_chat_response_as_json}` (serialize `ChatResponse` back into provider-native JSON responses)
+  - Bidirectional SSE support for proxying:
+    - OpenAI Responses SSE stream serialization (Vercel-aligned `openai:*` stream parts)
+    - OpenAI-compatible Chat Completions SSE stream serialization
+    - Gemini GenerateContent SSE stream serialization
+  - Cross-provider stream part bridge for gateway output:
+    - `siumai_core::streaming::OpenAiResponsesStreamPartsBridge` (maps `gemini:*` / `anthropic:*` custom parts into `openai:*` parts)
+  - Alignment notes: `docs/alignment/streaming-bridge-alignment.md`
+  - Fixture drift audit script (against `repo-ref/ai`): `./scripts/audit_vercel_fixtures.py`
+- Provider correctness and parity audit docs (official APIs + Vercel reference):
+  - Global checklist: `docs/alignment/provider-implementation-alignment.md`
+  - Official API audits: `docs/alignment/official/*-official-api-alignment.md` (OpenAI, Anthropic, Gemini, Google Vertex, Anthropic on Vertex, Azure OpenAI, Groq, xAI, Amazon Bedrock, Cohere, TogetherAI, Ollama)
+
+### Changed
+
+- OpenAI-compatible builder `provider_specific_config` is now applied to chat requests via the compat adapter layer.
+- Model listing and model retrieval endpoints are now spec-driven (`ProviderSpec::{models_url, model_url}`) to support non-OpenAI routes (e.g. Anthropic `/v1/models`, Ollama `/api/tags`) without provider-specific URL plumbing.
+- Advanced orchestrator examples are now maintained under `siumai-extras/examples/*` (the `siumai` facade focuses on low-level provider/client APIs).
+- HTTP execution now supports an injectable transport (`fetch` / `HttpTransport`) across providers, including streaming use-cases (gateway parity with Vercel's `fetch(customTransport)`).
+- Gateway/proxy streaming policies are now explicit:
+  - V3 parts that cannot be represented in a target wire format follow `V3UnsupportedPartBehavior` (drop in strict mode, lossy text downgrade in `AsText` mode), including `tool-approval-request`, `raw`, and `file` parts.
+- Gateways can also transcode non-streaming results into provider JSON responses:
+  - `siumai-extras::server::axum::{to_transcoded_json_response, TargetJsonFormat}`
+
+### Deprecated
+
+- `AudioCapability` (compat trait): prefer `SpeechCapability` + `TranscriptionCapability` on the unified surface.
+- `ModelListingCapability`, `ModerationCapability`, `FileManagementCapability` on the top-level: prefer `siumai::prelude::extensions::*`.
+  - `VisionCapability` remains available for compatibility, but vision is treated as multimodal Chat (Vercel-aligned) rather than a separate family.
+- Low-level HTTP helper `execute_json_request_with_headers` (for custom provider code): prefer `HttpExecutionConfig` + `execute_json_request` and/or a `ProviderSpec` with a stable `build_headers()` implementation.
+
+### Removed
+
+- Legacy unified web search types and helpers:
+  - `siumai::types::web_search` (`WebSearchConfig` etc.)
+  - `siumai-extras::web_search`
+- Provider-specific capability traits from the core surface:
+  - `traits::{OpenAiCapability, AnthropicCapability, GeminiCapability, ...}`
+  - Use `siumai::provider_ext::<provider>`, provider-hosted tools (`siumai::hosted_tools::<provider>`), and `providerOptions` instead.
+- `OpenAiCompatibleSpec` (legacy fallback): use `OpenAiCompatibleSpecWithAdapter` (adapter-injected spec only).
+
+### Fixed
+
+- Gemini base URL defaults are now consistent across protocol and provider metadata (`https://generativelanguage.googleapis.com/v1beta`).
+- Gemini Vertex AI URLs now accept resource-style model names (e.g. `models/gemini-2.0-flash`) and normalize them to prevent duplicate `/models/...` segments.
+- Vertex `base_url_for_vertex(...)` now prefers the regional host (`https://{location}-aiplatform.googleapis.com`) to match official docs (location `global` still uses `https://aiplatform.googleapis.com`).
+- Anthropic on Vertex now matches Vercel request shaping:
+  - Uses `:rawPredict` / `:streamRawPredict` (instead of `?alt=sse`)
+  - Injects `anthropic_version: "vertex-2023-10-16"` and omits the `model` field from the request body
+- OpenAI rerank response parsing no longer panics on missing optional fields (runtime unwrap removal).
+- Gemini/Anthropic system instruction semantics are now Vercel-aligned (system/developer messages must appear at the beginning; provider-specific exceptions handled internally).
+- Anthropic streaming metadata is preserved and surfaced via `provider_metadata["anthropic"]` (thinking replay signatures, redacted thinking, and normalized sources/citations).
+- SSE decoding is stricter for JSON payloads (invalid frames no longer silently corrupt downstream state).
+
+### Migration guide (beta.5)
+
+- Full guide: `docs/migration/migration-0.11.0-beta.5.md`
+- If you used unified web search, switch to provider-hosted tools:
+  - OpenAI: `siumai::hosted_tools::openai::web_search()` + Responses API (`OpenAiOptions::with_responses_api`)
+  - Anthropic: `siumai::hosted_tools::anthropic::web_search_20250305()`
+  - Gemini: `siumai::hosted_tools::google::google_search()` / `file_search()` / `url_context()` / `enterprise_web_search()`
+  - See `docs/architecture/provider-extensions.md` for the supported matrix and examples.
+- If you want the smallest stable API surface, prefer `use siumai::prelude::unified::*;` and only opt into extensions when needed.
+- If you previously relied on provider-specific capability traits, prefer `siumai::provider_ext::<provider>` or downcast via `Siumai::downcast_client::<T>()` for typed provider APIs while still constructing via the unified builder.
+
 ## [0.11.0-beta.4] - 2025-12-03
 
 ### Added
@@ -59,7 +187,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 - Deprecated top-level helper modules from the core crate
   - Removed `siumai::benchmarks`; benchmarking and diagnostics helpers now live in `siumai-extras` or in user code
-  - Removed the `siumai::telemetry` shim; telemetry is now wired via `siumai::observability::telemetry` in the core crate and `siumai-extras::telemetry` for subscriber setup
+  - Removed the `siumai::telemetry` shim; telemetry is now wired via `siumai::experimental::observability::telemetry` in the core crate and `siumai-extras::telemetry` for subscriber setup
 
 ## [0.11.0-beta.3] - 2025-11-09
 
@@ -239,7 +367,7 @@ siumai-extras = { version = "0.11", features = ["mcp"] }
 
 **Quick Start:**
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::mcp::mcp_tools_from_stdio;
 
 #[tokio::main]

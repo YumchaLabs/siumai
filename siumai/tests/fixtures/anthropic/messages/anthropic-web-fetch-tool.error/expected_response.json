@@ -1,0 +1,65 @@
+{
+  "id": "msg_01MT4gZLLHg1yg5d6eo41LJe",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "text",
+        "text": "I'll fetch the PDF document from the URL you provided to see what it says about AI."
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "srvtoolu_013gia34XNKyTfwHxaPCKEVd",
+        "toolName": "web_fetch",
+        "input": {
+          "url": "https://raw.githubusercontent.com/vercel/ai/blob/main/examples/ai-core/data/ai.pdf"
+        },
+        "providerExecuted": true
+      },
+      {
+        "type": "tool-result",
+        "toolCallId": "srvtoolu_013gia34XNKyTfwHxaPCKEVd",
+        "toolName": "web_fetch",
+        "output": {
+          "type": "error-json",
+          "value": { "type": "web_fetch_tool_result_error", "error_code": "unavailable" }
+        },
+        "providerExecuted": true
+      },
+      {
+        "type": "text",
+        "text": "I'm unable to access the PDF document at that URL as the web_fetch tool is currently unavailable. To help you understand what the document says about AI, I would need the tool to be working or you could:\\n\\n1. Try the URL again later when the tool might be available\\n2. Share the content of the PDF directly if you have access to it\\n3. Provide a different accessible URL where the same content might be hosted\\n\\nIs there another way you'd like to proceed, or would you like to try again later?"
+      }
+    ]
+  },
+  "model": "claude-sonnet-4-20250514",
+  "usage": {
+    "prompt_tokens": 1902,
+    "completion_tokens": 214,
+    "total_tokens": 2116,
+    "cached_tokens": 0,
+    "prompt_tokens_details": { "cached_tokens": 0 }
+  },
+  "finish_reason": "stop",
+  "service_tier": "standard",
+  "provider_metadata": {
+    "anthropic": {
+      "cacheCreationInputTokens": 0,
+      "usage": {
+        "input_tokens": 1902,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 214,
+        "service_tier": "standard",
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 1
+        }
+      }
+    }
+  },
+  "audio": null
+}

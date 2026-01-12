@@ -69,8 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Keep default auto middlewares and add OpenTelemetry middleware
     let model_id = openai_client.common_params().model.clone();
-    let mut middlewares =
-        siumai::execution::middleware::build_auto_middlewares_vec("openai", &model_id);
+    let mut middlewares = siumai::experimental::execution::middleware::build_auto_middlewares_vec(
+        "openai", &model_id,
+    );
     middlewares.push(Arc::new(OpenTelemetryMiddleware::new()));
     let client = openai_client.with_model_middlewares(middlewares);
 

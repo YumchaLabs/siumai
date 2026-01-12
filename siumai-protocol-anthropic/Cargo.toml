@@ -1,0 +1,62 @@
+[package]
+name = "siumai-protocol-anthropic"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Anthropic Messages protocol standard mapping for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-protocol-anthropic"
+readme = "../README.md"
+keywords = ["llm", "ai", "anthropic", "protocol"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+
+# Keep versions aligned with the workspace for consistent behavior.
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+async-stream.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+rand.workspace = true
+urlencoding.workspace = true
+infer.workspace = true
+secrecy.workspace = true
+backoff.workspace = true
+lru.workspace = true
+base64.workspace = true
+once_cell.workspace = true
+
+[features]
+default = []
+
+structured-messages = ["siumai-core/structured-messages"]
+
+# Protocol standard only (no provider implementations).
+anthropic-standard = ["siumai-core/anthropic"]
+
+# Matches the feature name used by downstream crates.
+anthropic = ["anthropic-standard"]
+
+[dev-dependencies]
+tokio-test.workspace = true
+mockito.workspace = true
+wiremock.workspace = true
+tracing-test.workspace = true
+tempfile.workspace = true
+proptest.workspace = true

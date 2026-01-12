@@ -6,7 +6,7 @@
 //! - Creates a File Search Store
 //! - Uploads a small text via `uploadToFileSearchStore` with chunking config
 //! - Waits for the long-running operation
-//! - Queries with File Search by injecting the store via `GeminiOptions`
+//! - Queries with File Search via `siumai::hosted_tools::google::file_search`
 //! - Optionally deletes the store (set CLEANUP=0 to skip)
 //!
 //! Run:
@@ -20,8 +20,8 @@
 //! ```
 
 use siumai::prelude::*;
-use siumai::providers::gemini::{
-    ChunkingConfig, FileSearchUploadConfig, GeminiClient, WhiteSpaceChunkingConfig,
+use siumai::provider_ext::gemini::ext::file_search_stores::{
+    ChunkingConfig, FileSearchUploadConfig, WhiteSpaceChunkingConfig,
 };
 
 fn read_api_key() -> Result<String, Box<dyn std::error::Error>> {
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Provider-specific client (Gemini-only features)
     // Note: File Search is only supported by gemini-2.5-pro and gemini-2.5-flash
-    let client: GeminiClient = Provider::gemini()
+    let client = Provider::gemini()
         .api_key(&api_key)
         .model("gemini-2.5-flash")
         .build()
@@ -87,7 +87,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let req = ChatRequest::builder()
         .message(ChatMessage::user("Who is Robert Graves?").build())
         .model("gemini-2.5-flash")
-        .gemini_options(GeminiOptions::new().with_file_search_store_names(vec![store.name.clone()]))
+        .tools(vec![
+            siumai::hosted_tools::google::file_search()
+                .with_file_search_store_names(vec![store.name.clone()])
+                .build(),
+        ])
         .build();
 
     let resp = client.chat_request(req).await?;
