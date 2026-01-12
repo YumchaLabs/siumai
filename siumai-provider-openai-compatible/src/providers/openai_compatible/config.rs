@@ -16,7 +16,9 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
         ProviderConfig {
             id: "deepseek".to_string(),
             name: "DeepSeek".to_string(),
-            base_url: "https://api.deepseek.com/v1".to_string(),
+            // Vercel reference defaults to `https://api.deepseek.com` and uses `/chat/completions`.
+            // We follow the same convention for parity; callers can override when needed.
+            base_url: "https://api.deepseek.com".to_string(),
             field_mappings: ProviderFieldMappings {
                 thinking_fields: vec!["reasoning_content".to_string(), "thinking".to_string()],
                 content_field: "content".to_string(),
@@ -741,6 +743,7 @@ mod tests {
         let config = get_provider_config("deepseek").unwrap();
         assert_eq!(config.id, "deepseek");
         assert_eq!(config.name, "DeepSeek");
+        assert_eq!(config.base_url, "https://api.deepseek.com");
 
         assert!(get_provider_config("nonexistent").is_none());
     }

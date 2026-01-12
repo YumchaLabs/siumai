@@ -288,13 +288,34 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 ## OpenAI-Compatible (DeepSeek / OpenRouter / etc.)
 
 **Vercel reference**
-- `repo-ref/ai/packages/openai-compatible/src/*`
+- Vendor adapter family (generic): `repo-ref/ai/packages/openai-compatible/src/*`
+- DeepSeek provider (dedicated package): `repo-ref/ai/packages/deepseek/src/*`
+- OpenRouter note: Vercel does not ship a dedicated OpenRouter package; OpenRouter is typically used
+  as an OpenAI-compatible base URL and should follow the shared OpenAI-compatible mapping rules.
 
 **Siumai implementation**
 - Presets/wiring: `siumai-provider-openai-compatible/src/*`
 - Protocol family mapping: `siumai-protocol-openai/src/standards/openai/compat/*`
 
+**Official API audits (this repo)**
+- `docs/openrouter-official-api-alignment.md`
+- `docs/deepseek-official-api-alignment.md`
+
 **What to verify (official API + Vercel parity)**
+- [x] Base URL + endpoints are preset-owned (Chat/Embedding/Rerank/Image routing)
+- [x] OpenAI-compatible headers and error envelope mapping
+- [x] ProviderOptions merge semantics (provider-id keyed top-level JSON merge hook)
+- [x] Reasoning/thinking field normalization (DeepSeek-style `reasoning_content`)
+- [ ] Provider-specific deltas that are not OpenAI-compatible should be explicitly documented as out-of-scope
+  (or supported behind a provider extension layer).
+
+**Parity tests**
+- DeepSeek:
+  - `siumai/tests/deepseek_chat_response_alignment_test.rs`
+  - `siumai/tests/deepseek_chat_stream_alignment_test.rs`
+- OpenRouter:
+  - `siumai/tests/openrouter_chat_request_alignment_test.rs`
+  - `siumai/tests/openrouter_http_error_alignment_test.rs`
 
 ## Groq (OpenAI-compatible Chat + Audio)
 
