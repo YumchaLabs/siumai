@@ -128,6 +128,11 @@ path = "examples/openai-responses-gateway.rs"
 required-features = ["server", "google", "openai"]
 
 [[example]]
+name = "gateway-custom-transform"
+path = "examples/gateway-custom-transform.rs"
+required-features = ["server", "google", "openai"]
+
+[[example]]
 name = "tool-loop-gateway"
 path = "examples/tool-loop-gateway.rs"
 required-features = ["server", "google", "openai"]

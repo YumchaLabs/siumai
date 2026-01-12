@@ -186,7 +186,8 @@ fn handler(stream: ChatStream) -> Response<Body> {
 }
 ```
 
-See the runnable example: `siumai-extras/examples/openai-responses-gateway.rs`.
+See the runnable example: `siumai-extras/examples/openai-responses-gateway.rs` (streaming + non-streaming).
+For custom conversion hooks, see: `siumai-extras/examples/gateway-custom-transform.rs`.
 
 If you need to expose multiple downstream protocol surfaces from the same upstream stream,
 use the transcoder helper:
@@ -235,6 +236,28 @@ use siumai_extras::server::axum::{
 
 fn handler(resp: ChatResponse) -> Response<Body> {
     to_transcoded_json_response(resp, TargetJsonFormat::OpenAiResponses, TranscodeJsonOptions::default())
+}
+```
+
+If you want to customize conversion for non-streaming responses, prefer the response-level transform
+hook (no JSON parse/round-trip):
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::*;
+use siumai_extras::server::axum::{
+    TargetJsonFormat, TranscodeJsonOptions, to_transcoded_json_response_with_response_transform,
+};
+
+fn handler(resp: ChatResponse) -> Response<Body> {
+    to_transcoded_json_response_with_response_transform(
+        resp,
+        TargetJsonFormat::OpenAiResponses,
+        TranscodeJsonOptions::default(),
+        |r| {
+            r.content = MessageContent::Text("[REDACTED]".to_string());
+        },
+    )
 }
 ```
 

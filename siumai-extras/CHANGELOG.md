@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backed by protocol-level encoders (`siumai::experimental::encoding::JsonResponseConverter`) for lower overhead than `serde_json::Value` round-trips.
 - Runnable gateway example (Gemini backend, OpenAI Responses SSE output)
   - `siumai-extras/examples/openai-responses-gateway.rs`
+    - Added non-streaming JSON endpoints (`*.json`)
+- Runnable custom conversion example (stream + JSON)
+  - `siumai-extras/examples/gateway-custom-transform.rs`
 - Tool-loop gateway helper (keep one downstream stream open across tool calls)
   - `siumai_extras::server::tool_loop::tool_loop_chat_stream(...)`
 - Runnable multi-protocol tool-loop gateway example
