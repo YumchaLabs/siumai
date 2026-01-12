@@ -1,7 +1,5 @@
-use super::{
-    OpenAiResponsesEventConverter, OpenAiResponsesFunctionCallSerializeState,
-    OpenAiResponsesSerializeState,
-};
+use super::OpenAiResponsesEventConverter;
+use super::state::{OpenAiResponsesFunctionCallSerializeState, OpenAiResponsesSerializeState};
 
 pub(super) fn serialize_event(
     this: &super::OpenAiResponsesEventConverter,

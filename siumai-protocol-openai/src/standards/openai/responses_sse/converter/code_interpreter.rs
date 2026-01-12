@@ -1,0 +1,53 @@
+use super::*;
+
+impl OpenAiResponsesEventConverter {
+    pub(super) fn record_code_interpreter_container_id(&self, item_id: &str, container_id: &str) {
+        if item_id.is_empty() || container_id.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.code_interpreter_container_id_by_item_id.lock() {
+            map.insert(item_id.to_string(), container_id.to_string());
+        }
+    }
+
+    pub(super) fn code_interpreter_container_id(&self, item_id: &str) -> Option<String> {
+        let map = self.code_interpreter_container_id_by_item_id.lock().ok()?;
+        map.get(item_id).cloned()
+    }
+
+    pub(super) fn mark_code_interpreter_tool_input_start_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_code_interpreter_tool_input_start_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    pub(super) fn has_emitted_code_interpreter_tool_input_start(&self, id: &str) -> bool {
+        self.emitted_code_interpreter_tool_input_start_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+
+    pub(super) fn mark_code_interpreter_tool_input_end_emitted(&self, id: &str) -> bool {
+        let Ok(mut set) = self.emitted_code_interpreter_tool_input_end_ids.lock() else {
+            return false;
+        };
+        if set.contains(id) {
+            return false;
+        }
+        set.insert(id.to_string());
+        true
+    }
+
+    pub(super) fn has_emitted_code_interpreter_tool_input_end(&self, id: &str) -> bool {
+        self.emitted_code_interpreter_tool_input_end_ids
+            .lock()
+            .ok()
+            .is_some_and(|set| set.contains(id))
+    }
+}
