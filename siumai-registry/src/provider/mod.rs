@@ -8,7 +8,9 @@ mod siumai;
 pub use siumai::{ProviderMetadata, Siumai};
 
 mod proxies;
-pub use proxies::{AudioCapabilityProxy, EmbeddingCapabilityProxy, VisionCapabilityProxy};
+#[allow(deprecated)]
+pub use proxies::VisionCapabilityProxy;
+pub use proxies::{AudioCapabilityProxy, EmbeddingCapabilityProxy};
 
 /// Unified Interface Builder - Provider Abstraction Layer
 ///
