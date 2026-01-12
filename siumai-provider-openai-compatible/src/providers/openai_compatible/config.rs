@@ -118,7 +118,13 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
             name: "Fireworks AI".to_string(),
             base_url: "https://api.fireworks.ai/inference/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
-            capabilities: vec!["tools".to_string(), "vision".to_string()],
+            // Fireworks documents OpenAI-compatible `/chat/completions` and `/embeddings`.
+            // Note: `/responses` is documented but currently out-of-scope for Siumai's compat preset.
+            capabilities: vec![
+                "tools".to_string(),
+                "vision".to_string(),
+                "embedding".to_string(),
+            ],
             default_model: Some("accounts/fireworks/models/llama-v3p1-8b-instruct".to_string()),
             supports_reasoning: false,
             api_key_env: None,

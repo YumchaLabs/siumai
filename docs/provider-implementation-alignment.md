@@ -301,6 +301,7 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - `docs/openrouter-official-api-alignment.md`
 - `docs/deepseek-official-api-alignment.md`
 - `docs/siliconflow-official-api-alignment.md`
+- `docs/fireworks-official-api-alignment.md`
 
 **What to verify (official API + Vercel parity)**
 - [x] Base URL + endpoints are preset-owned (Chat/Embedding/Rerank/Image routing)
@@ -320,6 +321,9 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - SiliconFlow:
   - `siumai/tests/siliconflow_openai_compat_url_alignment_test.rs`
   - `siumai/tests/siliconflow_openai_compat_error_alignment_test.rs`
+- Fireworks:
+  - `siumai/tests/fireworks_openai_compat_url_alignment_test.rs`
+  - `siumai/tests/fireworks_openai_compat_error_alignment_test.rs`
 
 ## Groq (OpenAI-compatible Chat + Audio)
 
