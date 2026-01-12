@@ -1,7 +1,7 @@
 //! Anthropic Models API Implementation
 //!
 //! Implements model listing functionality according to the official Anthropic API documentation:
-//! <https://docs.anthropic.com/en/api/models-list>
+//! <https://platform.claude.com/docs/en/api/models/list>
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

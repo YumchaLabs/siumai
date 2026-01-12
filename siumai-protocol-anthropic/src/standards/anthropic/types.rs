@@ -87,7 +87,7 @@ pub struct AnthropicSpecificParams {
 }
 
 /// Anthropic Models List Response according to official API documentation
-/// <https://docs.anthropic.com/en/api/models-list>
+/// <https://platform.claude.com/docs/en/api/models/list>
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnthropicModelsResponse {
     pub data: Vec<AnthropicModelInfo>,

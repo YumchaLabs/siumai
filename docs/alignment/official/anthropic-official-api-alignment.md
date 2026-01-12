@@ -11,12 +11,24 @@ It complements:
 
 ## Sources (Anthropic docs)
 
-- Messages API: <https://docs.anthropic.com/en/api/messages>
-- Streaming (Messages SSE): <https://docs.anthropic.com/en/api/messages-streaming>
+The legacy `docs.anthropic.com` host redirects to the Claude platform docs, so both are listed.
+
+- Messages API:
+  - <https://docs.anthropic.com/en/api/messages>
+  - <https://platform.claude.com/docs/en/api/messages/create>
+- Streaming (Messages SSE):
+  - <https://docs.anthropic.com/en/api/messages-streaming>
+  - <https://platform.claude.com/docs/en/api/messages-streaming>
+- Models:
+  - <https://platform.claude.com/docs/en/api/models/list>
 - API overview (basic curl): <https://docs.anthropic.com/en/api/overview>
 - Versioning policy: <https://docs.anthropic.com/en/api/versioning>
-- Beta headers: <https://docs.anthropic.com/en/api/beta-headers>
-- Errors: <https://docs.anthropic.com/en/api/errors>
+- Beta headers:
+  - <https://docs.anthropic.com/en/api/beta-headers>
+  - <https://platform.claude.com/docs/en/api/beta-headers>
+- Errors:
+  - <https://docs.anthropic.com/en/api/errors>
+  - <https://platform.claude.com/docs/en/api/errors>
 
 ### Local access note (contributors)
 
@@ -40,7 +52,7 @@ set HTTPS_PROXY=http://127.0.0.1:10809
 
 ## Official endpoint + required headers
 
-From the official “Basic Example” (`/en/api/overview`):
+From the official “Create a Message” docs:
 
 - Endpoint: `POST https://api.anthropic.com/v1/messages`
 - Required headers:
@@ -55,6 +67,25 @@ From the official “Basic Example” (`/en/api/overview`):
 - Tests:
   - `siumai/tests/mock_api/anthropic_mock_api_test.rs` (wiremock asserts)
   - `siumai/tests/anthropic_messages_custom_transport_alignment_test.rs` (transport/header plumbing)
+
+## Models API (`/v1/models`)
+
+From the official “Models” docs:
+
+- List models: `GET https://api.anthropic.com/v1/models`
+- Retrieve a model: `GET https://api.anthropic.com/v1/models/{model_id}`
+- Pagination/query params:
+  - `before_id`, `after_id`, `limit`
+- Response envelope (list):
+  - `data: [...]`, `first_id`, `last_id`, `has_more`
+
+### Siumai mapping
+
+- URL shaping (adds `/v1` when the configured base URL does not include it):
+  - `siumai-provider-anthropic/src/providers/anthropic/spec.rs` (`models_url`, `model_url`)
+- Implementation:
+  - `siumai-provider-anthropic/src/providers/anthropic/models.rs`
+  - `siumai-provider-anthropic/src/providers/anthropic/types.rs` (`AnthropicModelsResponse`, `AnthropicModelInfo`)
 
 ## Beta headers (`anthropic-beta`)
 
@@ -74,12 +105,18 @@ From the official “Beta headers” doc:
 
 ## Request body (Messages)
 
-From the official “Basic Example” (`/en/api/overview`):
+From the official “Create a Message” docs:
 
 - Required fields:
   - `model` (string)
   - `max_tokens` (int)
   - `messages` (array)
+  - `stream` (optional boolean; enables SSE streaming)
+  - `system` (optional; system prompt)
+  - `tools` (optional array)
+  - `tool_choice` (optional object)
+  - `thinking` (optional object)
+  - `stop_sequences` (optional array)
 
 ### Siumai mapping
 
@@ -115,6 +152,11 @@ From the official streaming doc (`/en/api/messages-streaming`):
   - Ignores unknown/unsupported `type` values (returns no events).
   - Ignores `data == "[DONE]"` (compat with legacy emitters).
   - `ping` currently yields no unified event (safe no-op).
+  - `content_block_delta` subtypes (official):
+    - `text_delta` -> `content_delta` (and an `anthropic:text-delta` custom event when the block is a text block)
+    - `input_json_delta` -> `tool_call_delta` (streaming tool input JSON)
+    - `thinking_delta` -> `thinking_delta`
+    - `signature_delta` -> captured and emitted as `anthropic:thinking-signature-delta` (also surfaced in stream-end metadata)
 - Fixtures/tests:
   - `siumai/tests/fixtures/anthropic/messages-stream/*`
   - `siumai/tests/anthropic_messages_stream_fixtures_alignment_test.rs`
@@ -127,18 +169,20 @@ From the official streaming doc (`/en/api/messages-streaming`):
 From the official Errors doc:
 
 - Error envelopes are JSON and include an error type + message.
-- Overload scenarios are described as `overloaded_error` (service overloaded).
+- Overload scenarios are described as `overloaded_error` (service overloaded, HTTP `529`).
 
 ### Siumai mapping
 
 - Error classification:
   - `siumai-protocol-anthropic/src/standards/anthropic/errors.rs`
 - Retry semantics:
-  - `overloaded_error` is treated as retryable (Siumai uses a synthetic `529` internally for parity).
+  - `overloaded_error` is treated as retryable.
+  - If an upstream proxy misreports the status code, Siumai still maps the error to `529`
+    for stable downstream handling (Vercel parity).
 - Tests:
   - Fixture-driven error alignment tests (see `docs/alignment/vercel-ai-fixtures-alignment.md`)
 
 ## Status
 
-- This area is treated as **Green**: official endpoint/headers/streaming/errors are covered by
-  fixture parity + targeted tests.
+- **Green**: `POST /v1/messages` headers/body/streaming/errors are covered by fixture parity + targeted tests.
+- **Yellow**: `/v1/models` correctness is implemented, but still needs fixture-driven parity tests.
