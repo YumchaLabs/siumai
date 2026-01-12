@@ -45,7 +45,11 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 | `@ai-sdk/google-vertex` | `siumai-provider-google-vertex` | Vertex AI (Gemini + Imagen) + auth/base URL normalization. |
 | `@ai-sdk/groq` | `siumai-provider-groq` | Groq is OpenAI-compatible (chat + audio); Siumai reuses the OpenAI-like protocol family with a small adapter. |
 | `@ai-sdk/xai` | `siumai-provider-xai` + `siumai-protocol-openai` | xAI Grok provider with Responses API fixtures and provider tool mapping parity. |
+| `@ai-sdk/amazon-bedrock` | `siumai-provider-amazon-bedrock` | Bedrock Converse + Rerank. Auth (SigV4) is caller-provided via headers. |
+| `@ai-sdk/cohere` | `siumai-provider-cohere` | Cohere Rerank v2 (`/v2/rerank`). |
+| `@ai-sdk/togetherai` | `siumai-provider-togetherai` | TogetherAI Rerank (`/v1/rerank`). |
 | N/A | `siumai-provider-minimaxi` | MiniMaxi uses Anthropic-compatible chat plus OpenAI-compatible media endpoints (TTS/images/files/video/music). |
+| N/A | `siumai-provider-ollama` | Local Ollama HTTP API (chat + embeddings). |
 
 ## OpenAI (Chat Completions + Responses)
 
@@ -258,6 +262,9 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Provider: `siumai-provider-azure/src/providers/azure_openai/spec.rs`
 - Shared protocol family: `siumai-protocol-openai/*`
 
+**Official API audit (this repo)**
+- `docs/azure-openai-official-api-alignment.md`
+
 **Official endpoints (derived from `AzureOpenAiSpec::build_url`)**
 - Base URL (resource-style): `https://{resource}.openai.azure.com/openai`
 - Two routing modes:
@@ -338,6 +345,66 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - [x] Adapter routing rules (`RequestType::Chat` / embedding / image / rerank routes)
 - [x] Best-effort response normalization (reasoning extraction, tool-call JSON fallback)
 - [x] ProviderOptions merge semantics (provider-id keyed JSON merge hook)
+
+## Amazon Bedrock (Converse + Rerank)
+
+**Vercel reference**
+- `repo-ref/ai/packages/amazon-bedrock/src/*`
+
+**Siumai implementation**
+- Provider: `siumai-provider-amazon-bedrock/src/*`
+
+**Official API audit (this repo)**
+- `docs/amazon-bedrock-official-api-alignment.md`
+
+**Parity tests**
+- `siumai/tests/bedrock_chat_request_fixtures_alignment_test.rs`
+- `siumai/tests/bedrock_chat_response_alignment_test.rs`
+- `siumai/tests/bedrock_chat_stream_alignment_test.rs`
+- `siumai/tests/bedrock_http_error_fixtures_alignment_test.rs`
+- `siumai/tests/bedrock_rerank_response_alignment_test.rs`
+
+## Cohere (Rerank v2)
+
+**Vercel reference**
+- `repo-ref/ai/packages/cohere/src/*`
+
+**Siumai implementation**
+- Provider: `siumai-provider-cohere/src/*`
+
+**Official API audit (this repo)**
+- `docs/cohere-official-api-alignment.md`
+
+**Parity tests**
+- `siumai/tests/cohere_rerank_fixtures_alignment_test.rs`
+- `siumai/tests/cohere_http_error_fixtures_alignment_test.rs`
+
+## TogetherAI (Rerank)
+
+**Vercel reference**
+- `repo-ref/ai/packages/togetherai/src/*`
+
+**Siumai implementation**
+- Provider: `siumai-provider-togetherai/src/*`
+
+**Official API audit (this repo)**
+- `docs/togetherai-official-api-alignment.md`
+
+**Parity tests**
+- `siumai/tests/togetherai_rerank_fixtures_alignment_test.rs`
+- `siumai/tests/togetherai_http_error_fixtures_alignment_test.rs`
+
+## Ollama (Local HTTP API)
+
+**Siumai implementation**
+- Provider: `siumai-provider-ollama/src/*`
+
+**Official API audit (this repo)**
+- `docs/ollama-official-api-alignment.md`
+
+**Parity tests**
+- `siumai/tests/ollama_chat_request_fixtures_alignment_test.rs`
+- `siumai/tests/ollama_http_error_fixtures_alignment_test.rs`
 - [x] Streaming SSE parse + serialize stability across vendor quirks
 
 **Parity tests**
