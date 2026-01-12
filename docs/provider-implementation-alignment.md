@@ -58,6 +58,9 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Provider: `siumai-provider-openai/src/*`
 - Azure reuse: `siumai-provider-azure/src/*`
 
+**Official API audit (this repo)**
+- `docs/openai-official-api-alignment.md`
+
 **Official endpoints (derived from `ProviderSpec`)**
 - Default `base_url`: `https://api.openai.com/v1`
 - Chat:
@@ -136,6 +139,9 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Protocol: `siumai-protocol-gemini/src/standards/gemini/*`
 - Provider: `siumai-provider-gemini/src/*`
 - Local OpenAPI spec (reference): `docs/gemini_OPENAPI3_0.json`
+
+**Official API audit (this repo)**
+- `docs/gemini-official-api-alignment.md`
 
 **Official endpoints (derived from `GeminiChatSpec`)**
 - Default `base_url`: `https://generativelanguage.googleapis.com/v1beta`
