@@ -288,6 +288,28 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Protocol family mapping: `siumai-protocol-openai/src/standards/openai/compat/*`
 
 **What to verify (official API + Vercel parity)**
+
+## Groq (OpenAI-compatible Chat + Audio)
+
+**Vercel reference**
+- `repo-ref/ai/packages/groq/src/*`
+
+**Siumai implementation**
+- Provider: `siumai-provider-groq/src/providers/groq/*`
+- Shared protocol family: `siumai-protocol-openai/src/standards/openai/*`
+
+**Official API audit (this repo)**
+- `docs/groq-official-api-alignment.md`
+
+**What to verify (official API + Vercel parity)**
+- [x] Base URL + endpoints (`/chat/completions`, `/audio/speech`, `/audio/transcriptions`)
+- [x] OpenAI-style error envelope mapping
+- [x] Groq request quirks (`developer` role, `max_tokens`, omit `stream_options`)
+
+**Parity tests**
+- `siumai/tests/groq_chat_request_fixtures_alignment_test.rs`
+- `siumai/tests/groq_http_error_fixtures_alignment_test.rs`
+- `siumai/tests/mock_api/groq_mock_api_test.rs`
 - [x] Adapter routing rules (`RequestType::Chat` / embedding / image / rerank routes)
 - [x] Best-effort response normalization (reasoning extraction, tool-call JSON fallback)
 - [x] ProviderOptions merge semantics (provider-id keyed JSON merge hook)
