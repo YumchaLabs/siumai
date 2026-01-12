@@ -179,6 +179,13 @@ async fn siumai_anthropic_vertex_streaming_headers() {
     assert!(res.is_err());
     let data = captured.lock().unwrap().clone().expect("captured");
     assert!(data.ctx.stream);
+    assert!(
+        data.ctx
+            .url
+            .ends_with("/models/claude-3-5-sonnet-20241022:streamRawPredict"),
+        "unexpected url={}",
+        data.ctx.url
+    );
     let accept = data
         .headers
         .get(ACCEPT)
@@ -191,4 +198,14 @@ async fn siumai_anthropic_vertex_streaming_headers() {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     assert!(enc.is_empty() || enc == "identity");
+
+    assert_eq!(
+        data.body.get("anthropic_version").and_then(|v| v.as_str()),
+        Some("vertex-2023-10-16"),
+        "expected anthropic_version to be injected for Vertex Anthropic"
+    );
+    assert!(
+        data.body.get("model").is_none(),
+        "expected model to be omitted in Vertex Anthropic request body"
+    );
 }

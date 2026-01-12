@@ -130,6 +130,27 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Gateway/transcoding:
   - `siumai/tests/transcoding_*_to_anthropic_alignment_test.rs`
 
+## Anthropic on Vertex (RawPredict)
+
+**Vercel reference**
+- `repo-ref/ai/packages/google-vertex/src/anthropic/*`
+
+**Siumai implementation**
+- Provider: `siumai-provider-google-vertex/src/providers/anthropic_vertex/*`
+- Reused protocol mapping: `siumai-protocol-anthropic/src/standards/anthropic/*`
+
+**Official API audit (this repo)**
+- `docs/anthropic-vertex-official-api-alignment.md`
+
+**What to verify (official API + Vercel parity)**
+- [x] URL format: `${base}/models/{model}:rawPredict` / `${base}/models/{model}:streamRawPredict`
+- [x] Request body shaping: omit `model`, inject `anthropic_version: "vertex-2023-10-16"`
+- [x] Streaming parsing/serialization parity (Anthropic SSE mapping reused)
+
+**Tests**
+- `siumai/tests/anthropic_vertex_models_test.rs`
+- `siumai/tests/streaming/siumai_interceptor_request_assert_test.rs`
+
 ## Gemini (Google Generative AI: GenerateContent)
 
 **Vercel reference**
