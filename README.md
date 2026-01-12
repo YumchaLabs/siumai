@@ -32,7 +32,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 Upgrading from `0.11.0-beta.4` (or earlier)?
 
-- See `docs/migration-0.11.0-beta.5.md`
+- See `docs/migration/migration-0.11.0-beta.5.md`
 
 Feature flags (enable only what you need):
 

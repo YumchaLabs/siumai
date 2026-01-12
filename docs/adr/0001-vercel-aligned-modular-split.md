@@ -142,7 +142,7 @@ Cons:
 
 ## Migration plan (high level)
 
-See `docs/roadmap-mvp.md` for the step-by-step milestones and acceptance criteria.
+See `docs/roadmap/roadmap-mvp.md` for the step-by-step milestones and acceptance criteria.
 
 ## References
 

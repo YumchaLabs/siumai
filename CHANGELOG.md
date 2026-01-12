@@ -49,9 +49,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - Windows: `./scripts/test-m1.bat`
   - Unix: `./scripts/test-m1.sh`
 - Split-phase architecture docs:
-  - `docs/architecture-refactor-plan.md`
-  - `docs/capability-surface.md`
-  - `docs/provider-extensions.md`
+  - `docs/architecture/architecture-refactor-plan.md`
+  - `docs/architecture/capability-surface.md`
+  - `docs/architecture/provider-extensions.md`
 - Vertex (Gemini) example:
   - `siumai/examples/04-provider-specific/google/vertex_chat.rs` (`--features "google gcp"`)
 - Vercel-aligned provider-hosted tools (provider-executed tools)
@@ -71,11 +71,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
     - Gemini GenerateContent SSE stream serialization
   - Cross-provider stream part bridge for gateway output:
     - `siumai_core::streaming::OpenAiResponsesStreamPartsBridge` (maps `gemini:*` / `anthropic:*` custom parts into `openai:*` parts)
-  - Alignment notes: `docs/streaming-bridge-alignment.md`
+  - Alignment notes: `docs/alignment/streaming-bridge-alignment.md`
   - Fixture drift audit script (against `repo-ref/ai`): `./scripts/audit_vercel_fixtures.py`
 - Provider correctness and parity audit docs (official APIs + Vercel reference):
-  - Global checklist: `docs/provider-implementation-alignment.md`
-  - Official API audits: `docs/*-official-api-alignment.md` (OpenAI, Anthropic, Gemini, Google Vertex, Anthropic on Vertex, Azure OpenAI, Groq, xAI, Amazon Bedrock, Cohere, TogetherAI, Ollama)
+  - Global checklist: `docs/alignment/provider-implementation-alignment.md`
+  - Official API audits: `docs/alignment/official/*-official-api-alignment.md` (OpenAI, Anthropic, Gemini, Google Vertex, Anthropic on Vertex, Azure OpenAI, Groq, xAI, Amazon Bedrock, Cohere, TogetherAI, Ollama)
 
 ### Changed
 
@@ -118,12 +118,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Migration guide (beta.5)
 
-- Full guide: `docs/migration-0.11.0-beta.5.md`
+- Full guide: `docs/migration/migration-0.11.0-beta.5.md`
 - If you used unified web search, switch to provider-hosted tools:
   - OpenAI: `siumai::hosted_tools::openai::web_search()` + Responses API (`OpenAiOptions::with_responses_api`)
   - Anthropic: `siumai::hosted_tools::anthropic::web_search_20250305()`
   - Gemini: `siumai::hosted_tools::google::google_search()` / `file_search()` / `url_context()` / `enterprise_web_search()`
-  - See `docs/provider-extensions.md` for the supported matrix and examples.
+  - See `docs/architecture/provider-extensions.md` for the supported matrix and examples.
 - If you want the smallest stable API surface, prefer `use siumai::prelude::unified::*;` and only opt into extensions when needed.
 - If you previously relied on provider-specific capability traits, prefer `siumai::provider_ext::<provider>` or downcast via `Siumai::downcast_client::<T>()` for typed provider APIs while still constructing via the unified builder.
 
