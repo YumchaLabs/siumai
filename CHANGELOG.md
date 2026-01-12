@@ -31,7 +31,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - Use `siumai::prelude::unified::*` for the stable surface, and `siumai::prelude::extensions::*` / `siumai::provider_ext::<provider>` for opt-in provider-specific features.
 - “Audio” is no longer a first-class unified family: prefer `SpeechCapability` (TTS) and `TranscriptionCapability` (STT).
   - For OpenAI SSE audio/transcript streaming, use provider extensions: `siumai::provider_ext::openai::{speech_streaming, transcription_streaming}`.
-- OpenAI provider does not support `RerankCapability` (OpenAI does not expose a rerank endpoint). Use a rerank-capable provider instead (e.g. `jina`, `voyageai`, `siliconflow`, or Bedrock/Cohere via their own provider modules when added).
+- OpenAI’s public API does not expose a rerank endpoint.
+  - If you call rerank with the default OpenAI base URL (`https://api.openai.com/v1`), Siumai returns `UnsupportedOperation`.
+  - For rerank, use a rerank-capable provider (e.g. `cohere`, `togetherai`, `bedrock`) or an OpenAI-compatible vendor that exposes `/rerank` (e.g. `siliconflow`).
 - Vertex base URL helper now prefers the regional host (`https://{location}-aiplatform.googleapis.com`); if you hardcoded `https://aiplatform.googleapis.com` you may want to update.
 
 ### Added
@@ -71,6 +73,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
     - `siumai_core::streaming::OpenAiResponsesStreamPartsBridge` (maps `gemini:*` / `anthropic:*` custom parts into `openai:*` parts)
   - Alignment notes: `docs/streaming-bridge-alignment.md`
   - Fixture drift audit script (against `repo-ref/ai`): `./scripts/audit_vercel_fixtures.py`
+- Provider correctness and parity audit docs (official APIs + Vercel reference):
+  - Global checklist: `docs/provider-implementation-alignment.md`
+  - Official API audits: `docs/*-official-api-alignment.md` (OpenAI, Anthropic, Gemini, Google Vertex, Anthropic on Vertex, Azure OpenAI, Groq, xAI, Amazon Bedrock, Cohere, TogetherAI, Ollama)
 
 ### Changed
 
@@ -103,6 +108,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Gemini base URL defaults are now consistent across protocol and provider metadata (`https://generativelanguage.googleapis.com/v1beta`).
 - Gemini Vertex AI URLs now accept resource-style model names (e.g. `models/gemini-2.0-flash`) and normalize them to prevent duplicate `/models/...` segments.
 - Vertex `base_url_for_vertex(...)` now prefers the regional host (`https://{location}-aiplatform.googleapis.com`) to match official docs (location `global` still uses `https://aiplatform.googleapis.com`).
+- Anthropic on Vertex now matches Vercel request shaping:
+  - Uses `:rawPredict` / `:streamRawPredict` (instead of `?alt=sse`)
+  - Injects `anthropic_version: "vertex-2023-10-16"` and omits the `model` field from the request body
 - OpenAI rerank response parsing no longer panics on missing optional fields (runtime unwrap removal).
 - Gemini/Anthropic system instruction semantics are now Vercel-aligned (system/developer messages must appear at the beginning; provider-specific exceptions handled internally).
 - Anthropic streaming metadata is preserved and surfaced via `provider_metadata["anthropic"]` (thinking replay signatures, redacted thinking, and normalized sources/citations).
