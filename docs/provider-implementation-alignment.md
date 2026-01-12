@@ -302,6 +302,7 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - `docs/deepseek-official-api-alignment.md`
 - `docs/siliconflow-official-api-alignment.md`
 - `docs/fireworks-official-api-alignment.md`
+- `docs/perplexity-official-api-alignment.md`
 
 **What to verify (official API + Vercel parity)**
 - [x] Base URL + endpoints are preset-owned (Chat/Embedding/Rerank/Image routing)
@@ -324,6 +325,9 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Fireworks:
   - `siumai/tests/fireworks_openai_compat_url_alignment_test.rs`
   - `siumai/tests/fireworks_openai_compat_error_alignment_test.rs`
+- Perplexity:
+  - `siumai/tests/perplexity_openai_compat_url_alignment_test.rs`
+  - `siumai/tests/perplexity_openai_compat_error_alignment_test.rs`
 
 ## Groq (OpenAI-compatible Chat + Audio)
 
