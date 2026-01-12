@@ -185,4 +185,4 @@ From the official Errors doc:
 ## Status
 
 - **Green**: `POST /v1/messages` headers/body/streaming/errors are covered by fixture parity + targeted tests.
-- **Yellow**: `/v1/models` correctness is implemented, but still needs fixture-driven parity tests.
+- **Green**: `/v1/models` list/retrieve + pagination params are covered by fixture-driven tests.

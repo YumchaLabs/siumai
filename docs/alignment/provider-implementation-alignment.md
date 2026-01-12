@@ -112,7 +112,7 @@ If you want a high-level capability matrix instead, see `docs/alignment/provider
 
 **What to verify (official API + Vercel parity)**
 - [x] Required headers: `x-api-key`, `anthropic-version`, `content-type: application/json` (+ `anthropic-beta` when needed)
-- [ ] Models list/retrieve parsing (`GET /v1/models`, `GET /v1/models/{id}`) + pagination params (`before_id`, `after_id`, `limit`)
+- [x] Models list/retrieve parsing (`GET /v1/models`, `GET /v1/models/{id}`) + pagination params (`before_id`, `after_id`, `limit`)
 - [x] Messages request mapping (`system`, `messages[].content[]`, tool blocks, citations/files)
 - [x] Image blocks use base64 `source` with `media_type` (URL images are downgraded to text; tool_result image content also includes `media_type`)
 - [x] Tool result JSON outputs are stringified (Anthropic `tool_result.content` is string or blocks)
