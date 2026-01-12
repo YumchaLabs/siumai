@@ -65,6 +65,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - Thinking replay: `examples/04-provider-specific/anthropic/thinking-replay-ext.rs`
 - Gateway/proxy streaming utilities (Vercel-aligned `parseStreamPart` / `formatStreamPart` concept):
   - Stream encoders: `siumai::experimental::streaming::{encode_chat_stream_as_sse, encode_chat_stream_as_jsonl}` (serialize `ChatStreamEvent` back into provider-native wire formats)
+  - Non-streaming JSON encoders: `siumai::experimental::encoding::{JsonResponseConverter, encode_chat_response_as_json}` (serialize `ChatResponse` back into provider-native JSON responses)
   - Bidirectional SSE support for proxying:
     - OpenAI Responses SSE stream serialization (Vercel-aligned `openai:*` stream parts)
     - OpenAI-compatible Chat Completions SSE stream serialization

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `siumai_extras::server::axum::to_transcoded_sse_response_with_transform(...)`
 - Unified JSON (non-streaming) transcoder helper (Axum)
   - `siumai_extras::server::axum::{transcode_chat_response_to_json, to_transcoded_json_response, to_transcoded_json_response_with_transform, TargetJsonFormat, TranscodeJsonOptions}`
+  - Backed by protocol-level encoders (`siumai::experimental::encoding::JsonResponseConverter`) for lower overhead than `serde_json::Value` round-trips.
 - Runnable gateway example (Gemini backend, OpenAI Responses SSE output)
   - `siumai-extras/examples/openai-responses-gateway.rs`
 - Tool-loop gateway helper (keep one downstream stream open across tool calls)

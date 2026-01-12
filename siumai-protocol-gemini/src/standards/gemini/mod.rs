@@ -20,6 +20,7 @@ pub mod convert;
 pub mod embedding;
 pub mod headers;
 pub mod image;
+pub mod json_response;
 mod sources;
 pub mod streaming;
 pub mod transformers;

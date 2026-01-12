@@ -155,6 +155,16 @@ pub mod experimental {
         pub use siumai_core::core::*;
     }
 
+    /// Non-streaming response encoding utilities (advanced API).
+    ///
+    /// This exposes protocol-level JSON encoders used by gateways/proxies to re-serialize
+    /// unified `ChatResponse` objects into provider-native JSON response bodies.
+    pub mod encoding {
+        pub use siumai_core::encoding::{
+            JsonEncodeOptions, JsonResponseConverter, encode_chat_response_as_json,
+        };
+    }
+
     /// Streaming utilities (advanced API).
     ///
     /// This exposes low-level building blocks from `siumai-core` that are useful when building

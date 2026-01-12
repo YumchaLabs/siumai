@@ -30,6 +30,7 @@ pub mod errors;
 pub mod files;
 pub mod headers;
 pub mod image;
+pub mod json_response;
 pub mod rerank;
 #[cfg(feature = "openai-responses")]
 pub mod responses_sse;

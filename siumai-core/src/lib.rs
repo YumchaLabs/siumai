@@ -9,6 +9,7 @@ pub mod client;
 pub mod core;
 pub mod custom_provider;
 pub mod defaults;
+pub mod encoding;
 pub mod error;
 pub mod execution;
 pub mod hosted_tools;

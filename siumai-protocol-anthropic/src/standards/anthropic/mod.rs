@@ -8,6 +8,7 @@
 pub mod cache;
 pub mod chat;
 pub mod errors;
+pub mod json_response;
 pub mod params;
 pub mod provider_metadata;
 pub mod server_tools;
