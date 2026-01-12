@@ -1,4 +1,6 @@
 use super::*;
+use crate::error::LlmError;
+use std::sync::{Arc, Mutex};
 
 struct FlagInterceptor(Arc<Mutex<bool>>);
 
