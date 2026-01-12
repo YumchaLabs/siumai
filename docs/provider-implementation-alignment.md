@@ -310,6 +310,31 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - `siumai/tests/groq_chat_request_fixtures_alignment_test.rs`
 - `siumai/tests/groq_http_error_fixtures_alignment_test.rs`
 - `siumai/tests/mock_api/groq_mock_api_test.rs`
+
+## xAI (OpenAI-compatible Chat + Responses)
+
+**Vercel reference**
+- `repo-ref/ai/packages/xai/src/*`
+
+**Siumai implementation**
+- Provider: `siumai-provider-xai/src/providers/xai/*`
+- Vendor preset layer: `siumai-provider-openai-compatible/src/providers/openai_compatible/*`
+- Shared protocol family: `siumai-protocol-openai/src/standards/openai/*`
+
+**Official API audit (this repo)**
+- `docs/xai-official-api-alignment.md`
+
+**What to verify (official API + Vercel parity)**
+- [x] Base URL + endpoints (`/chat/completions`, `/responses`)
+- [x] Provider-defined tools mapping (e.g. `web_search`, `x_search`)
+- [x] Responses SSE parsing/serialization parity (v3 parts)
+- [x] OpenAI-style error envelope mapping
+
+**Parity tests**
+- `siumai/tests/xai_chat_request_fixtures_alignment_test.rs`
+- `siumai/tests/xai_responses_response_fixtures_alignment_test.rs`
+- `siumai/tests/xai_responses_*_stream_alignment_test.rs`
+- `siumai/tests/xai_http_error_fixtures_alignment_test.rs`
 - [x] Adapter routing rules (`RequestType::Chat` / embedding / image / rerank routes)
 - [x] Best-effort response normalization (reasoning extraction, tool-call JSON fallback)
 - [x] ProviderOptions merge semantics (provider-id keyed JSON merge hook)
