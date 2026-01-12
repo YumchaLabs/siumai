@@ -2114,6 +2114,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_anthropic_streaming_ping_event_is_ignored() {
+        let config = create_test_config();
+        let converter = AnthropicEventConverter::new(config);
+
+        let event = Event {
+            event: "ping".to_string(),
+            data: r#"{"type":"ping"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let result = converter.convert_event(event).await;
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
     async fn test_anthropic_stream_end_is_error_after_error_event() {
         let config = create_test_config();
         let converter = AnthropicEventConverter::new(config);

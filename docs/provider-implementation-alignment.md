@@ -91,6 +91,9 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Protocol: `siumai-protocol-anthropic/src/standards/anthropic/*`
 - Provider: `siumai-provider-anthropic/src/*`
 
+**Official API audit (this repo)**
+- `docs/anthropic-official-api-alignment.md`
+
 **Official endpoints (derived from `ProviderSpec`)**
 - Default `base_url`: `https://api.anthropic.com` (Siumai appends `/v1` if missing)
 - Messages:
