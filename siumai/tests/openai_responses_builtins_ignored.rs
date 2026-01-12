@@ -6,8 +6,8 @@
 #[tokio::test]
 #[ignore]
 async fn responses_with_advanced_builtins_smoke() {
-    use siumai::prelude::unified::ChatMessage;
     use siumai::prelude::ChatCapability;
+    use siumai::prelude::unified::ChatMessage;
     use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
     // Skip if no key set

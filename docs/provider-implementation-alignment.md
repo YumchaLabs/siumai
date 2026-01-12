@@ -178,6 +178,9 @@ If you want a high-level capability matrix instead, see `docs/provider-feature-a
 - Provider: `siumai-provider-google-vertex/src/*`
 - Imagen protocol helpers live under provider crate (current phase): `siumai-provider-google-vertex/*`
 
+**Official API audit (this repo)**
+- `docs/google-vertex-official-api-alignment.md`
+
 **Official endpoints (derived from `GeminiChatSpec` + Vertex wrapper)**
 - Base URL format (publisher path): `https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google`
 - Chat:
