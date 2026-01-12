@@ -203,6 +203,41 @@ fn handler(stream: ChatStream) -> Response<Body> {
 }
 ```
 
+If you need to customize the conversion logic (redaction/rewrites/custom part mapping),
+you can provide an event transform hook:
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
+use siumai_extras::server::axum::{
+    TargetSseFormat, TranscodeSseOptions, to_transcoded_sse_response_with_transform,
+};
+
+fn handler(stream: ChatStream) -> Response<Body> {
+    to_transcoded_sse_response_with_transform(
+        stream,
+        TargetSseFormat::OpenAiResponses,
+        TranscodeSseOptions::strict(),
+        |ev: ChatStreamEvent| vec![ev],
+    )
+}
+```
+
+For non-streaming gateways, you can also transcode a `ChatResponse` into a provider-native
+JSON response body:
+
+```rust
+use axum::{body::Body, response::Response};
+use siumai::prelude::*;
+use siumai_extras::server::axum::{
+    TargetJsonFormat, TranscodeJsonOptions, to_transcoded_json_response,
+};
+
+fn handler(resp: ChatResponse) -> Response<Body> {
+    to_transcoded_json_response(resp, TargetJsonFormat::OpenAiResponses, TranscodeJsonOptions::default())
+}
+```
+
 ### MCP Integration
 
 ```rust

@@ -34,7 +34,9 @@ use axum::response::sse::{Event, Sse};
 use axum::{body::Body, http::header, response::Response};
 use futures::{Stream, StreamExt};
 
-use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmError};
+use siumai::prelude::unified::{
+    ChatResponse, ChatStream, ChatStreamEvent, ContentPart, FinishReason, LlmError,
+};
 
 /// Target SSE wire format for stream transcoding helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +49,32 @@ pub enum TargetSseFormat {
     AnthropicMessages,
     /// Gemini/Vertex GenerateContent SSE (`data: { candidates: ... }` frames).
     GeminiGenerateContent,
+}
+
+/// Target JSON wire format for non-streaming response transcoding helpers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetJsonFormat {
+    /// OpenAI Responses API JSON response.
+    OpenAiResponses,
+    /// OpenAI Chat Completions JSON response.
+    OpenAiChatCompletions,
+    /// Anthropic Messages API JSON response.
+    AnthropicMessages,
+    /// Gemini/Vertex GenerateContent JSON response.
+    GeminiGenerateContent,
+}
+
+/// Options for transcoding a `ChatResponse` into a provider JSON response body.
+#[derive(Debug, Clone)]
+pub struct TranscodeJsonOptions {
+    /// Whether to pretty-print the JSON output.
+    pub pretty: bool,
+}
+
+impl Default for TranscodeJsonOptions {
+    fn default() -> Self {
+        Self { pretty: false }
+    }
 }
 
 /// Options for transcoding a `ChatStream` into a provider SSE wire format.
@@ -86,6 +114,386 @@ impl TranscodeSseOptions {
                 siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
             ..Self::default()
         }
+    }
+}
+
+fn openai_finish_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
+    match reason? {
+        FinishReason::Stop | FinishReason::StopSequence => Some("stop"),
+        FinishReason::Length => Some("length"),
+        FinishReason::ContentFilter => Some("content_filter"),
+        FinishReason::ToolCalls => Some("tool_calls"),
+        FinishReason::Error => Some("error"),
+        FinishReason::Unknown => None,
+        FinishReason::Other(_) => None,
+    }
+}
+
+fn anthropic_stop_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
+    match reason? {
+        FinishReason::Stop | FinishReason::StopSequence => Some("end_turn"),
+        FinishReason::Length => Some("max_tokens"),
+        FinishReason::ContentFilter => Some("stop_sequence"),
+        FinishReason::ToolCalls => Some("tool_use"),
+        FinishReason::Error => Some("end_turn"),
+        FinishReason::Unknown => None,
+        FinishReason::Other(_) => None,
+    }
+}
+
+fn gemini_finish_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
+    match reason? {
+        FinishReason::Stop | FinishReason::StopSequence => Some("STOP"),
+        FinishReason::Length => Some("MAX_TOKENS"),
+        FinishReason::ContentFilter => Some("SAFETY"),
+        FinishReason::ToolCalls => Some("STOP"),
+        FinishReason::Error => Some("STOP"),
+        FinishReason::Unknown => None,
+        FinishReason::Other(_) => None,
+    }
+}
+
+/// Convert a unified `ChatResponse` into a provider-native JSON response body (best-effort).
+///
+/// Notes:
+/// - This is primarily intended for gateways/proxies that expose multiple protocol surfaces.
+/// - Some provider response shapes require fields that are not available in `ChatResponse`
+///   (e.g. detailed output item IDs); those fields are filled with reasonable defaults.
+pub fn transcode_chat_response_to_json(
+    response: &ChatResponse,
+    target: TargetJsonFormat,
+) -> serde_json::Value {
+    fn usage_json(u: &siumai::prelude::unified::Usage) -> serde_json::Value {
+        let mut out = serde_json::Map::new();
+        out.insert(
+            "prompt_tokens".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(u.prompt_tokens)),
+        );
+        out.insert(
+            "completion_tokens".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(u.completion_tokens)),
+        );
+        out.insert(
+            "total_tokens".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(u.total_tokens)),
+        );
+        if let Some(details) = u.prompt_tokens_details.as_ref() {
+            out.insert(
+                "prompt_tokens_details".to_string(),
+                serde_json::to_value(details).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if let Some(details) = u.completion_tokens_details.as_ref() {
+            out.insert(
+                "completion_tokens_details".to_string(),
+                serde_json::to_value(details).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        serde_json::Value::Object(out)
+    }
+
+    fn tool_calls_json(parts: &[&ContentPart]) -> serde_json::Value {
+        let calls: Vec<serde_json::Value> = parts
+            .iter()
+            .filter_map(|p| match p {
+                ContentPart::ToolCall {
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                    ..
+                } => {
+                    let args_str =
+                        serde_json::to_string(arguments).unwrap_or_else(|_| arguments.to_string());
+                    Some(serde_json::json!({
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "arguments": args_str,
+                        }
+                    }))
+                }
+                _ => None,
+            })
+            .collect();
+        serde_json::Value::Array(calls)
+    }
+
+    let text = response.content_text().unwrap_or_default().to_string();
+    let tool_calls = response.tool_calls();
+    let finish_reason = response.finish_reason.as_ref();
+    let model = response.model.clone().unwrap_or_default();
+    let id = response.id.clone().unwrap_or_else(|| "siumai".to_string());
+
+    match target {
+        TargetJsonFormat::OpenAiChatCompletions => {
+            let tool_calls_value = tool_calls_json(&tool_calls);
+            let has_tool_calls =
+                matches!(tool_calls_value, serde_json::Value::Array(ref v) if !v.is_empty());
+
+            let mut message = serde_json::Map::new();
+            message.insert(
+                "role".to_string(),
+                serde_json::Value::String("assistant".to_string()),
+            );
+            if text.trim().is_empty() && has_tool_calls {
+                message.insert("content".to_string(), serde_json::Value::Null);
+            } else {
+                message.insert("content".to_string(), serde_json::Value::String(text));
+            }
+            if has_tool_calls {
+                message.insert("tool_calls".to_string(), tool_calls_value);
+            }
+
+            let mut top = serde_json::Map::new();
+            top.insert("id".to_string(), serde_json::Value::String(id));
+            top.insert(
+                "object".to_string(),
+                serde_json::Value::String("chat.completion".to_string()),
+            );
+            top.insert(
+                "created".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(0)),
+            );
+            top.insert("model".to_string(), serde_json::Value::String(model));
+            top.insert(
+                "choices".to_string(),
+                serde_json::json!([{
+                    "index": 0,
+                    "message": serde_json::Value::Object(message),
+                    "finish_reason": openai_finish_reason(finish_reason),
+                }]),
+            );
+            if let Some(usage) = response.usage.as_ref() {
+                top.insert("usage".to_string(), usage_json(usage));
+            }
+            if let Some(fp) = response.system_fingerprint.as_ref() {
+                top.insert(
+                    "system_fingerprint".to_string(),
+                    serde_json::Value::String(fp.clone()),
+                );
+            }
+            if let Some(tier) = response.service_tier.as_ref() {
+                top.insert(
+                    "service_tier".to_string(),
+                    serde_json::Value::String(tier.clone()),
+                );
+            }
+            serde_json::Value::Object(top)
+        }
+        TargetJsonFormat::OpenAiResponses => {
+            let mut output: Vec<serde_json::Value> = Vec::new();
+
+            if !text.trim().is_empty() {
+                output.push(serde_json::json!({
+                    "id": format!("msg_{id}"),
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        { "type": "output_text", "text": text }
+                    ],
+                }));
+            }
+
+            for call in tool_calls {
+                if let ContentPart::ToolCall {
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                    ..
+                } = call
+                {
+                    let args_str =
+                        serde_json::to_string(arguments).unwrap_or_else(|_| arguments.to_string());
+                    output.push(serde_json::json!({
+                        "id": format!("fc_{tool_call_id}"),
+                        "type": "function_call",
+                        "call_id": tool_call_id,
+                        "name": tool_name,
+                        "arguments": args_str,
+                    }));
+                }
+            }
+
+            let mut top = serde_json::Map::new();
+            top.insert("id".to_string(), serde_json::Value::String(id));
+            top.insert(
+                "object".to_string(),
+                serde_json::Value::String("response".to_string()),
+            );
+            top.insert(
+                "created".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(0)),
+            );
+            top.insert("model".to_string(), serde_json::Value::String(model));
+            top.insert(
+                "status".to_string(),
+                serde_json::Value::String("completed".to_string()),
+            );
+            top.insert("output".to_string(), serde_json::Value::Array(output));
+            top.insert(
+                "output_text".to_string(),
+                serde_json::Value::String(response.content.all_text()),
+            );
+            if let Some(usage) = response.usage.as_ref() {
+                top.insert("usage".to_string(), usage_json(usage));
+            }
+            serde_json::Value::Object(top)
+        }
+        TargetJsonFormat::AnthropicMessages => {
+            let mut content: Vec<serde_json::Value> = Vec::new();
+            if !text.trim().is_empty() {
+                content.push(serde_json::json!({ "type": "text", "text": text }));
+            }
+            for call in tool_calls {
+                if let ContentPart::ToolCall {
+                    tool_call_id,
+                    tool_name,
+                    arguments,
+                    ..
+                } = call
+                {
+                    content.push(serde_json::json!({
+                        "type": "tool_use",
+                        "id": tool_call_id,
+                        "name": tool_name,
+                        "input": arguments,
+                    }));
+                }
+            }
+
+            let usage = response.usage.as_ref().map(|u| {
+                serde_json::json!({
+                    "input_tokens": u.prompt_tokens,
+                    "output_tokens": u.completion_tokens,
+                })
+            });
+
+            serde_json::json!({
+                "id": id,
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": content,
+                "stop_reason": anthropic_stop_reason(finish_reason),
+                "stop_sequence": serde_json::Value::Null,
+                "usage": usage.unwrap_or(serde_json::json!({"input_tokens": 0, "output_tokens": 0})),
+            })
+        }
+        TargetJsonFormat::GeminiGenerateContent => {
+            let mut parts: Vec<serde_json::Value> = Vec::new();
+            if !text.trim().is_empty() {
+                parts.push(serde_json::json!({ "text": text }));
+            }
+            for call in tool_calls {
+                if let ContentPart::ToolCall {
+                    tool_name,
+                    arguments,
+                    ..
+                } = call
+                {
+                    parts.push(serde_json::json!({
+                        "functionCall": {
+                            "name": tool_name,
+                            "args": arguments,
+                        }
+                    }));
+                }
+            }
+
+            let usage = response.usage.as_ref().map(|u| {
+                let thoughts = u
+                    .completion_tokens_details
+                    .as_ref()
+                    .and_then(|d| d.reasoning_tokens)
+                    .or({
+                        #[allow(deprecated)]
+                        {
+                            u.reasoning_tokens
+                        }
+                    });
+                serde_json::json!({
+                    "promptTokenCount": u.prompt_tokens,
+                    "candidatesTokenCount": u.completion_tokens,
+                    "totalTokenCount": u.total_tokens,
+                    "thoughtsTokenCount": thoughts,
+                })
+            });
+
+            serde_json::json!({
+                "candidates": [{
+                    "content": { "role": "model", "parts": parts },
+                    "finishReason": gemini_finish_reason(finish_reason),
+                }],
+                "usageMetadata": usage.unwrap_or(serde_json::Value::Null),
+            })
+        }
+    }
+}
+
+/// Convert a unified `ChatResponse` into an Axum JSON response for the selected provider format.
+pub fn to_transcoded_json_response(
+    response: ChatResponse,
+    target: TargetJsonFormat,
+    opts: TranscodeJsonOptions,
+) -> Response<Body> {
+    let json = transcode_chat_response_to_json(&response, target);
+    let body = if opts.pretty {
+        serde_json::to_vec_pretty(&json)
+    } else {
+        serde_json::to_vec(&json)
+    };
+
+    match body {
+        Ok(bytes) => {
+            let mut resp = Response::new(Body::from(bytes));
+            resp.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            );
+            resp
+        }
+        Err(_) => Response::builder()
+            .status(500)
+            .header("content-type", "text/plain")
+            .body(Body::from("failed to serialize response"))
+            .unwrap_or_else(|_| Response::new(Body::from("internal error"))),
+    }
+}
+
+/// Convert a unified `ChatResponse` into an Axum JSON response for the selected provider format,
+/// with a caller-provided post-processing hook.
+pub fn to_transcoded_json_response_with_transform<F>(
+    response: ChatResponse,
+    target: TargetJsonFormat,
+    opts: TranscodeJsonOptions,
+    transform: F,
+) -> Response<Body>
+where
+    F: FnOnce(serde_json::Value) -> serde_json::Value + Send + Sync + 'static,
+{
+    let json = transcode_chat_response_to_json(&response, target);
+    let json = transform(json);
+    let body = if opts.pretty {
+        serde_json::to_vec_pretty(&json)
+    } else {
+        serde_json::to_vec(&json)
+    };
+
+    match body {
+        Ok(bytes) => {
+            let mut resp = Response::new(Body::from(bytes));
+            resp.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            );
+            resp
+        }
+        Err(_) => Response::builder()
+            .status(500)
+            .header("content-type", "text/plain")
+            .body(Body::from("failed to serialize response"))
+            .unwrap_or_else(|_| Response::new(Body::from("internal error"))),
     }
 }
 
@@ -752,6 +1160,26 @@ pub fn to_transcoded_sse_response(
     }
 }
 
+/// Convert a `ChatStream` into a provider-native SSE response with a unified target selector,
+/// with a caller-provided event transform hook.
+///
+/// The `transform` closure is applied to each `ChatStreamEvent` (expanding or dropping events)
+/// before the target-specific transcoding/bridging logic runs.
+pub fn to_transcoded_sse_response_with_transform<F>(
+    stream: ChatStream,
+    target: TargetSseFormat,
+    opts: TranscodeSseOptions,
+    transform: F,
+) -> Response<Body>
+where
+    F: FnMut(ChatStreamEvent) -> Vec<ChatStreamEvent> + Send + Sync + 'static,
+{
+    use siumai::experimental::streaming::transform_chat_event_stream;
+
+    let stream = transform_chat_event_stream(stream, transform);
+    to_transcoded_sse_response(stream, target, opts)
+}
+
 #[cfg(test)]
 mod transcode_tests {
     use super::*;
@@ -764,6 +1192,29 @@ mod transcode_tests {
             siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop
         );
         assert!(opts.bridge_openai_responses_stream_parts);
+    }
+
+    #[tokio::test]
+    async fn to_transcoded_sse_response_with_transform_builds() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatResponse, ChatStreamEvent, MessageContent};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text("done".to_string())),
+            }),
+        ]));
+
+        let _resp = to_transcoded_sse_response_with_transform(
+            chat_stream,
+            TargetSseFormat::OpenAiResponses,
+            TranscodeSseOptions::default(),
+            |ev| vec![ev],
+        );
     }
 
     #[tokio::test]
@@ -960,6 +1411,75 @@ mod transcode_tests {
             assert!(lossy_text.contains("[raw]"));
             assert!(lossy_text.contains("[file]"));
         }
+    }
+}
+
+#[cfg(test)]
+mod json_transcode_tests {
+    use super::*;
+    use serde_json::json;
+    use siumai::prelude::unified::MessageContent;
+
+    #[test]
+    fn openai_chat_completions_json_includes_tool_calls() {
+        let resp = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::text("ok"),
+            ContentPart::tool_call("call_1", "get_weather", json!({"city":"GZ"}), None),
+        ]));
+
+        let v = transcode_chat_response_to_json(&resp, TargetJsonFormat::OpenAiChatCompletions);
+        assert_eq!(v["object"], "chat.completion");
+        assert_eq!(v["choices"][0]["message"]["role"], "assistant");
+        assert_eq!(v["choices"][0]["message"]["tool_calls"][0]["id"], "call_1");
+        assert_eq!(
+            v["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+            "get_weather"
+        );
+    }
+
+    #[test]
+    fn anthropic_messages_json_emits_tool_use_blocks() {
+        let resp = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::text("thinking"),
+            ContentPart::tool_call("call_1", "search", json!({"q":"rust"}), None),
+        ]));
+
+        let v = transcode_chat_response_to_json(&resp, TargetJsonFormat::AnthropicMessages);
+        assert_eq!(v["type"], "message");
+        assert_eq!(v["role"], "assistant");
+        assert_eq!(v["content"][1]["type"], "tool_use");
+        assert_eq!(v["content"][1]["id"], "call_1");
+        assert_eq!(v["content"][1]["name"], "search");
+    }
+
+    #[test]
+    fn gemini_generate_content_json_emits_function_call_parts() {
+        let resp = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::text("ok"),
+            ContentPart::tool_call("call_1", "search", json!({"q":"rust"}), None),
+        ]));
+
+        let v = transcode_chat_response_to_json(&resp, TargetJsonFormat::GeminiGenerateContent);
+        assert_eq!(v["candidates"][0]["content"]["role"], "model");
+        assert_eq!(
+            v["candidates"][0]["content"]["parts"][1]["functionCall"]["name"],
+            "search"
+        );
+    }
+
+    #[test]
+    fn openai_responses_json_includes_output_items() {
+        let resp = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::text("ok"),
+            ContentPart::tool_call("call_1", "search", json!({"q":"rust"}), None),
+        ]));
+
+        let v = transcode_chat_response_to_json(&resp, TargetJsonFormat::OpenAiResponses);
+        assert_eq!(v["object"], "response");
+        assert_eq!(v["status"], "completed");
+        assert_eq!(v["output"][0]["type"], "message");
+        assert_eq!(v["output"][1]["type"], "function_call");
+        assert_eq!(v["output"][1]["call_id"], "call_1");
     }
 }
 

@@ -85,6 +85,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - HTTP execution now supports an injectable transport (`fetch` / `HttpTransport`) across providers, including streaming use-cases (gateway parity with Vercel's `fetch(customTransport)`).
 - Gateway/proxy streaming policies are now explicit:
   - V3 parts that cannot be represented in a target wire format follow `V3UnsupportedPartBehavior` (drop in strict mode, lossy text downgrade in `AsText` mode), including `tool-approval-request`, `raw`, and `file` parts.
+- Gateways can also transcode non-streaming results into provider JSON responses:
+  - `siumai-extras::server::axum::{to_transcoded_json_response, TargetJsonFormat}`
 
 ### Deprecated
 
