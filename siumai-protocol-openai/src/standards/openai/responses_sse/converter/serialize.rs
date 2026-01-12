@@ -7,7 +7,7 @@ pub(super) fn serialize_event(
     this: &super::OpenAiResponsesEventConverter,
     event: &crate::streaming::ChatStreamEvent,
 ) -> Result<Vec<u8>, crate::error::LlmError> {
-use crate::error::LlmError;
+    use crate::error::LlmError;
 
     fn sse_event_frame(event: &str, value: &serde_json::Value) -> Result<Vec<u8>, LlmError> {
         let data = serde_json::to_vec(value)
