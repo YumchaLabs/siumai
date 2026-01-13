@@ -1228,7 +1228,7 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
         let model = req
             .model
             .clone()
-            .unwrap_or_else(|| "text-moderation-latest".to_string());
+            .unwrap_or_else(|| "omni-moderation-latest".to_string());
 
         // OpenAI Moderations accepts either string or string[] for `input`.
         // Prefer array when provided in request.

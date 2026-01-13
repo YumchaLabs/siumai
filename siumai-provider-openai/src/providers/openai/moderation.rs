@@ -52,6 +52,7 @@ impl OpenAiModeration {
     /// Get supported moderation models.
     pub fn get_supported_models(&self) -> Vec<String> {
         vec![
+            "omni-moderation-latest".to_string(),
             "text-moderation-stable".to_string(),
             "text-moderation-latest".to_string(),
         ]
@@ -59,7 +60,7 @@ impl OpenAiModeration {
 
     /// Get the default moderation model.
     pub fn default_model(&self) -> String {
-        "text-moderation-latest".to_string()
+        "omni-moderation-latest".to_string()
     }
 
     fn build_context(&self) -> crate::core::ProviderContext {

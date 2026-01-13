@@ -360,7 +360,7 @@ impl RequestTransformer for OpenAiRequestTransformer {
         let model = req
             .model
             .clone()
-            .unwrap_or_else(|| "text-moderation-latest".to_string());
+            .unwrap_or_else(|| "omni-moderation-latest".to_string());
 
         let input_value = if let Some(arr) = &req.inputs {
             serde_json::Value::Array(

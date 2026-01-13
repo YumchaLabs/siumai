@@ -147,7 +147,7 @@ impl OpenAiModels {
             "image_generation_hd" => "gpt-image-1".to_string(),
             "embeddings" => "text-embedding-3-large".to_string(),
             "embeddings_fast" => "text-embedding-3-small".to_string(),
-            "moderation" => "text-moderation-latest".to_string(),
+            "moderation" => "omni-moderation-latest".to_string(),
             _ => "gpt-4o".to_string(), // Default fallback
         }
     }
