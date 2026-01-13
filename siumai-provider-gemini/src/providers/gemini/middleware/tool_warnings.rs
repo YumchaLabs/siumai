@@ -49,6 +49,19 @@ impl GeminiToolWarningsMiddleware {
             return warnings;
         }
 
+        // Vercel AI SDK alignment: `google.vertex_rag_store` is a Vertex-only tool. When used with
+        // the Google Generative AI provider it may not be supported, so emit an informational warning.
+        if tools.iter().any(|t| {
+            matches!(
+                t,
+                Tool::ProviderDefined(provider_tool) if provider_tool.id == "google.vertex_rag_store"
+            )
+        }) {
+            warnings.push(Warning::other(
+                "The 'vertex_rag_store' tool is only supported with the Google Vertex provider and might not be supported or could behave unexpectedly with the current Google provider (gemini).",
+            ));
+        }
+
         let model_id = req.common_params.model.as_str();
         let is_gemini_2_or_newer = Self::is_gemini_2_or_newer(model_id);
         let supports_file_search = Self::supports_file_search(model_id);

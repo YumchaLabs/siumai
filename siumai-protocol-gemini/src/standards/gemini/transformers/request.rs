@@ -680,6 +680,11 @@ impl RequestTransformer for GeminiRequestTransformer {
                         parameters.insert("personGeneration".to_string(), v.clone());
                     }
 
+                    // Vercel AI SDK alignment: default aspect ratio is 1:1 for Imagen models.
+                    if parameters.get("aspectRatio").is_none() {
+                        parameters.insert("aspectRatio".to_string(), serde_json::json!("1:1"));
+                    }
+
                     let body = serde_json::json!({
                         "instances": [{ "prompt": req.prompt }],
                         "parameters": serde_json::Value::Object(parameters),

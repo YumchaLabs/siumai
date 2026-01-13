@@ -2,9 +2,50 @@ use super::GeminiClient;
 use crate::error::LlmError;
 use crate::traits::{ImageExtras, ImageGenerationCapability};
 use crate::types::{ImageEditRequest, ImageVariationRequest};
-use crate::types::{ImageGenerationRequest, ImageGenerationResponse};
+use crate::types::{ImageGenerationRequest, ImageGenerationResponse, Warning};
 use async_trait::async_trait;
 use std::sync::Arc;
+
+fn imagen_warning_parity(request: &ImageGenerationRequest) -> Vec<Warning> {
+    let model = request.model.as_deref().unwrap_or_default().trim();
+    if !model.starts_with("imagen-") {
+        return Vec::new();
+    }
+
+    let mut warnings = Vec::new();
+
+    if request.size.is_some() {
+        warnings.push(Warning::unsupported_setting(
+            "size",
+            Some("This model does not support the `size` option. Use `aspectRatio` instead."),
+        ));
+    }
+
+    if request.seed.is_some() {
+        warnings.push(Warning::unsupported_setting(
+            "seed",
+            Some("This model does not support the `seed` option through this provider."),
+        ));
+    }
+
+    warnings
+}
+
+fn merge_warnings(
+    mut resp: ImageGenerationResponse,
+    extra: Vec<Warning>,
+) -> ImageGenerationResponse {
+    if extra.is_empty() {
+        return resp;
+    }
+
+    match resp.warnings.as_mut() {
+        Some(existing) => existing.extend(extra),
+        None => resp.warnings = Some(extra),
+    }
+
+    resp
+}
 
 #[async_trait]
 impl ImageGenerationCapability for GeminiClient {
@@ -17,6 +58,9 @@ impl ImageGenerationCapability for GeminiClient {
         if request.model.is_none() {
             request.model = Some(self.config.model.clone());
         }
+
+        let parity_warnings = imagen_warning_parity(&request);
+
         let ctx = super::super::context::build_context(&self.config).await;
         let spec = Arc::new(crate::providers::gemini::spec::GeminiSpecWithConfig::new(
             self.config.clone(),
@@ -40,7 +84,8 @@ impl ImageGenerationCapability for GeminiClient {
             builder.build_for_request(&request)
         };
 
-        ImageExecutor::execute(&*exec, request).await
+        let resp = ImageExecutor::execute(&*exec, request).await?;
+        Ok(merge_warnings(resp, parity_warnings))
     }
 }
 
@@ -122,6 +167,31 @@ impl ImageExtras for GeminiClient {
 mod tests {
     use super::*;
     use crate::core::ProviderSpec;
+
+    #[test]
+    fn imagen_warnings_match_vercel_parity() {
+        let mut req = ImageGenerationRequest::default();
+        req.model = Some("imagen-3.0-generate-002".to_string());
+        req.size = Some("1024x1024".to_string());
+        req.seed = Some(123);
+
+        let warnings = imagen_warning_parity(&req);
+        assert_eq!(
+            warnings,
+            vec![
+                Warning::unsupported_setting(
+                    "size",
+                    Some(
+                        "This model does not support the `size` option. Use `aspectRatio` instead."
+                    )
+                ),
+                Warning::unsupported_setting(
+                    "seed",
+                    Some("This model does not support the `seed` option through this provider.")
+                )
+            ]
+        );
+    }
 
     #[test]
     fn spec_with_config_uses_request_model_for_image_url_and_body() {
