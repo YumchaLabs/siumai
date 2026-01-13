@@ -1,0 +1,7 @@
+[
+  {
+    "type": "unsupported-setting",
+    "setting": "conversation",
+    "details": "conversation and previousResponseId cannot be used together"
+  }
+]

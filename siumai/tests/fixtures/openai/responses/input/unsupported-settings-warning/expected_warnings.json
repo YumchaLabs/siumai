@@ -1,0 +1,7 @@
+[
+  { "type": "unsupported-setting", "setting": "topK" },
+  { "type": "unsupported-setting", "setting": "seed" },
+  { "type": "unsupported-setting", "setting": "presencePenalty" },
+  { "type": "unsupported-setting", "setting": "frequencyPenalty" },
+  { "type": "unsupported-setting", "setting": "stopSequences" }
+]

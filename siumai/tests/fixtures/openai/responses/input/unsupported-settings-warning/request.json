@@ -1,0 +1,22 @@
+{
+  "messages": [
+    { "role": "user", "content": { "Text": "Hello" }, "metadata": {} }
+  ],
+  "common_params": {
+    "model": "gpt-4o",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "top_k": 10.0,
+    "stop_sequences": ["STOP"],
+    "seed": 123,
+    "frequency_penalty": 0.5,
+    "presence_penalty": -0.25,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

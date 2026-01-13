@@ -1,0 +1,28 @@
+{
+  "messages": [
+    { "role": "user", "content": { "Text": "Hello" }, "metadata": {} }
+  ],
+  "providerOptions": {
+    "openai": {
+      "conversation": "conv_123",
+      "previousResponseId": "resp_123"
+    }
+  },
+  "common_params": {
+    "model": "gpt-4o",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "top_k": null,
+    "stop_sequences": null,
+    "seed": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

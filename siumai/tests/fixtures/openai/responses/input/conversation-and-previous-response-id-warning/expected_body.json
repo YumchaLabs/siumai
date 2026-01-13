@@ -1,0 +1,8 @@
+{
+  "model": "gpt-4o",
+  "input": [
+    { "role": "user", "content": [{ "type": "input_text", "text": "Hello" }] }
+  ],
+  "conversation": "conv_123",
+  "previous_response_id": "resp_123"
+}
