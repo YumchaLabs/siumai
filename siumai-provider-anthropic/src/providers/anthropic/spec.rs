@@ -738,10 +738,10 @@ impl AnthropicSpec {
                 }
 
                 let mut out = serde_json::Map::new();
-                if let Some(id) = id {
-                    if !id.is_empty() {
-                        out.insert("id".to_string(), serde_json::Value::String(id));
-                    }
+                if let Some(id) = id
+                    && !id.is_empty()
+                {
+                    out.insert("id".to_string(), serde_json::Value::String(id));
                 }
                 if !normalized_skills.is_empty() {
                     out.insert(

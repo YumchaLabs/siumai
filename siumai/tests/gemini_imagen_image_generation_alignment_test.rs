@@ -35,11 +35,13 @@ async fn gemini_imagen_defaults_aspect_ratio_and_emits_warnings() {
         .await
         .unwrap();
 
-    let mut req = ImageGenerationRequest::default();
-    req.prompt = "a cat".to_string();
-    req.count = 1;
-    req.size = Some("1024x1024".to_string());
-    req.seed = Some(42);
+    let req = ImageGenerationRequest {
+        prompt: "a cat".to_string(),
+        count: 1,
+        size: Some("1024x1024".to_string()),
+        seed: Some(42),
+        ..Default::default()
+    };
 
     let resp = client.generate_images(req).await.unwrap();
 

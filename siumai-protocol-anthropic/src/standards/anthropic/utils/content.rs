@@ -235,10 +235,10 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                 doc["title"] = serde_json::json!(name);
                             }
 
-                            if let Some(context) = obj.get("context").and_then(|v| v.as_str()) {
-                                if !context.is_empty() {
-                                    doc["context"] = serde_json::json!(context);
-                                }
+                            if let Some(context) = obj.get("context").and_then(|v| v.as_str())
+                                && !context.is_empty()
+                            {
+                                doc["context"] = serde_json::json!(context);
                             }
 
                             let enabled = obj

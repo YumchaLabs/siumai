@@ -638,9 +638,9 @@ impl RequestTransformer for GeminiRequestTransformer {
                         ));
                     }
 
-                    fn get_provider_options<'a>(
-                        req: &'a ImageGenerationRequest,
-                    ) -> Option<&'a serde_json::Value> {
+                    fn get_provider_options(
+                        req: &ImageGenerationRequest,
+                    ) -> Option<&serde_json::Value> {
                         req.provider_options_map
                             .get("gemini")
                             .or_else(|| req.provider_options_map.get("google"))

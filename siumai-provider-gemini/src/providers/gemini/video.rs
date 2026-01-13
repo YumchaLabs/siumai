@@ -11,7 +11,6 @@ use crate::execution::executors::common::{HttpBody, execute_get_request, execute
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
-use crate::types::HttpConfig;
 use crate::types::video::{
     BaseResponse, VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus,
     VideoTaskStatusResponse,
@@ -264,7 +263,6 @@ pub struct GeminiVideo {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     retry_options: Option<RetryOptions>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
-    http_config: HttpConfig,
 }
 
 impl GeminiVideo {
@@ -274,7 +272,6 @@ impl GeminiVideo {
         http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
         retry_options: Option<RetryOptions>,
         http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
-        http_config: HttpConfig,
     ) -> Self {
         Self {
             config,
@@ -282,7 +279,6 @@ impl GeminiVideo {
             http_interceptors,
             retry_options,
             http_transport,
-            http_config,
         }
     }
 

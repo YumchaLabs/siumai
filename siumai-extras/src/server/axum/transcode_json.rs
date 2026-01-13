@@ -20,16 +20,10 @@ pub enum TargetJsonFormat {
 }
 
 /// Options for transcoding a `ChatResponse` into a provider JSON response body.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TranscodeJsonOptions {
     /// Whether to pretty-print the JSON output.
     pub pretty: bool,
-}
-
-impl Default for TranscodeJsonOptions {
-    fn default() -> Self {
-        Self { pretty: false }
-    }
 }
 
 /// Convert a unified `ChatResponse` into a provider-native JSON response body (best-effort).

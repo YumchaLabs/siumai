@@ -157,7 +157,7 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     body["system"] = serde_json::json!(sys);
                 }
                 if let Some(t) = req.common_params.temperature {
-                    let clamped = t.max(0.0).min(1.0);
+                    let clamped = t.clamp(0.0, 1.0);
                     body["temperature"] = serde_json::json!(clamped);
                 }
                 if let Some(tp) = req.common_params.top_p {

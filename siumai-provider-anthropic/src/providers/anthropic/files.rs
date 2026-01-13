@@ -65,6 +65,7 @@ pub struct AnthropicFiles {
 }
 
 impl AnthropicFiles {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: SecretString,
         base_url: String,

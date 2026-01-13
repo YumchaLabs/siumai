@@ -32,11 +32,7 @@ fn create_test_request() -> ChatRequest {
             model: "test-model".to_string(),
             temperature: Some(0.7),
             max_tokens: Some(100),
-            max_completion_tokens: None,
-            top_p: None,
-            top_k: None,
-            stop_sequences: None,
-            seed: None,
+            ..Default::default()
         })
         .build()
 }

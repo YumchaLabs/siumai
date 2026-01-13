@@ -15,7 +15,6 @@ impl VideoGenerationCapability for GeminiClient {
             self.http_interceptors.clone(),
             self.retry_options.clone(),
             self.config.http_transport.clone(),
-            self.config.http_config.clone(),
         );
         helper.create_video_task(request).await
     }
@@ -30,7 +29,6 @@ impl VideoGenerationCapability for GeminiClient {
             self.http_interceptors.clone(),
             self.retry_options.clone(),
             self.config.http_transport.clone(),
-            self.config.http_config.clone(),
         );
         helper.query_video_task(task_id).await
     }

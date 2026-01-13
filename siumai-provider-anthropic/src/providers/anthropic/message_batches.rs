@@ -68,6 +68,7 @@ pub struct AnthropicMessageBatches {
 }
 
 impl AnthropicMessageBatches {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: SecretString,
         base_url: String,

@@ -35,6 +35,7 @@ pub struct AnthropicTokens {
 }
 
 impl AnthropicTokens {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: SecretString,
         base_url: String,

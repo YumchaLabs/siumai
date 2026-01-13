@@ -170,10 +170,12 @@ mod tests {
 
     #[test]
     fn imagen_warnings_match_vercel_parity() {
-        let mut req = ImageGenerationRequest::default();
-        req.model = Some("imagen-3.0-generate-002".to_string());
-        req.size = Some("1024x1024".to_string());
-        req.seed = Some(123);
+        let req = ImageGenerationRequest {
+            model: Some("imagen-3.0-generate-002".to_string()),
+            size: Some("1024x1024".to_string()),
+            seed: Some(123),
+            ..Default::default()
+        };
 
         let warnings = imagen_warning_parity(&req);
         assert_eq!(

@@ -112,12 +112,10 @@ impl ProviderSpec for GeminiImageSpec {
         let model = super::normalize_gemini_model_id(req.model.as_deref().unwrap_or(""));
         if let Some(adapter) = &self.adapter {
             format!("{}{}", base, adapter.image_endpoint(&model))
+        } else if model.trim().starts_with("imagen-") {
+            format!("{}/models/{}:predict", base, model)
         } else {
-            if model.trim().starts_with("imagen-") {
-                format!("{}/models/{}:predict", base, model)
-            } else {
-                format!("{}/models/{}:generateContent", base, model)
-            }
+            format!("{}/models/{}:generateContent", base, model)
         }
     }
     fn choose_image_transformers(

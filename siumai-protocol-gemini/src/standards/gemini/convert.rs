@@ -626,32 +626,33 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                     thought_signature.clone(),
                                 );
                             }
-                            ToolResultContentPart::Image { source, .. } => match source {
-                                crate::types::chat::MediaSource::Base64 { data } => {
-                                    parts.push(Part::InlineData {
-                                        inline_data: super::types::Blob {
-                                            mime_type: "image/jpeg".to_string(),
-                                            data: data.clone(),
-                                        },
-                                        thought_signature: thought_signature.clone(),
-                                    });
-                                    parts.push(Part::Text {
-                                        text: "Tool executed successfully and returned this image as a response"
-                                            .to_string(),
-                                        thought: None,
-                                        thought_signature: thought_signature.clone(),
-                                    });
-                                }
-                                _ => {
-                                    let as_json =
-                                        serde_json::to_string(content_part).unwrap_or_default();
-                                    parts.push(Part::Text {
-                                        text: as_json,
-                                        thought: None,
-                                        thought_signature: thought_signature.clone(),
-                                    });
-                                }
-                            },
+                            ToolResultContentPart::Image {
+                                source: crate::types::chat::MediaSource::Base64 { data },
+                                ..
+                            } => {
+                                parts.push(Part::InlineData {
+                                    inline_data: super::types::Blob {
+                                        mime_type: "image/jpeg".to_string(),
+                                        data: data.clone(),
+                                    },
+                                    thought_signature: thought_signature.clone(),
+                                });
+                                parts.push(Part::Text {
+                                    text: "Tool executed successfully and returned this image as a response"
+                                        .to_string(),
+                                    thought: None,
+                                    thought_signature: thought_signature.clone(),
+                                });
+                            }
+                            content_part @ ToolResultContentPart::Image { .. } => {
+                                let as_json =
+                                    serde_json::to_string(&content_part).unwrap_or_default();
+                                parts.push(Part::Text {
+                                    text: as_json,
+                                    thought: None,
+                                    thought_signature: thought_signature.clone(),
+                                });
+                            }
                             _ => {
                                 let as_json =
                                     serde_json::to_string(content_part).unwrap_or_default();
