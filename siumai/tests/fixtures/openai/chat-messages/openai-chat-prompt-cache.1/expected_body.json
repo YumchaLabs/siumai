@@ -1,0 +1,7 @@
+{
+  "model": "gpt-5.1",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "prompt_cache_key": "k1",
+  "prompt_cache_retention": "24h"
+}
+

@@ -1,0 +1,8 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "store": false,
+  "metadata": { "k": "v" },
+  "prediction": { "type": "content", "content": "hi" }
+}
+

@@ -1,0 +1,7 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "frequency_penalty": 1.1,
+  "presence_penalty": -0.2
+}
+

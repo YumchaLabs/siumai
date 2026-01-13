@@ -1,0 +1,7 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "parallel_tool_calls": false,
+  "user": "end_user_1"
+}
+

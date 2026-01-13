@@ -1,0 +1,6 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "safety_identifier": "sid_1"
+}
+
