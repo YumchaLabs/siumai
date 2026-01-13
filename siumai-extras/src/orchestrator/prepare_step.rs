@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use super::types::StepResult;
-use siumai::prelude::unified::{ChatMessage, Tool};
+use siumai::prelude::unified::{ChatMessage, ProviderOptionsMap, Tool};
 
 /// Context provided to the prepare step callback.
 pub struct PrepareStepContext<'a> {
@@ -31,6 +31,11 @@ pub struct PrepareStepResult {
     pub system: Option<String>,
     /// Override the message history for this step.
     pub messages: Option<Vec<ChatMessage>>,
+    /// Provider options overrides for this step (Vercel-aligned `providerOptions`).
+    ///
+    /// Merged into the outgoing `ChatRequest.provider_options_map` using
+    /// `ProviderOptionsMap::merge_overrides` (deep-merge for JSON objects).
+    pub provider_options_map: Option<ProviderOptionsMap>,
 }
 
 // Default is derived
@@ -63,6 +68,26 @@ impl PrepareStepResult {
     pub fn with_messages(mut self, messages: Vec<ChatMessage>) -> Self {
         self.messages = Some(messages);
         self
+    }
+
+    /// Merge provider options into this step.
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        match self.provider_options_map.as_mut() {
+            Some(existing) => existing.merge_overrides(map),
+            None => self.provider_options_map = Some(map),
+        }
+        self
+    }
+
+    /// Set provider options under a provider id (convenience wrapper).
+    pub fn with_provider_option(
+        self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        let mut map = ProviderOptionsMap::new();
+        map.insert(provider_id, options);
+        self.with_provider_options_map(map)
     }
 }
 
@@ -115,6 +140,56 @@ pub enum ToolChoice {
 /// ```
 pub type PrepareStepFn = Arc<dyn Fn(PrepareStepContext) -> PrepareStepResult + Send + Sync>;
 
+/// Find the most recent Anthropic container id from prior steps (Vercel-aligned).
+///
+/// This inspects `StepResult.provider_metadata.anthropic.container.id` searching backwards.
+pub fn find_anthropic_container_id_from_last_step(steps: &[StepResult]) -> Option<String> {
+    for step in steps.iter().rev() {
+        let Some(provider_meta) = step.provider_metadata.as_ref() else {
+            continue;
+        };
+
+        let Some(provider) = provider_meta
+            .get("anthropic")
+            .or_else(|| provider_meta.get("Anthropic"))
+        else {
+            continue;
+        };
+
+        let id = provider
+            .get("container")
+            .and_then(|v| v.as_object())
+            .and_then(|obj| obj.get("id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        if id.as_deref().is_some_and(|s| !s.is_empty()) {
+            return id;
+        }
+    }
+
+    None
+}
+
+/// Create providerOptions overrides that forward Anthropic container id between steps.
+///
+/// Equivalent to Vercel AI SDK's `forwardAnthropicContainerIdFromLastStep` helper.
+pub fn forward_anthropic_container_id_from_last_step(
+    steps: &[StepResult],
+) -> Option<ProviderOptionsMap> {
+    let container_id = find_anthropic_container_id_from_last_step(steps)?;
+
+    let mut map = ProviderOptionsMap::new();
+    map.insert(
+        "anthropic",
+        serde_json::json!({
+            "container": { "id": container_id }
+        }),
+    );
+
+    Some(map)
+}
+
 /// Helper function to filter tools based on active_tools list.
 pub(crate) fn filter_active_tools(tools: &[Tool], active_tools: &Option<Vec<String>>) -> Vec<Tool> {
     if let Some(active) = active_tools {
@@ -152,6 +227,33 @@ mod tests {
         );
         assert_eq!(result.system, Some("Custom system message".to_string()));
         assert!(result.messages.is_none());
+    }
+
+    #[test]
+    fn forward_anthropic_container_id_from_last_step_reads_provider_metadata() {
+        use std::collections::HashMap;
+
+        let step = StepResult {
+            messages: vec![],
+            finish_reason: None,
+            usage: None,
+            tool_calls: vec![],
+            tool_results: vec![],
+            warnings: None,
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                HashMap::from([(
+                    "container".to_string(),
+                    serde_json::json!({ "id": "container_123", "expiresAt": "2025-01-01T00:00:00Z" }),
+                )]),
+            )])),
+        };
+
+        let map = forward_anthropic_container_id_from_last_step(&[step]).expect("expected map");
+        assert_eq!(
+            map.get("anthropic"),
+            Some(&serde_json::json!({ "container": { "id": "container_123" } }))
+        );
     }
 
     #[test]

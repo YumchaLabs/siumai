@@ -167,6 +167,7 @@ fn test_step_result_merge_usage() {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         },
         StepResult {
             messages: vec![],
@@ -183,6 +184,7 @@ fn test_step_result_merge_usage() {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         },
     ];
 
@@ -526,6 +528,7 @@ fn test_all_of_stop_condition() {
         tool_calls: vec![],
         tool_results: vec![],
         warnings: None,
+        provider_metadata: None,
     }];
     assert!(!condition.should_stop(&steps)); // has_text_response but not step_count
 
@@ -538,6 +541,7 @@ fn test_all_of_stop_condition() {
             tool_calls: vec![ContentPart::tool_call("call_1", "tool1", json!({}), None)],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         },
         StepResult {
             messages: vec![ChatMessage::assistant("text").build()],
@@ -546,6 +550,7 @@ fn test_all_of_stop_condition() {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         },
     ];
     assert!(condition.should_stop(&steps)); // Both conditions met
@@ -742,6 +747,7 @@ fn test_step_result_merge_usage_partial() {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         },
         StepResult {
             messages: vec![],
@@ -750,6 +756,7 @@ fn test_step_result_merge_usage_partial() {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         },
     ];
 

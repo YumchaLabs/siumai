@@ -310,6 +310,7 @@ mod tests {
                 .collect(),
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         }
     }
 
@@ -321,6 +322,7 @@ mod tests {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         }
     }
 
@@ -410,6 +412,7 @@ mod tests {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         };
         let steps = [step_no_results.clone()];
         assert!(!condition.should_stop(&steps));
@@ -425,6 +428,7 @@ mod tests {
                 provider_metadata: None,
             }],
             warnings: None,
+            provider_metadata: None,
         };
         let steps = [step_with_results];
         assert!(condition.should_stop(&steps));
@@ -450,6 +454,7 @@ mod tests {
             tool_calls: vec![],
             tool_results: vec![],
             warnings: None,
+            provider_metadata: None,
         };
         let steps = [step_no_calls];
         assert!(condition.should_stop(&steps));

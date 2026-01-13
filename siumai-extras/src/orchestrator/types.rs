@@ -8,6 +8,7 @@ use serde_json::Value;
 use super::prepare_step::PrepareStepFn;
 use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai::prelude::unified::*;
+use std::collections::HashMap;
 
 /// Result of a single step during orchestration.
 #[derive(Debug, Clone)]
@@ -31,6 +32,13 @@ pub struct StepResult {
     /// This field contains warnings from the ChatResponse, providing visibility
     /// into non-fatal issues during generation.
     pub warnings: Option<Vec<Warning>>,
+    /// Provider-specific metadata from the model response (Vercel-aligned).
+    ///
+    /// Shape: `{ "provider_id": { "key": value, ... }, ... }`
+    ///
+    /// This is useful for workflows that need to forward provider state between steps
+    /// (e.g., Anthropic container IDs for code execution / skills).
+    pub provider_metadata: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
 }
 
 impl StepResult {

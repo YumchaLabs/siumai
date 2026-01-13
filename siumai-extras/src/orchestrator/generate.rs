@@ -86,6 +86,7 @@ pub async fn generate(
         let mut current_messages = history.clone();
         let mut current_tool_choice: Option<ToolChoice> = None;
         let mut current_system: Option<String> = None;
+        let mut current_provider_options_map: Option<ProviderOptionsMap> = None;
 
         if let Some(ref prepare_fn) = opts.prepare_step {
             let ctx = PrepareStepContext {
@@ -115,6 +116,11 @@ pub async fn generate(
             if let Some(system) = prepare_result.system {
                 current_system = Some(system);
             }
+
+            // Apply provider options override
+            if let Some(map) = prepare_result.provider_options_map {
+                current_provider_options_map = Some(map);
+            }
         }
 
         // Apply system message override if provided
@@ -123,8 +129,11 @@ pub async fn generate(
             current_messages.insert(0, ChatMessage::system(system).build());
         }
 
-        // Use chat_request if we have tool_choice override or common_params
-        let resp = if current_tool_choice.is_some() || opts.common_params.is_some() {
+        // Use chat_request if we have tool_choice override, common_params, or providerOptions.
+        let resp = if current_tool_choice.is_some()
+            || opts.common_params.is_some()
+            || current_provider_options_map.is_some()
+        {
             let mut request = ChatRequest::new(current_messages.clone());
 
             if let Some(tools) = current_tools.clone() {
@@ -138,6 +147,10 @@ pub async fn generate(
             // Apply agent-level common_params
             if let Some(ref common_params) = opts.common_params {
                 request = request.with_common_params(common_params.clone());
+            }
+
+            if let Some(map) = current_provider_options_map {
+                request.provider_options_map.merge_overrides(map);
             }
 
             model.chat_request(request).await?
@@ -297,6 +310,7 @@ pub async fn generate(
             tool_calls: tool_calls.clone(),
             tool_results,
             warnings: resp.warnings.clone(),
+            provider_metadata: resp.provider_metadata.clone(),
         };
         if let Some(cb) = &opts.on_step_finish {
             cb(&step);

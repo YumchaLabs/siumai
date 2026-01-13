@@ -344,6 +344,7 @@ where
                 tool_calls: tool_calls.clone(),
                 tool_results,
                 warnings: resp.warnings.clone(),
+                provider_metadata: resp.provider_metadata.clone(),
             };
             if let Some(cb) = &on_step_finish {
                 cb(&step);
