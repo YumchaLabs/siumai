@@ -84,6 +84,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Model listing and model retrieval endpoints are now spec-driven (`ProviderSpec::{models_url, model_url}`) to support non-OpenAI routes (e.g. Anthropic `/v1/models`, Ollama `/api/tags`) without provider-specific URL plumbing.
 - Advanced orchestrator examples are now maintained under `siumai-extras/examples/*` (the `siumai` facade focuses on low-level provider/client APIs).
 - HTTP execution now supports an injectable transport (`fetch` / `HttpTransport`) across providers, including streaming use-cases (gateway parity with Vercel's `fetch(customTransport)`).
+- OpenAI moderation now defaults to `omni-moderation-latest` when no model is provided.
 - Gateway/proxy streaming policies are now explicit:
   - V3 parts that cannot be represented in a target wire format follow `V3UnsupportedPartBehavior` (drop in strict mode, lossy text downgrade in `AsText` mode), including `tool-approval-request`, `raw`, and `file` parts.
 - Gateways can also transcode non-streaming results into provider JSON responses:
@@ -110,11 +111,19 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 - Gemini base URL defaults are now consistent across protocol and provider metadata (`https://generativelanguage.googleapis.com/v1beta`).
 - Gemini Vertex AI URLs now accept resource-style model names (e.g. `models/gemini-2.0-flash`) and normalize them to prevent duplicate `/models/...` segments.
+- Gemini tool result encoding is now Vercel-aligned (tool role maps to `function_call_output`/`functionResponse`; assistant URL-based `fileData` is rejected).
 - Vertex `base_url_for_vertex(...)` now prefers the regional host (`https://{location}-aiplatform.googleapis.com`) to match official docs (location `global` still uses `https://aiplatform.googleapis.com`).
+- Vertex enterprise auth now auto-enables ADC bearer token wiring (and does not overwrite user-provided `Authorization` headers), matching Vercel behavior.
+- Vertex Imagen requests in API-key mode now append `?key=...` to the endpoint URL (Vercel parity).
 - Anthropic on Vertex now matches Vercel request shaping:
   - Uses `:rawPredict` / `:streamRawPredict` (instead of `?alt=sse`)
   - Injects `anthropic_version: "vertex-2023-10-16"` and omits the `model` field from the request body
+- Anthropic orchestrator steps now forward `providerMetadata.anthropic.container.id` into `providerOptions.anthropic.container.id` automatically.
 - OpenAI rerank response parsing no longer panics on missing optional fields (runtime unwrap removal).
+- OpenAI Responses API now matches Vercel warning semantics:
+  - `conversation` and `previousResponseId` may both be sent (warning emitted instead of hard error).
+  - Unsupported standardized settings (`seed`, `topK`, `stopSequences`, penalties) are ignored with warnings.
+- OpenAI transcription SSE streaming now preserves accumulated deltas when the stream ends via `[DONE]`/EOF (best-effort `Done.text`).
 - Gemini/Anthropic system instruction semantics are now Vercel-aligned (system/developer messages must appear at the beginning; provider-specific exceptions handled internally).
 - Anthropic streaming metadata is preserved and surfaced via `provider_metadata["anthropic"]` (thinking replay signatures, redacted thinking, and normalized sources/citations).
 - SSE decoding is stricter for JSON payloads (invalid frames no longer silently corrupt downstream state).
