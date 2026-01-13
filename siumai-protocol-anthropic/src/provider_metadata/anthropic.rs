@@ -109,6 +109,43 @@ pub struct AnthropicMetadata {
     /// Sources extracted from provider-hosted tool results (Vercel-aligned).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<AnthropicSource>>,
+
+    /// Container information (code execution / skills; Vercel-aligned provider metadata shape).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<AnthropicContainerMetadata>,
+
+    /// Context management response (Vercel-aligned provider metadata shape).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "contextManagement")]
+    pub context_management: Option<serde_json::Value>,
+}
+
+/// Container metadata returned by Anthropic when container tools are used.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicContainerMetadata {
+    /// Identifier for the container used in this request.
+    pub id: Option<String>,
+
+    /// Container expiration time as an RFC3339 string.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "expiresAt")]
+    pub expires_at: Option<String>,
+
+    /// Skills loaded in the container (when applicable).
+    pub skills: Option<Vec<AnthropicContainerSkill>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicContainerSkill {
+    /// Skill type ("anthropic" or "custom").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+
+    /// Skill id.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "skillId")]
+    pub skill_id: Option<String>,
+
+    /// Skill version (or "latest").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 impl crate::types::provider_metadata::FromMetadata for AnthropicMetadata {

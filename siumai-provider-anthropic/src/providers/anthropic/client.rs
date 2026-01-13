@@ -277,12 +277,22 @@ impl AnthropicClient {
 
     /// Provider-only Files API helpers (beta `files-api-2025-04-14`).
     pub fn files(&self) -> super::files::AnthropicFiles {
+        // Best-effort: many environments require enabling the files beta, and the Files API is
+        // explicitly documented as beta-gated in the Vercel AI SDK.
+        let mut betas = self.specific_params.beta_features.clone();
+        if !betas
+            .iter()
+            .any(|b| b.trim().eq_ignore_ascii_case("files-api-2025-04-14"))
+        {
+            betas.push("files-api-2025-04-14".to_string());
+        }
+
         super::files::AnthropicFiles::new(
             self.api_key.clone(),
             self.base_url.clone(),
             self.http_client.clone(),
             self.http_config.clone(),
-            self.specific_params.beta_features.clone(),
+            betas,
             self.http_transport.clone(),
             self.http_interceptors.clone(),
             self.retry_options.clone(),

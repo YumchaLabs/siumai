@@ -3,6 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
+use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 use siumai_core::types::{ChatResponse, MessageContent, Warning};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -634,6 +635,28 @@ fn anthropic_agent_skills_provider_metadata_maps_container_skills() {
         arr.iter()
             .any(|s| s.get("skillId").and_then(|v| v.as_str()) == Some("pptx")),
         "expected container.skills to include pptx skillId"
+    );
+
+    // Typed metadata should also expose container information (Vercel-aligned).
+    let typed = resp
+        .anthropic_metadata()
+        .expect("expected typed anthropic metadata");
+    let container = typed.container.expect("expected typed container metadata");
+    assert!(
+        matches!(container.id.as_deref(), Some(id) if !id.is_empty()),
+        "expected typed container.id"
+    );
+    assert!(
+        matches!(container.expires_at.as_deref(), Some(ts) if !ts.is_empty()),
+        "expected typed container.expiresAt"
+    );
+    assert!(
+        container
+            .skills
+            .unwrap_or_default()
+            .iter()
+            .any(|s| s.skill_id.as_deref() == Some("pptx")),
+        "expected typed container.skills to include pptx"
     );
 }
 
