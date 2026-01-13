@@ -1,0 +1,6 @@
+data: {"type":"transcript.text.delta","delta":"hel"}
+
+data: {"type":"transcript.text.delta","delta":"lo"}
+
+data: [DONE]
+
