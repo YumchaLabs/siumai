@@ -12,6 +12,11 @@ It complements:
 ## Sources (Google AI for Developers)
 
 - Text generation (REST): <https://ai.google.dev/gemini-api/docs/text-generation?lang=rest>
+- Embeddings: <https://ai.google.dev/gemini-api/docs/embeddings>
+- Imagen (image generation API): <https://ai.google.dev/gemini-api/docs/imagen>
+- Gemini image models (Nano Banana): <https://ai.google.dev/gemini-api/docs/image-generation>
+- Video generation (Veo): <https://ai.google.dev/gemini-api/docs/video>
+- Music generation (Lyria RealTime / Live API): <https://ai.google.dev/gemini-api/docs/music-generation>
 - API overview: <https://ai.google.dev/gemini-api/docs/api-overview>
 - API reference (GenerateContent + StreamGenerateContent): <https://ai.google.dev/api/generate-content>
 
@@ -66,6 +71,7 @@ The official docs describe (and the API reference expands) a request body center
 
 - `contents[]` with multi-part content (text, inline data, etc.)
 - Optional generation config (e.g. temperature/max output tokens)
+- Optional logprobs export (`generationConfig.responseLogprobs`, `generationConfig.logprobs`)
 - Optional safety settings
 - Optional tools/function calling (`tools`, `toolConfig`)
 
@@ -76,6 +82,27 @@ The official docs describe (and the API reference expands) a request body center
   - `siumai-protocol-gemini/src/standards/gemini/transformers.rs`
 - Fixtures:
   - `siumai/tests/fixtures/google_generative_ai/*`
+
+## Logprobs (`responseLogprobs` / `logprobs`)
+
+From the API reference:
+
+- Request:
+  - `generationConfig.responseLogprobs: boolean` enables logprobs export.
+  - `generationConfig.logprobs: integer` controls top-K logprobs per decoding step (valid when `responseLogprobs == true`).
+- Response:
+  - `candidates[].avgLogprobs: number`
+  - `candidates[].logprobsResult: LogprobsResult`
+
+### Siumai mapping
+
+- Request:
+  - Protocol: `siumai-protocol-gemini/src/standards/gemini/types/generation.rs` (`GenerationConfig`)
+  - Provider options: `siumai-provider-gemini/src/provider_options/gemini/mod.rs` (`GeminiOptions`)
+- Response:
+  - Protocol parsing: `siumai-protocol-gemini/src/standards/gemini/types/content.rs` (`Candidate.avg_logprobs`, `Candidate.logprobs_result`)
+  - Exposed via `ChatResponse.provider_metadata` under the Vercel-aligned namespace key (`google` / `vertex`).
+  - Typed access: `siumai-provider-gemini/src/provider_metadata/gemini.rs` (`GeminiMetadata`)
 
 ## Streaming protocol (SSE)
 
@@ -102,3 +129,83 @@ From the official REST docs:
 
 - Gemini (GenerateContent + SSE streaming) is treated as **Green** for parity and “practical official correctness”
   (base URL, auth headers, endpoints, request shapes, streaming protocol behavior).
+
+## Additional endpoints (Embeddings / Imagen / Tokens / Caching / Video)
+
+This repo also aligns a few non-chat endpoints used by the official docs and/or Vercel AI SDK.
+
+### Embeddings (`embedContent` / `batchEmbedContents`)
+
+**Official endpoints**
+
+- `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent`
+- `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents`
+
+**Siumai mapping**
+
+- Protocol: `siumai-protocol-gemini/src/standards/gemini/embedding.rs`
+- Transformer:
+  - Request: `siumai-protocol-gemini/src/standards/gemini/transformers/request.rs` (`transform_embedding`)
+  - Response: `siumai-protocol-gemini/src/standards/gemini/transformers/response.rs` (supports `usageMetadata`)
+- Provider: `siumai-provider-gemini/src/providers/gemini/client/embedding.rs`
+
+### Imagen (`predict`)
+
+**Official endpoint**
+
+- `POST https://generativelanguage.googleapis.com/v1beta/models/{imagen-model}:predict`
+
+**Siumai mapping**
+
+- Protocol router: `siumai-protocol-gemini/src/standards/gemini/image.rs` (routes `imagen-*` → `:predict`)
+- Transformers:
+  - Request: `siumai-protocol-gemini/src/standards/gemini/transformers/request.rs`
+  - Response: `siumai-protocol-gemini/src/standards/gemini/transformers/response.rs` (parses `predictions[].bytesBase64Encoded`)
+
+### Token counting (`countTokens`)
+
+**Official endpoint**
+
+- `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:countTokens`
+
+**Siumai mapping**
+
+- Provider-only helper: `siumai-provider-gemini/src/providers/gemini/tokens.rs`
+
+### Cached contents (`/cachedContents`)
+
+**Official endpoints**
+
+- `POST /cachedContents`
+- `GET /cachedContents`
+- `GET /cachedContents/{id}`
+- `PATCH /cachedContents/{id}` (with `updateMask`)
+- `DELETE /cachedContents/{id}`
+
+**Siumai mapping**
+
+- Provider-only helper: `siumai-provider-gemini/src/providers/gemini/cached_contents.rs`
+
+### Video generation (Veo / `predictLongRunning`)
+
+**Official endpoints**
+
+- `POST https://generativelanguage.googleapis.com/v1beta/models/{veo-model}:predictLongRunning`
+- `GET  https://generativelanguage.googleapis.com/v1beta/{operation.name}` (poll until `done == true`)
+
+**Siumai mapping**
+
+- Provider-only helper: `siumai-provider-gemini/src/providers/gemini/video.rs`
+- Unified capability:
+  - `GeminiClient` implements `VideoGenerationCapability` via `siumai-provider-gemini/src/providers/gemini/client/video.rs`
+
+**Download note**
+
+The Veo operation response exposes a downloadable HTTPS URI (not a Files API resource).
+For convenience, `GeminiFiles::get_file_content(...)` accepts such URIs directly when the input is `http(s)://...`.
+
+### Music generation (Lyria RealTime)
+
+The official music generation docs are built on the **Live API / WebSocket** (`client.live.music.connect(...)`).
+Siumai currently does not implement the Live API client surface for Gemini, so this feature is treated as
+**unsupported** at the unified `MusicGenerationCapability` layer for now.

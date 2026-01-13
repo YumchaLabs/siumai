@@ -107,7 +107,8 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_embedding()
             .with_file_management()
             .with_image_generation()
-            .with_custom_feature("thinking", true),
+            .with_custom_feature("thinking", true)
+            .with_custom_feature("video", true),
     });
 
     // Google Vertex AI (Imagen via Vertex).

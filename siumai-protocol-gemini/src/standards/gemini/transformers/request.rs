@@ -48,6 +48,35 @@ impl RequestTransformer for GeminiRequestTransformer {
                 if let Some(stops) = &req.common_params.stop_sequences {
                     body["stop_sequences"] = serde_json::json!(stops);
                 }
+                if let Some(top_k) = req.common_params.top_k {
+                    // Gemini expects an integer topK.
+                    let rounded = top_k.round();
+                    if (top_k - rounded).abs() > 1e-9 {
+                        return Err(LlmError::InvalidParameter(
+                            "top_k must be an integer for Gemini".to_string(),
+                        ));
+                    }
+                    if rounded < 0.0 || rounded > i32::MAX as f64 {
+                        return Err(LlmError::InvalidParameter(
+                            "top_k must be between 0 and i32::MAX for Gemini".to_string(),
+                        ));
+                    }
+                    body["top_k"] = serde_json::json!(rounded as i32);
+                }
+                if let Some(seed) = req.common_params.seed {
+                    if seed > i32::MAX as u64 {
+                        return Err(LlmError::InvalidParameter(
+                            "seed must be <= i32::MAX for Gemini".to_string(),
+                        ));
+                    }
+                    body["seed"] = serde_json::json!(seed as i32);
+                }
+                if let Some(fp) = req.common_params.frequency_penalty {
+                    body["frequency_penalty"] = serde_json::json!(fp);
+                }
+                if let Some(pp) = req.common_params.presence_penalty {
+                    body["presence_penalty"] = serde_json::json!(pp);
+                }
                 Ok(body)
             }
 
@@ -56,6 +85,54 @@ impl RequestTransformer for GeminiRequestTransformer {
                 req: &ChatRequest,
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
+                fn denormalize_image_config(value: &serde_json::Value) -> serde_json::Value {
+                    let Some(obj) = value.as_object() else {
+                        return value.clone();
+                    };
+                    let mut out = serde_json::Map::new();
+                    for (k, v) in obj {
+                        match k.as_str() {
+                            "aspect_ratio" => out.insert("aspectRatio".to_string(), v.clone()),
+                            "image_size" => out.insert("imageSize".to_string(), v.clone()),
+                            "aspectRatio" | "imageSize" => out.insert(k.clone(), v.clone()),
+                            other => out.insert(other.to_string(), v.clone()),
+                        };
+                    }
+                    serde_json::Value::Object(out)
+                }
+
+                fn denormalize_retrieval_config(value: &serde_json::Value) -> serde_json::Value {
+                    let Some(obj) = value.as_object() else {
+                        return value.clone();
+                    };
+                    let mut out = serde_json::Map::new();
+                    for (k, v) in obj {
+                        match k.as_str() {
+                            "lat_lng" => out.insert("latLng".to_string(), v.clone()),
+                            "latLng" => out.insert(k.clone(), v.clone()),
+                            other => out.insert(other.to_string(), v.clone()),
+                        };
+                    }
+                    serde_json::Value::Object(out)
+                }
+
+                fn validate_thinking_config(value: &serde_json::Value) -> Result<(), LlmError> {
+                    let Some(obj) = value.as_object() else {
+                        return Ok(());
+                    };
+                    let has_budget =
+                        obj.get("thinkingBudget").is_some() || obj.get("thinking_budget").is_some();
+                    let has_level =
+                        obj.get("thinkingLevel").is_some() || obj.get("thinking_level").is_some();
+                    if has_budget && has_level {
+                        return Err(LlmError::InvalidParameter(
+                            "thinkingConfig must not include both thinkingBudget and thinkingLevel"
+                                .to_string(),
+                        ));
+                    }
+                    Ok(())
+                }
+
                 // Add tool_choice if specified (Gemini toolConfig).
                 //
                 // Vercel AI SDK alignment:
@@ -107,6 +184,11 @@ impl RequestTransformer for GeminiRequestTransformer {
                     if opts.response_modalities.is_some()
                         || opts.thinking_config.is_some()
                         || opts.audio_timestamp.is_some()
+                        || opts.media_resolution.is_some()
+                        || opts.image_config.is_some()
+                        || opts.response_logprobs.is_some()
+                        || opts.logprobs.is_some()
+                        || opts.response_json_schema.is_some()
                     {
                         if body
                             .get("generationConfig")
@@ -126,6 +208,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                                 );
                             }
                             if let Some(thinking) = &opts.thinking_config {
+                                validate_thinking_config(thinking)?;
                                 obj.insert(
                                     "thinkingConfig".to_string(),
                                     serde_json::json!(thinking),
@@ -136,6 +219,33 @@ impl RequestTransformer for GeminiRequestTransformer {
                                     "audioTimestamp".to_string(),
                                     serde_json::json!(audio_ts),
                                 );
+                            }
+                            if let Some(resolution) = &opts.media_resolution {
+                                obj.insert(
+                                    "mediaResolution".to_string(),
+                                    serde_json::json!(resolution),
+                                );
+                            }
+                            if let Some(image_cfg) = &opts.image_config {
+                                obj.insert(
+                                    "imageConfig".to_string(),
+                                    denormalize_image_config(image_cfg),
+                                );
+                            }
+                            if let Some(rjs) = &opts.response_json_schema {
+                                obj.insert(
+                                    "responseJsonSchema".to_string(),
+                                    serde_json::json!(rjs),
+                                );
+                            }
+                            if let Some(enabled) = opts.response_logprobs {
+                                obj.insert(
+                                    "responseLogprobs".to_string(),
+                                    serde_json::json!(enabled),
+                                );
+                            }
+                            if let Some(k) = opts.logprobs {
+                                obj.insert("logprobs".to_string(), serde_json::json!(k));
                             }
                         }
                     }
@@ -148,6 +258,21 @@ impl RequestTransformer for GeminiRequestTransformer {
                     // labels (top-level)
                     if let Some(labels) = &opts.labels {
                         body["labels"] = serde_json::json!(labels);
+                    }
+
+                    // retrievalConfig is nested under toolConfig (top-level).
+                    if let Some(retrieval) = &opts.retrieval_config {
+                        if body.get("toolConfig").and_then(|v| v.as_object()).is_none() {
+                            body["toolConfig"] = serde_json::json!({});
+                        }
+                        if let Some(obj) =
+                            body.get_mut("toolConfig").and_then(|v| v.as_object_mut())
+                        {
+                            obj.insert(
+                                "retrievalConfig".to_string(),
+                                denormalize_retrieval_config(retrieval),
+                            );
+                        }
                     }
 
                     #[allow(deprecated)]
@@ -224,6 +349,45 @@ impl RequestTransformer for GeminiRequestTransformer {
                         }
                     }
                 }
+
+                // responseFormat (Vercel-aligned): map JSON schema into responseMimeType/responseSchema.
+                if let Some(fmt) = &req.response_format {
+                    let structured_outputs = gemini_options_from_request(req)
+                        .and_then(|o| o.structured_outputs)
+                        .unwrap_or(true);
+
+                    if body
+                        .get("generationConfig")
+                        .and_then(|v| v.as_object())
+                        .is_none()
+                    {
+                        body["generationConfig"] = serde_json::json!({});
+                    }
+
+                    if let Some(obj) = body
+                        .get_mut("generationConfig")
+                        .and_then(|v| v.as_object_mut())
+                    {
+                        match fmt {
+                            crate::types::ResponseFormat::Json { schema } => {
+                                obj.insert(
+                                    "responseMimeType".to_string(),
+                                    serde_json::json!("application/json"),
+                                );
+                                if structured_outputs {
+                                    // Prefer Vercel-aligned structured outputs (`responseSchema`) over
+                                    // the legacy `responseJsonSchema` escape hatch if both are set.
+                                    obj.remove("responseJsonSchema");
+                                    if let Some(openapi) =
+                                        crate::standards::gemini::convert::convert_json_schema_to_openapi_schema_root(schema)
+                                    {
+                                        obj.insert("responseSchema".to_string(), openapi);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Ok(())
             }
         }
@@ -247,6 +411,20 @@ impl RequestTransformer for GeminiRequestTransformer {
                     mode: RangeMode::Error,
                     message: Some("top_p must be between 0.0 and 1.0"),
                 },
+                Rule::Range {
+                    field: "frequency_penalty",
+                    min: -2.0,
+                    max: 2.0,
+                    mode: RangeMode::Error,
+                    message: Some("frequency_penalty must be between -2.0 and 2.0"),
+                },
+                Rule::Range {
+                    field: "presence_penalty",
+                    min: -2.0,
+                    max: 2.0,
+                    mode: RangeMode::Error,
+                    message: Some("presence_penalty must be between -2.0 and 2.0"),
+                },
                 // Move top-level common params into generationConfig (camelCase)
                 Rule::Move {
                     from: "temperature",
@@ -257,12 +435,28 @@ impl RequestTransformer for GeminiRequestTransformer {
                     to: "generationConfig.topP",
                 },
                 Rule::Move {
+                    from: "top_k",
+                    to: "generationConfig.topK",
+                },
+                Rule::Move {
                     from: "max_tokens",
                     to: "generationConfig.maxOutputTokens",
                 },
                 Rule::Move {
                     from: "stop_sequences",
                     to: "generationConfig.stopSequences",
+                },
+                Rule::Move {
+                    from: "seed",
+                    to: "generationConfig.seed",
+                },
+                Rule::Move {
+                    from: "frequency_penalty",
+                    to: "generationConfig.frequencyPenalty",
+                },
+                Rule::Move {
+                    from: "presence_penalty",
+                    to: "generationConfig.presencePenalty",
                 },
             ],
             // Provider options are injected via ProviderSpec::chat_before_send()
@@ -312,7 +506,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                     requests: Vec<GeminiEmbeddingRequest>,
                 }
 
-                let task_type = req.task_type.as_ref().map(|tt| match tt {
+                let mut task_type = req.task_type.as_ref().map(|tt| match tt {
                     crate::types::EmbeddingTaskType::RetrievalQuery => {
                         "RETRIEVAL_QUERY".to_string()
                     }
@@ -338,7 +532,36 @@ impl RequestTransformer for GeminiRequestTransformer {
                     }
                 });
                 let title = req.title.clone();
-                let output_dimensionality = req.dimensions;
+                let mut output_dimensionality = req.dimensions;
+
+                // Vercel-aligned: allow providerOptions.google.taskType/outputDimensionality.
+                if let Some(opts) = req
+                    .provider_options_map
+                    .get("gemini")
+                    .or_else(|| req.provider_options_map.get("google"))
+                    .or_else(|| req.provider_options_map.get("vertex"))
+                    && let Some(obj) = opts.as_object()
+                {
+                    if task_type.is_none()
+                        && let Some(tt) = obj.get("taskType").and_then(|v| v.as_str())
+                    {
+                        task_type = Some(tt.to_string());
+                    } else if task_type.is_none()
+                        && let Some(tt) = obj.get("task_type").and_then(|v| v.as_str())
+                    {
+                        task_type = Some(tt.to_string());
+                    }
+
+                    if output_dimensionality.is_none()
+                        && let Some(dim) = obj.get("outputDimensionality").and_then(|v| v.as_u64())
+                    {
+                        output_dimensionality = Some(dim as u32);
+                    } else if output_dimensionality.is_none()
+                        && let Some(dim) = obj.get("output_dimensionality").and_then(|v| v.as_u64())
+                    {
+                        output_dimensionality = Some(dim as u32);
+                    }
+                }
 
                 if req.input.len() == 1 {
                     let content = GeminiContent {
@@ -400,10 +623,71 @@ impl RequestTransformer for GeminiRequestTransformer {
                 &self,
                 req: &ImageGenerationRequest,
             ) -> Result<serde_json::Value, LlmError> {
-                use types::{Content, GenerateContentRequest, Part};
+                use types::{Content, GenerateContentRequest, ImageConfig, Part};
                 if self.0.model.is_empty() {
                     return Err(LlmError::InvalidParameter("Model must be specified".into()));
                 }
+
+                let is_imagen = self.0.model.trim().starts_with("imagen-");
+                if is_imagen {
+                    // Imagen uses `models/{model}:predict` with an `instances` + `parameters` body.
+                    let sample_count = if req.count == 0 { 1 } else { req.count };
+                    if sample_count > 4 {
+                        return Err(LlmError::InvalidParameter(
+                            "Imagen models support at most 4 images per call".to_string(),
+                        ));
+                    }
+
+                    fn get_provider_options<'a>(
+                        req: &'a ImageGenerationRequest,
+                    ) -> Option<&'a serde_json::Value> {
+                        req.provider_options_map
+                            .get("gemini")
+                            .or_else(|| req.provider_options_map.get("google"))
+                            .or_else(|| req.provider_options_map.get("vertex"))
+                    }
+
+                    fn get_string_opt(obj: &serde_json::Value, key: &str) -> Option<String> {
+                        obj.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+                    }
+
+                    let mut parameters = serde_json::Map::new();
+                    parameters.insert("sampleCount".to_string(), serde_json::json!(sample_count));
+
+                    // Prefer providerOptions for Vercel parity, then fall back to extra_params.
+                    if let Some(opts) = get_provider_options(req) {
+                        let aspect_ratio = get_string_opt(opts, "aspectRatio")
+                            .or_else(|| get_string_opt(opts, "aspect_ratio"));
+                        if let Some(v) = aspect_ratio {
+                            parameters.insert("aspectRatio".to_string(), serde_json::json!(v));
+                        }
+
+                        let person_generation = get_string_opt(opts, "personGeneration")
+                            .or_else(|| get_string_opt(opts, "person_generation"));
+                        if let Some(v) = person_generation {
+                            parameters.insert("personGeneration".to_string(), serde_json::json!(v));
+                        }
+                    }
+
+                    if parameters.get("aspectRatio").is_none()
+                        && let Some(v) = req.extra_params.get("aspectRatio")
+                    {
+                        parameters.insert("aspectRatio".to_string(), v.clone());
+                    }
+                    if parameters.get("personGeneration").is_none()
+                        && let Some(v) = req.extra_params.get("personGeneration")
+                    {
+                        parameters.insert("personGeneration".to_string(), v.clone());
+                    }
+
+                    let body = serde_json::json!({
+                        "instances": [{ "prompt": req.prompt }],
+                        "parameters": serde_json::Value::Object(parameters),
+                    });
+
+                    return Ok(body);
+                }
+
                 let prompt = req.prompt.clone();
                 let contents = vec![Content {
                     role: Some("user".to_string()),
@@ -417,14 +701,69 @@ impl RequestTransformer for GeminiRequestTransformer {
                 if req.count > 0 {
                     gcfg.candidate_count = Some(req.count as i32);
                 }
-                // Ensure IMAGE modality present
+
+                // Allow `mediaResolution` / `imageConfig` from providerOptions on image requests.
+                if let Some(opts) = req
+                    .provider_options_map
+                    .get("gemini")
+                    .or_else(|| req.provider_options_map.get("google"))
+                    .or_else(|| req.provider_options_map.get("vertex"))
+                    && let Some(obj) = opts.as_object()
+                {
+                    if let Some(res) = obj.get("mediaResolution").and_then(|v| v.as_str()) {
+                        gcfg.media_resolution = Some(res.to_string());
+                    } else if let Some(res) = obj.get("media_resolution").and_then(|v| v.as_str()) {
+                        gcfg.media_resolution = Some(res.to_string());
+                    }
+
+                    if let Some(ic) = obj.get("imageConfig").and_then(|v| v.as_object()) {
+                        let aspect_ratio = ic
+                            .get("aspectRatio")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                ic.get("aspect_ratio")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            });
+                        let image_size = ic
+                            .get("imageSize")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                ic.get("image_size")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            });
+                        gcfg.image_config = Some(ImageConfig {
+                            aspect_ratio,
+                            image_size,
+                        });
+                    } else if let Some(ic) = obj.get("image_config").and_then(|v| v.as_object()) {
+                        let aspect_ratio = ic
+                            .get("aspect_ratio")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let image_size = ic
+                            .get("image_size")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        gcfg.image_config = Some(ImageConfig {
+                            aspect_ratio,
+                            image_size,
+                        });
+                    }
+                }
+
+                // Default to requesting both TEXT + IMAGE modalities (Vercel cookbook alignment).
                 let mut modalities = gcfg.response_modalities.take().unwrap_or_default();
+                if !modalities.iter().any(|m| m == "TEXT") {
+                    modalities.insert(0, "TEXT".to_string());
+                }
                 if !modalities.iter().any(|m| m == "IMAGE") {
                     modalities.push("IMAGE".to_string());
                 }
-                if !modalities.is_empty() {
-                    gcfg.response_modalities = Some(modalities);
-                }
+                gcfg.response_modalities = Some(modalities);
                 let body = GenerateContentRequest {
                     model: self.0.model.clone(),
                     contents,
@@ -731,5 +1070,61 @@ mod tests_gemini_rules {
             body.get("toolConfig").is_none(),
             "toolConfig should not be emitted for provider-defined tools"
         );
+    }
+
+    #[test]
+    fn response_format_json_sets_response_mime_type_and_schema() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        req.response_format = Some(crate::types::ResponseFormat::Json {
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "a": { "type": "string" } },
+                "required": ["a"]
+            }),
+        });
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(body["generationConfig"].get("responseSchema").is_some());
+    }
+
+    #[test]
+    fn response_format_json_respects_structured_outputs_disabled() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        req.response_format = Some(crate::types::ResponseFormat::Json {
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "a": { "type": "string" } },
+                "required": ["a"]
+            }),
+        });
+        let req = req.with_provider_option(
+            "google",
+            serde_json::json!({
+                "structuredOutputs": false
+            }),
+        );
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(body["generationConfig"].get("responseSchema").is_none());
     }
 }

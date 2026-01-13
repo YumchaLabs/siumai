@@ -6,6 +6,8 @@
 use async_trait::async_trait;
 use reqwest::Client as HttpClient;
 // no extra imports
+use reqwest::StatusCode;
+use secrecy::ExposeSecret;
 
 use crate::error::LlmError;
 use crate::traits::FileManagementCapability;
@@ -74,8 +76,12 @@ impl GeminiFiles {
             ));
         }
 
-        // Check file size limits (Gemini has specific limits)
-        const MAX_FILE_SIZE: usize = 20 * 1024 * 1024; // 20MB for most files
+        // Check file size limits.
+        //
+        // Official Files API limits allow much larger files (up to 2 GB), but note that
+        // `FileUploadRequest` is currently in-memory (`Vec<u8>`), so callers should avoid
+        // very large uploads to prevent OOM.
+        const MAX_FILE_SIZE: usize = 2 * 1024 * 1024 * 1024; // 2GB
         if request.content.len() > MAX_FILE_SIZE {
             return Err(LlmError::InvalidInput(format!(
                 "File size {} bytes exceeds maximum allowed size of {} bytes",
@@ -153,6 +159,12 @@ impl FileManagementCapability for GeminiFiles {
 
     /// Get file content as bytes.
     async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
+        // The official Veo workflow returns a downloadable HTTPS URI (not a Files API resource).
+        // Allow callers to pass that URI directly to `get_file_content` as a convenience.
+        if file_id.starts_with("http://") || file_id.starts_with("https://") {
+            return self.download_uri(file_id).await;
+        }
+
         use crate::execution::executors::files::FilesExecutor;
         let exec = self.build_files_executor().await;
         FilesExecutor::get_content(&*exec, file_id).await
@@ -165,6 +177,72 @@ impl GeminiFiles {
         let bytes = self.get_file_content(file_id).await?;
         String::from_utf8(bytes)
             .map_err(|e| LlmError::ParseError(format!("File content is not valid UTF-8: {e}")))
+    }
+
+    async fn download_uri(&self, uri: String) -> Result<Vec<u8>, LlmError> {
+        use crate::core::ProviderSpec;
+
+        fn is_google_host(host: &str) -> bool {
+            let host = host.to_ascii_lowercase();
+            host.ends_with("googleapis.com")
+                || host.ends_with("googleusercontent.com")
+                || host.ends_with("gstatic.com")
+                || host.ends_with("google.com")
+        }
+
+        let mut url = reqwest::Url::parse(&uri)
+            .map_err(|e| LlmError::InvalidInput(format!("Invalid download URI: {e}")))?;
+
+        let ctx = super::context::build_context(&self.config).await;
+        let headers = ProviderSpec::build_headers(&super::spec::GeminiSpec, &ctx)?;
+        let api_key_present = !self.config.api_key.expose_secret().is_empty();
+        let has_auth = api_key_present || headers.contains_key(reqwest::header::AUTHORIZATION);
+
+        for _ in 0..10 {
+            let mut req = self.http_client.get(url.clone());
+            if url.host_str().is_some_and(is_google_host) && has_auth {
+                req = req.headers(headers.clone());
+            }
+            let resp = req.send().await.map_err(|e| {
+                LlmError::HttpError(format!("Failed to download Gemini file URI: {e}"))
+            })?;
+
+            if resp.status().is_success() {
+                let bytes = resp.bytes().await.map_err(|e| {
+                    LlmError::HttpError(format!("Failed to read Gemini file bytes: {e}"))
+                })?;
+                return Ok(bytes.to_vec());
+            }
+
+            if matches!(
+                resp.status(),
+                StatusCode::MOVED_PERMANENTLY
+                    | StatusCode::FOUND
+                    | StatusCode::SEE_OTHER
+                    | StatusCode::TEMPORARY_REDIRECT
+                    | StatusCode::PERMANENT_REDIRECT
+            ) {
+                let Some(location) = resp.headers().get(reqwest::header::LOCATION) else {
+                    break;
+                };
+                let location = location.to_str().unwrap_or_default();
+                let next = url
+                    .join(location)
+                    .or_else(|_| reqwest::Url::parse(location))
+                    .map_err(|e| LlmError::HttpError(format!("Invalid redirect URL: {e}")))?;
+                url = next;
+                continue;
+            }
+
+            return Err(LlmError::HttpError(format!(
+                "Download URI returned HTTP {}",
+                resp.status()
+            )));
+        }
+
+        Err(LlmError::HttpError(
+            "Too many redirects while downloading Gemini URI".to_string(),
+        ))
     }
 
     /// Check if a file exists.

@@ -14,10 +14,12 @@ use crate::streaming::ChatStream;
 use crate::traits::*;
 use crate::types::*;
 
+use super::cached_contents::GeminiCachedContents;
 use super::chat::GeminiChatCapability;
 use super::file_search_stores::GeminiFileSearchStores;
 use super::files::GeminiFiles;
 use super::models::GeminiModels;
+use super::tokens::{GeminiCountTokensResponse, GeminiTokens};
 use super::types::{GeminiConfig, GenerationConfig, SafetySetting};
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
@@ -27,6 +29,7 @@ use crate::retry_api::RetryOptions;
 mod embedding;
 mod image;
 mod models;
+mod video;
 
 /// Gemini client that implements the `LlmClient` trait
 pub struct GeminiClient {
@@ -160,6 +163,39 @@ impl GeminiClient {
             self.http_interceptors.clone(),
             self.retry_options.clone(),
         )
+    }
+
+    /// Get a provider-specific client for cached contents (Gemini-only)
+    pub fn cached_contents(&self) -> GeminiCachedContents {
+        GeminiCachedContents::new(
+            self.config.clone(),
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
+
+    /// Get a provider-specific client for token utilities (Gemini-only)
+    pub fn tokens(&self) -> GeminiTokens {
+        GeminiTokens::new(
+            self.config.clone(),
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
+
+    /// Count tokens for a unified chat request using Gemini's tokenizer.
+    pub async fn count_tokens(
+        &self,
+        request: crate::types::ChatRequest,
+    ) -> Result<GeminiCountTokensResponse, LlmError> {
+        let typed = crate::standards::gemini::convert::build_request_body(
+            &self.config,
+            &request.messages,
+            request.tools.as_deref(),
+        )?;
+        self.tokens().count_tokens_for_generate_request(typed).await
     }
 
     /// Set the model to use
@@ -309,6 +345,7 @@ impl GeminiClient {
         let thinking_config = super::types::ThinkingConfig {
             thinking_budget: Some(budget),
             include_thoughts: Some(true),
+            thinking_level: None,
         };
         generation_config.thinking_config = Some(thinking_config);
         self.config.generation_config = Some(generation_config);
@@ -672,6 +709,7 @@ impl LlmClient for GeminiClient {
             .with_custom_feature("json_schema", true)
             .with_image_generation()
             .with_custom_feature("enum_output", true)
+            .with_custom_feature("video", true)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -703,6 +741,12 @@ impl LlmClient for GeminiClient {
     }
 
     fn as_model_listing_capability(&self) -> Option<&dyn crate::traits::ModelListingCapability> {
+        Some(self)
+    }
+
+    fn as_video_generation_capability(
+        &self,
+    ) -> Option<&dyn crate::traits::VideoGenerationCapability> {
         Some(self)
     }
 }

@@ -25,6 +25,7 @@ pub use streaming_response::{
 };
 pub use verbs::{
     execute_delete_json_request, execute_delete_request, execute_get_binary, execute_get_request,
+    execute_patch_json_request,
 };
 
 #[cfg(test)]

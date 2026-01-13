@@ -174,6 +174,24 @@ pub struct ToolConfig {
     /// Optional. Function calling config.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_calling_config: Option<FunctionCallingConfig>,
+
+    /// Optional. Configuration for grounding retrieval (location context, etc.).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "retrievalConfig")]
+    pub retrieval_config: Option<RetrievalConfig>,
+}
+
+/// Configuration for grounding retrieval (e.g. Google Maps grounding).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RetrievalConfig {
+    #[serde(skip_serializing_if = "Option::is_none", rename = "latLng")]
+    pub lat_lng: Option<LatLng>,
+}
+
+/// Latitude/longitude pair.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatLng {
+    pub latitude: f64,
+    pub longitude: f64,
 }
 
 /// Configuration for specifying function calling behavior.

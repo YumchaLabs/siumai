@@ -28,6 +28,62 @@ pub struct GeminiMetadata {
     /// Prompt feedback (content filter information for the prompt)
     #[serde(skip_serializing_if = "Option::is_none", rename = "promptFeedback")]
     pub prompt_feedback: Option<serde_json::Value>,
+
+    /// Output only. Average log probability across all tokens in the candidate.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "avgLogprobs")]
+    pub avg_logprobs: Option<f64>,
+
+    /// Output only. Logprobs result payload (only present when `responseLogprobs == true`).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logprobsResult")]
+    pub logprobs_result: Option<GeminiLogprobsResult>,
+}
+
+/// Logprobs result payload for a candidate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiLogprobsResult {
+    /// Length equals total number of decoding steps.
+    #[serde(default, rename = "topCandidates")]
+    pub top_candidates: Vec<GeminiTopCandidates>,
+    /// Length equals total number of decoding steps.
+    #[serde(default, rename = "chosenCandidates")]
+    pub chosen_candidates: Vec<GeminiLogprobsCandidate>,
+    /// Sum of log probabilities of all chosen tokens.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logProbabilitySum")]
+    pub log_probability_sum: Option<f64>,
+
+    /// Preserve unknown fields for forward compatibility.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Top logprob candidates for a single decoding step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiTopCandidates {
+    /// Sorted by log probability descending.
+    #[serde(default)]
+    pub candidates: Vec<GeminiLogprobsCandidate>,
+
+    /// Preserve unknown fields for forward compatibility.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Logprobs token candidate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiLogprobsCandidate {
+    /// Token string value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Token ID value.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "tokenId")]
+    pub token_id: Option<i32>,
+    /// Token log probability.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logProbability")]
+    pub log_probability: Option<f64>,
+
+    /// Preserve unknown fields for forward compatibility.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Grounding metadata for Gemini responses
@@ -223,5 +279,39 @@ impl GeminiChatResponseExt for crate::types::ChatResponse {
             .or_else(|| meta.get("vertex"))
             .or_else(|| meta.get("gemini"))?;
         GeminiMetadata::from_metadata(inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_metadata_parses_logprobs_fields() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut inner = HashMap::new();
+        inner.insert("avgLogprobs".to_string(), serde_json::json!(-0.1));
+        inner.insert(
+            "logprobsResult".to_string(),
+            serde_json::json!({
+                "chosenCandidates": [
+                    { "token": "h", "tokenId": 1, "logProbability": -0.1 }
+                ]
+            }),
+        );
+
+        let mut outer = HashMap::new();
+        outer.insert("google".to_string(), inner);
+        resp.provider_metadata = Some(outer);
+
+        let meta = resp.gemini_metadata().expect("gemini metadata");
+        assert_eq!(meta.avg_logprobs, Some(-0.1));
+        assert!(meta.logprobs_result.is_some());
+        let chosen = meta.logprobs_result.unwrap().chosen_candidates;
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(chosen[0].token.as_deref(), Some("h"));
     }
 }

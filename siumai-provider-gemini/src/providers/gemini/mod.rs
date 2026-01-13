@@ -53,14 +53,20 @@ pub mod types;
 
 // Feature modules
 pub mod builder;
+pub mod cached_contents;
 pub mod code_execution;
+pub mod tokens;
+pub mod video;
 
 // Re-export main types for convenience
 pub use builder::GeminiBuilder;
+pub use cached_contents::GeminiCachedContents;
 pub use chat::GeminiChatCapability;
 pub use client::GeminiClient;
 pub use file_search_stores::GeminiFileSearchStores;
 pub use files::GeminiFiles;
 pub use middleware::GeminiToolWarningsMiddleware;
 pub use models::GeminiModels;
+pub use tokens::{GeminiCountTokensResponse, GeminiTokens};
 pub use types::*;
+pub use video::GeminiVideo;

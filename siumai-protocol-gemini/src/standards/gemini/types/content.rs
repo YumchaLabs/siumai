@@ -170,6 +170,48 @@ pub struct Candidate {
     /// Output only. Index of the candidate in the list of candidates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<i32>,
+    /// Output only. Average log probability across all tokens in the candidate.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "avgLogprobs")]
+    pub avg_logprobs: Option<f64>,
+    /// Output only. Logprobs result payload (only present when `GenerationConfig.responseLogprobs == true`).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logprobsResult")]
+    pub logprobs_result: Option<LogprobsResult>,
+}
+
+/// Logprobs result payload for a candidate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogprobsResult {
+    /// Length equals total number of decoding steps.
+    #[serde(default, rename = "topCandidates")]
+    pub top_candidates: Vec<TopCandidates>,
+    /// Length equals total number of decoding steps.
+    #[serde(default, rename = "chosenCandidates")]
+    pub chosen_candidates: Vec<LogprobsCandidate>,
+    /// Sum of log probabilities of all chosen tokens.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logProbabilitySum")]
+    pub log_probability_sum: Option<f64>,
+}
+
+/// Top logprob candidates for a single decoding step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopCandidates {
+    /// Sorted by log probability descending.
+    #[serde(default)]
+    pub candidates: Vec<LogprobsCandidate>,
+}
+
+/// Logprobs token candidate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogprobsCandidate {
+    /// Token string value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Token ID value.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "tokenId")]
+    pub token_id: Option<i32>,
+    /// Token log probability.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "logProbability")]
+    pub log_probability: Option<f64>,
 }
 
 /// Defines the reason why the model stopped generating tokens.
@@ -181,6 +223,8 @@ pub enum FinishReason {
     Stop,
     #[serde(rename = "MAX_TOKENS")]
     MaxTokens,
+    #[serde(rename = "IMAGE_SAFETY")]
+    ImageSafety,
     #[serde(rename = "SAFETY")]
     Safety,
     #[serde(rename = "RECITATION")]
@@ -197,6 +241,8 @@ pub enum FinishReason {
     Spii,
     #[serde(rename = "MALFORMED_FUNCTION_CALL")]
     MalformedFunctionCall,
+    #[serde(other)]
+    Unknown,
 }
 
 /// A collection of source attributions for a piece of content.

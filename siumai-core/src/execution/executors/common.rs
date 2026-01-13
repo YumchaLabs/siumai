@@ -452,6 +452,22 @@ pub async fn execute_delete_json_request(
     .await
 }
 
+/// Execute a PATCH request with a JSON body using ProviderSpec.
+pub async fn execute_patch_json_request(
+    config: &HttpExecutionConfig,
+    url: &str,
+    body: serde_json::Value,
+    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<HttpExecutionResult, LlmError> {
+    crate::execution::executors::http_request::execute_patch_json_request(
+        config,
+        url,
+        body,
+        per_request_headers,
+    )
+    .await
+}
+
 /// Result of HTTP request execution for binary content
 pub struct HttpBinaryResult {
     /// Response body as bytes

@@ -7,7 +7,7 @@ mod generation;
 
 pub use config::{
     FunctionCallingConfig, FunctionCallingMode, GeminiConfig, GeminiEmbeddingOptions,
-    GeminiEmbeddingRequestExt, ToolConfig,
+    GeminiEmbeddingRequestExt, LatLng, RetrievalConfig, ToolConfig,
 };
 pub use content::{
     Blob,
@@ -47,6 +47,8 @@ pub use content::{
     HarmCategory,
     HarmProbability,
     ListFilesResponse,
+    LogprobsCandidate,
+    LogprobsResult,
     MapsGroundingChunk,
     Part,
     Retrieval,
@@ -55,6 +57,7 @@ pub use content::{
     SafetyRating,
     SafetySetting,
     SearchEntryPoint,
+    TopCandidates,
     UrlContext,
     UrlContextMetadata,
     UrlMetadata,
@@ -65,8 +68,8 @@ pub use content::{
     WebGroundingChunk,
 };
 pub use generation::{
-    BlockReason, GenerateContentRequest, GenerateContentResponse, GenerationConfig, PromptFeedback,
-    ThinkingConfig, UsageMetadata,
+    BlockReason, GenerateContentRequest, GenerateContentResponse, GenerationConfig, ImageConfig,
+    PromptFeedback, ThinkingConfig, UsageMetadata,
 };
 
 // Provider-specific File Search types

@@ -72,18 +72,42 @@ pub struct GenerationConfig {
     /// Optional. The maximum number of tokens to consider when sampling.
     #[serde(skip_serializing_if = "Option::is_none", rename = "topK")]
     pub top_k: Option<i32>,
+    /// Optional. Seed used in decoding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i32>,
+    /// Optional. Presence penalty.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "presencePenalty")]
+    pub presence_penalty: Option<f64>,
+    /// Optional. Frequency penalty.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "frequencyPenalty")]
+    pub frequency_penalty: Option<f64>,
+    /// Optional. Media resolution for multimodal inputs.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mediaResolution")]
+    pub media_resolution: Option<String>,
     /// Optional. Output response mimetype of the generated candidate text.
     #[serde(skip_serializing_if = "Option::is_none", rename = "responseMimeType")]
     pub response_mime_type: Option<String>,
     /// Optional. Output response schema of the generated candidate text.
     #[serde(skip_serializing_if = "Option::is_none", rename = "responseSchema")]
     pub response_schema: Option<serde_json::Value>,
+    /// Optional. Output schema of the generated response (JSON Schema).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "responseJsonSchema")]
+    pub response_json_schema: Option<serde_json::Value>,
     /// Optional. Configuration for thinking behavior.
     #[serde(skip_serializing_if = "Option::is_none", rename = "thinkingConfig")]
     pub thinking_config: Option<ThinkingConfig>,
     /// Optional. Output response modalities (e.g., ["TEXT", "IMAGE"]).
     #[serde(skip_serializing_if = "Option::is_none", rename = "responseModalities")]
     pub response_modalities: Option<Vec<String>>,
+    /// Optional. Image generation configuration (Gemini image models).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "imageConfig")]
+    pub image_config: Option<ImageConfig>,
+    /// Optional. If true, export logprobs in response.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "responseLogprobs")]
+    pub response_logprobs: Option<bool>,
+    /// Optional. Number of top logprobs to return at each decoding step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logprobs: Option<i32>,
 }
 
 impl GenerationConfig {
@@ -96,10 +120,18 @@ impl GenerationConfig {
             temperature: None,
             top_p: None,
             top_k: None,
+            seed: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            media_resolution: None,
             response_mime_type: None,
             response_schema: None,
+            response_json_schema: None,
             thinking_config: None,
             response_modalities: None,
+            image_config: None,
+            response_logprobs: None,
+            logprobs: None,
         }
     }
 
@@ -133,6 +165,29 @@ impl GenerationConfig {
         self.top_k = Some(top_k);
         self
     }
+    /// Set seed
+    pub fn with_seed(mut self, seed: i32) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    /// Set presence penalty
+    pub fn with_presence_penalty(mut self, penalty: f64) -> Self {
+        self.presence_penalty = Some(penalty);
+        self
+    }
+
+    /// Set frequency penalty
+    pub fn with_frequency_penalty(mut self, penalty: f64) -> Self {
+        self.frequency_penalty = Some(penalty);
+        self
+    }
+
+    /// Set media resolution
+    pub fn with_media_resolution(mut self, resolution: impl Into<String>) -> Self {
+        self.media_resolution = Some(resolution.into());
+        self
+    }
 
     /// Set response schema for structured output
     pub fn with_response_schema(mut self, schema: serde_json::Value) -> Self {
@@ -151,6 +206,15 @@ impl GenerationConfig {
         self.thinking_config = Some(thinking);
         self
     }
+}
+
+/// Image generation configuration for Gemini image generation models.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ImageConfig {
+    #[serde(skip_serializing_if = "Option::is_none", rename = "aspectRatio")]
+    pub aspect_ratio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "imageSize")]
+    pub image_size: Option<String>,
 }
 
 /// Configuration for thinking behavior in Gemini models.
@@ -172,6 +236,10 @@ pub struct ThinkingConfig {
     /// This controls the visibility of thinking summaries, not the thinking process itself.
     #[serde(skip_serializing_if = "Option::is_none", rename = "includeThoughts")]
     pub include_thoughts: Option<bool>,
+
+    /// Thinking level hint (Gemini 3+). Must not be combined with `thinkingBudget`.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thinkingLevel")]
+    pub thinking_level: Option<String>,
 }
 
 impl ThinkingConfig {
@@ -180,6 +248,7 @@ impl ThinkingConfig {
         Self {
             thinking_budget: None,
             include_thoughts: None,
+            thinking_level: None,
         }
     }
     /// Dynamic thinking: model decides when/how much to think
@@ -187,6 +256,7 @@ impl ThinkingConfig {
         Self {
             thinking_budget: Some(-1),
             include_thoughts: Some(true),
+            thinking_level: None,
         }
     }
     /// Attempt to disable thinking
@@ -194,6 +264,7 @@ impl ThinkingConfig {
         Self {
             thinking_budget: Some(0),
             include_thoughts: Some(false),
+            thinking_level: None,
         }
     }
 }

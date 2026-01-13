@@ -12,7 +12,12 @@ use std::sync::Arc;
 pub trait GeminiImageAdapter: Send + Sync {
     /// Override image generation endpoint
     fn image_endpoint(&self, model: &str) -> String {
-        format!("/models/{}:generateContent", model)
+        // Gemini image generation models use generateContent, Imagen uses predict.
+        if model.trim().starts_with("imagen-") {
+            format!("/models/{}:predict", model)
+        } else {
+            format!("/models/{}:generateContent", model)
+        }
     }
     /// Allow custom header injection
     fn build_headers(
@@ -108,7 +113,11 @@ impl ProviderSpec for GeminiImageSpec {
         if let Some(adapter) = &self.adapter {
             format!("{}{}", base, adapter.image_endpoint(&model))
         } else {
-            format!("{}/models/{}:generateContent", base, model)
+            if model.trim().starts_with("imagen-") {
+                format!("{}/models/{}:predict", base, model)
+            } else {
+                format!("{}/models/{}:generateContent", base, model)
+            }
         }
     }
     fn choose_image_transformers(
@@ -148,6 +157,29 @@ mod tests {
         assert_eq!(
             spec.image_url(&req, &ctx),
             "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent"
+        );
+    }
+
+    #[test]
+    fn image_url_uses_predict_for_imagen_models() {
+        let spec = GeminiImageStandard::new().create_spec("gemini");
+        let ctx = ProviderContext::new(
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            Some("".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        let req = crate::types::ImageGenerationRequest {
+            prompt: "a cat".to_string(),
+            count: 1,
+            model: Some("imagen-4.0-generate-001".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            spec.image_url(&req, &ctx),
+            "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
         );
     }
 }

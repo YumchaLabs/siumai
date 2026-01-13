@@ -261,7 +261,7 @@ impl GeminiBuilder {
     ///
     /// The actual supported range depends on the model being used.
     /// Note: This automatically enables thought summaries in the response.
-    pub const fn thinking_budget(mut self, budget: i32) -> Self {
+    pub fn thinking_budget(mut self, budget: i32) -> Self {
         if self.thinking_config.is_none() {
             self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::new());
         }
@@ -282,7 +282,7 @@ impl GeminiBuilder {
     ///
     /// This controls whether thinking summaries are included in the response,
     /// not whether the model thinks internally.
-    pub const fn thought_summaries(mut self, include: bool) -> Self {
+    pub fn thought_summaries(mut self, include: bool) -> Self {
         if self.thinking_config.is_none() {
             self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::new());
         }
@@ -293,7 +293,7 @@ impl GeminiBuilder {
     }
 
     /// Enable dynamic thinking (model decides when and how much to think)
-    pub const fn thinking(mut self) -> Self {
+    pub fn thinking(mut self) -> Self {
         self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::dynamic());
         self
     }
@@ -321,7 +321,7 @@ impl GeminiBuilder {
     /// #   Ok(())
     /// # }
     /// ```
-    pub const fn reasoning(mut self, enable: bool) -> Self {
+    pub fn reasoning(mut self, enable: bool) -> Self {
         if enable {
             // Enable dynamic thinking with thought summaries
             self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::dynamic());
@@ -355,7 +355,7 @@ impl GeminiBuilder {
     /// #   Ok(())
     /// # }
     /// ```
-    pub const fn reasoning_budget(self, budget: i32) -> Self {
+    pub fn reasoning_budget(self, budget: i32) -> Self {
         // Use the existing thinking_budget method
         self.thinking_budget(budget)
     }
@@ -364,7 +364,7 @@ impl GeminiBuilder {
     ///
     /// Note: Not all models support disabling thinking. If the model doesn't
     /// support it, the API will return an appropriate error.
-    pub const fn disable_thinking(mut self) -> Self {
+    pub fn disable_thinking(mut self) -> Self {
         self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::disabled());
         self
     }

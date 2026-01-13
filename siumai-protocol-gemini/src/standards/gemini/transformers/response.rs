@@ -40,6 +40,11 @@ mod tests_gemini_metadata {
                     { "category": "HARM_CATEGORY_DEROGATORY", "probability": "NEGLIGIBLE" }
                 ]
             },
+            "usageMetadata": {
+                "promptTokenCount": 3,
+                "candidatesTokenCount": 5,
+                "totalTokenCount": 8
+            },
             "modelVersion": "gemini-2.0-flash-exp"
         });
 
@@ -54,6 +59,7 @@ mod tests_gemini_metadata {
         assert!(meta.get("urlContextMetadata").is_some());
         assert!(meta.get("safetyRatings").is_some());
         assert!(meta.get("promptFeedback").is_some());
+        assert!(meta.get("usageMetadata").is_some());
         assert!(meta.get("sources").is_some());
 
         let sources = meta
@@ -71,6 +77,80 @@ mod tests_gemini_metadata {
                 && s.get("media_type").and_then(|v| v.as_str()) == Some("application/pdf")
                 && s.get("filename").and_then(|v| v.as_str()) == Some("a.pdf")
         }));
+    }
+
+    #[test]
+    fn finish_reason_stop_with_tool_calls_maps_to_tool_calls() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.0-flash-exp".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                        ]
+                    },
+                    "finishReason": "STOP"
+                }
+            ],
+            "modelVersion": "gemini-2.0-flash-exp"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        assert_eq!(resp.finish_reason, Some(FinishReason::ToolCalls));
+    }
+
+    #[test]
+    fn gemini_response_exposes_logprobs_in_provider_metadata() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": { "parts": [ { "text": "hello" } ] },
+                    "avgLogprobs": -0.123,
+                    "logprobsResult": {
+                        "topCandidates": [
+                            { "candidates": [ { "token": "h", "tokenId": 1, "logProbability": -0.1 } ] },
+                            { "candidates": [ { "token": "ello", "tokenId": 2, "logProbability": -0.2 } ] }
+                        ],
+                        "chosenCandidates": [
+                            { "token": "h", "tokenId": 1, "logProbability": -0.1 },
+                            { "token": "ello", "tokenId": 2, "logProbability": -0.2 }
+                        ],
+                        "logProbabilitySum": -0.3
+                    }
+                }
+            ],
+            "modelVersion": "gemini-2.5-flash"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let meta = resp
+            .provider_metadata
+            .as_ref()
+            .and_then(|m| m.get("google"))
+            .expect("google provider metadata");
+
+        assert_eq!(
+            meta.get("avgLogprobs").and_then(|v| v.as_f64()),
+            Some(-0.123)
+        );
+        assert!(meta.get("logprobsResult").is_some());
+
+        let chosen = meta
+            .get("logprobsResult")
+            .and_then(|v| v.get("chosenCandidates"))
+            .and_then(|v| v.as_array())
+            .expect("chosenCandidates array");
+        assert_eq!(chosen.len(), 2);
     }
 }
 
@@ -345,10 +425,31 @@ impl ResponseTransformer for GeminiResponseTransformer {
         });
 
         let finish_reason = candidate.finish_reason.as_ref().map(|reason| match reason {
-            types::FinishReason::Stop => FinishReason::Stop,
+            types::FinishReason::Stop => {
+                let has_client_tool_calls = content_parts.iter().any(|p| match p {
+                    ContentPart::ToolCall {
+                        provider_executed, ..
+                    } => provider_executed != &Some(true),
+                    _ => false,
+                });
+                if has_client_tool_calls {
+                    FinishReason::ToolCalls
+                } else {
+                    FinishReason::Stop
+                }
+            }
             types::FinishReason::MaxTokens => FinishReason::Length,
-            types::FinishReason::Safety => FinishReason::ContentFilter,
-            _ => FinishReason::Other("unknown".to_string()),
+            types::FinishReason::ImageSafety
+            | types::FinishReason::Safety
+            | types::FinishReason::Recitation
+            | types::FinishReason::Blocklist
+            | types::FinishReason::ProhibitedContent
+            | types::FinishReason::Spii => FinishReason::ContentFilter,
+            types::FinishReason::MalformedFunctionCall => FinishReason::Error,
+            types::FinishReason::Language => FinishReason::Other("language".to_string()),
+            types::FinishReason::Unspecified
+            | types::FinishReason::Other
+            | types::FinishReason::Unknown => FinishReason::Other("other".to_string()),
         });
 
         // Provider metadata (Vercel alignment): expose grounding/url_context and safety ratings.
@@ -378,6 +479,22 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 && let Ok(v) = serde_json::to_value(m)
             {
                 google_meta.insert("promptFeedback".to_string(), v);
+            }
+
+            if let Some(m) = &response.usage_metadata
+                && let Ok(v) = serde_json::to_value(m)
+            {
+                google_meta.insert("usageMetadata".to_string(), v);
+            }
+
+            if let Some(avg) = candidate.avg_logprobs {
+                google_meta.insert("avgLogprobs".to_string(), serde_json::json!(avg));
+            }
+
+            if let Some(m) = &candidate.logprobs_result
+                && let Ok(v) = serde_json::to_value(m)
+            {
+                google_meta.insert("logprobsResult".to_string(), v);
             }
 
             // Vercel-aligned: extract normalized sources from grounding chunks.
@@ -429,6 +546,24 @@ impl ResponseTransformer for GeminiResponseTransformer {
         &self,
         raw: &serde_json::Value,
     ) -> Result<crate::types::EmbeddingResponse, LlmError> {
+        fn parse_usage(raw: &serde_json::Value) -> Option<crate::types::EmbeddingUsage> {
+            let usage = raw.get("usageMetadata")?;
+            let prompt = usage
+                .get("promptTokenCount")
+                .or_else(|| usage.get("prompt_token_count"))
+                .and_then(|v| v.as_u64())
+                .or_else(|| usage.get("totalTokenCount").and_then(|v| v.as_u64()))?;
+            let total = usage
+                .get("totalTokenCount")
+                .or_else(|| usage.get("total_token_count"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(prompt);
+            Some(crate::types::EmbeddingUsage::new(
+                prompt as u32,
+                total as u32,
+            ))
+        }
+
         // Handle both single and batch embeddings
         // Single: { "embedding": { "values": [f32,..] } }
         // Batch:  { "embeddings": [ { "values": [...] }, ... ] }
@@ -442,7 +577,11 @@ impl ResponseTransformer for GeminiResponseTransformer {
             for v in vals {
                 vec.push(v.as_f64().unwrap_or(0.0) as f32);
             }
-            return Ok(crate::types::EmbeddingResponse::new(vec![vec], model));
+            let mut out = crate::types::EmbeddingResponse::new(vec![vec], model);
+            if let Some(usage) = parse_usage(raw) {
+                out = out.with_usage(usage);
+            }
+            return Ok(out);
         }
         if let Some(arr) = raw.get("embeddings").and_then(|v| v.as_array()) {
             let mut all = Vec::with_capacity(arr.len());
@@ -456,7 +595,11 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 }
                 all.push(vec);
             }
-            return Ok(crate::types::EmbeddingResponse::new(all, model));
+            let mut out = crate::types::EmbeddingResponse::new(all, model);
+            if let Some(usage) = parse_usage(raw) {
+                out = out.with_usage(usage);
+            }
+            return Ok(out);
         }
         Err(LlmError::ParseError(
             "Unrecognized Gemini embedding response shape".to_string(),
@@ -467,6 +610,32 @@ impl ResponseTransformer for GeminiResponseTransformer {
         &self,
         raw: &serde_json::Value,
     ) -> Result<crate::types::ImageGenerationResponse, LlmError> {
+        // Imagen: { predictions: [ { bytesBase64Encoded: "..." }, ... ] }
+        if let Some(preds) = raw.get("predictions").and_then(|v| v.as_array()) {
+            let mut images = Vec::new();
+            for p in preds {
+                if let Some(b64) = p.get("bytesBase64Encoded").and_then(|v| v.as_str())
+                    && !b64.trim().is_empty()
+                {
+                    images.push(crate::types::GeneratedImage {
+                        url: None,
+                        b64_json: Some(b64.to_string()),
+                        format: None,
+                        width: None,
+                        height: None,
+                        revised_prompt: None,
+                        metadata: std::collections::HashMap::new(),
+                    });
+                }
+            }
+            return Ok(crate::types::ImageGenerationResponse {
+                images,
+                metadata: std::collections::HashMap::new(),
+                warnings: None,
+                response: None,
+            });
+        }
+
         let response: GenerateContentResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Gemini image response: {e}")))?;
         let mut images = Vec::new();

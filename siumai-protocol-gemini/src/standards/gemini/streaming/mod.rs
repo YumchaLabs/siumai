@@ -12,7 +12,7 @@ use crate::streaming::{
 };
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -120,7 +120,7 @@ struct GeminiSiumaiMetadata {
 }
 
 /// Gemini usage metadata
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct GeminiUsageMetadata {
     #[serde(rename = "promptTokenCount")]
     prompt_token_count: Option<u32>,
@@ -746,6 +746,12 @@ impl GeminiEventConverter {
                     && let Ok(v) = serde_json::to_value(m)
                 {
                     meta.insert("promptFeedback".to_string(), v);
+                }
+
+                if let Some(m) = response.usage_metadata.as_ref()
+                    && let Ok(v) = serde_json::to_value(m)
+                {
+                    meta.insert("usageMetadata".to_string(), v);
                 }
 
                 let sources =

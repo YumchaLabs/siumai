@@ -166,6 +166,8 @@ mod tests {
             top_k: None,
             stop_sequences: None,
             seed: Some(42),
+            frequency_penalty: None,
+            presence_penalty: None,
         };
 
         let json = ParameterMapper::map_common_to_json(&params);

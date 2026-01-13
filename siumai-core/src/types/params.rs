@@ -32,6 +32,12 @@ pub struct CommonParams {
 
     /// Random seed
     pub seed: Option<u64>,
+
+    /// Frequency penalty (provider-specific; e.g., Gemini).
+    pub frequency_penalty: Option<f64>,
+
+    /// Presence penalty (provider-specific; e.g., Gemini).
+    pub presence_penalty: Option<f64>,
 }
 
 impl CommonParams {
@@ -46,6 +52,8 @@ impl CommonParams {
             top_k: None,
             stop_sequences: None,
             seed: None,
+            frequency_penalty: None,
+            presence_penalty: None,
         }
     }
 
@@ -59,6 +67,8 @@ impl CommonParams {
             && self.top_k.is_none()
             && self.stop_sequences.is_none()
             && self.seed.is_none()
+            && self.frequency_penalty.is_none()
+            && self.presence_penalty.is_none()
     }
 
     /// Estimate memory usage for caching decisions
@@ -87,6 +97,12 @@ impl CommonParams {
         self.max_tokens.hash(&mut hasher);
         self.top_p.map(|t| (t * 1000.0) as u64).hash(&mut hasher);
         self.top_k.map(|t| (t * 1000.0) as u64).hash(&mut hasher);
+        self.frequency_penalty
+            .map(|t| (t * 1000.0) as u64)
+            .hash(&mut hasher);
+        self.presence_penalty
+            .map(|t| (t * 1000.0) as u64)
+            .hash(&mut hasher);
         hasher.finish()
     }
 
@@ -126,6 +142,24 @@ impl CommonParams {
             ));
         }
 
+        // Validate frequency_penalty (best-effort generic bounds; providers may vary)
+        if let Some(freq) = self.frequency_penalty
+            && !(-2.0..=2.0).contains(&freq)
+        {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "frequency_penalty must be between -2.0 and 2.0".to_string(),
+            ));
+        }
+
+        // Validate presence_penalty (best-effort generic bounds; providers may vary)
+        if let Some(pres) = self.presence_penalty
+            && !(-2.0..=2.0).contains(&pres)
+        {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "presence_penalty must be between -2.0 and 2.0".to_string(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -145,6 +179,8 @@ pub struct CommonParamsBuilder {
     top_k: Option<f64>,
     stop_sequences: Option<Vec<String>>,
     seed: Option<u64>,
+    frequency_penalty: Option<f64>,
+    presence_penalty: Option<f64>,
 }
 
 impl CommonParamsBuilder {
@@ -210,6 +246,34 @@ impl CommonParamsBuilder {
         self
     }
 
+    /// Set frequency penalty (best-effort validation: [-2.0, 2.0])
+    pub fn frequency_penalty(
+        mut self,
+        frequency_penalty: f64,
+    ) -> Result<Self, crate::error::LlmError> {
+        if !(-2.0..=2.0).contains(&frequency_penalty) {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "frequency_penalty must be between -2.0 and 2.0".to_string(),
+            ));
+        }
+        self.frequency_penalty = Some(frequency_penalty);
+        Ok(self)
+    }
+
+    /// Set presence penalty (best-effort validation: [-2.0, 2.0])
+    pub fn presence_penalty(
+        mut self,
+        presence_penalty: f64,
+    ) -> Result<Self, crate::error::LlmError> {
+        if !(-2.0..=2.0).contains(&presence_penalty) {
+            return Err(crate::error::LlmError::InvalidParameter(
+                "presence_penalty must be between -2.0 and 2.0".to_string(),
+            ));
+        }
+        self.presence_penalty = Some(presence_penalty);
+        Ok(self)
+    }
+
     /// Build the CommonParams
     pub fn build(self) -> Result<CommonParams, crate::error::LlmError> {
         let params = CommonParams {
@@ -221,6 +285,8 @@ impl CommonParamsBuilder {
             top_k: self.top_k,
             stop_sequences: self.stop_sequences,
             seed: self.seed,
+            frequency_penalty: self.frequency_penalty,
+            presence_penalty: self.presence_penalty,
         };
 
         params.validate_params()?;
@@ -244,6 +310,8 @@ mod tests {
         assert!(params.top_k.is_none());
         assert!(params.stop_sequences.is_none());
         assert!(params.seed.is_none());
+        assert!(params.frequency_penalty.is_none());
+        assert!(params.presence_penalty.is_none());
     }
 
     #[test]
@@ -257,6 +325,8 @@ mod tests {
             top_k: Some(0.1),
             stop_sequences: Some(vec!["STOP".to_string(), "END".to_string()]),
             seed: Some(42),
+            frequency_penalty: Some(0.5),
+            presence_penalty: Some(-0.5),
         };
 
         let json = serde_json::to_string(&params).expect("serialize");
@@ -271,6 +341,8 @@ mod tests {
             Some(&["STOP".to_string(), "END".to_string()][..])
         );
         assert_eq!(de.seed, Some(42));
+        assert_eq!(de.frequency_penalty, Some(0.5));
+        assert_eq!(de.presence_penalty, Some(-0.5));
     }
 
     #[test]

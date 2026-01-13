@@ -12,6 +12,30 @@ use super::types::{
     Part,
 };
 
+fn extract_thought_signature(
+    provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
+) -> Option<String> {
+    let map = provider_metadata.as_ref()?;
+    for v in map.values() {
+        if let Some(sig) = v.get("thoughtSignature").and_then(|s| s.as_str()) {
+            let sig = sig.trim();
+            if !sig.is_empty() {
+                return Some(sig.to_string());
+            }
+        }
+    }
+    // Also accept a flat shape: { "thoughtSignature": "..." }
+    if let Some(sig) = map
+        .get("thoughtSignature")
+        .and_then(|s| s.as_str())
+        .map(str::trim)
+        && !sig.is_empty()
+    {
+        return Some(sig.to_string());
+    }
+    None
+}
+
 fn is_empty_object_schema(json_schema: &serde_json::Value) -> bool {
     let Some(obj) = json_schema.as_object() else {
         return false;
@@ -267,6 +291,15 @@ fn convert_json_schema_to_openapi_schema(
     Some(serde_json::Value::Object(result))
 }
 
+/// Convert a JSON Schema 7 root schema into a Gemini-compatible OpenAPI Schema 3.0 object.
+///
+/// This mirrors Vercel AI SDK's conversion used for `responseFormat` and function tool schemas.
+pub fn convert_json_schema_to_openapi_schema_root(
+    json_schema: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    convert_json_schema_to_openapi_schema(json_schema, true)
+}
+
 /// Parse data URL to extract MIME type and base64 data
 fn parse_data_url(data_url: &str) -> Option<(String, String)> {
     if let Some(comma_pos) = data_url.find(',') {
@@ -320,18 +353,35 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         MessageContent::MultiModal(content_parts) => {
             for content_part in content_parts {
                 match content_part {
-                    crate::types::ContentPart::Text { text, .. } => {
+                    crate::types::ContentPart::Text {
+                        text,
+                        provider_metadata,
+                    } => {
                         if !text.is_empty() {
+                            let thought_signature = extract_thought_signature(provider_metadata);
                             parts.push(Part::Text {
                                 text: text.clone(),
                                 thought: None,
-                                thought_signature: None,
+                                thought_signature,
                             });
                         }
                     }
-                    crate::types::ContentPart::Image { source, .. }
-                    | crate::types::ContentPart::Audio { source, .. }
-                    | crate::types::ContentPart::File { source, .. } => {
+                    crate::types::ContentPart::Image {
+                        source,
+                        provider_metadata,
+                        ..
+                    }
+                    | crate::types::ContentPart::Audio {
+                        source,
+                        provider_metadata,
+                        ..
+                    }
+                    | crate::types::ContentPart::File {
+                        source,
+                        provider_metadata,
+                        ..
+                    } => {
+                        let thought_signature = extract_thought_signature(provider_metadata);
                         match source {
                             crate::types::chat::MediaSource::Url { url } => {
                                 if url.starts_with("data:") {
@@ -339,17 +389,31 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                     if let Some((mime_type, data)) = parse_data_url(url) {
                                         parts.push(Part::InlineData {
                                             inline_data: super::types::Blob { mime_type, data },
-                                            thought_signature: None,
+                                            thought_signature,
                                         });
                                     }
-                                } else if url.starts_with("gs://") || url.starts_with("https://") {
+                                } else if url.starts_with("gs://")
+                                    || url.starts_with("https://")
+                                    || url.starts_with("http://")
+                                {
                                     // File URL
+                                    let mime_type = match content_part {
+                                        crate::types::ContentPart::File { media_type, .. } => {
+                                            Some(media_type.clone())
+                                        }
+                                        crate::types::ContentPart::Audio { media_type, .. } => {
+                                            media_type
+                                                .clone()
+                                                .or_else(|| Some(guess_mime_type(url).to_string()))
+                                        }
+                                        _ => Some(guess_mime_type(url)),
+                                    };
                                     parts.push(Part::FileData {
                                         file_data: super::types::FileData {
                                             file_uri: url.clone(),
-                                            mime_type: Some(guess_mime_type(url)),
+                                            mime_type,
                                         },
-                                        thought_signature: None,
+                                        thought_signature,
                                     });
                                 }
                             }
@@ -370,7 +434,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                         mime_type: mime_type.to_string(),
                                         data: data.clone(),
                                     },
-                                    thought_signature: None,
+                                    thought_signature,
                                 });
                             }
                             crate::types::chat::MediaSource::Binary { data } => {
@@ -392,7 +456,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                         mime_type: mime_type.to_string(),
                                         data: encoded,
                                     },
-                                    thought_signature: None,
+                                    thought_signature,
                                 });
                             }
                         }
@@ -405,9 +469,19 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         // Tool results are handled separately in convert_messages
                         // Skip them here as they're not part of content array
                     }
-                    crate::types::ContentPart::Reasoning { .. } => {
-                        // Reasoning/thinking is handled separately
-                        // Skip it here as it's not part of content array
+                    crate::types::ContentPart::Reasoning {
+                        text,
+                        provider_metadata,
+                    } => {
+                        // Vercel-aligned: assistant reasoning is represented as a "thought" text part.
+                        if role.as_deref() == Some("model") && !text.trim().is_empty() {
+                            let thought_signature = extract_thought_signature(provider_metadata);
+                            parts.push(Part::Text {
+                                text: text.clone(),
+                                thought: Some(true),
+                                thought_signature,
+                            });
+                        }
                     }
                     crate::types::ContentPart::ToolApprovalResponse { .. } => {
                         // Tool approval is an out-of-band workflow; Gemini request does not accept it.
@@ -439,15 +513,17 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         if let crate::types::ContentPart::ToolCall {
             tool_name,
             arguments,
+            provider_metadata,
             ..
         } = part
         {
+            let thought_signature = extract_thought_signature(provider_metadata);
             parts.push(Part::FunctionCall {
                 function_call: FunctionCall {
                     name: tool_name.clone(),
                     args: Some(arguments.clone()),
                 },
-                thought_signature: None,
+                thought_signature,
             });
         }
     }
@@ -456,16 +532,20 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
     let tool_results = message.tool_results();
     for part in tool_results {
         if let crate::types::ContentPart::ToolResult {
-            tool_name, output, ..
+            tool_name,
+            output,
+            provider_metadata,
+            ..
         } = part
         {
             let response = output.to_json_value();
+            let thought_signature = extract_thought_signature(provider_metadata);
             parts.push(Part::FunctionResponse {
                 function_response: super::types::FunctionResponse {
                     name: tool_name.clone(),
                     response,
                 },
-                thought_signature: None,
+                thought_signature,
             });
         }
     }
@@ -1081,8 +1161,25 @@ pub fn build_request_body(
         let v = (top_p * 1_000_000.0).round() / 1_000_000.0;
         merged_generation_config.top_p = Some(v);
     }
+    if let Some(top_k) = config.common_params.top_k {
+        let rounded = top_k.round();
+        if (top_k - rounded).abs() < 1e-9 && rounded >= 0.0 && rounded <= i32::MAX as f64 {
+            merged_generation_config.top_k = Some(rounded as i32);
+        }
+    }
     if let Some(stops) = &config.common_params.stop_sequences {
         merged_generation_config.stop_sequences = Some(stops.clone());
+    }
+    if let Some(seed) = config.common_params.seed
+        && seed <= i32::MAX as u64
+    {
+        merged_generation_config.seed = Some(seed as i32);
+    }
+    if let Some(fp) = config.common_params.frequency_penalty {
+        merged_generation_config.frequency_penalty = Some(fp);
+    }
+    if let Some(pp) = config.common_params.presence_penalty {
+        merged_generation_config.presence_penalty = Some(pp);
     }
 
     let gemini_tools = if let Some(ts) = tools {

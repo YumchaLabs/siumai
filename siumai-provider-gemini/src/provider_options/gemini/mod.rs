@@ -13,6 +13,8 @@ pub enum GeminiResponseModality {
     Text,
     #[serde(rename = "IMAGE")]
     Image,
+    #[serde(rename = "AUDIO")]
+    Audio,
 }
 
 /// Gemini thinking configuration for `generationConfig.thinkingConfig`.
@@ -146,6 +148,8 @@ pub struct GeminiOptions {
     pub file_search: Option<FileSearchConfig>,
     /// Preferred MIME type for responses (e.g., "application/json")
     pub response_mime_type: Option<String>,
+    /// Optional JSON Schema output schema (Gemini `responseJsonSchema`).
+    pub response_json_schema: Option<serde_json::Value>,
     /// Optional cached content reference used as extra context.
     ///
     /// Format: `cachedContents/{cachedContent}`.
@@ -171,6 +175,51 @@ pub struct GeminiOptions {
     ///
     /// Vercel AI SDK alignment: `providerOptions.google.audioTimestamp`.
     pub audio_timestamp: Option<bool>,
+
+    /// Optional. If specified, the media resolution specified will be used.
+    ///
+    /// Vercel AI SDK alignment: `providerOptions.google.mediaResolution`.
+    pub media_resolution: Option<String>,
+
+    /// Optional. Configures the image generation aspect ratio for Gemini image models.
+    ///
+    /// Vercel AI SDK alignment: `providerOptions.google.imageConfig`.
+    pub image_config: Option<GeminiImageConfig>,
+
+    /// Optional. Configuration for grounding retrieval (location context for Maps/Search grounding).
+    ///
+    /// Vercel AI SDK alignment: `providerOptions.google.retrievalConfig`.
+    pub retrieval_config: Option<GeminiRetrievalConfig>,
+
+    /// Optional. Enable structured outputs (responseSchema) for `responseFormat`.
+    ///
+    /// Vercel AI SDK alignment: `providerOptions.google.structuredOutputs`.
+    pub structured_outputs: Option<bool>,
+
+    /// Optional. If true, export logprobs results in response.
+    pub response_logprobs: Option<bool>,
+
+    /// Optional. Number of top logprobs to return at each decoding step.
+    pub logprobs: Option<i32>,
+}
+
+/// Image config for Gemini image generation models.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GeminiImageConfig {
+    pub aspect_ratio: Option<String>,
+    pub image_size: Option<String>,
+}
+
+/// Grounding retrieval config (location context).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GeminiRetrievalConfig {
+    pub lat_lng: Option<GeminiLatLng>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiLatLng {
+    pub latitude: f64,
+    pub longitude: f64,
 }
 
 impl GeminiOptions {
@@ -222,6 +271,12 @@ impl GeminiOptions {
         self
     }
 
+    /// Set JSON Schema for structured output (Gemini `responseJsonSchema`).
+    pub fn with_response_json_schema(mut self, schema: serde_json::Value) -> Self {
+        self.response_json_schema = Some(schema);
+        self
+    }
+
     /// Attach a cached content reference as extra context.
     ///
     /// Format: `cachedContents/{cachedContent}`.
@@ -257,6 +312,42 @@ impl GeminiOptions {
     /// Enable or disable audio timestamp understanding for audio-only files.
     pub const fn with_audio_timestamp(mut self, enabled: bool) -> Self {
         self.audio_timestamp = Some(enabled);
+        self
+    }
+
+    /// Set media resolution for this request.
+    pub fn with_media_resolution(mut self, resolution: impl Into<String>) -> Self {
+        self.media_resolution = Some(resolution.into());
+        self
+    }
+
+    /// Set image config for this request.
+    pub fn with_image_config(mut self, config: GeminiImageConfig) -> Self {
+        self.image_config = Some(config);
+        self
+    }
+
+    /// Set retrieval config for this request.
+    pub fn with_retrieval_config(mut self, config: GeminiRetrievalConfig) -> Self {
+        self.retrieval_config = Some(config);
+        self
+    }
+
+    /// Enable or disable structured outputs for responseFormat schema mapping.
+    pub const fn with_structured_outputs(mut self, enabled: bool) -> Self {
+        self.structured_outputs = Some(enabled);
+        self
+    }
+
+    /// Enable or disable logprobs in response.
+    pub const fn with_response_logprobs(mut self, enabled: bool) -> Self {
+        self.response_logprobs = Some(enabled);
+        self
+    }
+
+    /// Set number of top logprobs to return.
+    pub const fn with_logprobs(mut self, k: i32) -> Self {
+        self.logprobs = Some(k);
         self
     }
 }
