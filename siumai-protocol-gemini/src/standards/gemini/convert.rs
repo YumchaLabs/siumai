@@ -11,6 +11,7 @@ use super::types::{
     Content, FunctionCall, FunctionDeclaration, GeminiConfig, GeminiTool, GenerateContentRequest,
     Part,
 };
+use crate::types::{ToolResultContentPart, ToolResultOutput};
 
 fn extract_thought_signature(
     provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
@@ -384,6 +385,14 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         let thought_signature = extract_thought_signature(provider_metadata);
                         match source {
                             crate::types::chat::MediaSource::Url { url } => {
+                                // Vercel AI SDK alignment: assistant messages cannot reference URL-based file data.
+                                if role.as_deref() == Some("model") {
+                                    return Err(LlmError::InvalidParameter(
+                                        "File data URLs in assistant messages are not supported"
+                                            .to_string(),
+                                    ));
+                                }
+
                                 if url.starts_with("data:") {
                                     // Parse data URL
                                     if let Some((mime_type, data)) = parse_data_url(url) {
@@ -398,9 +407,13 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                 {
                                     // File URL
                                     let mime_type = match content_part {
-                                        crate::types::ContentPart::File { media_type, .. } => {
-                                            Some(media_type.clone())
-                                        }
+                                        crate::types::ContentPart::File { media_type, .. } => Some(
+                                            if media_type.trim().eq_ignore_ascii_case("image/*") {
+                                                "image/jpeg".to_string()
+                                            } else {
+                                                media_type.clone()
+                                            },
+                                        ),
                                         crate::types::ContentPart::Audio { media_type, .. } => {
                                             media_type
                                                 .clone()
@@ -538,15 +551,120 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
             ..
         } = part
         {
-            let response = output.to_json_value();
             let thought_signature = extract_thought_signature(provider_metadata);
-            parts.push(Part::FunctionResponse {
-                function_response: super::types::FunctionResponse {
-                    name: tool_name.clone(),
-                    response,
-                },
-                thought_signature,
-            });
+
+            fn push_function_response_part(
+                parts: &mut Vec<Part>,
+                tool_name: &str,
+                content: serde_json::Value,
+                thought_signature: Option<String>,
+            ) {
+                parts.push(Part::FunctionResponse {
+                    function_response: super::types::FunctionResponse {
+                        name: tool_name.to_string(),
+                        response: serde_json::json!({
+                            "name": tool_name,
+                            "content": content
+                        }),
+                    },
+                    thought_signature,
+                });
+            }
+
+            match output {
+                ToolResultOutput::Text { value } => {
+                    push_function_response_part(
+                        &mut parts,
+                        tool_name,
+                        serde_json::Value::String(value.clone()),
+                        thought_signature,
+                    );
+                }
+                ToolResultOutput::Json { value } => {
+                    push_function_response_part(
+                        &mut parts,
+                        tool_name,
+                        value.clone(),
+                        thought_signature,
+                    );
+                }
+                ToolResultOutput::ExecutionDenied { reason } => {
+                    let msg = reason
+                        .clone()
+                        .unwrap_or_else(|| "Tool execution denied.".to_string());
+                    push_function_response_part(
+                        &mut parts,
+                        tool_name,
+                        serde_json::Value::String(msg),
+                        thought_signature,
+                    );
+                }
+                ToolResultOutput::ErrorText { value } => {
+                    push_function_response_part(
+                        &mut parts,
+                        tool_name,
+                        serde_json::Value::String(value.clone()),
+                        thought_signature,
+                    );
+                }
+                ToolResultOutput::ErrorJson { value } => {
+                    push_function_response_part(
+                        &mut parts,
+                        tool_name,
+                        value.clone(),
+                        thought_signature,
+                    );
+                }
+                ToolResultOutput::Content { value } => {
+                    for content_part in value {
+                        match content_part {
+                            ToolResultContentPart::Text { text } => {
+                                push_function_response_part(
+                                    &mut parts,
+                                    tool_name,
+                                    serde_json::Value::String(text.clone()),
+                                    thought_signature.clone(),
+                                );
+                            }
+                            ToolResultContentPart::Image { source, .. } => match source {
+                                crate::types::chat::MediaSource::Base64 { data } => {
+                                    parts.push(Part::InlineData {
+                                        inline_data: super::types::Blob {
+                                            mime_type: "image/jpeg".to_string(),
+                                            data: data.clone(),
+                                        },
+                                        thought_signature: thought_signature.clone(),
+                                    });
+                                    parts.push(Part::Text {
+                                        text: "Tool executed successfully and returned this image as a response"
+                                            .to_string(),
+                                        thought: None,
+                                        thought_signature: thought_signature.clone(),
+                                    });
+                                }
+                                _ => {
+                                    let as_json =
+                                        serde_json::to_string(content_part).unwrap_or_default();
+                                    parts.push(Part::Text {
+                                        text: as_json,
+                                        thought: None,
+                                        thought_signature: thought_signature.clone(),
+                                    });
+                                }
+                            },
+                            _ => {
+                                let as_json =
+                                    serde_json::to_string(content_part).unwrap_or_default();
+                                parts.push(Part::Text {
+                                    text: as_json,
+                                    thought: None,
+                                    thought_signature: thought_signature.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1433,6 +1551,93 @@ mod system_and_tool_message_tests {
         assert_eq!(req.contents[0].role.as_deref(), Some("user"));
 
         let first_part = req.contents[0].parts.first().unwrap();
-        assert!(matches!(first_part, Part::FunctionResponse { .. }));
+        match first_part {
+            Part::FunctionResponse {
+                function_response, ..
+            } => {
+                assert_eq!(function_response.name, "search");
+                assert_eq!(
+                    function_response.response,
+                    serde_json::json!({ "name": "search", "content": "ok" })
+                );
+            }
+            _ => panic!("expected functionResponse"),
+        }
+    }
+
+    #[test]
+    fn tool_result_content_maps_text_and_image_parts_like_vercel() {
+        let cfg = GeminiConfig::default();
+
+        let msg = crate::types::ChatMessage {
+            role: crate::types::MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![
+                crate::types::ContentPart::tool_result_content(
+                    "call_1",
+                    "generate_image",
+                    vec![
+                        ToolResultContentPart::text("Generated image:"),
+                        ToolResultContentPart::image_base64("aGVsbG8="),
+                    ],
+                ),
+            ]),
+            metadata: Default::default(),
+        };
+
+        let req = build_request_body(&cfg, &[msg], None).unwrap();
+        assert_eq!(req.contents.len(), 1);
+        assert_eq!(req.contents[0].role.as_deref(), Some("user"));
+        assert_eq!(req.contents[0].parts.len(), 3);
+
+        // 1) Function response for the text part.
+        match &req.contents[0].parts[0] {
+            Part::FunctionResponse {
+                function_response, ..
+            } => {
+                assert_eq!(function_response.name, "generate_image");
+                assert_eq!(
+                    function_response.response,
+                    serde_json::json!({ "name": "generate_image", "content": "Generated image:" })
+                );
+            }
+            _ => panic!("expected functionResponse"),
+        }
+
+        // 2) Inline data for the image part (best-effort; mime type is not carried in ToolResultContentPart).
+        match &req.contents[0].parts[1] {
+            Part::InlineData { inline_data, .. } => {
+                assert_eq!(inline_data.mime_type, "image/jpeg");
+                assert_eq!(inline_data.data, "aGVsbG8=");
+            }
+            _ => panic!("expected inlineData"),
+        }
+
+        // 3) Sentinel text (matches Vercel AI SDK behavior).
+        match &req.contents[0].parts[2] {
+            Part::Text { text, .. } => {
+                assert_eq!(
+                    text,
+                    "Tool executed successfully and returned this image as a response"
+                );
+            }
+            _ => panic!("expected text part"),
+        }
+    }
+
+    #[test]
+    fn rejects_assistant_messages_with_url_based_files() {
+        let cfg = GeminiConfig::default();
+        let messages = vec![
+            crate::types::ChatMessage::assistant("hi")
+                .with_file_url("https://example.com/a.bin", "application/octet-stream")
+                .build(),
+        ];
+
+        let err = build_request_body(&cfg, &messages, None).unwrap_err();
+        assert!(matches!(err, LlmError::InvalidParameter(_)));
+        assert!(
+            err.to_string()
+                .contains("File data URLs in assistant messages are not supported")
+        );
     }
 }
