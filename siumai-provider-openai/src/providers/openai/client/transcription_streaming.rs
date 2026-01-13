@@ -144,6 +144,7 @@ impl OpenAiClient {
         );
 
         let stream = async_stream::stream! {
+            let mut accumulated = String::new();
             while let Some(item) = json_stream.next().await {
                 let payload = match item {
                     Ok(v) => v,
@@ -169,7 +170,12 @@ impl OpenAiClient {
                 match kind {
                     "transcript.text.delta" => {
                         match super::sse_helpers::openai_transcript_text_delta(&payload) {
-                            Ok(ev) => yield Ok(ev),
+                            Ok(ev) => {
+                                if let OpenAiTranscriptionStreamEvent::TextDelta { delta, .. } = &ev {
+                                    accumulated.push_str(delta);
+                                }
+                                yield Ok(ev)
+                            },
                             Err(e) => {
                                 yield Err(e);
                                 return;
@@ -187,7 +193,15 @@ impl OpenAiClient {
                     }
                     "transcript.text.done" => {
                         match super::sse_helpers::openai_transcript_text_done(&payload) {
-                            Ok(ev) => yield Ok(ev),
+                            Ok(mut ev) => {
+                                if let OpenAiTranscriptionStreamEvent::Done { text, .. } = &mut ev
+                                    && text.is_none()
+                                    && !accumulated.is_empty()
+                                {
+                                    *text = Some(accumulated.clone());
+                                }
+                                yield Ok(ev)
+                            },
                             Err(e) => {
                                 yield Err(e);
                                 return;
@@ -206,7 +220,7 @@ impl OpenAiClient {
 
             // If the upstream closes without sending transcript.text.done, emit a best-effort Done.
             yield Ok(OpenAiTranscriptionStreamEvent::Done {
-                text: None,
+                text: if accumulated.is_empty() { None } else { Some(accumulated) },
                 usage: None,
                 logprobs: None,
             });

@@ -94,4 +94,50 @@ mod tests {
                 .any(|w| w == b"true")
         );
     }
+
+    #[tokio::test]
+    async fn openai_stt_sse_stream_uses_done_marker_as_eof() {
+        let server = MockServer::start().await;
+
+        let sse = concat!(
+            "data: {\"type\":\"transcript.text.delta\",\"delta\":\"hel\"}\n\n",
+            "data: {\"type\":\"transcript.text.delta\",\"delta\":\"lo\"}\n\n",
+            "data: [DONE]\n\n",
+        );
+
+        Mock::given(method("POST"))
+            .and(path("/v1/audio/transcriptions"))
+            .and(header("accept", "text/event-stream"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_raw(sse, "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+
+        let cfg = OpenAiConfig::new("KEY").with_base_url(format!("{}/v1", server.uri()));
+        let client = OpenAiClient::new(cfg, reqwest::Client::new());
+
+        let mut req = SttRequest::from_audio(b"abc".to_vec());
+        req.model = Some("gpt-4o-mini-transcribe".to_string());
+
+        let mut stream = stt_sse_stream(&client, req).await.unwrap();
+
+        let mut deltas = String::new();
+        let mut done_text: Option<String> = None;
+        while let Some(item) = stream.next().await {
+            match item.unwrap() {
+                OpenAiTranscriptionStreamEvent::TextDelta { delta, .. } => deltas.push_str(&delta),
+                OpenAiTranscriptionStreamEvent::Done { text, .. } => {
+                    done_text = text;
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(deltas, "hello");
+        assert_eq!(done_text.as_deref(), Some("hello"));
+    }
 }
