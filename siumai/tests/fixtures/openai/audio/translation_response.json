@@ -1,0 +1,7 @@
+{
+  "text": "hello (translated)",
+  "language": "en",
+  "duration": 1.23,
+  "usage": { "input_tokens": 3, "output_tokens": 1 },
+  "segments": [{ "id": 0, "start": 0.0, "end": 1.23, "text": "hello (translated)" }]
+}
