@@ -443,19 +443,39 @@ impl AnthropicAutoBetaHeadersMiddleware {
             || model.starts_with("claude-haiku-4-5");
 
         // Structured outputs beta (Vercel-aligned):
-        // - enabled for supported models when using request-level JSON format, or
-        // - enabled for supported models when any function tools are present.
-        if supports_structured_outputs
-            && (matches!(
-                req.response_format,
-                Some(crate::types::chat::ResponseFormat::Json { .. })
-            ) || req
-                .tools
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .any(|t| matches!(t, Tool::Function { .. })))
-        {
+        // - enabled when using native `output_format` (depends on structuredOutputMode + model support),
+        // - enabled for supported models whenever function tools are present.
+        let structured_output_mode = req
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|v| v.as_object())
+            .and_then(|o| {
+                o.get("structuredOutputMode")
+                    .or_else(|| o.get("structured_output_mode"))
+                    .and_then(|v| v.as_str())
+            })
+            .unwrap_or("auto");
+        let prefers_output_format =
+            structured_output_mode == "outputFormat" || structured_output_mode == "output_format";
+        let prefers_json_tool =
+            structured_output_mode == "jsonTool" || structured_output_mode == "json_tool";
+
+        let uses_native_output_format = matches!(
+            req.response_format,
+            Some(crate::types::chat::ResponseFormat::Json { .. })
+        ) && (prefers_output_format
+            || (!prefers_json_tool && supports_structured_outputs));
+        if uses_native_output_format {
+            out.push("structured-outputs-2025-11-13");
+        }
+
+        let has_function_tools = req
+            .tools
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .any(|t| matches!(t, Tool::Function { .. }));
+        if supports_structured_outputs && has_function_tools {
             out.push("structured-outputs-2025-11-13");
         }
 

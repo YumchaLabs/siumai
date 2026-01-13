@@ -147,19 +147,39 @@ impl ProviderSpec for AnthropicSpec {
             }
 
             // Structured outputs beta (Vercel-aligned):
-            // - enabled for supported models when using request-level JSON format, or
-            // - enabled for supported models when any function tools are present.
-            if supports_structured_outputs
-                && (matches!(
-                    req.response_format,
-                    Some(crate::types::chat::ResponseFormat::Json { .. })
-                ) || req
-                    .tools
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .any(|t| matches!(t, Tool::Function { .. })))
-            {
+            // - enabled when using native `output_format` (depends on structuredOutputMode + model support),
+            // - enabled for supported models whenever function tools are present.
+            let structured_output_mode = req
+                .provider_options_map
+                .get("anthropic")
+                .and_then(|v| v.as_object())
+                .and_then(|o| {
+                    o.get("structuredOutputMode")
+                        .or_else(|| o.get("structured_output_mode"))
+                        .and_then(|v| v.as_str())
+                })
+                .unwrap_or("auto");
+            let prefers_output_format = structured_output_mode == "outputFormat"
+                || structured_output_mode == "output_format";
+            let prefers_json_tool =
+                structured_output_mode == "jsonTool" || structured_output_mode == "json_tool";
+
+            let uses_native_output_format = matches!(
+                req.response_format,
+                Some(crate::types::chat::ResponseFormat::Json { .. })
+            ) && (prefers_output_format
+                || (!prefers_json_tool && supports_structured_outputs));
+            if uses_native_output_format {
+                out.push("structured-outputs-2025-11-13");
+            }
+
+            let has_function_tools = req
+                .tools
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|t| matches!(t, Tool::Function { .. }));
+            if supports_structured_outputs && has_function_tools {
                 out.push("structured-outputs-2025-11-13");
             }
 
@@ -387,7 +407,21 @@ impl ProviderSpec for AnthropicSpec {
             options.as_ref().and_then(|o| o.response_format.clone());
         let mcp_servers: Option<Vec<serde_json::Value>> =
             self.anthropic_mcp_servers_from_provider_options_map(req);
-        let container = options.as_ref().and_then(|o| o.container.clone());
+        let container = self
+            .anthropic_container_from_provider_options_map(req)
+            .or_else(|| {
+                options
+                    .as_ref()
+                    .and_then(|o| o.container.clone())
+                    .and_then(|c| serde_json::to_value(c).ok())
+                    .and_then(|v| {
+                        if v.as_object().is_some_and(|o| o.is_empty()) {
+                            None
+                        } else {
+                            Some(v)
+                        }
+                    })
+            });
         let context_management = options.as_ref().and_then(|o| o.context_management.clone());
         let effort = options.as_ref().and_then(|o| o.effort);
 
@@ -444,20 +478,17 @@ impl ProviderSpec for AnthropicSpec {
             if let Some(ref rf) = response_format {
                 match rf {
                     AnthropicResponseFormat::JsonObject => {
-                        out["response_format"] = serde_json::json!({ "type": "json_object" });
+                        out["output_format"] = serde_json::json!({ "type": "json_object" });
                     }
                     AnthropicResponseFormat::JsonSchema {
                         name,
                         schema,
                         strict,
                     } => {
-                        out["response_format"] = serde_json::json!({
+                        let _ = (name, strict);
+                        out["output_format"] = serde_json::json!({
                             "type": "json_schema",
-                            "json_schema": {
-                                "name": name,
-                                "strict": strict,
-                                "schema": schema
-                            }
+                            "schema": schema
                         });
                     }
                 }
@@ -468,19 +499,7 @@ impl ProviderSpec for AnthropicSpec {
             }
 
             if let Some(ref container) = container {
-                let is_empty = container.id.is_none()
-                    && container
-                        .skills
-                        .as_ref()
-                        .map(|s| s.is_empty())
-                        .unwrap_or(true);
-                if !is_empty {
-                    out["container"] = serde_json::to_value(container).map_err(|e| {
-                        LlmError::InvalidParameter(format!(
-                            "Failed to serialize Anthropic container options: {e}"
-                        ))
-                    })?;
-                }
+                out["container"] = container.clone();
             }
 
             if let Some(ref cm) = context_management {
@@ -628,8 +647,28 @@ impl AnthropicSpec {
                     let nk = match k.as_str() {
                         "serverName" => "name",
                         "serverUrl" => "url",
+                        "authorizationToken" => "authorization_token",
+                        "toolConfiguration" => "tool_configuration",
+                        "allowedTools" => "allowed_tools",
                         other => other,
                     };
+                    if nk == "tool_configuration" && v.is_object() {
+                        let mut tc = serde_json::Map::new();
+                        if let Some(obj) = v.as_object() {
+                            for (k, v) in obj {
+                                let nk = match k.as_str() {
+                                    "allowedTools" => "allowed_tools",
+                                    other => other,
+                                };
+                                tc.insert(nk.to_string(), v.clone());
+                            }
+                        }
+                        out.insert(
+                            "tool_configuration".to_string(),
+                            serde_json::Value::Object(tc),
+                        );
+                        continue;
+                    }
                     out.insert(nk.to_string(), v);
                 }
 
@@ -641,6 +680,82 @@ impl AnthropicSpec {
             None
         } else {
             Some(normalized)
+        }
+    }
+
+    fn anthropic_container_from_provider_options_map(
+        &self,
+        req: &ChatRequest,
+    ) -> Option<serde_json::Value> {
+        let value = req.provider_options_map.get("anthropic")?;
+        let obj = value.as_object()?;
+
+        let container = obj.get("container").or_else(|| obj.get("container_id"))?;
+
+        match container {
+            serde_json::Value::String(id) => {
+                if id.trim().is_empty() {
+                    None
+                } else {
+                    Some(serde_json::Value::String(id.clone()))
+                }
+            }
+            serde_json::Value::Object(map) => {
+                let id = map
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let skills = map.get("skills").and_then(|v| v.as_array());
+
+                let normalized_skills: Vec<serde_json::Value> = skills
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_object())
+                    .map(|skill| {
+                        let mut out = serde_json::Map::new();
+                        if let Some(v) = skill.get("type") {
+                            out.insert("type".to_string(), v.clone());
+                        }
+                        let skill_id = skill
+                            .get("skillId")
+                            .or_else(|| skill.get("skill_id"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        if let Some(skill_id) = skill_id {
+                            out.insert("skill_id".to_string(), serde_json::json!(skill_id));
+                        }
+                        if let Some(v) = skill.get("version") {
+                            out.insert("version".to_string(), v.clone());
+                        }
+                        serde_json::Value::Object(out)
+                    })
+                    .filter(|v| v.as_object().is_some_and(|o| !o.is_empty()))
+                    .collect();
+
+                // Vercel-aligned: when no skills are provided, `container` is sent as a string id.
+                if normalized_skills.is_empty() && id.as_ref().is_some_and(|s| !s.is_empty()) {
+                    return Some(serde_json::Value::String(id.unwrap()));
+                }
+
+                let mut out = serde_json::Map::new();
+                if let Some(id) = id {
+                    if !id.is_empty() {
+                        out.insert("id".to_string(), serde_json::Value::String(id));
+                    }
+                }
+                if !normalized_skills.is_empty() {
+                    out.insert(
+                        "skills".to_string(),
+                        serde_json::Value::Array(normalized_skills),
+                    );
+                }
+                if out.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::Value::Object(out))
+                }
+            }
+            _ => None,
         }
     }
 }
@@ -759,5 +874,113 @@ mod tests {
                 .any(|t| t.trim() == "fine-grained-tool-streaming-2025-05-14"),
             "unexpected fine-grained-tool-streaming beta token: {beta}"
         );
+    }
+
+    #[test]
+    fn chat_before_send_serializes_container_id_only_as_string() {
+        let spec = AnthropicSpec::new();
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({ "container": { "id": "c_1" } }),
+            );
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("hook");
+
+        let out = hook(&serde_json::json!({"model":"m","messages":[],"max_tokens":1}))
+            .expect("apply hook");
+
+        assert_eq!(out.get("container"), Some(&serde_json::json!("c_1")));
+    }
+
+    #[test]
+    fn chat_before_send_serializes_container_skills_as_object() {
+        let spec = AnthropicSpec::new();
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "container": {
+                        "id": "c_1",
+                        "skills": [
+                            { "type": "anthropic", "skillId": "pptx", "version": "latest" }
+                        ]
+                    }
+                }),
+            );
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("hook");
+
+        let out = hook(&serde_json::json!({"model":"m","messages":[],"max_tokens":1}))
+            .expect("apply hook");
+
+        let obj = out
+            .get("container")
+            .and_then(|v| v.as_object())
+            .expect("object");
+        assert_eq!(obj.get("id").and_then(|v| v.as_str()), Some("c_1"));
+        let skills = obj
+            .get("skills")
+            .and_then(|v| v.as_array())
+            .expect("skills array");
+        assert_eq!(
+            skills[0].get("skill_id").and_then(|v| v.as_str()),
+            Some("pptx")
+        );
+    }
+
+    #[test]
+    fn chat_before_send_normalizes_mcp_servers_keys_to_snake_case() {
+        let spec = AnthropicSpec::new();
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "mcpServers": [
+                        {
+                            "type": "url",
+                            "name": "s1",
+                            "url": "https://example.com",
+                            "authorizationToken": "tok",
+                            "toolConfiguration": {
+                                "enabled": true,
+                                "allowedTools": ["a", "b"]
+                            }
+                        }
+                    ]
+                }),
+            );
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("hook");
+
+        let out = hook(&serde_json::json!({"model":"m","messages":[],"max_tokens":1}))
+            .expect("apply hook");
+
+        let servers = out
+            .get("mcp_servers")
+            .and_then(|v| v.as_array())
+            .expect("mcp_servers array");
+        let server = servers[0].as_object().expect("server object");
+        assert!(server.contains_key("authorization_token"));
+        let tc = server
+            .get("tool_configuration")
+            .and_then(|v| v.as_object())
+            .expect("tool_configuration");
+        assert!(tc.contains_key("allowed_tools"));
     }
 }

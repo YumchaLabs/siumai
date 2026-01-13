@@ -69,6 +69,42 @@ mod image_block_tests {
     }
 }
 
+#[cfg(test)]
+mod document_provider_metadata_tests {
+    use super::*;
+
+    #[test]
+    fn file_part_provider_metadata_controls_document_citations_and_title() {
+        let mut provider_metadata = std::collections::HashMap::new();
+        provider_metadata.insert(
+            "anthropic".to_string(),
+            serde_json::json!({
+                "citations": { "enabled": true },
+                "title": "My Doc",
+                "context": "background",
+            }),
+        );
+
+        let part = ContentPart::File {
+            source: MediaSource::Binary {
+                data: b"%PDF-1.7".to_vec(),
+            },
+            media_type: "application/pdf".to_string(),
+            filename: Some("fallback.pdf".to_string()),
+            provider_metadata: Some(provider_metadata),
+        };
+
+        let content = MessageContent::MultiModal(vec![part]);
+        let mapped = convert_message_content(&content).expect("convert ok");
+        let arr = mapped.as_array().expect("array");
+
+        assert_eq!(arr[0]["type"], "document");
+        assert_eq!(arr[0]["title"], "My Doc");
+        assert_eq!(arr[0]["context"], "background");
+        assert_eq!(arr[0]["citations"]["enabled"], true);
+    }
+}
+
 pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
     match content {
         MessageContent::Text(text) => Ok(serde_json::Value::Array(vec![serde_json::json!({
@@ -160,8 +196,64 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                         source,
                         media_type,
                         filename,
+                        provider_metadata,
                         ..
                     } => {
+                        fn apply_anthropic_document_options(
+                            doc: &mut serde_json::Value,
+                            filename: &Option<String>,
+                            provider_metadata: &Option<
+                                std::collections::HashMap<String, serde_json::Value>,
+                            >,
+                        ) {
+                            let Some(provider_metadata) = provider_metadata else {
+                                if let Some(name) = filename.as_ref() {
+                                    doc["title"] = serde_json::json!(name);
+                                }
+                                return;
+                            };
+
+                            let Some(anthropic) = provider_metadata.get("anthropic") else {
+                                if let Some(name) = filename.as_ref() {
+                                    doc["title"] = serde_json::json!(name);
+                                }
+                                return;
+                            };
+
+                            let Some(obj) = anthropic.as_object() else {
+                                if let Some(name) = filename.as_ref() {
+                                    doc["title"] = serde_json::json!(name);
+                                }
+                                return;
+                            };
+
+                            if let Some(title) = obj.get("title").and_then(|v| v.as_str()) {
+                                if !title.is_empty() {
+                                    doc["title"] = serde_json::json!(title);
+                                }
+                            } else if let Some(name) = filename.as_ref() {
+                                doc["title"] = serde_json::json!(name);
+                            }
+
+                            if let Some(context) = obj.get("context").and_then(|v| v.as_str()) {
+                                if !context.is_empty() {
+                                    doc["context"] = serde_json::json!(context);
+                                }
+                            }
+
+                            let enabled = obj
+                                .get("citations")
+                                .and_then(|v| v.as_object())
+                                .and_then(|c| c.get("enabled"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            if enabled
+                                && doc.get("type").and_then(|v| v.as_str()) == Some("document")
+                            {
+                                doc["citations"] = serde_json::json!({ "enabled": true });
+                            }
+                        }
+
                         // Anthropic supports document parts for PDFs and plain text.
                         if media_type == "application/pdf" {
                             let source_json = match source {
@@ -193,9 +285,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                 "type": "document",
                                 "source": source_json,
                             });
-                            if let Some(name) = filename.as_ref() {
-                                doc["title"] = serde_json::json!(name);
-                            }
+                            apply_anthropic_document_options(&mut doc, filename, provider_metadata);
                             content_parts.push(doc);
                         } else if media_type == "text/plain" {
                             let source_json = match source {
@@ -236,9 +326,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                 "type": "document",
                                 "source": source_json,
                             });
-                            if let Some(name) = filename.as_ref() {
-                                doc["title"] = serde_json::json!(name);
-                            }
+                            apply_anthropic_document_options(&mut doc, filename, provider_metadata);
                             content_parts.push(doc);
                         } else {
                             content_parts.push(serde_json::json!({

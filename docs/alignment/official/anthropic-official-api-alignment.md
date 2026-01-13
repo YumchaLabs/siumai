@@ -126,6 +126,55 @@ From the official “Create a Message” docs:
 - Fixtures:
   - `siumai/tests/fixtures/anthropic/messages/*`
 
+## Vercel-aligned options (structured outputs / reasoning / container / MCP / citations)
+
+Siumai mirrors a few Vercel AI SDK request-level/providerOptions behaviors that are not explicitly
+spelled out in the “Create a Message” docs, but are required for practical parity.
+
+### Structured outputs (`responseFormat` + `structuredOutputMode`)
+
+- Unified request-level hint: `ChatRequest.responseFormat` (JSON schema) maps to:
+  - Native: `output_format: { type: "json_schema", schema }` for supported Claude 4.5 models
+  - Fallback: reserved `json` tool + `tool_choice: { type: "any", disable_parallel_tool_use: true }`
+- Provider option: `providerOptions.anthropic.structuredOutputMode`:
+  - `auto` (default): native when supported, otherwise fallback
+  - `outputFormat`: always prefer native `output_format`
+  - `jsonTool`: always force the `json` tool fallback
+- Implementation:
+  - `siumai-protocol-anthropic/src/standards/anthropic/transformers.rs`
+
+### Reasoning inputs (`sendReasoning`)
+
+- Provider option: `providerOptions.anthropic.sendReasoning` (default `true`)
+- When `false`, reasoning parts in input messages are dropped before building the Anthropic body.
+- Implementation:
+  - `siumai-protocol-anthropic/src/standards/anthropic/transformers.rs`
+
+### Container (`container`)
+
+- Vercel-aligned request shaping:
+  - `container: "id"` when only an id is provided
+  - `container: { id, skills: [...] }` when agent skills are present
+- Implementation:
+  - `siumai-provider-anthropic/src/providers/anthropic/spec.rs`
+
+### MCP servers (`mcpServers` → `mcp_servers`)
+
+- Provider option: `providerOptions.anthropic.mcpServers[]` is normalized to the API’s snake_case
+  shape (`authorization_token`, `tool_configuration.allowed_tools`, etc.).
+- Implementation:
+  - `siumai-provider-anthropic/src/providers/anthropic/spec.rs`
+
+### Document citations/title/context (file part `providerMetadata`)
+
+- For `application/pdf` and `text/plain` file parts converted into Anthropic `document` blocks,
+  per-part `providerMetadata.anthropic` may include:
+  - `citations.enabled`
+  - `title`
+  - `context`
+- Implementation:
+  - `siumai-protocol-anthropic/src/standards/anthropic/utils/content.rs`
+
 ## Streaming protocol (SSE)
 
 From the official streaming doc (`/en/api/messages-streaming`):

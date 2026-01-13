@@ -40,6 +40,13 @@ impl RequestTransformer for AnthropicRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum StructuredOutputMode {
+            Auto,
+            OutputFormat,
+            JsonTool,
+        }
+
         fn disable_parallel_tool_use(req: &ChatRequest) -> bool {
             req.provider_options_map
                 .get("anthropic")
@@ -50,6 +57,54 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 })
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
+        }
+
+        fn structured_output_mode(req: &ChatRequest) -> StructuredOutputMode {
+            let Some(v) = req.provider_options_map.get("anthropic") else {
+                return StructuredOutputMode::Auto;
+            };
+            let Some(obj) = v.as_object() else {
+                return StructuredOutputMode::Auto;
+            };
+
+            let mode = obj
+                .get("structuredOutputMode")
+                .or_else(|| obj.get("structured_output_mode"))
+                .and_then(|v| v.as_str());
+
+            match mode {
+                Some("outputFormat") | Some("output_format") | Some("output-format") => {
+                    StructuredOutputMode::OutputFormat
+                }
+                Some("jsonTool") | Some("json_tool") | Some("json-tool") => {
+                    StructuredOutputMode::JsonTool
+                }
+                _ => StructuredOutputMode::Auto,
+            }
+        }
+
+        fn send_reasoning(req: &ChatRequest) -> bool {
+            req.provider_options_map
+                .get("anthropic")
+                .and_then(|v| v.as_object())
+                .and_then(|o| o.get("sendReasoning").or_else(|| o.get("send_reasoning")))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true)
+        }
+
+        fn strip_reasoning_inputs(
+            messages: &[crate::types::ChatMessage],
+        ) -> Vec<crate::types::ChatMessage> {
+            messages
+                .iter()
+                .cloned()
+                .map(|mut msg| {
+                    if let crate::types::MessageContent::MultiModal(parts) = &mut msg.content {
+                        parts.retain(|p| !matches!(p, crate::types::ContentPart::Reasoning { .. }));
+                    }
+                    msg
+                })
+                .collect()
         }
 
         fn default_max_tokens_for_model(model: &str) -> u32 {
@@ -82,7 +137,13 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 &self,
                 req: &ChatRequest,
             ) -> Result<serde_json::Value, LlmError> {
-                let (messages, system) = convert_messages_to_anthropic(&req.messages)?;
+                let raw_messages = if send_reasoning(req) {
+                    req.messages.clone()
+                } else {
+                    strip_reasoning_inputs(&req.messages)
+                };
+
+                let (messages, system) = convert_messages_to_anthropic(&raw_messages)?;
                 let mut body = serde_json::json!({
                     "model": req.common_params.model,
                     "messages": messages,
@@ -96,7 +157,8 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     body["system"] = serde_json::json!(sys);
                 }
                 if let Some(t) = req.common_params.temperature {
-                    body["temperature"] = serde_json::json!(t);
+                    let clamped = t.max(0.0).min(1.0);
+                    body["temperature"] = serde_json::json!(clamped);
                 }
                 if let Some(tp) = req.common_params.top_p {
                     // Vercel-aligned: `topP` is ignored when `temperature` is set.
@@ -149,14 +211,19 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 if let Some(crate::types::chat::ResponseFormat::Json { schema }) =
                     &req.response_format
                 {
-                    fn supports_output_format(model: &str) -> bool {
+                    fn supports_native_output_format(model: &str) -> bool {
                         model.starts_with("claude-sonnet-4-5")
                             || model.starts_with("claude-opus-4-5")
                             || model.starts_with("claude-haiku-4-5")
                     }
 
-                    let use_output_format = supports_output_format(&req.common_params.model)
-                        && req.tools.as_ref().map(|t| t.is_empty()).unwrap_or(true);
+                    let mode = structured_output_mode(req);
+                    let supports = supports_native_output_format(&req.common_params.model);
+                    let use_output_format = match mode {
+                        StructuredOutputMode::OutputFormat => true,
+                        StructuredOutputMode::JsonTool => false,
+                        StructuredOutputMode::Auto => supports,
+                    };
 
                     if use_output_format {
                         body["output_format"] = serde_json::json!({
@@ -671,6 +738,112 @@ mod tests {
                 "name": "testFunction",
                 "disable_parallel_tool_use": true
             }))
+        );
+    }
+
+    #[test]
+    fn structured_output_mode_json_tool_forces_json_tool_even_on_supported_model() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let req = ChatRequest::builder()
+            .model("claude-sonnet-4-5")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(crate::types::chat::ResponseFormat::Json {
+                schema: serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}),
+            })
+            .provider_option(
+                "anthropic",
+                serde_json::json!({ "structuredOutputMode": "jsonTool" }),
+            )
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert!(
+            body.get("output_format").is_none(),
+            "expected json tool fallback, got output_format: {:?}",
+            body.get("output_format")
+        );
+        assert!(body.get("tools").is_some(), "expected json tool");
+        assert_eq!(
+            body.get("tool_choice"),
+            Some(&serde_json::json!({"type":"any","disable_parallel_tool_use": true}))
+        );
+    }
+
+    #[test]
+    fn structured_output_auto_uses_output_format_even_with_tools() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let req = ChatRequest::builder()
+            .model("claude-sonnet-4-5")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "get-weather",
+                "Get weather",
+                serde_json::json!({"type":"object","properties":{"q":{"type":"string"}}}),
+            )])
+            .response_format(crate::types::chat::ResponseFormat::Json {
+                schema: serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}),
+            })
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert!(body.get("tools").is_some(), "expected tools in body");
+        assert!(
+            body.get("output_format").is_some(),
+            "expected output_format when model supports it"
+        );
+        let tools = body
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .expect("tools array");
+        assert!(
+            !tools
+                .iter()
+                .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("json")),
+            "did not expect json tool when using output_format"
+        );
+    }
+
+    #[test]
+    fn send_reasoning_false_drops_reasoning_inputs() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let assistant = crate::types::ChatMessage::assistant_with_content(vec![
+            crate::types::ContentPart::reasoning("secret"),
+            crate::types::ContentPart::text("ok"),
+        ])
+        .build();
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![
+                crate::types::ChatMessage::user("hi").build(),
+                assistant,
+            ])
+            .provider_option("anthropic", serde_json::json!({ "sendReasoning": false }))
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        let msgs = body
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .expect("messages");
+        let content = msgs[1]
+            .get("content")
+            .and_then(|v| v.as_array())
+            .expect("content");
+        assert!(
+            content
+                .iter()
+                .all(|p| p.get("type").and_then(|v| v.as_str()) != Some("thinking")),
+            "expected no thinking blocks when sendReasoning=false: {content:?}"
+        );
+        assert!(
+            !serde_json::to_string(content)
+                .unwrap_or_default()
+                .contains("<thinking>"),
+            "expected no <thinking> wrappers when sendReasoning=false"
         );
     }
 }

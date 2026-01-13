@@ -129,6 +129,40 @@ impl AnthropicToolWarningsMiddleware {
             None
         };
 
+        // Vercel-aligned: unsupported standardized settings (ignored by Anthropic).
+        if req.common_params.frequency_penalty.is_some() {
+            warnings.push(Warning::unsupported_setting(
+                "frequencyPenalty",
+                None::<String>,
+            ));
+        }
+        if req.common_params.presence_penalty.is_some() {
+            warnings.push(Warning::unsupported_setting(
+                "presencePenalty",
+                None::<String>,
+            ));
+        }
+        if req.common_params.seed.is_some() {
+            warnings.push(Warning::unsupported_setting("seed", None::<String>));
+        }
+
+        // Vercel-aligned: clamp temperature to [0, 1] and warn.
+        if let Some(t) = req.common_params.temperature {
+            if t > 1.0 {
+                warnings.push(Warning::unsupported_setting(
+                    "temperature",
+                    Some(format!(
+                        "{t} exceeds anthropic maximum of 1.0. clamped to 1.0"
+                    )),
+                ));
+            } else if t < 0.0 {
+                warnings.push(Warning::unsupported_setting(
+                    "temperature",
+                    Some(format!("{t} is below anthropic minimum of 0. clamped to 0")),
+                ));
+            }
+        }
+
         if thinking.enabled {
             if thinking.budget_tokens.is_none() {
                 warnings.push(Warning::unsupported_setting(
