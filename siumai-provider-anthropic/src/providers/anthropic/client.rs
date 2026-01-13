@@ -274,6 +274,20 @@ impl AnthropicClient {
             self.retry_options.clone(),
         )
     }
+
+    /// Provider-only Files API helpers (beta `files-api-2025-04-14`).
+    pub fn files(&self) -> super::files::AnthropicFiles {
+        super::files::AnthropicFiles::new(
+            self.api_key.clone(),
+            self.base_url.clone(),
+            self.http_client.clone(),
+            self.http_config.clone(),
+            self.specific_params.beta_features.clone(),
+            self.http_transport.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
 }
 
 fn normalize_anthropic_retry_options(mut options: RetryOptions) -> RetryOptions {

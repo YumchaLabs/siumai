@@ -225,3 +225,29 @@ similar to Gemini’s `cachedContents` and `countTokens` helpers.
   - `siumai-provider-anthropic/src/providers/anthropic/message_batches.rs`
 - Entry point:
   - `AnthropicClient::message_batches()` → `AnthropicMessageBatches::*`
+
+### Files API (`/v1/files`) (beta)
+
+The Files API is commonly used together with server-side tool execution (e.g. retrieving `file_id`
+artifacts emitted by code execution tool results).
+
+**Official endpoints**
+
+- `POST   /v1/files`
+- `GET    /v1/files/{file_id}`
+- `GET    /v1/files`
+- `DELETE /v1/files/{file_id}`
+- `GET    /v1/files/{file_id}/content`
+
+**Siumai mapping**
+
+- Provider-only helper:
+  - `siumai-provider-anthropic/src/providers/anthropic/files.rs`
+- Entry point:
+  - `AnthropicClient::files()` → `AnthropicFiles::*`
+
+**Beta header**
+
+- Some environments require `anthropic-beta: files-api-2025-04-14`.
+- Vercel-aligned behavior: when `AnthropicOptions.container.skills[]` is present, Siumai auto-injects
+  `code-execution-2025-08-25,skills-2025-10-02,files-api-2025-04-14`.

@@ -398,7 +398,8 @@ pub mod provider_ext {
         /// Provider-specific resources not covered by the unified families.
         pub mod resources {
             pub use siumai_provider_anthropic::providers::anthropic::{
-                AnthropicCountTokensResponse, AnthropicCreateMessageBatchRequest,
+                AnthropicCountTokensResponse, AnthropicCreateMessageBatchRequest, AnthropicFile,
+                AnthropicFileDeleteResponse, AnthropicFiles, AnthropicListFilesResponse,
                 AnthropicListMessageBatchesResponse, AnthropicMessageBatch,
                 AnthropicMessageBatchRequest, AnthropicMessageBatches, AnthropicTokens,
             };

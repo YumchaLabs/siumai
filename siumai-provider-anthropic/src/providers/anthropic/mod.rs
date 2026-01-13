@@ -8,6 +8,7 @@ pub mod client;
 pub mod config;
 /// Anthropic extension APIs (non-unified surface)
 pub mod ext;
+pub mod files;
 pub mod message_batches;
 pub mod middleware;
 pub mod model_constants;
@@ -24,6 +25,9 @@ pub mod utils;
 pub use builder::AnthropicBuilder;
 pub use client::AnthropicClient;
 pub use config::*;
+pub use files::{
+    AnthropicFile, AnthropicFileDeleteResponse, AnthropicFiles, AnthropicListFilesResponse,
+};
 pub use message_batches::{
     AnthropicCreateMessageBatchRequest, AnthropicListMessageBatchesResponse, AnthropicMessageBatch,
     AnthropicMessageBatchRequest, AnthropicMessageBatches,
