@@ -62,6 +62,10 @@ pub struct OpenAiMetadata {
     /// Sources extracted from provider-hosted tool results (Vercel-aligned).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<OpenAiSource>>,
+
+    /// Logprobs extracted from Chat Completions / Responses outputs (Vercel-aligned).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logprobs: Option<serde_json::Value>,
 }
 
 impl crate::types::provider_metadata::FromMetadata for OpenAiMetadata {

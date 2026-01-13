@@ -1,0 +1,6 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "verbosity": "high"
+}
+

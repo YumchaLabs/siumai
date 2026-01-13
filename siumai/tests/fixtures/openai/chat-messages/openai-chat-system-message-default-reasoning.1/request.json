@@ -1,0 +1,24 @@
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": { "Text": "You are a helpful assistant." },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "o1",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "top_k": null,
+    "stop_sequences": null,
+    "seed": null,
+    "frequency_penalty": null,
+    "presence_penalty": null
+  },
+  "stream": false
+}
+

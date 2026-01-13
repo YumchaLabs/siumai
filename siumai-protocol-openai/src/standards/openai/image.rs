@@ -303,6 +303,29 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             }
         }
 
+        // Vercel alignment: merge providerOptions.openai (or providerOptions.azure) into the body.
+        if let Some(opts) = request
+            .provider_options_map
+            .get_object("openai")
+            .or_else(|| request.provider_options_map.get_object("azure"))
+        {
+            if let Some(obj) = body.as_object_mut() {
+                for (k, v) in opts {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+
+        // Vercel alignment: models without a default response format should request base64.
+        // (gpt-image-1* always returns base64, others default to URLs unless specified)
+        if request.response_format.is_none()
+            && let Some(model) = request.model.as_deref()
+            && !model.starts_with("gpt-image-1")
+            && body.get("response_format").is_none()
+        {
+            body["response_format"] = serde_json::Value::String("b64_json".to_string());
+        }
+
         // Apply adapter transformation
         if let Some(adapter) = &self.adapter {
             adapter.transform_generation_request(request, &mut body)?;
@@ -316,6 +339,10 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
 
         // Build multipart form for OpenAI Images Edit
         let mut form = Form::new().text("prompt", req.prompt.clone());
+
+        if let Some(model) = &req.model {
+            form = form.text("model", model.clone());
+        }
 
         let image_mime = crate::utils::guess_mime(Some(&req.image), None);
         let image_part = Part::bytes(req.image.clone())
@@ -343,6 +370,35 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             form = form.text("response_format", response_format.clone());
         }
 
+        // Merge extra params and provider options (Vercel alignment).
+        for (k, v) in &req.extra_params {
+            if v.is_null() {
+                continue;
+            }
+            let s = v
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()));
+            form = form.text(k.clone(), s);
+        }
+
+        if let Some(opts) = req
+            .provider_options_map
+            .get_object("openai")
+            .or_else(|| req.provider_options_map.get_object("azure"))
+        {
+            for (k, v) in opts {
+                if v.is_null() {
+                    continue;
+                }
+                let s = v
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()));
+                form = form.text(k.clone(), s);
+            }
+        }
+
         // Apply adapter transformation
         if let Some(adapter) = &self.adapter {
             adapter.transform_edit_request(req, &mut form)?;
@@ -360,6 +416,10 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
         // Build multipart form for OpenAI Images Variation
         let mut form = Form::new();
 
+        if let Some(model) = &req.model {
+            form = form.text("model", model.clone());
+        }
+
         let image_mime = crate::utils::guess_mime(Some(&req.image), None);
         let image_part = Part::bytes(req.image.clone())
             .file_name("image")
@@ -375,6 +435,35 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
         }
         if let Some(response_format) = &req.response_format {
             form = form.text("response_format", response_format.clone());
+        }
+
+        // Merge extra params and provider options (Vercel alignment).
+        for (k, v) in &req.extra_params {
+            if v.is_null() {
+                continue;
+            }
+            let s = v
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()));
+            form = form.text(k.clone(), s);
+        }
+
+        if let Some(opts) = req
+            .provider_options_map
+            .get_object("openai")
+            .or_else(|| req.provider_options_map.get_object("azure"))
+        {
+            for (k, v) in opts {
+                if v.is_null() {
+                    continue;
+                }
+                let s = v
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()));
+                form = form.text(k.clone(), s);
+            }
         }
 
         // Apply adapter transformation
@@ -412,6 +501,27 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
             LlmError::ParseError("Missing or invalid 'data' field in image response".to_string())
         })?;
 
+        let created = resp.get("created").and_then(|v| v.as_u64());
+        let size = resp
+            .get("size")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let quality = resp
+            .get("quality")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let background = resp
+            .get("background")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let output_format = resp
+            .get("output_format")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let usage = resp.get("usage").cloned();
+
+        let mut openai_images_meta: Vec<serde_json::Value> = Vec::new();
+
         let images = data
             .iter()
             .map(|img| {
@@ -425,6 +535,36 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
                     .and_then(|p| p.as_str())
                     .map(String::from);
 
+                let mut meta = serde_json::Map::new();
+                if let Some(rp) = revised_prompt.as_ref() {
+                    meta.insert(
+                        "revisedPrompt".to_string(),
+                        serde_json::Value::String(rp.clone()),
+                    );
+                }
+                if let Some(ts) = created {
+                    meta.insert("created".to_string(), serde_json::Value::Number(ts.into()));
+                }
+                if let Some(s) = size.as_ref() {
+                    meta.insert("size".to_string(), serde_json::Value::String(s.clone()));
+                }
+                if let Some(q) = quality.as_ref() {
+                    meta.insert("quality".to_string(), serde_json::Value::String(q.clone()));
+                }
+                if let Some(bg) = background.as_ref() {
+                    meta.insert(
+                        "background".to_string(),
+                        serde_json::Value::String(bg.clone()),
+                    );
+                }
+                if let Some(fmt) = output_format.as_ref() {
+                    meta.insert(
+                        "outputFormat".to_string(),
+                        serde_json::Value::String(fmt.clone()),
+                    );
+                }
+                openai_images_meta.push(serde_json::Value::Object(meta));
+
                 crate::types::GeneratedImage {
                     url,
                     b64_json,
@@ -437,9 +577,20 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
             })
             .collect();
 
+        let mut metadata = std::collections::HashMap::new();
+        let mut openai_meta = serde_json::Map::new();
+        openai_meta.insert(
+            "images".to_string(),
+            serde_json::Value::Array(openai_images_meta),
+        );
+        if let Some(u) = usage {
+            openai_meta.insert("usage".to_string(), u);
+        }
+        metadata.insert("openai".to_string(), serde_json::Value::Object(openai_meta));
+
         Ok(ImageGenerationResponse {
             images,
-            metadata: std::collections::HashMap::new(),
+            metadata,
             warnings: None,
             response: None,
         })

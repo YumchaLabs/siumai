@@ -327,17 +327,48 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
                 ));
             }
 
-            let system_message_mode = req
+            fn is_reasoning_model(model: &str) -> bool {
+                let m = model.trim().to_ascii_lowercase();
+                if m.is_empty() {
+                    return false;
+                }
+
+                m.starts_with("o1")
+                    || m.starts_with("o3")
+                    || m.starts_with("o4")
+                    || m.starts_with("gpt-5")
+                    || m.contains("codex")
+                    || m.contains("computer-use-preview")
+            }
+
+            let provider_opts = req
                 .provider_option("openai")
                 .or_else(|| req.provider_option("azure"))
                 .or_else(|| req.provider_option(&self.provider_id))
-                .and_then(|v| v.as_object())
+                .and_then(|v| v.as_object());
+
+            let force_reasoning = provider_opts
+                .and_then(|obj| {
+                    obj.get("forceReasoning")
+                        .or_else(|| obj.get("force_reasoning"))
+                })
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            let default_system_message_mode =
+                if force_reasoning || is_reasoning_model(&req.common_params.model) {
+                    "developer"
+                } else {
+                    "system"
+                };
+
+            let system_message_mode = provider_opts
                 .and_then(|obj| {
                     obj.get("systemMessageMode")
                         .or_else(|| obj.get("system_message_mode"))
                         .and_then(|v| v.as_str())
                 })
-                .unwrap_or("system");
+                .unwrap_or(default_system_message_mode);
 
             let mut body = serde_json::json!({ "model": req.common_params.model });
 
@@ -346,6 +377,12 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
             }
             if let Some(tp) = req.common_params.top_p {
                 body["top_p"] = serde_json::json!(tp);
+            }
+            if let Some(fp) = req.common_params.frequency_penalty {
+                body["frequency_penalty"] = serde_json::json!(fp);
+            }
+            if let Some(pp) = req.common_params.presence_penalty {
+                body["presence_penalty"] = serde_json::json!(pp);
             }
             if let Some(seed) = req.common_params.seed {
                 body["seed"] = serde_json::json!(seed);
@@ -465,7 +502,26 @@ impl ResponseTransformer for OpenAiChatResponseTransformer {
             config: cfg,
             adapter: self.provider_adapter.clone(),
         };
-        compat.transform_chat_response(&raw)
+        let mut response = compat.transform_chat_response(&raw)?;
+
+        // Vercel alignment: extract logprobs from Chat Completions responses.
+        // When `logprobs` is requested, OpenAI returns `choices[].logprobs.content`.
+        if let Some(logprobs) = raw
+            .get("choices")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|choice| choice.get("logprobs"))
+            .and_then(|lp| lp.get("content"))
+            .filter(|v| !v.is_null())
+        {
+            let provider_key = self.provider_id.clone();
+            let mut provider_metadata = response.provider_metadata.take().unwrap_or_default();
+            let entry = provider_metadata.entry(provider_key).or_default();
+            entry.insert("logprobs".to_string(), logprobs.clone());
+            response.provider_metadata = Some(provider_metadata);
+        }
+
+        Ok(response)
     }
 }
 

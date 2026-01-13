@@ -1,0 +1,5 @@
+{
+  "model": "o1",
+  "messages": [{ "role": "developer", "content": "You are a helpful assistant." }]
+}
+

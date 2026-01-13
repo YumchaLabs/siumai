@@ -43,6 +43,12 @@ impl RequestTransformer for OpenAiRequestTransformer {
                 if let Some(tp) = req.common_params.top_p {
                     body["top_p"] = serde_json::json!(tp);
                 }
+                if let Some(fp) = req.common_params.frequency_penalty {
+                    body["frequency_penalty"] = serde_json::json!(fp);
+                }
+                if let Some(pp) = req.common_params.presence_penalty {
+                    body["presence_penalty"] = serde_json::json!(pp);
+                }
                 // Prefer max_completion_tokens for o1/o3 models, fallback to max_tokens
                 if let Some(max) = req.common_params.max_completion_tokens {
                     body["max_completion_tokens"] = serde_json::json!(max);
@@ -169,18 +175,41 @@ impl RequestTransformer for OpenAiRequestTransformer {
                     .model
                     .clone()
                     .unwrap_or_else(|| "text-embedding-3-small".to_string());
-                let encoding_format = req.encoding_format.as_ref().map(|f| match f {
-                    crate::types::EmbeddingFormat::Float => "float".to_string(),
-                    crate::types::EmbeddingFormat::Base64 => "base64".to_string(),
-                });
+
+                // Vercel alignment: OpenAI embedding requests always send `encoding_format: "float"`
+                // unless explicitly overridden.
+                let encoding_format = Some(
+                    match req
+                        .encoding_format
+                        .as_ref()
+                        .unwrap_or(&crate::types::EmbeddingFormat::Float)
+                    {
+                        crate::types::EmbeddingFormat::Float => "float".to_string(),
+                        crate::types::EmbeddingFormat::Base64 => "base64".to_string(),
+                    },
+                );
+
+                let provider_opts = req
+                    .provider_options_map
+                    .get_object("openai")
+                    .or_else(|| req.provider_options_map.get_object("azure"));
+                let dims_from_provider_opts = provider_opts
+                    .and_then(|obj| obj.get("dimensions"))
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u32::try_from(v).ok());
+                let user_from_provider_opts = provider_opts
+                    .and_then(|obj| obj.get("user"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
                 let mut json = serde_json::json!({ "input": req.input, "model": model });
                 if let Some(fmt) = encoding_format {
                     json["encoding_format"] = serde_json::json!(fmt);
                 }
-                if let Some(dim) = req.dimensions {
+                if let Some(dim) = req.dimensions.or(dims_from_provider_opts) {
                     json["dimensions"] = serde_json::json!(dim);
                 }
-                if let Some(user) = &req.user {
+                if let Some(user) = req.user.as_ref().cloned().or(user_from_provider_opts) {
                     json["user"] = serde_json::json!(user);
                 }
                 Ok(json)

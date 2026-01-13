@@ -1,0 +1,6 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "max_completion_tokens": 123
+}
+

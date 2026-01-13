@@ -18,6 +18,31 @@ struct OpenAiOptionsFromMap {
     responses_api: Option<crate::provider_options::openai::ResponsesApiConfig>,
     #[serde(default)]
     provider_tools: Vec<crate::types::Tool>,
+    // Chat Completions + Responses shared options (Vercel-aligned providerOptions.openai)
+    #[serde(default)]
+    logit_bias: Option<serde_json::Value>,
+    #[serde(default)]
+    logprobs: Option<serde_json::Value>,
+    #[serde(default)]
+    parallel_tool_calls: Option<bool>,
+    #[serde(default)]
+    user: Option<String>,
+    #[serde(default)]
+    max_completion_tokens: Option<u32>,
+    #[serde(default)]
+    store: Option<bool>,
+    #[serde(default)]
+    metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    prompt_cache_key: Option<String>,
+    #[serde(default)]
+    prompt_cache_retention: Option<crate::provider_options::openai::PromptCacheRetention>,
+    #[serde(default)]
+    safety_identifier: Option<String>,
+    #[serde(default)]
+    strict_json_schema: Option<bool>,
+    #[serde(default)]
+    text_verbosity: Option<crate::provider_options::openai::TextVerbosity>,
     #[serde(default)]
     reasoning_effort: Option<crate::provider_options::openai::ReasoningEffort>,
     #[serde(default)]
@@ -91,23 +116,12 @@ impl OpenAiSpec {
                 k,
                 "conversation"
                     | "previous_response_id"
-                    | "prompt_cache_key"
-                    | "prompt_cache_retention"
-                    | "response_format"
-                    | "strict_json_schema"
                     | "background"
                     | "include"
                     | "instructions"
                     | "max_tool_calls"
-                    | "logprobs"
                     | "reasoning_summary"
-                    | "safety_identifier"
-                    | "store"
                     | "truncation"
-                    | "text_verbosity"
-                    | "metadata"
-                    | "parallel_tool_calls"
-                    | "user"
             )
         }
 
@@ -116,6 +130,7 @@ impl OpenAiSpec {
                 // OpenAiOptions
                 "responsesApi" => "responses_api",
                 "providerTools" => "provider_tools",
+                "logitBias" => "logit_bias",
                 "reasoningEffort" => "reasoning_effort",
                 "serviceTier" => "service_tier",
                 "webSearchOptions" => "web_search_options",
@@ -137,6 +152,7 @@ impl OpenAiSpec {
                 "truncation" => "truncation",
                 "parallelToolCalls" => "parallel_tool_calls",
                 "textVerbosity" => "text_verbosity",
+                "maxCompletionTokens" => "max_completion_tokens",
                 "metadata" => "metadata",
                 "user" => "user",
                 _ => return None,
@@ -374,6 +390,18 @@ impl ProviderSpec for OpenAiSpec {
         let (
             builtins,
             responses_api_config,
+            logit_bias,
+            logprobs_value,
+            parallel_tool_calls,
+            user,
+            max_completion_tokens,
+            store,
+            metadata,
+            prompt_cache_key,
+            prompt_cache_retention,
+            safety_identifier,
+            strict_json_schema,
+            text_verbosity,
             reasoning_effort,
             service_tier,
             modalities,
@@ -408,6 +436,18 @@ impl ProviderSpec for OpenAiSpec {
                             None
                         }
                     }),
+                options.logit_bias.clone(),
+                options.logprobs.clone(),
+                options.parallel_tool_calls,
+                options.user.clone(),
+                options.max_completion_tokens,
+                options.store,
+                options.metadata.clone(),
+                options.prompt_cache_key.clone(),
+                options.prompt_cache_retention,
+                options.safety_identifier.clone(),
+                options.strict_json_schema,
+                options.text_verbosity,
                 options.reasoning_effort,
                 options.service_tier,
                 options.modalities.clone(),
@@ -428,6 +468,18 @@ impl ProviderSpec for OpenAiSpec {
                     None,
                     None,
                     None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
                 )
             } else {
                 return None;
@@ -436,13 +488,10 @@ impl ProviderSpec for OpenAiSpec {
 
         let builtins = builtins.unwrap_or(serde_json::Value::Array(vec![]));
 
-        // Extract all Responses API config fields
+        // Extract Responses API config fields (responses-only)
         let prev_id = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.previous_response_id.clone());
-        let prompt_cache_key = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.prompt_cache_key.clone());
         let response_format = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.response_format.clone());
@@ -456,37 +505,64 @@ impl ProviderSpec for OpenAiSpec {
         let max_tool_calls = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.max_tool_calls);
-        let store = responses_api_config.as_ref().and_then(|cfg| cfg.store);
         let truncation = responses_api_config.as_ref().and_then(|cfg| cfg.truncation);
-        let text_verbosity = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.text_verbosity);
-        let metadata = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.metadata.clone());
-        let parallel_tool_calls = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.parallel_tool_calls);
         let conversation = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.conversation.clone());
-        let prompt_cache_retention = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.prompt_cache_retention);
-        let strict_json_schema = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.strict_json_schema)
-            .unwrap_or(true);
-        let logprobs = responses_api_config.as_ref().and_then(|cfg| cfg.logprobs);
         let reasoning_summary = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.reasoning_summary.clone());
-        let safety_identifier = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.safety_identifier.clone());
-        let user = responses_api_config
-            .as_ref()
-            .and_then(|cfg| cfg.user.clone());
+
+        // Shared options (Vercel-aligned providerOptions.openai + legacy responsesApi fallback)
+        let prompt_cache_key = prompt_cache_key.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.prompt_cache_key.clone())
+        });
+        let prompt_cache_retention = prompt_cache_retention.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.prompt_cache_retention)
+        });
+        let store = store.or_else(|| responses_api_config.as_ref().and_then(|cfg| cfg.store));
+        let text_verbosity = text_verbosity.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.text_verbosity)
+        });
+        let metadata = metadata.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.metadata.clone())
+        });
+        let parallel_tool_calls = parallel_tool_calls.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.parallel_tool_calls)
+        });
+        let safety_identifier = safety_identifier.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.safety_identifier.clone())
+        });
+        let user = user.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.user.clone())
+        });
+        let strict_json_schema = strict_json_schema
+            .or_else(|| {
+                responses_api_config
+                    .as_ref()
+                    .and_then(|cfg| cfg.strict_json_schema)
+            })
+            .unwrap_or(true);
+        let logprobs = logprobs_value.or_else(|| {
+            responses_api_config
+                .as_ref()
+                .and_then(|cfg| cfg.logprobs)
+                .and_then(|lp| serde_json::to_value(lp).ok())
+        });
 
         let request_response_format = req.response_format.clone();
         let model_id = req.common_params.model.clone();
@@ -518,6 +594,8 @@ impl ProviderSpec for OpenAiSpec {
         let has_prompt_cache_retention = prompt_cache_retention.is_some();
         let has_response_format = response_format.is_some();
         let has_request_response_format = request_response_format.is_some();
+        let has_logit_bias = logit_bias.is_some();
+        let has_max_completion_tokens = max_completion_tokens.is_some();
         let has_reasoning_effort = reasoning_effort.is_some();
         let has_service_tier = service_tier.is_some();
         let has_background = background.is_some();
@@ -545,6 +623,8 @@ impl ProviderSpec for OpenAiSpec {
             && !has_prompt_cache_retention
             && !has_response_format
             && !has_request_response_format
+            && !has_logit_bias
+            && !has_max_completion_tokens
             && !has_reasoning_effort
             && !has_service_tier
             && !has_background
@@ -623,12 +703,12 @@ impl ProviderSpec for OpenAiSpec {
                 out["prompt_cache_retention"] = val;
             }
 
-            // Vercel alignment: map request-level `responseFormat` into Responses `text.format`.
-            // Provider options `responses_api.response_format` is a lower priority override.
-            if use_responses_api {
-                if let Some(fmt) = &request_response_format {
-                    match fmt {
-                        crate::types::chat::ResponseFormat::Json { schema } => {
+            // Vercel alignment: map request-level `responseFormat` into Responses `text.format`
+            // or Chat Completions `response_format`.
+            if let Some(fmt) = &request_response_format {
+                match fmt {
+                    crate::types::chat::ResponseFormat::Json { schema } => {
+                        if use_responses_api {
                             let format = serde_json::json!({
                                 "type": "json_schema",
                                 "strict": strict_json_schema,
@@ -643,6 +723,15 @@ impl ProviderSpec for OpenAiSpec {
                             } else {
                                 out["text"] = serde_json::json!({ "format": format });
                             }
+                        } else if out.get("response_format").is_none() {
+                            out["response_format"] = serde_json::json!({
+                                "type": "json_schema",
+                                "json_schema": {
+                                    "name": "response",
+                                    "schema": schema,
+                                    "strict": strict_json_schema
+                                }
+                            });
                         }
                     }
                 }
@@ -650,55 +739,60 @@ impl ProviderSpec for OpenAiSpec {
 
             if request_response_format.is_none() {
                 if let Some(fmt) = &response_format {
-                    // OpenAI Responses API: structured output is configured via `text.format`.
-                    //
-                    // Backward-compat: accept the Chat Completions `response_format` JSON schema shape
-                    // (`{ type, json_schema: {...} }`) and translate into the Responses shape
-                    // (`{ type, name, schema, strict, ... }`) when possible.
-                    let normalized_format = if fmt.get("json_schema").is_some() {
-                        // Chat Completions shape: { type: "json_schema", json_schema: { name, schema, strict, ... } }
-                        // Responses shape: { type: "json_schema", name, schema, strict, ... }
-                        let typ = fmt
-                            .get("type")
-                            .cloned()
-                            .unwrap_or(serde_json::json!("json_schema"));
-                        let inner = fmt
-                            .get("json_schema")
-                            .cloned()
-                            .unwrap_or(serde_json::Value::Null);
-                        if let (Some(name), Some(schema)) =
-                            (inner.get("name").cloned(), inner.get("schema").cloned())
-                        {
-                            let strict = inner.get("strict").cloned();
-                            let description = inner.get("description").cloned();
-                            let mut obj = serde_json::Map::new();
-                            obj.insert("type".to_string(), typ);
-                            obj.insert("name".to_string(), name);
-                            obj.insert("schema".to_string(), schema);
-                            if let Some(v) = strict {
-                                obj.insert("strict".to_string(), v);
+                    if use_responses_api {
+                        // OpenAI Responses API: structured output is configured via `text.format`.
+                        //
+                        // Backward-compat: accept the Chat Completions `response_format` JSON schema shape
+                        // (`{ type, json_schema: {...} }`) and translate into the Responses shape
+                        // (`{ type, name, schema, strict, ... }`) when possible.
+                        let normalized_format = if fmt.get("json_schema").is_some() {
+                            // Chat Completions shape: { type: "json_schema", json_schema: { name, schema, strict, ... } }
+                            // Responses shape: { type: "json_schema", name, schema, strict, ... }
+                            let typ = fmt
+                                .get("type")
+                                .cloned()
+                                .unwrap_or(serde_json::json!("json_schema"));
+                            let inner = fmt
+                                .get("json_schema")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            if let (Some(name), Some(schema)) =
+                                (inner.get("name").cloned(), inner.get("schema").cloned())
+                            {
+                                let strict = inner.get("strict").cloned();
+                                let description = inner.get("description").cloned();
+                                let mut obj = serde_json::Map::new();
+                                obj.insert("type".to_string(), typ);
+                                obj.insert("name".to_string(), name);
+                                obj.insert("schema".to_string(), schema);
+                                if let Some(v) = strict {
+                                    obj.insert("strict".to_string(), v);
+                                }
+                                if let Some(v) = description {
+                                    obj.insert("description".to_string(), v);
+                                }
+                                serde_json::Value::Object(obj)
+                            } else {
+                                fmt.clone()
                             }
-                            if let Some(v) = description {
-                                obj.insert("description".to_string(), v);
-                            }
-                            serde_json::Value::Object(obj)
                         } else {
                             fmt.clone()
-                        }
-                    } else {
-                        fmt.clone()
-                    };
+                        };
 
-                    if let Some(text_obj) = out.get_mut("text") {
-                        if let Some(text_map) = text_obj.as_object_mut() {
-                            text_map
-                                .entry("format".to_string())
-                                .or_insert(normalized_format);
+                        if let Some(text_obj) = out.get_mut("text") {
+                            if let Some(text_map) = text_obj.as_object_mut() {
+                                text_map
+                                    .entry("format".to_string())
+                                    .or_insert(normalized_format);
+                            }
+                        } else {
+                            out["text"] = serde_json::json!({
+                                "format": normalized_format
+                            });
                         }
-                    } else {
-                        out["text"] = serde_json::json!({
-                            "format": normalized_format
-                        });
+                    } else if out.get("response_format").is_none() {
+                        // Legacy: allow passing Chat Completions `response_format` directly.
+                        out["response_format"] = fmt.clone();
                     }
                 }
             }
@@ -725,16 +819,20 @@ impl ProviderSpec for OpenAiSpec {
             if let Some(ref verb) = text_verbosity
                 && let Ok(val) = serde_json::to_value(verb)
             {
-                // text_verbosity should be nested under "text.verbosity" in Responses API
-                if let Some(text_obj) = out.get_mut("text") {
-                    if let Some(text_map) = text_obj.as_object_mut() {
-                        text_map.insert("verbosity".to_string(), val);
+                if use_responses_api {
+                    // Responses API: nested under "text.verbosity"
+                    if let Some(text_obj) = out.get_mut("text") {
+                        if let Some(text_map) = text_obj.as_object_mut() {
+                            text_map.insert("verbosity".to_string(), val);
+                        }
+                    } else {
+                        out["text"] = serde_json::json!({
+                            "verbosity": val
+                        });
                     }
                 } else {
-                    // If no "text" field exists, create one with verbosity
-                    out["text"] = serde_json::json!({
-                        "verbosity": val
-                    });
+                    // Chat Completions: top-level "verbosity"
+                    out["verbosity"] = val;
                 }
             }
             if let Some(ref meta) = metadata {
@@ -746,17 +844,47 @@ impl ProviderSpec for OpenAiSpec {
             if let Some(u) = &user {
                 out["user"] = serde_json::Value::String(u.clone());
             }
+            if !use_responses_api {
+                if let Some(bias) = &logit_bias
+                    && out.get("logit_bias").is_none()
+                {
+                    out["logit_bias"] = bias.clone();
+                }
 
-            // Vercel alignment: logprobs option maps into `top_logprobs` + `include`.
-            if use_responses_api && out.get("top_logprobs").is_none() {
-                if let Some(lp) = logprobs {
-                    let top = match lp {
-                        crate::provider_options::openai::ResponsesLogprobs::Bool(true) => 20u32,
-                        crate::provider_options::openai::ResponsesLogprobs::Bool(false) => 0u32,
-                        crate::provider_options::openai::ResponsesLogprobs::Top(v) => v,
-                    };
-                    let top = top.min(20);
-                    if top > 0 {
+                if let Some(mct) = max_completion_tokens
+                    && out.get("max_completion_tokens").is_none()
+                {
+                    out["max_completion_tokens"] = serde_json::json!(mct);
+                }
+            }
+
+            // Vercel alignment:
+            // - Responses: providerOptions.openai.logprobs maps into `top_logprobs` (+ `include` later).
+            // - Chat Completions: providerOptions.openai.logprobs maps into `logprobs` + `top_logprobs`.
+            if let Some(lp) = &logprobs {
+                if use_responses_api {
+                    if out.get("top_logprobs").is_none() {
+                        let top = if lp.as_bool() == Some(true) {
+                            Some(20u32)
+                        } else if lp.as_bool() == Some(false) {
+                            None
+                        } else {
+                            lp.as_u64().map(|v| v as u32)
+                        };
+
+                        if let Some(top) = top.map(|v| v.min(20)).filter(|v| *v > 0) {
+                            out["top_logprobs"] = serde_json::json!(top);
+                        }
+                    }
+                } else if out.get("logprobs").is_none() && out.get("top_logprobs").is_none() {
+                    let enabled = lp.as_bool() == Some(true) || lp.is_number();
+                    if enabled {
+                        let top = if let Some(v) = lp.as_u64() {
+                            (v as u32).min(20)
+                        } else {
+                            0u32
+                        };
+                        out["logprobs"] = serde_json::Value::Bool(true);
                         out["top_logprobs"] = serde_json::json!(top);
                     }
                 }
@@ -804,6 +932,33 @@ impl ProviderSpec for OpenAiSpec {
                     if let Some(obj) = out.as_object_mut() {
                         obj.remove("temperature");
                         obj.remove("top_p");
+                    }
+                }
+
+                // Vercel alignment: reasoning models use max_completion_tokens instead of max_tokens
+                // in Chat Completions.
+                if !use_responses_api {
+                    if let Some(obj) = out.as_object_mut() {
+                        if obj.get("max_completion_tokens").is_none()
+                            && let Some(v) = obj.get("max_tokens").cloned()
+                        {
+                            obj.insert("max_completion_tokens".to_string(), v);
+                        }
+                        obj.remove("max_tokens");
+                    }
+                }
+
+                // Vercel alignment: additional unsupported settings for reasoning models.
+                if let Some(obj) = out.as_object_mut() {
+                    obj.remove("frequency_penalty");
+                    obj.remove("presence_penalty");
+                    obj.remove("logit_bias");
+                }
+
+                if !use_responses_api && !allow_non_reasoning_params {
+                    if let Some(obj) = out.as_object_mut() {
+                        obj.remove("logprobs");
+                        obj.remove("top_logprobs");
                     }
                 }
             }
@@ -864,64 +1019,66 @@ impl ProviderSpec for OpenAiSpec {
                 out["web_search_options"] = val;
             }
 
-            // Vercel alignment: conversation and previous_response_id cannot be used together.
-            if out.get("conversation").and_then(|v| v.as_str()).is_some()
-                && out
-                    .get("previous_response_id")
-                    .and_then(|v| v.as_str())
-                    .is_some()
-            {
-                return Err(LlmError::InvalidParameter(
-                    "OpenAI Responses: conversation cannot be used with previous_response_id"
-                        .to_string(),
-                ));
-            }
+            if use_responses_api {
+                // Vercel alignment: conversation and previous_response_id cannot be used together.
+                if out.get("conversation").and_then(|v| v.as_str()).is_some()
+                    && out
+                        .get("previous_response_id")
+                        .and_then(|v| v.as_str())
+                        .is_some()
+                {
+                    return Err(LlmError::InvalidParameter(
+                        "OpenAI Responses: conversation cannot be used with previous_response_id"
+                            .to_string(),
+                    ));
+                }
 
-            // Merge/include augmentation (Vercel parity):
-            // - `top_logprobs` requires `message.output_text.logprobs`
-            // - `store=false` + reasoning model requires `reasoning.encrypted_content`
-            let mut merged_includes: Vec<String> = Vec::new();
-            if let Some(arr) = out.get("include").and_then(|v| v.as_array()) {
-                for v in arr {
-                    if let Some(s) = v.as_str() {
-                        merged_includes.push(s.to_string());
+                // Merge/include augmentation (Vercel parity):
+                // - `top_logprobs` requires `message.output_text.logprobs`
+                // - `store=false` + reasoning model requires `reasoning.encrypted_content`
+                let mut merged_includes: Vec<String> = Vec::new();
+                if let Some(arr) = out.get("include").and_then(|v| v.as_array()) {
+                    for v in arr {
+                        if let Some(s) = v.as_str() {
+                            merged_includes.push(s.to_string());
+                        }
                     }
                 }
-            }
-            if let Some(additional) = include.clone() {
-                for s in additional {
-                    if !merged_includes.contains(&s) {
-                        merged_includes.push(s);
+                if let Some(additional) = include.clone() {
+                    for s in additional {
+                        if !merged_includes.contains(&s) {
+                            merged_includes.push(s);
+                        }
                     }
                 }
-            }
-            let top_lp = out
-                .get("top_logprobs")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            if top_lp > 0
-                && !merged_includes
-                    .iter()
-                    .any(|s| s == "message.output_text.logprobs")
-            {
-                merged_includes.push("message.output_text.logprobs".to_string());
-            }
-            let store_false = out.get("store").and_then(|v| v.as_bool()) == Some(false);
-            if store_false
-                && is_reasoning_model
-                && !merged_includes
-                    .iter()
-                    .any(|s| s == "reasoning.encrypted_content")
-            {
-                merged_includes.push("reasoning.encrypted_content".to_string());
-            }
-            if !merged_includes.is_empty() {
-                out["include"] = serde_json::Value::Array(
-                    merged_includes
-                        .into_iter()
-                        .map(serde_json::Value::String)
-                        .collect(),
-                );
+                let top_lp = out
+                    .get("top_logprobs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if top_lp > 0
+                    && !merged_includes
+                        .iter()
+                        .any(|s| s == "message.output_text.logprobs")
+                {
+                    merged_includes.push("message.output_text.logprobs".to_string());
+                }
+                let store_false = out.get("store").and_then(|v| v.as_bool()) == Some(false);
+                if store_false
+                    && is_reasoning_model
+                    && !merged_includes
+                        .iter()
+                        .any(|s| s == "reasoning.encrypted_content")
+                {
+                    merged_includes.push("reasoning.encrypted_content".to_string());
+                }
+                if !merged_includes.is_empty() {
+                    out["include"] = serde_json::Value::Array(
+                        merged_includes
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    );
+                }
             }
 
             Ok(out)

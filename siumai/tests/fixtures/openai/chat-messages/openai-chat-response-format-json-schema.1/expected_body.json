@@ -1,0 +1,17 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [{ "role": "user", "content": "Return JSON." }],
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "response",
+      "schema": {
+        "type": "object",
+        "properties": { "ok": { "type": "boolean" } },
+        "required": ["ok"]
+      },
+      "strict": false
+    }
+  }
+}
+
