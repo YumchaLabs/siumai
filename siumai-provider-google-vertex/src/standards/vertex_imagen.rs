@@ -36,6 +36,21 @@ fn looks_like_vertex_base_url(base_url: &str) -> bool {
     base_url.contains("aiplatform.googleapis.com")
 }
 
+fn has_auth_header(headers: &HashMap<String, String>) -> bool {
+    headers
+        .keys()
+        .any(|k| k.eq_ignore_ascii_case("authorization"))
+}
+
+fn append_api_key_query(url: String, api_key: &str) -> String {
+    let key = urlencoding::encode(api_key);
+    if url.contains('?') {
+        format!("{url}&key={key}")
+    } else {
+        format!("{url}?key={key}")
+    }
+}
+
 fn build_vertex_headers(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
     let builder = HttpHeaderBuilder::new()
         .with_json_content_type()
@@ -539,7 +554,17 @@ impl ProviderSpec for VertexImagenSpec {
     fn image_url(&self, req: &ImageGenerationRequest, ctx: &ProviderContext) -> String {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
-        format!("{}/models/{}:predict", base, model)
+        let url = format!("{}/models/{}:predict", base, model);
+
+        // Vercel AI SDK parity: in express mode, the API key is passed as `?key=...`.
+        if let Some(key) = ctx.api_key.as_deref()
+            && !key.is_empty()
+            && !has_auth_header(&ctx.http_extra_headers)
+        {
+            append_api_key_query(url, key)
+        } else {
+            url
+        }
     }
 
     fn image_warnings(
@@ -559,7 +584,16 @@ impl ProviderSpec for VertexImagenSpec {
     fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
-        format!("{}/models/{}:predict", base, model)
+        let url = format!("{}/models/{}:predict", base, model);
+
+        if let Some(key) = ctx.api_key.as_deref()
+            && !key.is_empty()
+            && !has_auth_header(&ctx.http_extra_headers)
+        {
+            append_api_key_query(url, key)
+        } else {
+            url
+        }
     }
 
     fn image_edit_warnings(
@@ -579,7 +613,16 @@ impl ProviderSpec for VertexImagenSpec {
     fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
         let base = ctx.base_url.trim_end_matches('/');
         let model = normalize_vertex_model_id(req.model.as_deref().unwrap_or(""));
-        format!("{}/models/{}:predict", base, model)
+        let url = format!("{}/models/{}:predict", base, model);
+
+        if let Some(key) = ctx.api_key.as_deref()
+            && !key.is_empty()
+            && !has_auth_header(&ctx.http_extra_headers)
+        {
+            append_api_key_query(url, key)
+        } else {
+            url
+        }
     }
 
     fn image_variation_warnings(
@@ -612,4 +655,86 @@ pub fn is_vertex_imagen_model(model: &str, base_url: &str) -> bool {
     }
     let m = normalize_vertex_model_id(model).to_lowercase();
     m.starts_with("imagen")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx_with_key(key: &str) -> ProviderContext {
+        ProviderContext::new(
+            "vertex",
+            "https://aiplatform.googleapis.com/v1/publishers/google".to_string(),
+            Some(key.to_string()),
+            HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn imagen_urls_append_key_query_in_express_mode() {
+        let spec = VertexImagenStandard::new().create_spec("vertex");
+        let ctx = ctx_with_key("k");
+
+        let img_req = ImageGenerationRequest {
+            prompt: "a cat".to_string(),
+            count: 1,
+            model: Some("imagen-4.0-generate-001".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            spec.image_url(&img_req, &ctx),
+            "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict?key=k"
+        );
+
+        let edit = ImageEditRequest {
+            image: vec![1, 2, 3],
+            mask: None,
+            prompt: "edit".to_string(),
+            model: Some("imagen-4.0-generate-001".to_string()),
+            count: None,
+            size: None,
+            response_format: None,
+            extra_params: HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+        assert_eq!(
+            spec.image_edit_url(&edit, &ctx),
+            "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict?key=k"
+        );
+
+        let variation = ImageVariationRequest {
+            image: vec![1, 2, 3],
+            model: Some("imagen-4.0-generate-001".to_string()),
+            count: None,
+            size: None,
+            response_format: None,
+            extra_params: HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+        assert_eq!(
+            spec.image_variation_url(&variation, &ctx),
+            "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict?key=k"
+        );
+    }
+
+    #[test]
+    fn imagen_urls_do_not_append_key_when_authorization_is_present() {
+        let spec = VertexImagenStandard::new().create_spec("vertex");
+        let mut ctx = ctx_with_key("k");
+        ctx.http_extra_headers
+            .insert("Authorization".to_string(), "Bearer tok".to_string());
+
+        let img_req = ImageGenerationRequest {
+            prompt: "a cat".to_string(),
+            count: 1,
+            model: Some("imagen-4.0-generate-001".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            spec.image_url(&img_req, &ctx),
+            "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict"
+        );
+    }
 }
