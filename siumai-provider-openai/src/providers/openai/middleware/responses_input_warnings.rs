@@ -14,6 +14,31 @@ impl OpenAiResponsesInputWarningsMiddleware {
         Self
     }
 
+    fn openai_provider_option_str(req: &ChatRequest, key: &str) -> Option<String> {
+        let openai = req.provider_options_map.get_object("openai");
+        let direct = openai
+            .and_then(|m| m.get(key))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        if direct.is_some() {
+            return direct;
+        }
+
+        let nested = openai
+            .and_then(|m| m.get("responsesApi").or_else(|| m.get("responses_api")))
+            .and_then(|v| v.as_object())
+            .and_then(|m| m.get(key))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        nested
+    }
+
+    fn openai_provider_option_previous_response_id(req: &ChatRequest) -> Option<String> {
+        // Vercel providerOptions key is `previousResponseId`, but accept snake_case as well.
+        Self::openai_provider_option_str(req, "previousResponseId")
+            .or_else(|| Self::openai_provider_option_str(req, "previous_response_id"))
+    }
+
     fn vercel_reasoning_part_json(part: &ContentPart) -> Option<String> {
         let ContentPart::Reasoning {
             text,
@@ -84,12 +109,48 @@ impl OpenAiResponsesInputWarningsMiddleware {
     fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
         let store_enabled = Self::store_enabled(req);
 
+        // Vercel parity: unsupported standardized settings for the Responses API.
+        // (The request transformer intentionally drops these fields.)
+        let mut warnings: Vec<Warning> = Vec::new();
+        if req.common_params.top_k.is_some() {
+            warnings.push(Warning::unsupported_setting("topK", None::<String>));
+        }
+        if req.common_params.seed.is_some() {
+            warnings.push(Warning::unsupported_setting("seed", None::<String>));
+        }
+        if req.common_params.presence_penalty.is_some() {
+            warnings.push(Warning::unsupported_setting(
+                "presencePenalty",
+                None::<String>,
+            ));
+        }
+        if req.common_params.frequency_penalty.is_some() {
+            warnings.push(Warning::unsupported_setting(
+                "frequencyPenalty",
+                None::<String>,
+            ));
+        }
+        if req.common_params.stop_sequences.is_some() {
+            warnings.push(Warning::unsupported_setting(
+                "stopSequences",
+                None::<String>,
+            ));
+        }
+
+        // Vercel parity: `conversation` and `previousResponseId` cannot be used together.
+        let has_conversation = Self::openai_provider_option_str(req, "conversation").is_some();
+        let has_prev_id = Self::openai_provider_option_previous_response_id(req).is_some();
+        if has_conversation && has_prev_id {
+            warnings.push(Warning::unsupported_setting(
+                "conversation",
+                Some("conversation and previousResponseId cannot be used together"),
+            ));
+        }
+
         let tool_name_mapping = req.tools.as_deref().map(|tools| {
             create_tool_name_mapping(tools, siumai_core::tools::openai::PROVIDER_TOOL_NAMES)
         });
         let tool_name_mapping = tool_name_mapping.unwrap_or_default();
-
-        let mut warnings: Vec<Warning> = Vec::new();
 
         // Vercel parity: warnings for `store=false` + provider-executed web_search.
         let mut has_web_search_results = false;

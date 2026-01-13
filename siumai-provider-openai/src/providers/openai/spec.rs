@@ -1020,19 +1020,6 @@ impl ProviderSpec for OpenAiSpec {
             }
 
             if use_responses_api {
-                // Vercel alignment: conversation and previous_response_id cannot be used together.
-                if out.get("conversation").and_then(|v| v.as_str()).is_some()
-                    && out
-                        .get("previous_response_id")
-                        .and_then(|v| v.as_str())
-                        .is_some()
-                {
-                    return Err(LlmError::InvalidParameter(
-                        "OpenAI Responses: conversation cannot be used with previous_response_id"
-                            .to_string(),
-                    ));
-                }
-
                 // Merge/include augmentation (Vercel parity):
                 // - `top_logprobs` requires `message.output_text.logprobs`
                 // - `store=false` + reasoning model requires `reasoning.encrypted_content`

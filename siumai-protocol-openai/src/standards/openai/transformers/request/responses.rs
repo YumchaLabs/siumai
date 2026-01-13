@@ -1169,11 +1169,6 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                     body["max_output_tokens"] = serde_json::json!(max_tokens);
                 }
 
-                // seed
-                if let Some(seed) = req.common_params.seed {
-                    body["seed"] = serde_json::json!(seed);
-                }
-
                 Ok(body)
             }
 
