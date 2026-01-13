@@ -182,6 +182,12 @@ impl GoogleVertexBuilder {
                 }
             });
 
+        fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
+            headers
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case("authorization"))
+        }
+
         let base_url = if let Some(b) = self.base_url {
             b
         } else if api_key.is_some() {
@@ -216,6 +222,22 @@ impl GoogleVertexBuilder {
 
         let http_client = self.core.build_http_client()?;
 
+        // Vercel AI SDK alignment (`@ai-sdk/google-vertex` exports the node variant by default):
+        // - If no API key is provided (enterprise mode) and the user didn't supply an explicit
+        //   Authorization header or custom token provider, auto-enable ADC-based auth (when available).
+        let mut token_provider = self.token_provider;
+        #[cfg(feature = "gcp")]
+        {
+            if api_key.is_none()
+                && token_provider.is_none()
+                && !has_auth_header(&self.core.http_config.headers)
+            {
+                token_provider = Some(std::sync::Arc::new(
+                    crate::auth::adc::AdcTokenProvider::default_client(),
+                ));
+            }
+        }
+
         let cfg = GoogleVertexConfig {
             base_url,
             model: model_id.clone(),
@@ -224,7 +246,7 @@ impl GoogleVertexBuilder {
                 ..self.core.http_config.clone()
             },
             http_transport: self.core.http_transport.clone(),
-            token_provider: self.token_provider,
+            token_provider,
         };
 
         let mut client =
@@ -240,5 +262,56 @@ impl GoogleVertexBuilder {
         }
 
         Ok(client)
+    }
+}
+
+#[cfg(all(test, feature = "gcp"))]
+mod tests {
+    use super::*;
+    use crate::builder::BuilderBase;
+
+    #[test]
+    fn build_auto_enables_adc_token_provider_when_missing_auth() {
+        let client = GoogleVertexBuilder::new(BuilderBase::default())
+            .project("p")
+            .location("us-central1")
+            .model("gemini-2.0-flash")
+            .build()
+            .expect("build");
+
+        assert!(!client._debug_has_api_key());
+        assert!(client._debug_has_token_provider());
+    }
+
+    #[test]
+    fn build_does_not_override_user_authorization_header() {
+        let mut base = BuilderBase::default();
+        base.default_headers
+            .insert("Authorization".to_string(), "Bearer user".to_string());
+
+        let client = GoogleVertexBuilder::new(base)
+            .project("p")
+            .location("us-central1")
+            .model("gemini-2.0-flash")
+            .build()
+            .expect("build");
+
+        assert!(!client._debug_has_api_key());
+        assert!(
+            !client._debug_has_token_provider(),
+            "user Authorization should suppress auto ADC"
+        );
+    }
+
+    #[test]
+    fn build_does_not_enable_adc_in_express_mode() {
+        let client = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("k")
+            .model("gemini-2.0-flash")
+            .build()
+            .expect("build");
+
+        assert!(client._debug_has_api_key());
+        assert!(!client._debug_has_token_provider());
     }
 }

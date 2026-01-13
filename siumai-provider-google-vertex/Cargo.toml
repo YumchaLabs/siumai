@@ -50,6 +50,9 @@ structured-messages = [
     "siumai-core/structured-messages",
 ]
 
+# Enables GCP authentication helpers (ADC / service account token providers).
+gcp = ["siumai-core/gcp"]
+
 # Enables Google-related shared types in `siumai-core`.
 google-vertex = [
     "siumai-core/google",

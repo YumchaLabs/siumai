@@ -133,6 +133,16 @@ impl GoogleVertexClient {
             .insert("authorization".to_string(), format!("Bearer {token}"));
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) fn _debug_has_token_provider(&self) -> bool {
+        self.config.token_provider.is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn _debug_has_api_key(&self) -> bool {
+        self.config.api_key.is_some()
+    }
 }
 
 #[async_trait]
