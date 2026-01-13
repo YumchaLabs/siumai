@@ -246,6 +246,34 @@ impl AnthropicClient {
     pub fn with_ephemeral_cache(self) -> Self {
         self.with_cache_control(super::cache::CacheControl::ephemeral())
     }
+
+    /// Provider-only token helpers (official `/messages/count_tokens`).
+    pub fn tokens(&self) -> super::tokens::AnthropicTokens {
+        super::tokens::AnthropicTokens::new(
+            self.api_key.clone(),
+            self.base_url.clone(),
+            self.http_client.clone(),
+            self.http_config.clone(),
+            self.specific_params.beta_features.clone(),
+            self.http_transport.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
+
+    /// Provider-only Message Batches helpers (official `/messages/batches`).
+    pub fn message_batches(&self) -> super::message_batches::AnthropicMessageBatches {
+        super::message_batches::AnthropicMessageBatches::new(
+            self.api_key.clone(),
+            self.base_url.clone(),
+            self.http_client.clone(),
+            self.http_config.clone(),
+            self.specific_params.beta_features.clone(),
+            self.http_transport.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
 }
 
 fn normalize_anthropic_retry_options(mut options: RetryOptions) -> RetryOptions {

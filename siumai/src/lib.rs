@@ -395,6 +395,15 @@ pub mod provider_ext {
             };
         }
 
+        /// Provider-specific resources not covered by the unified families.
+        pub mod resources {
+            pub use siumai_provider_anthropic::providers::anthropic::{
+                AnthropicCountTokensResponse, AnthropicCreateMessageBatchRequest,
+                AnthropicListMessageBatchesResponse, AnthropicMessageBatch,
+                AnthropicMessageBatchRequest, AnthropicMessageBatches, AnthropicTokens,
+            };
+        }
+
         // Legacy Anthropic parameter structs (provider-owned).
         pub use siumai_provider_anthropic::params::anthropic::{AnthropicParams, CacheControl};
     }

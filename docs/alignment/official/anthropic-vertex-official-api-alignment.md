@@ -97,3 +97,27 @@ Siumai reuses the Anthropic SSE event mapping to parse and serialize streaming e
 
 - Anthropic on Vertex (RawPredict + streamRawPredict) is treated as **Green** for official correctness:
   base URL composition, auth headers, request body shaping (`anthropic_version`), and streaming behavior.
+
+## Non-applicable native Anthropic endpoints
+
+The native Anthropic API includes additional endpoints such as:
+
+- `POST /v1/messages/count_tokens`
+- `POST /v1/messages/batches` (Message Batches) + `/results`
+
+These endpoints are **not part of** the Vertex AI `rawPredict` / `streamRawPredict` surface for partner models.
+
+### Vercel AI SDK
+
+Vercel’s `vertexAnthropic` provider (`repo-ref/ai/packages/google-vertex/src/anthropic/*`) only targets:
+
+- `:rawPredict` and `:streamRawPredict` for chat/streaming
+
+and does not expose token counting or message batching helpers for Vertex Anthropic.
+
+### Siumai
+
+Siumai’s `siumai-provider-google-vertex` `anthropic_vertex` client mirrors the same scope:
+
+- Chat + streaming via RawPredict/streamRawPredict (Green)
+- No provider-only helpers for `count_tokens` / Message Batches on Vertex Anthropic (not supported by the underlying API)

@@ -186,3 +186,42 @@ From the official Errors doc:
 
 - **Green**: `POST /v1/messages` headers/body/streaming/errors are covered by fixture parity + targeted tests.
 - **Green**: `/v1/models` list/retrieve + pagination params are covered by fixture-driven tests.
+
+## Additional endpoints (official but not part of Vercel AI SDK surface)
+
+Vercel’s `@ai-sdk/anthropic` focuses on the Messages API (`/v1/messages`) for chat + streaming parity,
+and does not currently expose helpers for the following official endpoints.
+
+Siumai implements them as **provider-only helpers** (not part of the unified chat capability surface),
+similar to Gemini’s `cachedContents` and `countTokens` helpers.
+
+### Token counting (`POST /v1/messages/count_tokens`)
+
+**Official endpoint**
+
+- `POST https://api.anthropic.com/v1/messages/count_tokens`
+
+**Siumai mapping**
+
+- Provider-only helper:
+  - `siumai-provider-anthropic/src/providers/anthropic/tokens.rs`
+- Entry point:
+  - `AnthropicClient::tokens()` → `AnthropicTokens::count_tokens(...)`
+
+### Message Batches (`/v1/messages/batches`)
+
+**Official endpoints**
+
+- `POST   /v1/messages/batches`
+- `GET    /v1/messages/batches/{message_batch_id}`
+- `GET    /v1/messages/batches`
+- `POST   /v1/messages/batches/{message_batch_id}/cancel`
+- `DELETE /v1/messages/batches/{message_batch_id}`
+- `GET    /v1/messages/batches/{message_batch_id}/results`
+
+**Siumai mapping**
+
+- Provider-only helper:
+  - `siumai-provider-anthropic/src/providers/anthropic/message_batches.rs`
+- Entry point:
+  - `AnthropicClient::message_batches()` → `AnthropicMessageBatches::*`
