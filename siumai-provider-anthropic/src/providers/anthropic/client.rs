@@ -847,6 +847,27 @@ mod tests {
     }
 
     #[test]
+    fn files_helper_enables_files_api_beta_by_default() {
+        let client = AnthropicClient::new(
+            "test-key".to_string(),
+            "https://api.anthropic.com".to_string(),
+            reqwest::Client::new(),
+            CommonParams::default(),
+            AnthropicParams::default(),
+            HttpConfig::default(),
+        );
+
+        let files = client.files();
+        assert!(
+            files
+                .beta_features
+                .iter()
+                .any(|b| b == "files-api-2025-04-14"),
+            "expected files helper to include files-api beta"
+        );
+    }
+
+    #[test]
     fn beta_middleware_injects_required_headers_for_hosted_tools() {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
