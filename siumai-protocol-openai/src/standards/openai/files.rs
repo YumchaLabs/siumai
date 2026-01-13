@@ -80,7 +80,7 @@ fn transform_file_object_impl(
         bytes: f.bytes,
         created_at: f.created_at,
         purpose: f.purpose,
-        status: "uploaded".to_string(),
+        status: f.status,
         mime_type: None,
         metadata,
     })
@@ -123,7 +123,7 @@ fn transform_list_response_impl(
                 bytes: f.bytes,
                 created_at: f.created_at,
                 purpose: f.purpose,
-                status: "uploaded".to_string(),
+                status: f.status,
                 mime_type: None,
                 metadata,
             }
@@ -300,6 +300,7 @@ mod tests {
         assert_eq!(fo.id, "file_123");
         assert_eq!(fo.filename, "hello.txt");
         assert_eq!(fo.purpose, "assistants");
+        assert_eq!(fo.status, "uploaded");
 
         // list response
         let list = serde_json::json!({
@@ -309,7 +310,25 @@ mod tests {
         });
         let lr = tx.transform_list_response(&list).unwrap();
         assert_eq!(lr.files.len(), 1);
+        assert_eq!(lr.files[0].status, "uploaded");
         assert!(!lr.has_more);
+    }
+
+    #[test]
+    fn files_status_is_preserved_from_api() {
+        let tx = OpenAiFilesTransformer;
+        let json = serde_json::json!({
+            "id": "file_999",
+            "object": "file",
+            "bytes": 12,
+            "created_at": 1710000000u64,
+            "filename": "hello.txt",
+            "purpose": "assistants",
+            "status": "processed",
+            "status_details": null
+        });
+        let fo = tx.transform_file_object(&json).unwrap();
+        assert_eq!(fo.status, "processed");
     }
 
     #[test]

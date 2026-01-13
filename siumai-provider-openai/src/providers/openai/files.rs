@@ -112,23 +112,11 @@ impl OpenAiFiles {
 
     /// Validate file upload request.
     fn validate_upload_request(&self, request: &FileUploadRequest) -> Result<(), LlmError> {
-        // Validate file size
-        if request.content.len() as u64 > self.get_max_file_size() {
-            return Err(LlmError::InvalidInput(format!(
-                "File size {} bytes exceeds maximum allowed size of {} bytes",
-                request.content.len(),
-                self.get_max_file_size()
-            )));
-        }
-
-        // Validate purpose
-        if !self.get_supported_purposes().contains(&request.purpose) {
-            return Err(LlmError::InvalidInput(format!(
-                "Unsupported file purpose: {}. Supported purposes: {:?}",
-                request.purpose,
-                self.get_supported_purposes()
-            )));
-        }
+        // Best-effort validation (Vercel-aligned):
+        // - Avoid hard-coding purpose allowlists, which can drift as OpenAI adds new purposes.
+        // - Avoid hard-coding extension allowlists, which can be too restrictive for general file APIs.
+        //
+        // Let the provider return the authoritative error when inputs are invalid.
 
         // Validate filename
         if request.filename.is_empty() {
@@ -137,14 +125,20 @@ impl OpenAiFiles {
             ));
         }
 
-        // Validate file extension if provided
-        if let Some(extension) = request.filename.split('.').next_back() {
-            let supported_formats = self.get_supported_formats();
-            if !supported_formats.contains(&extension.to_lowercase()) {
-                return Err(LlmError::InvalidInput(format!(
-                    "Unsupported file format: {extension}. Supported formats: {supported_formats:?}"
-                )));
-            }
+        // Validate purpose is non-empty
+        if request.purpose.trim().is_empty() {
+            return Err(LlmError::InvalidInput(
+                "File purpose cannot be empty".to_string(),
+            ));
+        }
+
+        // Optional guardrail: reject extremely large payloads before hitting the network.
+        if request.content.len() as u64 > self.get_max_file_size() {
+            return Err(LlmError::InvalidInput(format!(
+                "File size {} bytes exceeds maximum allowed size of {} bytes",
+                request.content.len(),
+                self.get_max_file_size()
+            )));
         }
 
         Ok(())
