@@ -10,16 +10,10 @@ use crate::error::LlmError;
 use crate::types::ChatResponse;
 
 /// JSON encoding options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct JsonEncodeOptions {
     /// Pretty-print JSON output.
     pub pretty: bool,
-}
-
-impl Default for JsonEncodeOptions {
-    fn default() -> Self {
-        Self { pretty: false }
-    }
 }
 
 /// A protocol-level encoder that serializes a unified `ChatResponse` into a provider-native JSON

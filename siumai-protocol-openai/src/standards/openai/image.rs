@@ -308,11 +308,10 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             .provider_options_map
             .get_object("openai")
             .or_else(|| request.provider_options_map.get_object("azure"))
+            && let Some(obj) = body.as_object_mut()
         {
-            if let Some(obj) = body.as_object_mut() {
-                for (k, v) in opts {
-                    obj.insert(k.clone(), v.clone());
-                }
+            for (k, v) in opts {
+                obj.insert(k.clone(), v.clone());
             }
         }
 

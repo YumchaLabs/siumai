@@ -24,13 +24,12 @@ impl OpenAiResponsesInputWarningsMiddleware {
             return direct;
         }
 
-        let nested = openai
+        openai
             .and_then(|m| m.get("responsesApi").or_else(|| m.get("responses_api")))
             .and_then(|v| v.as_object())
             .and_then(|m| m.get(key))
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        nested
+            .map(|s| s.to_string())
     }
 
     fn openai_provider_option_previous_response_id(req: &ChatRequest) -> Option<String> {

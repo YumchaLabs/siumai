@@ -737,63 +737,63 @@ impl ProviderSpec for OpenAiSpec {
                 }
             }
 
-            if request_response_format.is_none() {
-                if let Some(fmt) = &response_format {
-                    if use_responses_api {
-                        // OpenAI Responses API: structured output is configured via `text.format`.
-                        //
-                        // Backward-compat: accept the Chat Completions `response_format` JSON schema shape
-                        // (`{ type, json_schema: {...} }`) and translate into the Responses shape
-                        // (`{ type, name, schema, strict, ... }`) when possible.
-                        let normalized_format = if fmt.get("json_schema").is_some() {
-                            // Chat Completions shape: { type: "json_schema", json_schema: { name, schema, strict, ... } }
-                            // Responses shape: { type: "json_schema", name, schema, strict, ... }
-                            let typ = fmt
-                                .get("type")
-                                .cloned()
-                                .unwrap_or(serde_json::json!("json_schema"));
-                            let inner = fmt
-                                .get("json_schema")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            if let (Some(name), Some(schema)) =
-                                (inner.get("name").cloned(), inner.get("schema").cloned())
-                            {
-                                let strict = inner.get("strict").cloned();
-                                let description = inner.get("description").cloned();
-                                let mut obj = serde_json::Map::new();
-                                obj.insert("type".to_string(), typ);
-                                obj.insert("name".to_string(), name);
-                                obj.insert("schema".to_string(), schema);
-                                if let Some(v) = strict {
-                                    obj.insert("strict".to_string(), v);
-                                }
-                                if let Some(v) = description {
-                                    obj.insert("description".to_string(), v);
-                                }
-                                serde_json::Value::Object(obj)
-                            } else {
-                                fmt.clone()
+            if request_response_format.is_none()
+                && let Some(fmt) = &response_format
+            {
+                if use_responses_api {
+                    // OpenAI Responses API: structured output is configured via `text.format`.
+                    //
+                    // Backward-compat: accept the Chat Completions `response_format` JSON schema shape
+                    // (`{ type, json_schema: {...} }`) and translate into the Responses shape
+                    // (`{ type, name, schema, strict, ... }`) when possible.
+                    let normalized_format = if fmt.get("json_schema").is_some() {
+                        // Chat Completions shape: { type: "json_schema", json_schema: { name, schema, strict, ... } }
+                        // Responses shape: { type: "json_schema", name, schema, strict, ... }
+                        let typ = fmt
+                            .get("type")
+                            .cloned()
+                            .unwrap_or(serde_json::json!("json_schema"));
+                        let inner = fmt
+                            .get("json_schema")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
+                        if let (Some(name), Some(schema)) =
+                            (inner.get("name").cloned(), inner.get("schema").cloned())
+                        {
+                            let strict = inner.get("strict").cloned();
+                            let description = inner.get("description").cloned();
+                            let mut obj = serde_json::Map::new();
+                            obj.insert("type".to_string(), typ);
+                            obj.insert("name".to_string(), name);
+                            obj.insert("schema".to_string(), schema);
+                            if let Some(v) = strict {
+                                obj.insert("strict".to_string(), v);
                             }
+                            if let Some(v) = description {
+                                obj.insert("description".to_string(), v);
+                            }
+                            serde_json::Value::Object(obj)
                         } else {
                             fmt.clone()
-                        };
-
-                        if let Some(text_obj) = out.get_mut("text") {
-                            if let Some(text_map) = text_obj.as_object_mut() {
-                                text_map
-                                    .entry("format".to_string())
-                                    .or_insert(normalized_format);
-                            }
-                        } else {
-                            out["text"] = serde_json::json!({
-                                "format": normalized_format
-                            });
                         }
-                    } else if out.get("response_format").is_none() {
-                        // Legacy: allow passing Chat Completions `response_format` directly.
-                        out["response_format"] = fmt.clone();
+                    } else {
+                        fmt.clone()
+                    };
+
+                    if let Some(text_obj) = out.get_mut("text") {
+                        if let Some(text_map) = text_obj.as_object_mut() {
+                            text_map
+                                .entry("format".to_string())
+                                .or_insert(normalized_format);
+                        }
+                    } else {
+                        out["text"] = serde_json::json!({
+                            "format": normalized_format
+                        });
                     }
+                } else if out.get("response_format").is_none() {
+                    // Legacy: allow passing Chat Completions `response_format` directly.
+                    out["response_format"] = fmt.clone();
                 }
             }
             if let Some(bg) = background {
@@ -928,24 +928,20 @@ impl ProviderSpec for OpenAiSpec {
                 let allow_non_reasoning_params = reasoning_effort
                     == Some(crate::provider_options::openai::ReasoningEffort::None)
                     && model_id.to_ascii_lowercase().starts_with("gpt-5.1");
-                if !allow_non_reasoning_params {
-                    if let Some(obj) = out.as_object_mut() {
-                        obj.remove("temperature");
-                        obj.remove("top_p");
-                    }
+                if !allow_non_reasoning_params && let Some(obj) = out.as_object_mut() {
+                    obj.remove("temperature");
+                    obj.remove("top_p");
                 }
 
                 // Vercel alignment: reasoning models use max_completion_tokens instead of max_tokens
                 // in Chat Completions.
-                if !use_responses_api {
-                    if let Some(obj) = out.as_object_mut() {
-                        if obj.get("max_completion_tokens").is_none()
-                            && let Some(v) = obj.get("max_tokens").cloned()
-                        {
-                            obj.insert("max_completion_tokens".to_string(), v);
-                        }
-                        obj.remove("max_tokens");
+                if !use_responses_api && let Some(obj) = out.as_object_mut() {
+                    if obj.get("max_completion_tokens").is_none()
+                        && let Some(v) = obj.get("max_tokens").cloned()
+                    {
+                        obj.insert("max_completion_tokens".to_string(), v);
                     }
+                    obj.remove("max_tokens");
                 }
 
                 // Vercel alignment: additional unsupported settings for reasoning models.
@@ -955,11 +951,12 @@ impl ProviderSpec for OpenAiSpec {
                     obj.remove("logit_bias");
                 }
 
-                if !use_responses_api && !allow_non_reasoning_params {
-                    if let Some(obj) = out.as_object_mut() {
-                        obj.remove("logprobs");
-                        obj.remove("top_logprobs");
-                    }
+                if !use_responses_api
+                    && !allow_non_reasoning_params
+                    && let Some(obj) = out.as_object_mut()
+                {
+                    obj.remove("logprobs");
+                    obj.remove("top_logprobs");
                 }
             }
 
