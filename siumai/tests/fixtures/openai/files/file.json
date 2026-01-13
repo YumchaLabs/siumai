@@ -1,0 +1,10 @@
+{
+  "id": "file_123",
+  "object": "file",
+  "bytes": 5,
+  "created_at": 1710000000,
+  "filename": "hello.txt",
+  "purpose": "assistants",
+  "status": "processed",
+  "status_details": null
+}
