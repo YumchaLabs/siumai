@@ -390,6 +390,11 @@ impl OpenAiClient {
                     {
                         obj.insert("top_logprobs".to_string(), serde_json::json!(v));
                     }
+                    if obj.get("user").is_none()
+                        && let Some(v) = defaults.user.clone()
+                    {
+                        obj.insert("user".to_string(), serde_json::Value::String(v));
+                    }
 
                     if !use_responses_api {
                         // Chat Completions-only defaults.
@@ -428,11 +433,6 @@ impl OpenAiClient {
                             && let Some(v) = defaults.frequency_penalty
                         {
                             obj.insert("frequency_penalty".to_string(), serde_json::json!(v));
-                        }
-                        if obj.get("user").is_none()
-                            && let Some(v) = defaults.user.clone()
-                        {
-                            obj.insert("user".to_string(), serde_json::Value::String(v));
                         }
                     }
 
@@ -1340,25 +1340,38 @@ mod tests {
 
         // Create request with all extended ResponsesApiConfig parameters
         use crate::provider_options::openai::{
-            OpenAiOptions, ResponsesApiConfig, TextVerbosity, Truncation,
+            OpenAiOptions, PromptCacheRetention, ResponsesApiConfig, ResponsesLogprobs,
+            TextVerbosity, Truncation,
         };
-        let mut metadata = std::collections::HashMap::new();
-        metadata.insert("user_id".to_string(), "test_123".to_string());
+        let metadata = serde_json::json!({ "user_id": "test_123" });
 
         let request = crate::types::ChatRequest::new(vec![
             crate::types::ChatMessage::user("Test message").build(),
         ])
+        .with_response_format(crate::types::chat::ResponseFormat::Json {
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "ok": { "type": "boolean" } },
+                "required": ["ok"]
+            }),
+        })
         .with_openai_options(
             OpenAiOptions::new().with_responses_api(
                 ResponsesApiConfig::new()
                     .with_background(true)
+                    .with_conversation("conv_1")
                     .with_include(vec!["file_search_call.results".to_string()])
                     .with_instructions("You are a helpful assistant".to_string())
                     .with_max_tool_calls(10)
+                    .with_logprobs(ResponsesLogprobs::Bool(true))
+                    .with_prompt_cache_retention(PromptCacheRetention::H24)
+                    .with_safety_identifier("sid_1")
                     .with_store(false)
+                    .with_strict_json_schema(false)
                     .with_truncation(Truncation::Auto)
                     .with_text_verbosity(TextVerbosity::Medium)
                     .with_metadata(metadata.clone())
+                    .with_user("end_user_1")
                     .with_parallel_tool_calls(true),
             ),
         );
@@ -1370,13 +1383,6 @@ mod tests {
         // Verify all parameters are injected
         assert_eq!(body.get("background").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(
-            body.get("include")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|v| v.as_str()),
-            Some("file_search_call.results")
-        );
-        assert_eq!(
             body.get("instructions").and_then(|v| v.as_str()),
             Some("You are a helpful assistant")
         );
@@ -1384,11 +1390,42 @@ mod tests {
             body.get("max_tool_calls").and_then(|v| v.as_u64()),
             Some(10)
         );
+        assert_eq!(
+            body.get("conversation").and_then(|v| v.as_str()),
+            Some("conv_1")
+        );
+        assert_eq!(
+            body.get("prompt_cache_retention").and_then(|v| v.as_str()),
+            Some("24h")
+        );
+        assert_eq!(
+            body.get("safety_identifier").and_then(|v| v.as_str()),
+            Some("sid_1")
+        );
+        assert_eq!(
+            body.get("user").and_then(|v| v.as_str()),
+            Some("end_user_1")
+        );
         assert_eq!(body.get("store").and_then(|v| v.as_bool()), Some(false));
         assert_eq!(
             body.get("truncation").and_then(|v| v.as_str()),
             Some("auto")
         );
+
+        assert_eq!(body.get("top_logprobs").and_then(|v| v.as_u64()), Some(20));
+
+        // Include should auto-attach message logprobs when top_logprobs is set.
+        let include = body
+            .get("include")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let include_strs: std::collections::HashSet<String> = include
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        assert!(include_strs.contains("file_search_call.results"));
+        assert!(include_strs.contains("message.output_text.logprobs"));
 
         // text_verbosity should be nested under "text.verbosity"
         assert_eq!(
@@ -1396,6 +1433,22 @@ mod tests {
                 .and_then(|t| t.get("verbosity"))
                 .and_then(|v| v.as_str()),
             Some("medium")
+        );
+
+        // responseFormat should map into `text.format` with strictJsonSchema=false
+        assert_eq!(
+            body.get("text")
+                .and_then(|t| t.get("format"))
+                .and_then(|f| f.get("type"))
+                .and_then(|v| v.as_str()),
+            Some("json_schema")
+        );
+        assert_eq!(
+            body.get("text")
+                .and_then(|t| t.get("format"))
+                .and_then(|f| f.get("strict"))
+                .and_then(|v| v.as_bool()),
+            Some(false)
         );
 
         assert_eq!(

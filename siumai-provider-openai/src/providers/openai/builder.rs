@@ -76,7 +76,8 @@ impl OpenAiBuilder {
             project: None,
             common_params: CommonParams::default(),
             openai_params: OpenAiParams::default(),
-            use_responses_api: false,
+            // Vercel AI SDK alignment: OpenAI defaults to Responses API for text generation.
+            use_responses_api: true,
             responses_previous_response_id: None,
             default_provider_options_map: ProviderOptionsMap::default(),
         }

@@ -1,5 +1,6 @@
 {
   "model": "gpt-5-nano",
   "store": false,
+  "include": ["reasoning.encrypted_content"],
   "input": []
 }

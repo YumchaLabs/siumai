@@ -10,19 +10,25 @@ use tokio::task::JoinHandle;
 
 async fn spawn_json_server() -> (SocketAddr, JoinHandle<()>) {
     async fn chat_handler() -> axum::response::Response {
-        // Minimal JSON body compatible with OpenAI-compatible converter
-        // It can extract message.content[0].text and finish_reason.
+        // Minimal JSON body compatible with OpenAI Responses transformer.
         let body = serde_json::json!({
-            "id": "test",
-            "model": "gpt-4o-mini",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": { "content": [{"text": "Hello"}] },
-                    "finish_reason": "stop"
-                }
-            ],
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+            "type": "response.completed",
+            "response": {
+                "id": "resp_test",
+                "object": "response",
+                "model": "gpt-4o-mini",
+                "output": [
+                    {
+                        "id": "msg_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            { "type": "output_text", "text": "Hello", "annotations": [], "logprobs": [] }
+                        ]
+                    }
+                ],
+                "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+            }
         });
         axum::response::Response::builder()
             .status(200)
@@ -33,7 +39,7 @@ async fn spawn_json_server() -> (SocketAddr, JoinHandle<()>) {
             .unwrap()
     }
 
-    let app = Router::new().route("/v1/chat/completions", post(chat_handler));
+    let app = Router::new().route("/v1/responses", post(chat_handler));
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();

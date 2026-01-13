@@ -28,8 +28,24 @@ pub enum ServiceTier {
     /// Automatic tier selection (default)
     #[default]
     Auto,
+    /// Flex tier (cheaper, higher latency; limited model support)
+    Flex,
+    /// Priority tier (lower latency; requires Enterprise access; limited model support)
+    Priority,
     /// Default tier (standard latency)
     Default,
+}
+
+/// Prompt cache retention policy (Responses API)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptCacheRetention {
+    /// Default caching behavior.
+    #[default]
+    InMemory,
+    /// Keep cached prefixes active for up to 24 hours (limited model support).
+    #[serde(rename = "24h")]
+    H24,
 }
 
 /// Text verbosity level for Responses API

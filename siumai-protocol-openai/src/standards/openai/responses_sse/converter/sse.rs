@@ -38,7 +38,9 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
 
             self.update_provider_tool_names(&json);
 
-            let chunk_type = if !event_name.is_empty() {
+            // Some SSE clients (and our JSON fallback wrapper) default to `event: message`.
+            // Treat that as "no explicit event name" and rely on the JSON `type` field instead.
+            let chunk_type = if !event_name.is_empty() && event_name != "message" {
                 event_name
             } else {
                 json.get("type").and_then(|t| t.as_str()).unwrap_or("")

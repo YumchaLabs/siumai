@@ -21,9 +21,10 @@ pub use audio::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
     ChatCompletionModalities, InputAudio, InputAudioFormat,
 };
+pub use enums::PromptCacheRetention;
 pub use enums::{ReasoningEffort, ServiceTier, TextVerbosity, Truncation};
 pub use prediction::{PredictionContent, PredictionContentData};
-pub use responses_api::ResponsesApiConfig;
+pub use responses_api::{ResponsesApiConfig, ResponsesLogprobs};
 pub use web_search::{OpenAiWebSearchOptions, UserLocationWrapper, WebSearchLocation};
 
 use crate::types::Tool;

@@ -86,9 +86,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 3: Advanced Responses API configuration
     println!("📝 Example 3: Advanced Configuration\n");
 
-    let mut metadata = std::collections::HashMap::new();
-    metadata.insert("user_id".to_string(), "demo_user_123".to_string());
-    metadata.insert("session_type".to_string(), "example".to_string());
+    let metadata = serde_json::json!({
+        "user_id": "demo_user_123",
+        "session_type": "example"
+    });
 
     let request3 = ChatRequest::new(vec![user!("Write a short poem about Rust programming.")])
         .with_openai_options(

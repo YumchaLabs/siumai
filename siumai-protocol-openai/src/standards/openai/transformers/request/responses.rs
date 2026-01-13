@@ -21,14 +21,48 @@ struct ResponsesInputConversionState {
 
 #[cfg(feature = "openai-responses")]
 impl OpenAiResponsesRequestTransformer {
-    fn system_message_mode(req: &ChatRequest) -> Option<&str> {
+    fn force_reasoning(req: &ChatRequest) -> bool {
         req.provider_options_map
+            .get_object("openai")
+            .and_then(|m| m.get("forceReasoning").or_else(|| m.get("force_reasoning")))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    fn is_reasoning_model_id(model: &str) -> bool {
+        let m = model.trim().to_ascii_lowercase();
+        if m.is_empty() {
+            return false;
+        }
+
+        m.starts_with("o1")
+            || m.starts_with("o3")
+            || m.starts_with("o4")
+            || m.starts_with("gpt-5")
+            || m.contains("codex")
+            || m.contains("computer-use-preview")
+    }
+
+    fn system_message_mode(req: &ChatRequest) -> Option<&str> {
+        let explicit = req
+            .provider_options_map
             .get_object("openai")
             .and_then(|m| {
                 m.get("systemMessageMode")
                     .or_else(|| m.get("system_message_mode"))
             })
-            .and_then(|v| v.as_str())
+            .and_then(|v| v.as_str());
+
+        if explicit.is_some() {
+            return explicit;
+        }
+
+        // Vercel alignment: reasoning models default to developer system messages.
+        if Self::force_reasoning(req) || Self::is_reasoning_model_id(&req.common_params.model) {
+            return Some("developer");
+        }
+
+        None
     }
 
     fn file_id_prefixes(req: &ChatRequest) -> Option<Vec<String>> {
@@ -1237,6 +1271,31 @@ mod tests {
         let body = tx.transform_chat(&req).expect("transform chat");
         assert_eq!(body["stream"], true);
         assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_system_message_defaults_to_developer_for_reasoning_models() {
+        use crate::types::ChatMessage;
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let req = ChatRequest::builder()
+            .message(ChatMessage::system("sys").build())
+            .message(ChatMessage::user("hi").build())
+            .model("o1")
+            .stream(false)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+        let input = body.get("input").and_then(|v| v.as_array()).expect("input");
+        assert_eq!(
+            input[0].get("role").and_then(|v| v.as_str()),
+            Some("developer")
+        );
+        assert_eq!(
+            input[0].get("content").and_then(|v| v.as_str()),
+            Some("sys")
+        );
     }
 
     #[test]
