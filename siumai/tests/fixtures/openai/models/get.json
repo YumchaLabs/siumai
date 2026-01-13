@@ -1,0 +1,6 @@
+{
+  "id": "gpt-4o",
+  "object": "model",
+  "created": 1710000000,
+  "owned_by": "openai"
+}
