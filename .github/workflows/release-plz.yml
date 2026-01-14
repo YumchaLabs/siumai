@@ -24,6 +24,9 @@ jobs:
     name: Release-plz PR
     runs-on: ubuntu-latest
     if: ${{ github.repository_owner == 'YumchaLabs' }}
+    env:
+      RELEASE_PLZ_APP_ID: ${{ secrets.RELEASE_PLZ_APP_ID }}
+      RELEASE_PLZ_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
     permissions:
       contents: write
       pull-requests: write
@@ -45,11 +48,11 @@ jobs:
 
       - name: Generate GitHub token (optional)
         id: app-token
-        if: ${{ secrets.RELEASE_PLZ_APP_ID != '' && secrets.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.RELEASE_PLZ_APP_ID != '' && env.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+          app-id: ${{ env.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ env.RELEASE_PLZ_APP_PRIVATE_KEY }}
 
       - name: Run release-plz (release-pr)
         uses: release-plz/action@v0.5
@@ -69,6 +72,9 @@ jobs:
     name: Release-plz release
     runs-on: ubuntu-latest
     if: ${{ github.repository_owner == 'YumchaLabs' && github.event_name == 'workflow_dispatch' && inputs.release == 'true' }}
+    env:
+      RELEASE_PLZ_APP_ID: ${{ secrets.RELEASE_PLZ_APP_ID }}
+      RELEASE_PLZ_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
     permissions:
       contents: write
       id-token: write
@@ -87,11 +93,11 @@ jobs:
 
       - name: Generate GitHub token (optional)
         id: app-token
-        if: ${{ secrets.RELEASE_PLZ_APP_ID != '' && secrets.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.RELEASE_PLZ_APP_ID != '' && env.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+          app-id: ${{ env.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ env.RELEASE_PLZ_APP_PRIVATE_KEY }}
 
       - name: Run release-plz (release)
         uses: release-plz/action@v0.5
@@ -101,4 +107,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
