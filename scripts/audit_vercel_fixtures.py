@@ -43,11 +43,25 @@ class UpstreamFixture:
 
 
 def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    """
+    Compute a SHA-256 digest for a fixture file.
+
+    Notes:
+    - Git line-ending conversions (e.g. `core.autocrlf=true` on Windows) can make a 1:1 file
+      comparison appear to "drift" even when the repository content is identical.
+    - To keep this audit stable across platforms, we normalize CRLF -> LF for common text fixtures.
+    """
+    data = path.read_bytes()
+    if path.suffix in {".txt", ".json", ".md", ".yml", ".yaml"}:
+        try:
+            text = data.decode("utf-8")
+        except Exception:
+            pass
+        else:
+            # Normalize line endings and ignore a trailing newline difference.
+            text = text.replace("\r\n", "\n").rstrip("\n")
+            data = text.encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
 
 
 def iter_upstream_fixtures(ai_root: Path) -> list[UpstreamFixture]:
