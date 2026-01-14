@@ -100,10 +100,22 @@ jobs:
           private-key: ${{ env.RELEASE_PLZ_APP_PRIVATE_KEY }}
 
       - name: Run release-plz (release)
+        if: ${{ inputs.dry_run != 'true' }}
         uses: release-plz/action@v0.5
         with:
           command: release
-          dry_run: ${{ inputs.dry_run }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # Workaround: GitHub Action inputs are strings; some actions treat any non-empty value
+      # (including "false") as enabled. Only pass `dry_run` when explicitly requested.
+      - name: Run release-plz (release dry-run)
+        if: ${{ inputs.dry_run == 'true' }}
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+          dry_run: true
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -47,9 +47,11 @@ If the workspace contains crates that are not yet present on crates.io (e.g. new
 
 In that bootstrap scenario, run the release with `dry_run = false` to publish the dependency crates first.
 
+Note: the workflow passes the `dry_run` input to the action only when it is explicitly set to `true`,
+to avoid accidentally enabling dry-run due to string input handling.
+
 ## Why there may be no release PR
 
 `release-plz release-pr` opens a PR when it needs to bump versions and/or update changelogs.
 
 If versions were already bumped on `main` (e.g. during a migration), `release-pr` can be a no-op and no PR will be created.
-
