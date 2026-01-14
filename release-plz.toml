@@ -1,0 +1,42 @@
+[workspace]
+# release-plz default/recommended layout is one `CHANGELOG.md` per crate (next to each `Cargo.toml`).
+# We'll use the repository-level `CHANGELOG.md` for the facade crate (`siumai`),
+# while letting release-plz maintain per-crate changelogs for the other workspace members.
+changelog_update = true
+
+[changelog]
+# Limit changelog generation to repository version tags (vX.Y.Z...).
+tag_pattern = "^v"
+
+# Avoid unexpected lockfile churn in the release PR.
+dependencies_update = false
+
+# We only want a single repo-wide tag and GitHub release (on `siumai`), not one per crate.
+git_tag_enable = false
+git_release_enable = false
+
+# Open a predictable release PR.
+pr_branch_prefix = "release-plz-"
+pr_labels = ["release"]
+
+# During the migration phase, allow releasing packages that are already committed to `main`
+# (e.g. `0.11.0-beta.5` is currently unreleased).
+#
+# After the first release via release-plz, you may want to switch to `false` so releases happen
+# only when the release PR is merged (safer against race conditions on `main`).
+release_always = true
+
+[[package]]
+name = "siumai"
+changelog_path = "./CHANGELOG.md"
+
+# Keep the existing tag style: `v0.11.0-beta.5`.
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+
+# Create a GitHub release for the same tag.
+git_release_enable = true
+git_release_name = "v{{ version }}"
+git_release_type = "auto"
+
+# Use the repository changelog file for the release notes source.

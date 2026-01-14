@@ -2,6 +2,8 @@
 
 This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
 
+## [Unreleased]
+
 ## [0.11.0-beta.5] - Unreleased
 
 ### Highlights

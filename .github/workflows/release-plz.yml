@@ -1,0 +1,104 @@
+name: Release-plz
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Run `release-plz release` (publish to crates.io + create tag + GitHub release)"
+        required: false
+        default: "false"
+      dry_run:
+        description: "Add `--dry-run` to the release command"
+        required: false
+        default: "false"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Create/update the release PR (version bumps, etc.).
+  release-plz-pr:
+    name: Release-plz PR
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'YumchaLabs' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Generate GitHub token (optional)
+        id: app-token
+        if: ${{ secrets.RELEASE_PLZ_APP_ID != '' && secrets.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+
+      - name: Run release-plz (release-pr)
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          # For CI checks on release PRs, prefer a GitHub App token or PAT.
+          # - GitHub App: set `RELEASE_PLZ_APP_ID` + `RELEASE_PLZ_APP_PRIVATE_KEY`
+          # - PAT: set `RELEASE_PLZ_TOKEN`
+          # Fallback to `GITHUB_TOKEN` (note: PR checks may not run).
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Publish unpublished packages + create tag + GitHub release.
+  # Starts as a manual job during the migration phase.
+  release-plz-release:
+    name: Release-plz release
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'YumchaLabs' && github.event_name == 'workflow_dispatch' && inputs.release == 'true' }}
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Generate GitHub token (optional)
+        id: app-token
+        if: ${{ secrets.RELEASE_PLZ_APP_ID != '' && secrets.RELEASE_PLZ_APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+
+      - name: Run release-plz (release)
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+          dry_run: ${{ inputs.dry_run }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+

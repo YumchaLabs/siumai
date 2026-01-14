@@ -1,9 +1,9 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+' # tag-pattern: 'v{{version}}'
+  # Legacy workflow kept for reference.
+  # Releases are now intended to be managed by `.github/workflows/release-plz.yml`.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
