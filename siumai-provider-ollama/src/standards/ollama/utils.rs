@@ -41,6 +41,40 @@ mod header_tests {
     }
 }
 
+#[cfg(test)]
+mod message_tests {
+    use super::*;
+    use crate::types::{ChatMessage, ChatRequest, CommonParams, ContentPart};
+
+    #[test]
+    fn convert_chat_message_images_use_raw_base64() {
+        let msg = ChatMessage::user("hi")
+            .with_content_parts(vec![ContentPart::image_base64("aGVsbG8=")])
+            .build();
+        let converted = convert_chat_message(&msg);
+        assert_eq!(converted.images, Some(vec!["aGVsbG8=".to_string()]));
+    }
+
+    #[test]
+    fn build_chat_request_emits_tool_messages_with_tool_name() {
+        let tool_msg = ChatMessage::tool_result_text("call_1", "get_weather", "11 degrees").build();
+
+        let req = ChatRequest::builder()
+            .messages(vec![tool_msg])
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
+                ..Default::default()
+            })
+            .build();
+
+        let body = build_chat_request(&req, &OllamaParams::default()).unwrap();
+        assert_eq!(body.messages.len(), 1);
+        assert_eq!(body.messages[0].role, "tool");
+        assert_eq!(body.messages[0].tool_name.as_deref(), Some("get_weather"));
+        assert_eq!(body.messages[0].content, "11 degrees");
+    }
+}
+
 /// Convert common `ChatMessage` to Ollama format
 pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
     let role_str = match message.role {
@@ -57,6 +91,7 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
     let mut ollama_message = OllamaChatMessage {
         role: role_str,
         content: content_str,
+        tool_name: None,
         images: None,
         tool_calls: None,
         thinking: None,
@@ -64,28 +99,43 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
 
     // Extract images from multimodal content
     if let crate::types::MessageContent::MultiModal(parts) = &message.content {
-        let images: Vec<String> = parts
-            .iter()
-            .filter_map(|part| {
-                if let crate::types::ContentPart::Image { source, .. } = part {
-                    match source {
-                        crate::types::chat::MediaSource::Url { url } => Some(url.clone()),
-                        crate::types::chat::MediaSource::Base64 { data } => {
-                            Some(format!("data:image/jpeg;base64,{}", data))
-                        }
-                        crate::types::chat::MediaSource::Binary { data } => {
-                            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-                            Some(format!("data:image/jpeg;base64,{}", encoded))
-                        }
-                    }
-                } else {
-                    None
+        let mut images: Vec<String> = Vec::new();
+        let mut url_placeholders: Vec<String> = Vec::new();
+
+        for part in parts {
+            let crate::types::ContentPart::Image { source, .. } = part else {
+                continue;
+            };
+
+            match source {
+                crate::types::chat::MediaSource::Url { url } => {
+                    // Ollama expects base64-encoded images; preserve URL context as text.
+                    url_placeholders.push(url.clone());
                 }
-            })
-            .collect();
+                crate::types::chat::MediaSource::Base64 { data } => {
+                    // Ollama expects raw base64 strings (not data URLs).
+                    images.push(data.clone());
+                }
+                crate::types::chat::MediaSource::Binary { data } => {
+                    images.push(base64::engine::general_purpose::STANDARD.encode(data));
+                }
+            }
+        }
 
         if !images.is_empty() {
             ollama_message.images = Some(images);
+        }
+
+        if !url_placeholders.is_empty() {
+            let suffix = url_placeholders
+                .into_iter()
+                .map(|u| format!("[Image: {u}]"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !ollama_message.content.is_empty() {
+                ollama_message.content.push('\n');
+            }
+            ollama_message.content.push_str(&suffix);
         }
     }
 
@@ -148,18 +198,19 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
         _ => crate::types::MessageRole::Assistant, // Default fallback
     };
 
-    let mut parts = vec![crate::types::ContentPart::Text {
-        text: message.content.clone(),
-        provider_metadata: None,
-    }];
+    let mut parts: Vec<crate::types::ContentPart> = Vec::new();
+    if !message.content.is_empty() {
+        parts.push(crate::types::ContentPart::Text {
+            text: message.content.clone(),
+            provider_metadata: None,
+        });
+    }
 
     // Add images if present
     if let Some(images) = &message.images {
-        for image_url in images {
+        for data in images {
             parts.push(crate::types::ContentPart::Image {
-                source: crate::types::chat::MediaSource::Url {
-                    url: image_url.clone(),
-                },
+                source: crate::types::chat::MediaSource::Base64 { data: data.clone() },
                 detail: None,
                 provider_metadata: None,
             });
@@ -184,7 +235,9 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
     }
 
     // Determine final content
-    let content = if parts.len() == 1 && parts[0].is_text() {
+    let content = if parts.is_empty() {
+        crate::types::MessageContent::Text(String::new())
+    } else if parts.len() == 1 && parts[0].is_text() {
         crate::types::MessageContent::Text(message.content.clone())
     } else {
         crate::types::MessageContent::MultiModal(parts)
@@ -413,9 +466,78 @@ pub fn build_chat_request(
     }
     validate_model_name(&model)?;
 
-    // Convert messages
-    let messages: Vec<OllamaChatMessage> =
-        request.messages.iter().map(convert_chat_message).collect();
+    // Convert messages (tool results require `tool_name` in Ollama protocol).
+    let mut messages: Vec<OllamaChatMessage> = Vec::new();
+    for msg in &request.messages {
+        if matches!(msg.role, crate::types::MessageRole::Tool) {
+            let tool_results = msg.tool_results();
+            if tool_results.is_empty() {
+                messages.push(convert_chat_message(msg));
+                continue;
+            }
+
+            for part in tool_results {
+                let Some(tr) = part.as_tool_result() else {
+                    continue;
+                };
+
+                fn tool_result_output_to_text(output: &crate::types::ToolResultOutput) -> String {
+                    match output {
+                        crate::types::ToolResultOutput::Text { value } => value.clone(),
+                        crate::types::ToolResultOutput::Json { value } => {
+                            serde_json::to_string(value).unwrap_or_default()
+                        }
+                        crate::types::ToolResultOutput::ExecutionDenied { reason } => reason
+                            .clone()
+                            .unwrap_or_else(|| "Execution denied".to_string()),
+                        crate::types::ToolResultOutput::ErrorText { value } => value.clone(),
+                        crate::types::ToolResultOutput::ErrorJson { value } => {
+                            serde_json::to_string(value).unwrap_or_default()
+                        }
+                        crate::types::ToolResultOutput::Content { value } => value
+                            .iter()
+                            .map(|p| match p {
+                                crate::types::ToolResultContentPart::Text { text } => text.clone(),
+                                crate::types::ToolResultContentPart::Image { .. } => {
+                                    "[Image]".to_string()
+                                }
+                                crate::types::ToolResultContentPart::File {
+                                    filename,
+                                    media_type,
+                                    ..
+                                } => filename
+                                    .as_deref()
+                                    .map(|n| format!("[File: {n}]"))
+                                    .unwrap_or_else(|| format!("[File: {media_type}]")),
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    }
+                }
+
+                let mut out = OllamaChatMessage {
+                    role: "tool".to_string(),
+                    content: tool_result_output_to_text(tr.output),
+                    tool_name: Some(tr.tool_name.to_string()),
+                    images: None,
+                    tool_calls: None,
+                    thinking: None,
+                };
+
+                // Best-effort: if the tool message carried additional text besides tool results,
+                // append it after the tool output so Ollama has full context.
+                let extra = msg.content.all_text();
+                if !extra.is_empty() && extra != out.content {
+                    out.content.push('\n');
+                    out.content.push_str(&extra);
+                }
+
+                messages.push(out);
+            }
+        } else {
+            messages.push(convert_chat_message(msg));
+        }
+    }
 
     // Convert tools
     let tools = request
@@ -743,8 +865,8 @@ mod tests {
 
         let ollama_message = convert_chat_message(&message);
         assert_eq!(ollama_message.role, "user");
-        assert_eq!(ollama_message.content, "Hello");
-        assert_eq!(ollama_message.images, Some(vec!["image1".to_string()]));
+        assert_eq!(ollama_message.content, "Hello\n[Image: image1]");
+        assert_eq!(ollama_message.images, None);
     }
 
     #[test]

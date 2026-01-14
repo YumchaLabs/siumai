@@ -83,6 +83,9 @@ pub struct OllamaChatMessage {
     pub role: String,
     /// Content of the message
     pub content: String,
+    /// Tool name for tool results (required by Ollama tool-calling protocol when role == "tool")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
     /// Images for multimodal models (base64 encoded)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<String>>,

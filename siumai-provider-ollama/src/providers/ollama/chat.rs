@@ -184,6 +184,7 @@ mod tests {
             message: OllamaChatMessage {
                 role: "assistant".to_string(),
                 content: "Hello there!".to_string(),
+                tool_name: None,
                 images: None,
                 tool_calls: None,
                 thinking: None,

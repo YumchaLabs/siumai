@@ -44,6 +44,8 @@ pub struct OllamaEventConverter {
     state_tracker: StreamStateTracker,
     /// Best-effort model id captured from `StreamStart`/`StreamEnd` for reverse serialization.
     stream_model: Arc<Mutex<Option<String>>>,
+    /// Whether tool calls have been emitted (Ollama streams tool_calls as full objects).
+    tool_calls_emitted: Arc<Mutex<bool>>,
 }
 
 impl Default for OllamaEventConverter {
@@ -57,6 +59,7 @@ impl OllamaEventConverter {
         Self {
             state_tracker: StreamStateTracker::new(),
             stream_model: Arc::new(Mutex::new(None)),
+            tool_calls_emitted: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -79,6 +82,26 @@ impl OllamaEventConverter {
         // Process thinking content (for models like deepseek-r1)
         if let Some(thinking) = self.extract_thinking(&response) {
             builder = builder.add_thinking_delta(thinking);
+        }
+
+        // Process tool calls (when models request function execution).
+        if let Some(tool_calls) = self.extract_tool_calls(&response) {
+            let mut emitted = self
+                .tool_calls_emitted
+                .lock()
+                .expect("tool_calls_emitted lock");
+            if !*emitted {
+                for (idx, tc) in tool_calls.into_iter().enumerate() {
+                    let args = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
+                    builder = builder.add_tool_call_delta(
+                        format!("call_{idx}"),
+                        Some(tc.function.name),
+                        Some(args),
+                        None,
+                    );
+                }
+                *emitted = true;
+            }
         }
 
         // Process content - NO MORE CONTENT LOSS!
@@ -138,6 +161,19 @@ impl OllamaEventConverter {
             .thinking
             .as_ref()
             .filter(|thinking| !thinking.is_empty())
+            .cloned()
+    }
+
+    fn extract_tool_calls(
+        &self,
+        response: &OllamaStreamResponse,
+    ) -> Option<Vec<super::types::OllamaToolCall>> {
+        response
+            .message
+            .as_ref()?
+            .tool_calls
+            .as_ref()
+            .filter(|calls| !calls.is_empty())
             .cloned()
     }
 
@@ -347,6 +383,32 @@ mod tests {
             assert_eq!(usage.completion_tokens, 20);
         } else {
             panic!("Expected UsageUpdate event in results: {:?}", result);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ollama_emits_tool_call_delta() {
+        let converter = OllamaEventConverter::new();
+
+        let json_data = r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Toronto"}}}]},"done":false}"#;
+        let result = converter.convert_json(json_data).await;
+
+        let tool_event = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::ToolCallDelta { .. })));
+
+        match tool_event {
+            Some(Ok(ChatStreamEvent::ToolCallDelta {
+                id,
+                function_name,
+                arguments_delta,
+                ..
+            })) => {
+                assert_eq!(id, "call_0");
+                assert_eq!(function_name.as_deref(), Some("get_weather"));
+                assert_eq!(arguments_delta.as_deref(), Some(r#"{"city":"Toronto"}"#));
+            }
+            _ => panic!("Expected ToolCallDelta event in results: {:?}", result),
         }
     }
 
