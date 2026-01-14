@@ -50,6 +50,12 @@ In that bootstrap scenario, run the release with `dry_run = false` to publish th
 Note: the workflow passes the `dry_run` input to the action only when it is explicitly set to `true`,
 to avoid accidentally enabling dry-run due to string input handling.
 
+## Crates.io 429 (rate limit)
+
+When publishing many new crates (common during a workspace split), crates.io can return `429 Too Many Requests`.
+
+The release workflow retries automatically on 429 by waiting until the timestamp suggested by crates.io and then re-running `release-plz release`.
+
 ## Why there may be no release PR
 
 `release-plz release-pr` opens a PR when it needs to bump versions and/or update changelogs.

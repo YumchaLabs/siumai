@@ -99,23 +99,32 @@ jobs:
           app-id: ${{ env.RELEASE_PLZ_APP_ID }}
           private-key: ${{ env.RELEASE_PLZ_APP_PRIVATE_KEY }}
 
+      - name: Install release tooling
+        uses: taiki-e/install-action@v2
+        with:
+          tool: |
+            release-plz@0.3.150
+            cargo-semver-checks@0.45
+
       - name: Run release-plz (release)
         if: ${{ inputs.dry_run != 'true' }}
-        uses: release-plz/action@v0.5
-        with:
-          command: release
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          RELEASE_PLZ_MAX_ATTEMPTS: "10"
+          RELEASE_PLZ_MIN_SLEEP_SECONDS: "60"
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/release-plz-release-with-retry.sh
+          ./scripts/release-plz-release-with-retry.sh
 
-      # Workaround: GitHub Action inputs are strings; some actions treat any non-empty value
-      # (including "false") as enabled. Only pass `dry_run` when explicitly requested.
       - name: Run release-plz (release dry-run)
         if: ${{ inputs.dry_run == 'true' }}
-        uses: release-plz/action@v0.5
-        with:
-          command: release
-          dry_run: true
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          release-plz release --dry-run --git-token "${GITHUB_TOKEN}"
