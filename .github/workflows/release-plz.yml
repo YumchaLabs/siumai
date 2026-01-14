@@ -11,7 +11,7 @@ on:
         required: false
         default: "false"
       dry_run:
-        description: "Add `--dry-run` to the release command"
+        description: "Add `--dry-run` to the release command (note: for the first publish of new workspace crates, dry-run may fail due to unpublished workspace dependencies)"
         required: false
         default: "false"
 
