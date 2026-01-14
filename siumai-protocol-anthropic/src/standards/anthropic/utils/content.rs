@@ -106,6 +106,7 @@ mod document_provider_metadata_tests {
 }
 
 pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::Value, LlmError> {
+    #[allow(unreachable_patterns)]
     match content {
         MessageContent::Text(text) => Ok(serde_json::Value::Array(vec![serde_json::json!({
             "type": "text",
@@ -460,13 +461,9 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
 
             Ok(serde_json::Value::Array(content_parts))
         }
-        #[cfg(feature = "structured-messages")]
-        MessageContent::Json(v) => {
-            let s = serde_json::to_string(v).unwrap_or_default();
-            Ok(serde_json::Value::Array(vec![serde_json::json!({
-                "type": "text",
-                "text": s
-            })]))
-        }
+        _ => Ok(serde_json::Value::Array(vec![serde_json::json!({
+            "type": "text",
+            "text": content.all_text(),
+        })])),
     }
 }

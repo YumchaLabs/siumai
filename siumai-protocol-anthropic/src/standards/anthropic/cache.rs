@@ -184,6 +184,7 @@ impl CacheAwareMessageBuilder {
         });
 
         // Handle content
+        #[allow(unreachable_patterns)]
         match &self.message.content {
             MessageContent::Text(text) => {
                 message_json["content"] = serde_json::Value::String(text.clone());
@@ -309,10 +310,9 @@ impl CacheAwareMessageBuilder {
                 }
                 message_json["content"] = serde_json::Value::Array(content_parts);
             }
-            #[cfg(feature = "structured-messages")]
-            MessageContent::Json(v) => {
+            _ => {
                 message_json["content"] =
-                    serde_json::Value::String(serde_json::to_string(v).unwrap_or_default());
+                    serde_json::Value::String(self.message.content.all_text());
             }
         }
 

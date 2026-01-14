@@ -172,6 +172,7 @@ impl StructuredOutputValidator {
         schema: &serde_json::Value,
     ) -> Result<serde_json::Value, LlmError> {
         // Extract JSON content from response
+        #[allow(unreachable_patterns)]
         let content = match &response.content {
             crate::types::MessageContent::Text(text) => text,
             crate::types::MessageContent::MultiModal(parts) => {
@@ -185,10 +186,8 @@ impl StructuredOutputValidator {
                     "No text content found in multimodal response".to_string(),
                 ));
             }
-            #[cfg(feature = "structured-messages")]
-            crate::types::MessageContent::Json(v) => {
-                let s =
-                    serde_json::to_string(v).map_err(|e| LlmError::ParseError(e.to_string()))?;
+            _ => {
+                let s = response.content.all_text();
                 return Self::validate_json_string(&s, schema);
             }
         };

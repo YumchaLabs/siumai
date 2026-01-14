@@ -18,6 +18,10 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      RUSTFLAGS: "-C debuginfo=0"
     strategy:
       matrix:
         rust: [stable]
@@ -50,7 +54,7 @@ jobs:
 
       - name: Clippy (facade minimal features)
         if: ${{ github.event_name == 'pull_request' }}
-        run: cargo clippy -p siumai --no-default-features --features openai -- -D warnings
+        run: cargo clippy -p siumai --no-default-features --features openai --lib --bins --tests --benches -- -D warnings
 
       - name: Check (extras minimal features)
         if: ${{ github.event_name == 'pull_request' }}
@@ -68,11 +72,11 @@ jobs:
 
       - name: Run clippy (core)
         if: ${{ github.event_name != 'pull_request' }}
-        run: cargo clippy -p siumai --all-features -- -D warnings
+        run: cargo clippy -p siumai --all-features --lib --bins --tests --benches -- -D warnings
 
       - name: Run clippy (extras)
         if: ${{ github.event_name != 'pull_request' }}
-        run: cargo clippy -p siumai-extras --all-features -- -D warnings
+        run: cargo clippy -p siumai-extras --all-features --lib --bins --tests --benches -- -D warnings
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -105,6 +109,10 @@ jobs:
     name: PR Facade Guardrails (public surface + examples)
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      RUSTFLAGS: "-C debuginfo=0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -125,6 +133,10 @@ jobs:
     name: Feature Build Matrix (core)
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      RUSTFLAGS: "-C debuginfo=0"
     strategy:
       fail-fast: false
       matrix:
@@ -154,12 +166,16 @@ jobs:
         run: cargo check -p siumai --no-default-features --features ${{ matrix.features }}
 
       - name: Clippy (siumai)
-        run: cargo clippy -p siumai --no-default-features --features ${{ matrix.features }} -- -D warnings
+        run: cargo clippy -p siumai --no-default-features --features ${{ matrix.features }} --lib --bins --tests --benches -- -D warnings
 
   extras-build-matrix:
     name: Feature Build Matrix (extras)
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      RUSTFLAGS: "-C debuginfo=0"
     strategy:
       fail-fast: false
       matrix:
@@ -185,7 +201,7 @@ jobs:
         run: cargo check -p siumai-extras --no-default-features --features ${{ matrix.features }}
 
       - name: Clippy (siumai-extras)
-        run: cargo clippy -p siumai-extras --no-default-features --features ${{ matrix.features }} -- -D warnings
+        run: cargo clippy -p siumai-extras --no-default-features --features ${{ matrix.features }} --lib --bins --tests --benches -- -D warnings
 
   docs:
     name: Documentation

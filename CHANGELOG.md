@@ -127,6 +127,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Gemini/Anthropic system instruction semantics are now Vercel-aligned (system/developer messages must appear at the beginning; provider-specific exceptions handled internally).
 - Anthropic streaming metadata is preserved and surfaced via `provider_metadata["anthropic"]` (thinking replay signatures, redacted thinking, and normalized sources/citations).
 - SSE decoding is stricter for JSON payloads (invalid frames no longer silently corrupt downstream state).
+- CI no longer depends on `zsh` for local test scripts (`./scripts/test-*.sh` now use `bash`).
+- CI clippy steps no longer build examples (reduces disk pressure and avoids `No space left on device` in runners).
+- `MessageContent::Json` now downgrades to text where the provider does not define an input JSON content part (compile-clean across feature matrices).
 
 ### Migration guide (beta.5)
 

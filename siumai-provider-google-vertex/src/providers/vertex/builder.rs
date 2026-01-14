@@ -182,12 +182,6 @@ impl GoogleVertexBuilder {
                 }
             });
 
-        fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
-            headers
-                .keys()
-                .any(|k| k.eq_ignore_ascii_case("authorization"))
-        }
-
         let base_url = if let Some(b) = self.base_url {
             b
         } else if api_key.is_some() {
@@ -225,18 +219,31 @@ impl GoogleVertexBuilder {
         // Vercel AI SDK alignment (`@ai-sdk/google-vertex` exports the node variant by default):
         // - If no API key is provided (enterprise mode) and the user didn't supply an explicit
         //   Authorization header or custom token provider, auto-enable ADC-based auth (when available).
-        let mut token_provider = self.token_provider;
-        #[cfg(feature = "gcp")]
-        {
-            if api_key.is_none()
-                && token_provider.is_none()
-                && !has_auth_header(&self.core.http_config.headers)
+        let token_provider = {
+            #[cfg(feature = "gcp")]
             {
-                token_provider = Some(std::sync::Arc::new(
-                    crate::auth::adc::AdcTokenProvider::default_client(),
-                ));
+                fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
+                    headers
+                        .keys()
+                        .any(|k| k.eq_ignore_ascii_case("authorization"))
+                }
+
+                let mut token_provider = self.token_provider;
+                if api_key.is_none()
+                    && token_provider.is_none()
+                    && !has_auth_header(&self.core.http_config.headers)
+                {
+                    token_provider = Some(std::sync::Arc::new(
+                        crate::auth::adc::AdcTokenProvider::default_client(),
+                    ));
+                }
+                token_provider
             }
-        }
+            #[cfg(not(feature = "gcp"))]
+            {
+                self.token_provider
+            }
+        };
 
         let cfg = GoogleVertexConfig {
             base_url,

@@ -179,6 +179,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         None
     };
 
+    #[allow(unused_variables)]
     let api_key = if requires_api_key {
         // Try to get API key from builder first, then from environment variable
         if let Some(key) = builder.api_key.clone() {

@@ -341,6 +341,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
 
     let mut parts = Vec::new();
 
+    #[allow(unreachable_patterns)]
     match &message.content {
         MessageContent::Text(text) => {
             if !text.is_empty() {
@@ -510,13 +511,15 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                 }
             }
         }
-        #[cfg(feature = "structured-messages")]
-        MessageContent::Json(v) => {
-            parts.push(Part::Text {
-                text: serde_json::to_string(v).unwrap_or_default(),
-                thought: None,
-                thought_signature: None,
-            });
+        _ => {
+            let text = message.content.all_text();
+            if !text.is_empty() {
+                parts.push(Part::Text {
+                    text,
+                    thought: None,
+                    thought_signature: None,
+                });
+            }
         }
     }
 
@@ -1229,22 +1232,7 @@ pub fn build_request_body(
                 }
 
                 // Extract system instruction text (flatten multimodal to text).
-                let system_text = match &message.content {
-                    MessageContent::Text(text) => text.clone(),
-                    MessageContent::MultiModal(parts) => parts
-                        .iter()
-                        .filter_map(|part| {
-                            if let crate::types::ContentPart::Text { text, .. } = part {
-                                Some(text.as_str())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                    #[cfg(feature = "structured-messages")]
-                    MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
-                };
+                let system_text = message.content.all_text();
 
                 if !system_text.trim().is_empty() {
                     system_text_parts.push(system_text);

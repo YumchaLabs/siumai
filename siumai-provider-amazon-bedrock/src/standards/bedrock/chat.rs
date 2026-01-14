@@ -242,11 +242,11 @@ impl BedrockChatRequestTransformer {
     }
 
     fn content_parts(message: &ChatMessage) -> Vec<ContentPart> {
+        #[allow(unreachable_patterns)]
         match &message.content {
             MessageContent::Text(t) => vec![ContentPart::text(t.clone())],
             MessageContent::MultiModal(parts) => parts.clone(),
-            #[cfg(feature = "structured-messages")]
-            MessageContent::Json(v) => vec![ContentPart::text(v.to_string())],
+            _ => vec![ContentPart::text(message.content.all_text())],
         }
     }
 

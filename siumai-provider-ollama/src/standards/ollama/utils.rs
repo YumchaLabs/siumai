@@ -52,25 +52,7 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
     }
     .to_string();
 
-    let content_str = match &message.content {
-        crate::types::MessageContent::Text(text) => text.clone(),
-        crate::types::MessageContent::MultiModal(parts) => {
-            // Extract text from multimodal content
-            parts
-                .iter()
-                .filter_map(|part| {
-                    if let crate::types::ContentPart::Text { text, .. } = part {
-                        Some(text.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
-        }
-        #[cfg(feature = "structured-messages")]
-        crate::types::MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
-    };
+    let content_str = message.content.all_text();
 
     let mut ollama_message = OllamaChatMessage {
         role: role_str,

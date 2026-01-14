@@ -251,22 +251,7 @@ pub fn convert_messages(
     }
 
     fn flatten_system_text(content: &MessageContent) -> String {
-        match content {
-            MessageContent::Text(text) => text.clone(),
-            MessageContent::MultiModal(parts) => parts
-                .iter()
-                .filter_map(|part| {
-                    if let crate::types::ContentPart::Text { text, .. } = part {
-                        Some(text.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
-            #[cfg(feature = "structured-messages")]
-            MessageContent::Json(v) => serde_json::to_string(v).unwrap_or_default(),
-        }
+        content.all_text()
     }
 
     for message in messages {

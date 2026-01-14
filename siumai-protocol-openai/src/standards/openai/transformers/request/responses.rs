@@ -435,6 +435,7 @@ impl OpenAiResponsesRequestTransformer {
             });
             let tool_name_mapping = tool_name_mapping.unwrap_or_default();
 
+            #[allow(unreachable_patterns)]
             match &msg.content {
                 MessageContent::Text(text) => {
                     if store && msg.metadata.id.is_some() {
@@ -775,11 +776,10 @@ impl OpenAiResponsesRequestTransformer {
                     flush_assistant(input, &mut content_parts);
                     return Ok(());
                 }
-                #[cfg(feature = "structured-messages")]
-                MessageContent::Json(v) => {
+                _ => {
                     input.push(serde_json::json!({
                         "role": "assistant",
-                        "content": [{ "type": "output_text", "text": serde_json::to_string(v).unwrap_or_default() }],
+                        "content": [{ "type": "output_text", "text": msg.content.all_text() }],
                     }));
                     return Ok(());
                 }
@@ -800,6 +800,7 @@ impl OpenAiResponsesRequestTransformer {
         let mut api_message = serde_json::json!({ "role": role });
 
         // Default content handling
+        #[allow(unreachable_patterns)]
         match &msg.content {
             MessageContent::Text(text) => {
                 if role == "system" || role == "developer" {
@@ -1074,16 +1075,15 @@ impl OpenAiResponsesRequestTransformer {
 
                 api_message["content"] = serde_json::Value::Array(content_parts);
             }
-            #[cfg(feature = "structured-messages")]
-            MessageContent::Json(v) => {
+            _ => {
                 // Responses API does not define an `input_json` content part; serialize as text.
+                let s = msg.content.all_text();
                 if role == "system" || role == "developer" {
-                    api_message["content"] =
-                        serde_json::Value::String(serde_json::to_string(v).unwrap_or_default());
+                    api_message["content"] = serde_json::Value::String(s);
                 } else {
                     api_message["content"] = serde_json::Value::Array(vec![serde_json::json!({
                         "type": "input_text",
-                        "text": serde_json::to_string(v).unwrap_or_default()
+                        "text": s
                     })]);
                 }
             }
