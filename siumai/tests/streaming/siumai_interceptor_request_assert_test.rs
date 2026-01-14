@@ -21,6 +21,7 @@ use siumai::provider::SiumaiBuilder;
 struct Captured {
     ctx: HttpRequestContext,
     headers: HeaderMap,
+    #[cfg(any(feature = "openai", feature = "google-vertex"))]
     body: serde_json::Value,
 }
 
@@ -44,10 +45,14 @@ impl HttpInterceptor for TestInterceptor {
         body: &serde_json::Value,
         headers: &HeaderMap,
     ) -> Result<reqwest::RequestBuilder, LlmError> {
+        #[cfg(not(any(feature = "openai", feature = "google-vertex")))]
+        let _ = body;
+
         let mut guard = self.slot.lock().expect("failed to lock capture slot");
         *guard = Some(Captured {
             ctx: ctx.clone(),
             headers: headers.clone(),
+            #[cfg(any(feature = "openai", feature = "google-vertex"))]
             body: body.clone(),
         });
         drop(guard);
