@@ -4,10 +4,6 @@
 # while letting release-plz maintain per-crate changelogs for the other workspace members.
 changelog_update = true
 
-[changelog]
-# Limit changelog generation to repository version tags (vX.Y.Z...).
-tag_pattern = "^v"
-
 # Avoid unexpected lockfile churn in the release PR.
 dependencies_update = false
 
@@ -40,3 +36,7 @@ git_release_name = "v{{ version }}"
 git_release_type = "auto"
 
 # Use the repository changelog file for the release notes source.
+
+[changelog]
+# Limit changelog generation to repository version tags (vX.Y.Z...).
+tag_pattern = "^v"
