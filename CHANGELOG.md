@@ -4,6 +4,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+## [0.11.0-beta.6](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.5...v0.11.0-beta.6) - 2026-01-17
+
+### Fixed
+
+- *(packaging)* exclude tests fixtures from crate
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Highlights

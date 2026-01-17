@@ -2847,7 +2847,7 @@ dependencies = [
 
 [[package]]
 name = "siumai"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-core"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2936,7 +2936,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-extras"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2966,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-protocol-anthropic"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3001,7 +3001,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-protocol-gemini"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-protocol-openai"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3064,7 +3064,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-amazon-bedrock"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3099,7 +3099,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-anthropic"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3129,14 +3129,14 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-anthropic-compatible"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "siumai-protocol-anthropic",
 ]
 
 [[package]]
 name = "siumai-provider-azure"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-trait",
  "reqwest 0.13.1",
@@ -3149,7 +3149,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-cohere"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3184,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-deepseek"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3215,7 +3215,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-gemini"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3244,7 +3244,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-google-vertex"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3274,7 +3274,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-groq"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3305,7 +3305,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-minimaxi"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3337,7 +3337,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-ollama"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3365,7 +3365,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-openai"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3402,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-openai-compatible"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3432,7 +3432,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-togetherai"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3467,7 +3467,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-xai"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3498,7 +3498,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-registry"
-version = "0.11.0-beta.5"
+version = "0.11.0-beta.6"
 dependencies = [
  "async-trait",
  "chrono",

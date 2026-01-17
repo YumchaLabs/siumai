@@ -16,7 +16,7 @@ categories = ["api-bindings"]
 doctest = false
 
 [dependencies]
-siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.6", path = "../siumai-protocol-anthropic", default-features = false }
 
 [features]
 default = []

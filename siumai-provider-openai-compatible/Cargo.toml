@@ -16,7 +16,7 @@ categories = ["api-bindings"]
 doctest = false
 
 [dependencies]
-siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.6", path = "../siumai-protocol-openai", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true

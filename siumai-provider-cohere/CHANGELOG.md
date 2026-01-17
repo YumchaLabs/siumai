@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.6](https://github.com/YumchaLabs/siumai/compare/siumai-provider-cohere-v0.11.0-beta.5...siumai-provider-cohere-v0.11.0-beta.6) - 2026-01-17
+
+### Other
+
+- *(changelog)* release 0.11.0-beta.5
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added
