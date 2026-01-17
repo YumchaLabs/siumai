@@ -17,8 +17,8 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
-siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.6", path = "../siumai-protocol-openai", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.6", path = "../siumai-protocol-anthropic", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
