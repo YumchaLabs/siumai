@@ -215,9 +215,13 @@ siumai = { version = "0.11.0-beta.5", features = ["openai-websocket"] }
 	
 	#[tokio::main]
 	async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ws = OpenAiWebSocketTransport::default()
-        // Keep up to N idle connections for concurrent tool loops.
-        .with_max_idle_connections(2);
+	    // OpenAI WebSocket connections are time-limited; by default we avoid reusing connections
+	    // older than ~55 minutes. Customize or disable if needed.
+	    let ws = OpenAiWebSocketTransport::default()
+	        // Keep up to N idle connections for concurrent tool loops.
+	        .with_max_idle_connections(2);
+	    // let ws = ws.with_max_connection_age(std::time::Duration::from_secs(55 * 60));
+	    // let ws = ws.without_max_connection_age();
 
     // Optional: connection-local incremental continuation (`previous_response_id`).
     // Note: OpenAI caches the most recent response per WebSocket connection, so this is

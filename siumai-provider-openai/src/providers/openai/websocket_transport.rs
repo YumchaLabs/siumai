@@ -20,6 +20,7 @@ use futures_util::{SinkExt, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http;
@@ -32,6 +33,8 @@ type WsStream =
 struct CachedWs {
     ws: WsStream,
     last_completed_response_id: Option<String>,
+    created_at: Instant,
+    last_used: Instant,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -65,6 +68,8 @@ pub struct OpenAiWebSocketTransport {
     state: Arc<Mutex<WsState>>,
     max_idle_connections: usize,
     stateful_previous_response_id: bool,
+    max_connection_age: Option<Duration>,
+    idle_ttl: Option<Duration>,
 }
 
 impl OpenAiWebSocketTransport {
@@ -75,6 +80,9 @@ impl OpenAiWebSocketTransport {
             state: Arc::new(Mutex::new(WsState::default())),
             max_idle_connections: 1,
             stateful_previous_response_id: false,
+            // OpenAI WebSocket connections are time-limited; proactively avoid reusing old connections.
+            max_connection_age: Some(Duration::from_secs(55 * 60)),
+            idle_ttl: None,
         }
     }
 
@@ -91,10 +99,48 @@ impl OpenAiWebSocketTransport {
         self
     }
 
+    /// Set a maximum connection age; cached connections older than this are not reused.
+    pub fn with_max_connection_age(mut self, age: Duration) -> Self {
+        self.max_connection_age = Some(age);
+        self
+    }
+
+    /// Disable maximum connection age checks (not recommended for long-running agents).
+    pub fn without_max_connection_age(mut self) -> Self {
+        self.max_connection_age = None;
+        self
+    }
+
+    /// Set an idle TTL; cached connections unused longer than this are not reused.
+    pub fn with_idle_ttl(mut self, ttl: Duration) -> Self {
+        self.idle_ttl = Some(ttl);
+        self
+    }
+
+    /// Disable idle TTL checks.
+    pub fn without_idle_ttl(mut self) -> Self {
+        self.idle_ttl = None;
+        self
+    }
+
     /// Close the cached WebSocket connection, if any.
     pub async fn close(&self) {
         let mut st = self.state.lock().await;
         st.idle.clear();
+    }
+
+    fn is_stale(&self, c: &CachedWs, now: Instant) -> bool {
+        if let Some(max_age) = self.max_connection_age {
+            if now.duration_since(c.created_at) >= max_age {
+                return true;
+            }
+        }
+        if let Some(ttl) = self.idle_ttl {
+            if now.duration_since(c.last_used) >= ttl {
+                return true;
+            }
+        }
+        false
     }
 
     fn is_responses_stream_request(request: &HttpTransportRequest) -> bool {
@@ -194,18 +240,31 @@ impl OpenAiWebSocketTransport {
         key: &WsCacheKey,
         headers: &HeaderMap,
     ) -> Result<CachedWs, LlmError> {
-        let cached = {
-            let mut st = self.state.lock().await;
-            st.idle.get_mut(key).and_then(|v| v.pop())
-        };
+        let now = Instant::now();
+        loop {
+            let cached = {
+                let mut st = self.state.lock().await;
+                st.idle.get_mut(key).and_then(|v| v.pop())
+            };
 
-        if let Some(cached_ws) = cached {
-            return Ok(cached_ws);
+            if let Some(mut cached_ws) = cached {
+                if self.is_stale(&cached_ws, now) {
+                    // Best-effort close; ignore errors.
+                    let _ = cached_ws.ws.close(None).await;
+                    continue;
+                }
+                cached_ws.last_used = now;
+                return Ok(cached_ws);
+            }
+            break;
         }
 
+        let ws = Self::connect_ws(&key.ws_url, headers).await?;
         Ok(CachedWs {
-            ws: Self::connect_ws(&key.ws_url, headers).await?,
+            ws,
             last_completed_response_id: None,
+            created_at: now,
+            last_used: now,
         })
     }
 
@@ -391,6 +450,7 @@ impl HttpTransport for OpenAiWebSocketTransport {
         };
 
         let cached_ws = self.take_or_connect_ws(&key, &request.headers).await?;
+        let ws_created_at = cached_ws.created_at;
 
         let mut body = request.body;
         if self.stateful_previous_response_id {
@@ -416,6 +476,9 @@ impl HttpTransport for OpenAiWebSocketTransport {
         let max_idle = self.max_idle_connections;
         let stateful_previous = self.stateful_previous_response_id;
         let key_for_state = key.clone();
+        let ws_created_at_for_cache = ws_created_at;
+        let max_connection_age = self.max_connection_age;
+        let idle_ttl = self.idle_ttl;
 
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -508,6 +571,15 @@ impl HttpTransport for OpenAiWebSocketTransport {
             if terminal_seen && cacheable && max_idle > 0 {
                 let mut st = state.lock().await;
                 let v = st.idle.entry(key_for_state.clone()).or_default();
+                let now = Instant::now();
+
+                // Prune stale cached connections to keep the pool healthy.
+                v.retain(|c| {
+                    let stale_age = max_connection_age.is_some_and(|d| now.duration_since(c.created_at) >= d);
+                    let stale_idle = idle_ttl.is_some_and(|d| now.duration_since(c.last_used) >= d);
+                    !(stale_age || stale_idle)
+                });
+
                 if v.len() < max_idle {
                     v.push(CachedWs {
                         ws,
@@ -516,6 +588,8 @@ impl HttpTransport for OpenAiWebSocketTransport {
                         } else {
                             None
                         },
+                        created_at: ws_created_at_for_cache,
+                        last_used: now,
                     });
                 }
             }
@@ -536,6 +610,7 @@ mod tests {
     use crate::execution::http::interceptor::HttpRequestContext;
     use crate::streaming::StreamFactory;
     use futures_util::TryStreamExt;
+    use std::time::Duration;
     use tokio::net::TcpListener;
     use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
@@ -773,6 +848,98 @@ mod tests {
 
         // Drive the returned stream to completion so the connection can be returned to the pool
         // and the completed response id can be recorded.
+        let r1 = transport.execute_stream(mk_req("req_1")).await.unwrap();
+        let _: Vec<Vec<u8>> = r1.body.into_stream().try_collect().await.unwrap();
+
+        let r2 = transport.execute_stream(mk_req("req_2")).await.unwrap();
+        let _: Vec<Vec<u8>> = r2.body.into_stream().try_collect().await.unwrap();
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn websocket_stream_does_not_reuse_stale_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let http_url = format!("http://{addr}/v1/responses");
+
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (tcp, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                    .await
+                    .expect("timed out waiting for ws connection")
+                    .unwrap();
+                let mut ws =
+                    tokio_tungstenite::accept_hdr_async(tcp, |_req: &Request, resp: Response| {
+                        Ok(resp)
+                    })
+                    .await
+                    .unwrap();
+
+                let first = tokio::time::timeout(Duration::from_secs(2), ws.next())
+                    .await
+                    .expect("timed out waiting for response.create")
+                    .unwrap()
+                    .unwrap();
+                let Message::Text(txt) = first else {
+                    panic!("expected text message");
+                };
+                let v: serde_json::Value = serde_json::from_str(&txt).unwrap();
+                assert_eq!(v["type"], "response.create");
+                // If the connection is not reused, no previous_response_id is injected.
+                assert!(v.get("previous_response_id").is_none());
+
+                ws.send(Message::Text(
+                    serde_json::json!({
+                        "type": "response.created",
+                        "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0 }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+                ws.send(Message::Text(
+                    serde_json::json!({
+                        "type": "response.completed",
+                        "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0, "output": [] }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            }
+        });
+
+        let transport = OpenAiWebSocketTransport::new(reqwest::Client::new())
+            .with_max_idle_connections(1)
+            .with_stateful_previous_response_id(true)
+            // Always treat cached connections as stale to force a reconnect.
+            .with_max_connection_age(Duration::from_secs(0));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer test"),
+        );
+
+        let mk_req = |request_id: &str| HttpTransportRequest {
+            ctx: HttpRequestContext {
+                request_id: request_id.to_string(),
+                provider_id: "openai".to_string(),
+                url: http_url.clone(),
+                stream: true,
+            },
+            url: http_url.clone(),
+            headers: headers.clone(),
+            body: serde_json::json!({
+                "model": "gpt-test",
+                "stream": true,
+                "input": "hello"
+            }),
+        };
+
         let r1 = transport.execute_stream(mk_req("req_1")).await.unwrap();
         let _: Vec<Vec<u8>> = r1.body.into_stream().try_collect().await.unwrap();
 
