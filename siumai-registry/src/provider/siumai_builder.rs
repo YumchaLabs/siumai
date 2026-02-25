@@ -419,6 +419,159 @@ impl SiumaiBuilder {
     pub async fn build(self) -> Result<crate::provider::Siumai, LlmError> {
         crate::provider::build::build(self).await
     }
+
+    // === OpenAI WebSocket Mode Helpers (Responses streaming) ===
+    //
+    // These helpers intentionally return provider-specific session types rather than the unified
+    // `Siumai` wrapper, because OpenAI WebSocket mode relies on a single persistent connection and
+    // connection-local caching (e.g. `previous_response_id`, tools/instructions warm-up).
+
+    /// Build an OpenAI WebSocket session for streaming `/responses` through WebSocket mode.
+    ///
+    /// This does not open the WebSocket connection immediately; the connection is established on
+    /// the first streaming request (or via `warm_up(...)`).
+    ///
+    /// Requires the `openai-websocket` feature.
+    #[cfg(feature = "openai-websocket")]
+    pub async fn use_openai_websocket_session(
+        self,
+    ) -> Result<siumai_provider_openai::providers::openai::OpenAiWebSocketSession, LlmError> {
+        use crate::execution::http::client::build_http_client_from_config;
+        use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
+        use crate::execution::middleware::language_model::LanguageModelMiddleware;
+
+        use siumai_provider_openai::providers::openai::OpenAiConfig;
+
+        let provider_type = self.provider_type.clone().ok_or_else(|| {
+            LlmError::ConfigurationError("Provider type not specified".to_string())
+        })?;
+        if !matches!(provider_type, ProviderType::OpenAi) {
+            return Err(LlmError::ConfigurationError(
+                "use_openai_websocket_session() requires provider=openai".to_string(),
+            ));
+        }
+
+        if self.http_transport.is_some() {
+            return Err(LlmError::ConfigurationError(
+                "use_openai_websocket_session() cannot be combined with a custom HTTP transport (the session injects its own transport)".to_string(),
+            ));
+        }
+
+        let api_key = if let Some(key) = self.api_key.clone() {
+            if key.trim().is_empty() {
+                return Err(LlmError::ConfigurationError(
+                    "API key cannot be empty".to_string(),
+                ));
+            }
+            key
+        } else {
+            std::env::var("OPENAI_API_KEY").ok().ok_or_else(|| {
+                LlmError::ConfigurationError(
+                    "API key not specified (missing OPENAI_API_KEY or explicit .api_key())"
+                        .to_string(),
+                )
+            })?
+        };
+
+        let default_base = "https://api.openai.com/v1".to_string();
+        let resolved_base =
+            crate::utils::builder_helpers::resolve_base_url(self.base_url.clone(), &default_base);
+
+        let http_client = if let Some(c) = self.http_client.clone() {
+            c
+        } else {
+            build_http_client_from_config(&self.http_config)?
+        };
+
+        let mut cfg = OpenAiConfig::new(api_key)
+            .with_base_url(resolved_base)
+            .with_model(self.common_params.model.clone());
+        if let Some(temp) = self.common_params.temperature {
+            cfg = cfg.with_temperature(temp);
+        }
+        if let Some(max_tokens) = self.common_params.max_tokens {
+            cfg = cfg.with_max_tokens(max_tokens);
+        }
+        if let Some(org) = self.organization.clone() {
+            cfg = cfg.with_organization(org);
+        }
+        if let Some(proj) = self.project.clone() {
+            cfg = cfg.with_project(proj);
+        }
+
+        let mut session =
+            siumai_provider_openai::providers::openai::OpenAiWebSocketSession::from_config(
+                cfg,
+                http_client,
+            )?;
+
+        // Interceptors (unified builder).
+        let mut interceptors: Vec<std::sync::Arc<dyn HttpInterceptor>> =
+            self.http_interceptors.clone();
+        if self.http_debug {
+            interceptors.push(std::sync::Arc::new(LoggingInterceptor));
+        }
+        if !interceptors.is_empty() {
+            session = session.with_http_interceptors(interceptors);
+        }
+
+        // Auto + user model middlewares (same behavior as the unified builder path).
+        let mut mws: Vec<std::sync::Arc<dyn LanguageModelMiddleware>> =
+            crate::execution::middleware::build_auto_middlewares_vec(
+                "openai",
+                &self.common_params.model,
+            );
+        mws.extend(self.model_middlewares.clone());
+        if !mws.is_empty() {
+            session = session.with_model_middlewares(mws);
+        }
+
+        if let Some(opts) = self.retry_options.clone() {
+            session = session.with_retry_options(opts);
+        }
+
+        Ok(session)
+    }
+
+    /// Build an OpenAI incremental WebSocket session helper.
+    ///
+    /// This is a higher-level wrapper over `OpenAiWebSocketSession` that is optimized for agentic
+    /// tool loops (send only incremental messages per step).
+    ///
+    /// Requires the `openai-websocket` feature.
+    #[cfg(feature = "openai-websocket")]
+    pub async fn use_openai_incremental_websocket_session(
+        self,
+    ) -> Result<
+        siumai_provider_openai::providers::openai::OpenAiIncrementalWebSocketSession,
+        LlmError,
+    > {
+        let session = self.use_openai_websocket_session().await?;
+        Ok(
+            siumai_provider_openai::providers::openai::OpenAiIncrementalWebSocketSession::new(
+                session,
+            ),
+        )
+    }
+
+    /// Build an OpenAI incremental WebSocket session helper and cache defaults on the connection.
+    ///
+    /// This performs a warm-up request (`generate=false`) so that subsequent steps can omit
+    /// tools/instructions, and configures reconnect warm-up so fresh-retry rebuilds the cache.
+    ///
+    /// Requires the `openai-websocket` feature.
+    #[cfg(feature = "openai-websocket")]
+    pub async fn use_openai_incremental_websocket_session_cached(
+        self,
+        tools: Option<Vec<crate::types::Tool>>,
+        instructions: Option<String>,
+    ) -> Result<
+        siumai_provider_openai::providers::openai::OpenAiIncrementalWebSocketSession,
+        LlmError,
+    > {
+        let inc = self.use_openai_incremental_websocket_session().await?;
+        inc.cache_defaults_on_connection(tools, instructions).await
+    }
 }
 
 impl Default for SiumaiBuilder {

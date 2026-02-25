@@ -76,6 +76,9 @@ openai = [
     "dep:siumai-protocol-openai",
     "siumai-protocol-openai/openai-standard",
 ]
+
+# OpenAI WebSocket transport for streaming `/responses`.
+openai-websocket = ["openai", "siumai-provider-openai/openai-websocket"]
 azure = [
     "builtins",
     "siumai-core/openai",

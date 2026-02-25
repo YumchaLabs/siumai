@@ -149,7 +149,11 @@ openai = [
 ]
 
 # OpenAI WebSocket transport for streaming `/responses` (persistent connection, lower TTFB in tool loops).
-openai-websocket = ["openai", "siumai-provider-openai/openai-websocket"]
+openai-websocket = [
+    "openai",
+    "siumai-provider-openai/openai-websocket",
+    "siumai-registry/openai-websocket",
+]
 azure = [
     "siumai-core/openai",
     "siumai-registry/azure",

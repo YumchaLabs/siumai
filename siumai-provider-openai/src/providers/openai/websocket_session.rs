@@ -8,6 +8,7 @@
 use crate::error::LlmError;
 use crate::provider_options::openai::ResponsesApiConfig;
 use crate::providers::openai::OpenAiWebSocketTransport;
+use crate::retry_api::RetryOptions;
 use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ProviderOptionsMap, Tool};
@@ -18,6 +19,7 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 use super::{OpenAiBuilder, OpenAiClient};
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OpenAiWebSocketRecoveryConfig {
@@ -65,11 +67,17 @@ impl OpenAiWebSocketSession {
     ///
     /// This injects a WebSocket-backed transport and builds an `OpenAiClient`.
     pub async fn from_builder(builder: OpenAiBuilder) -> Result<Self, LlmError> {
-        let transport = OpenAiWebSocketTransport::default()
+        // Ensure the WS transport uses the same HTTP client config as the builder (proxy/headers/timeout),
+        // because the transport is a drop-in "fetch" replacement for non-WS requests.
+        let http_client = builder.core.build_http_client()?;
+        let transport = OpenAiWebSocketTransport::new(http_client.clone())
             .with_max_idle_connections(1)
             .with_stateful_previous_response_id(true);
 
-        let client = builder.fetch(Arc::new(transport.clone())).build().await?;
+        let builder = builder
+            .with_http_client(http_client)
+            .fetch(Arc::new(transport.clone()));
+        let client = builder.build().await?;
         let http_fallback_client = client.clone_without_http_transport();
 
         Ok(Self {
@@ -92,7 +100,7 @@ impl OpenAiWebSocketSession {
         mut config: super::OpenAiConfig,
         http_client: reqwest::Client,
     ) -> Result<Self, LlmError> {
-        let transport = OpenAiWebSocketTransport::default()
+        let transport = OpenAiWebSocketTransport::new(http_client.clone())
             .with_max_idle_connections(1)
             .with_stateful_previous_response_id(true);
         config = config.with_http_transport(Arc::new(transport.clone()));
@@ -154,6 +162,43 @@ impl OpenAiWebSocketSession {
 
     pub fn reconnect_warm_up_request(&self) -> Option<&ChatRequest> {
         self.reconnect_warm_up_request.as_ref()
+    }
+
+    /// Install HTTP interceptors into both the WebSocket client and the HTTP fallback client.
+    pub fn with_http_interceptors(
+        mut self,
+        interceptors: Vec<Arc<dyn crate::execution::http::interceptor::HttpInterceptor>>,
+    ) -> Self {
+        if interceptors.is_empty() {
+            return self;
+        }
+        self.client = self.client.with_http_interceptors(interceptors.clone());
+        self.http_fallback_client = self
+            .http_fallback_client
+            .with_http_interceptors(interceptors);
+        self
+    }
+
+    /// Install model middlewares into both the WebSocket client and the HTTP fallback client.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        if middlewares.is_empty() {
+            return self;
+        }
+        self.client = self.client.with_model_middlewares(middlewares.clone());
+        self.http_fallback_client = self
+            .http_fallback_client
+            .with_model_middlewares(middlewares);
+        self
+    }
+
+    /// Configure unified retry options for both the WebSocket client and the HTTP fallback client.
+    pub fn with_retry_options(mut self, options: RetryOptions) -> Self {
+        self.client.set_retry_options(Some(options.clone()));
+        self.http_fallback_client.set_retry_options(Some(options));
+        self
     }
 
     /// Access the underlying OpenAI client.
