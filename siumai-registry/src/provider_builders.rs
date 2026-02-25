@@ -52,7 +52,6 @@ impl SiumaiBuilder {
     pub fn openai_chat(mut self) -> Self {
         self.provider_type = Some(ProviderType::OpenAi);
         self.provider_id = Some("openai-chat".to_string());
-        // Responses API routing is now handled via provider_options in ChatRequest
         self
     }
 
@@ -61,7 +60,6 @@ impl SiumaiBuilder {
     pub fn openai_responses(mut self) -> Self {
         self.provider_type = Some(ProviderType::OpenAi);
         self.provider_id = Some("openai-responses".to_string());
-        // Responses API routing is now handled via provider_options in ChatRequest
         self
     }
 

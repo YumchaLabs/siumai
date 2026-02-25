@@ -45,7 +45,7 @@ async fn test_json_repair_in_non_streaming_response() {
 
     // Create client pointing to mock server
     let client = Siumai::builder()
-        .openai()
+        .openai_chat()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
         .model("gpt-4")
@@ -97,7 +97,7 @@ async fn test_malformed_json_fails_without_repair() {
 
     // Create client
     let client = Siumai::builder()
-        .openai()
+        .openai_chat()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
         .model("gpt-4")
@@ -156,7 +156,7 @@ async fn test_valid_json_has_zero_overhead() {
 
     // Create client
     let client = Siumai::builder()
-        .openai()
+        .openai_chat()
         .api_key("test-api-key")
         .base_url(mock_server.uri())
         .model("gpt-4")

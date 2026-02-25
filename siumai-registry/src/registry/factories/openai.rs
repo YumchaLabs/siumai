@@ -61,23 +61,51 @@ impl ProviderFactory for OpenAIProviderFactory {
             model_id,
         );
 
+        let mode = match ctx.provider_id.as_deref() {
+            Some("openai-chat") => crate::registry::factory::OpenAiChatApiMode::ChatCompletions,
+            // Default to Responses API for OpenAI (Vercel-aligned).
+            _ => crate::registry::factory::OpenAiChatApiMode::Responses,
+        };
+
         // Delegate to the shared OpenAI client builder used by SiumaiBuilder.
-        crate::registry::factory::build_openai_client(
-            api_key,
-            base_url,
-            http_client,
-            common_params,
-            http_config,
-            None,
-            ctx.organization.clone(),
-            ctx.project.clone(),
-            ctx.tracing_config.clone(),
-            ctx.retry_options.clone(),
-            ctx.http_interceptors.clone(),
-            ctx.model_middlewares.clone(),
-            ctx.http_transport.clone(),
-        )
-        .await
+        match mode {
+            crate::registry::factory::OpenAiChatApiMode::Responses => {
+                crate::registry::factory::build_openai_client(
+                    api_key,
+                    base_url,
+                    http_client,
+                    common_params,
+                    http_config,
+                    None,
+                    ctx.organization.clone(),
+                    ctx.project.clone(),
+                    ctx.tracing_config.clone(),
+                    ctx.retry_options.clone(),
+                    ctx.http_interceptors.clone(),
+                    ctx.model_middlewares.clone(),
+                    ctx.http_transport.clone(),
+                )
+                .await
+            }
+            crate::registry::factory::OpenAiChatApiMode::ChatCompletions => {
+                crate::registry::factory::build_openai_chat_completions_client(
+                    api_key,
+                    base_url,
+                    http_client,
+                    common_params,
+                    http_config,
+                    None,
+                    ctx.organization.clone(),
+                    ctx.project.clone(),
+                    ctx.tracing_config.clone(),
+                    ctx.retry_options.clone(),
+                    ctx.http_interceptors.clone(),
+                    ctx.model_middlewares.clone(),
+                    ctx.http_transport.clone(),
+                )
+                .await
+            }
+        }
     }
 
     async fn embedding_model_with_ctx(

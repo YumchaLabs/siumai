@@ -438,6 +438,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 model_middlewares: user_model_middlewares.clone(),
                 retry_options: builder.retry_options.clone(),
                 common_params: Some(common_params.clone()),
+                provider_id: builder.provider_id.clone(),
                 ..Default::default()
             };
 

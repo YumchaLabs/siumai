@@ -65,7 +65,7 @@ async fn openai_chat_uses_custom_transport_and_passes_request_content() {
     let transport_arc: Arc<dyn HttpTransport> = Arc::new(transport.clone());
 
     let client = Siumai::builder()
-        .openai()
+        .openai_chat()
         .api_key("sk-test")
         .base_url("https://example.invalid/v1")
         .model("gpt-4o-mini")

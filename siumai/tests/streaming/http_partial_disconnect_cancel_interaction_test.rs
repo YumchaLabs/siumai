@@ -39,7 +39,7 @@ async fn partial_disconnect_then_immediate_cancel() {
     use siumai::prelude::*;
     let base_url = format!("http://{}:{}", addr.ip(), addr.port());
     let client = Siumai::builder()
-        .openai()
+        .openai_chat()
         .api_key("sk-test")
         .base_url(base_url)
         .model("gpt-4o-mini")

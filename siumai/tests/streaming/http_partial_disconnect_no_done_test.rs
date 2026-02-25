@@ -36,7 +36,7 @@ async fn http_partial_disconnect_without_done_yields_no_stream_end() {
     use siumai::prelude::*;
     let base_url = format!("http://{}:{}", addr.ip(), addr.port());
     let client = Siumai::builder()
-        .openai()
+        .openai_chat()
         .api_key("sk-test")
         .base_url(base_url)
         .model("gpt-4o-mini")

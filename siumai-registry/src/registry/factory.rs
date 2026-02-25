@@ -37,6 +37,86 @@ pub async fn build_openai_client(
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
+    build_openai_client_with_mode(
+        api_key,
+        base_url,
+        http_client,
+        common_params,
+        _http_config,
+        _provider_params,
+        organization,
+        project,
+        _tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+        OpenAiChatApiMode::Responses,
+    )
+    .await
+}
+
+#[cfg(feature = "openai")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_openai_chat_completions_client(
+    api_key: String,
+    base_url: String,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    http_config: HttpConfig,
+    provider_params: Option<()>, // Removed ProviderParams
+    organization: Option<String>,
+    project: Option<String>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
+    build_openai_client_with_mode(
+        api_key,
+        base_url,
+        http_client,
+        common_params,
+        http_config,
+        provider_params,
+        organization,
+        project,
+        tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+        OpenAiChatApiMode::ChatCompletions,
+    )
+    .await
+}
+
+#[cfg(feature = "openai")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenAiChatApiMode {
+    Responses,
+    ChatCompletions,
+}
+
+#[cfg(feature = "openai")]
+#[allow(clippy::too_many_arguments)]
+async fn build_openai_client_with_mode(
+    api_key: String,
+    base_url: String,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    _http_config: HttpConfig,
+    _provider_params: Option<()>, // Removed ProviderParams
+    organization: Option<String>,
+    project: Option<String>,
+    _tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    mode: OpenAiChatApiMode,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
     let mut config = siumai_provider_openai::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
         .with_model(common_params.model.clone());
@@ -55,6 +135,18 @@ pub async fn build_openai_client(
     }
     if let Some(transport) = http_transport {
         config = config.with_http_transport(transport);
+    }
+
+    // Default to Responses API for OpenAI (Vercel-aligned). Request-level overrides still work.
+    if mode == OpenAiChatApiMode::Responses {
+        let mut overrides = crate::types::ProviderOptionsMap::new();
+        overrides.insert(
+            "openai",
+            serde_json::json!({
+                "responsesApi": { "enabled": true }
+            }),
+        );
+        config.provider_options_map.merge_overrides(overrides);
     }
 
     let mut client =

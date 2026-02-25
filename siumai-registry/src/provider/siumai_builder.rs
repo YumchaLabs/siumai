@@ -129,7 +129,9 @@ impl SiumaiBuilder {
             "openrouter" => ProviderType::Custom("openrouter".to_string()),
             _ => ProviderType::Custom(name.clone()),
         });
-        // Responses API routing is now handled via provider_options in ChatRequest
+        // OpenAI chat routing is resolved during client construction based on provider_id:
+        // - "openai" / "openai-responses" => Responses API (default)
+        // - "openai-chat" => Chat Completions
         self
     }
 
@@ -448,6 +450,12 @@ impl SiumaiBuilder {
         if !matches!(provider_type, ProviderType::OpenAi) {
             return Err(LlmError::ConfigurationError(
                 "use_openai_websocket_session() requires provider=openai".to_string(),
+            ));
+        }
+
+        if matches!(self.provider_id.as_deref(), Some("openai-chat")) {
+            return Err(LlmError::ConfigurationError(
+                "use_openai_websocket_session() requires OpenAI Responses API (use .openai() or .openai_responses())".to_string(),
             ));
         }
 
