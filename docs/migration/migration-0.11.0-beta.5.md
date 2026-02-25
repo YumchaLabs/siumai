@@ -255,7 +255,10 @@ let _ = client.chat_request(req).await?;
 
 ### D) OpenAI built-in tools (Responses API): web search
 
-Use provider-defined tools (stable, Vercel-aligned) and explicitly enable the Responses API:
+Use provider-defined tools (stable, Vercel-aligned) and enable the Responses API:
+
+Note: when using the unified OpenAI builder (`Siumai::builder().openai()`), the Responses API is enabled
+by default. For other construction paths (or for explicitness), set `OpenAiOptions.responses_api`.
 
 ```rust
 use siumai::prelude::unified::*;

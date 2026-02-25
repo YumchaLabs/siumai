@@ -77,6 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Note: OpenAI routing via the registry uses the Responses API by default. If you specifically need
+Chat Completions (`/chat/completions`), use the unified builder `Siumai::builder().openai_chat()`.
+
 Supported examples of `provider:model`:
 - `openai:gpt-4o`, `openai:gpt-4o-mini`
 - `anthropic:claude-3-5-sonnet-20240620`
@@ -151,6 +154,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+#### OpenAI endpoint routing (Responses vs Chat Completions)
+
+Siumai supports both OpenAI chat endpoints:
+
+- **Responses API**: `POST /responses` (default for `Siumai::builder().openai()`)
+- **Chat Completions**: `POST /chat/completions` (use `Siumai::builder().openai_chat()`)
+- For readability, you can also use `Siumai::builder().openai_responses()` (equivalent to `openai()` today).
+
+If you need to override the default on a per-request basis, set `providerOptions.openai.responsesApi.enabled`
+explicitly on the `ChatRequest`.
+
 ### Streaming
 
 ```rust
@@ -202,6 +216,8 @@ If you have many sequential streaming steps (e.g., tool loops), OpenAI's WebSock
 TTFB by reusing a persistent connection. Enable the feature and inject the transport:
 
 Note: `base_url` must use `http://` or `https://` (it is converted to `ws://` / `wss://` internally).
+WebSocket mode only applies to **Responses streaming** (`POST /responses`). It is not compatible with
+Chat Completions (`Siumai::builder().openai_chat()`).
 
 ```toml
 # Cargo.toml
