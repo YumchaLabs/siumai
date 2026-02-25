@@ -256,6 +256,8 @@ pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai {
         #[cfg(feature = "openai-websocket")]
+        pub use siumai_provider_openai::providers::openai::OpenAiIncrementalWebSocketSession;
+        #[cfg(feature = "openai-websocket")]
         pub use siumai_provider_openai::providers::openai::OpenAiWebSocketRecoveryConfig;
         #[cfg(feature = "openai-websocket")]
         pub use siumai_provider_openai::providers::openai::OpenAiWebSocketSession;

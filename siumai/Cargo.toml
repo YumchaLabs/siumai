@@ -403,6 +403,11 @@ path = "examples/04-provider-specific/openai/responses-multi-turn.rs"
 required-features = ["openai"]
 
 [[example]]
+name = "openai-responses-websocket-incremental"
+path = "examples/04-provider-specific/openai/responses-websocket-incremental.rs"
+required-features = ["openai-websocket"]
+
+[[example]]
 name = "openai-web-search"
 path = "examples/04-provider-specific/openai/web_search.rs"
 required-features = ["openai"]

@@ -69,6 +69,8 @@ pub mod transformers;
 // Request building module (removed; Transformers handle mapping/validation)
 
 // Future capability modules (placeholders)
+#[cfg(feature = "openai-websocket")]
+pub mod incremental_session;
 pub mod middleware;
 pub mod models;
 pub mod moderation;
@@ -85,6 +87,8 @@ pub mod model_constants;
 pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
+#[cfg(feature = "openai-websocket")]
+pub use incremental_session::OpenAiIncrementalWebSocketSession;
 pub use middleware::OpenAiResponsesInputWarningsMiddleware;
 pub use types::*;
 #[cfg(feature = "openai-websocket")]

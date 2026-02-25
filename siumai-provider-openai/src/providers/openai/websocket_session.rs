@@ -6,6 +6,7 @@
 //! - connection-local incremental continuation (`previous_response_id`)
 
 use crate::error::LlmError;
+use crate::provider_options::openai::ResponsesApiConfig;
 use crate::providers::openai::OpenAiWebSocketTransport;
 use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::traits::ChatCapability;
@@ -49,6 +50,7 @@ pub struct OpenAiWebSocketSession {
     gate: Arc<Semaphore>,
     recovery: OpenAiWebSocketRecoveryConfig,
     remote_cancel: bool,
+    reconnect_warm_up_request: Option<ChatRequest>,
 }
 
 impl std::fmt::Debug for OpenAiWebSocketSession {
@@ -77,6 +79,36 @@ impl OpenAiWebSocketSession {
             gate: Arc::new(Semaphore::new(1)),
             recovery: OpenAiWebSocketRecoveryConfig::default(),
             remote_cancel: true,
+            reconnect_warm_up_request: None,
+        })
+    }
+
+    /// Create a session from a plain [`OpenAiConfig`].
+    ///
+    /// This is a convenience API for consumers that don't use the provider builder. It:
+    /// - injects a WebSocket transport for streaming `/responses`, and
+    /// - forces routing chat requests through the Responses API.
+    pub fn from_config(
+        mut config: super::OpenAiConfig,
+        http_client: reqwest::Client,
+    ) -> Result<Self, LlmError> {
+        let transport = OpenAiWebSocketTransport::default()
+            .with_max_idle_connections(1)
+            .with_stateful_previous_response_id(true);
+        config = config.with_http_transport(Arc::new(transport.clone()));
+
+        let mut client = OpenAiClient::new(config, http_client);
+        client.set_forced_responses_api(Some(ResponsesApiConfig::new()));
+        let http_fallback_client = client.clone_without_http_transport();
+
+        Ok(Self {
+            client,
+            http_fallback_client,
+            transport,
+            gate: Arc::new(Semaphore::new(1)),
+            recovery: OpenAiWebSocketRecoveryConfig::default(),
+            remote_cancel: true,
+            reconnect_warm_up_request: None,
         })
     }
 
@@ -106,6 +138,24 @@ impl OpenAiWebSocketSession {
         self.remote_cancel
     }
 
+    /// Configure a best-effort warm-up request to run when the session reconnects and retries
+    /// a stream on a fresh WebSocket connection (e.g. after `websocket_connection_limit_reached`).
+    ///
+    /// This is useful when you rely on WebSocket connection-local caching for tools/instructions,
+    /// and your incremental requests omit those fields for lower overhead.
+    ///
+    /// Notes:
+    /// - Warm-up is best-effort; failures are logged and the retry proceeds.
+    /// - Warm-up uses `responsesApi.generate=false` and `store=false`.
+    pub fn with_reconnect_warm_up_request(mut self, request: ChatRequest) -> Self {
+        self.reconnect_warm_up_request = Some(request);
+        self
+    }
+
+    pub fn reconnect_warm_up_request(&self) -> Option<&ChatRequest> {
+        self.reconnect_warm_up_request.as_ref()
+    }
+
     /// Access the underlying OpenAI client.
     pub fn client(&self) -> &OpenAiClient {
         &self.client
@@ -132,29 +182,9 @@ impl OpenAiWebSocketSession {
                 LlmError::InternalError("WebSocket session gate closed".to_string())
             })?;
 
-        request.stream = true;
+        request = Self::build_warm_up_request(request);
 
-        let mut overrides = ProviderOptionsMap::new();
-        overrides.insert(
-            "openai",
-            serde_json::json!({
-                "responsesApi": {
-                    "enabled": true,
-                    "generate": false,
-                    "store": false
-                }
-            }),
-        );
-        request.provider_options_map.merge_overrides(overrides);
-
-        let mut stream = self.client.chat_stream_request(request).await?;
-        while let Some(item) = stream.next().await {
-            let ev = item?;
-            if let crate::types::ChatStreamEvent::Error { error } = ev {
-                return Err(LlmError::StreamError(error));
-            }
-        }
-        Ok(())
+        Self::run_warm_up(self.client.clone(), request).await
     }
 
     /// Warm up with Responses `instructions` (stored on the connection for incremental continuation).
@@ -191,6 +221,35 @@ impl OpenAiWebSocketSession {
             req = req.with_tools(t);
         }
         self.warm_up(req).await
+    }
+
+    fn build_warm_up_request(mut request: ChatRequest) -> ChatRequest {
+        request.stream = true;
+
+        let mut overrides = ProviderOptionsMap::new();
+        overrides.insert(
+            "openai",
+            serde_json::json!({
+                "responsesApi": {
+                    "enabled": true,
+                    "generate": false,
+                    "store": false
+                }
+            }),
+        );
+        request.provider_options_map.merge_overrides(overrides);
+        request
+    }
+
+    async fn run_warm_up(client: OpenAiClient, request: ChatRequest) -> Result<(), LlmError> {
+        let mut stream = client.chat_stream_request(request).await?;
+        while let Some(item) = stream.next().await {
+            let ev = item?;
+            if let crate::types::ChatStreamEvent::Error { error } = ev {
+                return Err(LlmError::StreamError(error));
+            }
+        }
+        Ok(())
     }
 
     fn wrap_stream_with_remote_cancel(
@@ -393,6 +452,7 @@ impl ChatCapability for OpenAiWebSocketSession {
         let http_fallback_client = self.http_fallback_client.clone();
         let transport = self.transport.clone();
         let recovery = self.recovery;
+        let reconnect_warm_up = self.reconnect_warm_up_request.clone();
 
         let s = async_stream::stream! {
             let _permit = gate
@@ -511,6 +571,20 @@ impl ChatCapability for OpenAiWebSocketSession {
                                 }),
                             ));
                             transport.close().await;
+                            if let Some(req) = reconnect_warm_up.clone() {
+                                if let Err(e) = OpenAiWebSocketSession::run_warm_up(
+                                    client.clone(),
+                                    OpenAiWebSocketSession::build_warm_up_request(req),
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        target: "siumai::openai::websocket_session",
+                                        error = %e,
+                                        "Reconnect warm-up failed; proceeding with stream retry"
+                                    );
+                                }
+                            }
                             inner = client.chat_stream(messages_retry.clone(), tools_retry.clone()).await?;
                             pending_action = None;
                             pending_error_code = None;
@@ -597,6 +671,7 @@ impl ChatCapability for OpenAiWebSocketSession {
         let http_fallback_client = self.http_fallback_client.clone();
         let transport = self.transport.clone();
         let recovery = self.recovery;
+        let reconnect_warm_up = self.reconnect_warm_up_request.clone();
 
         let s = async_stream::stream! {
             let _permit = gate
@@ -713,6 +788,20 @@ impl ChatCapability for OpenAiWebSocketSession {
                                 }),
                             ));
                             transport.close().await;
+                            if let Some(req) = reconnect_warm_up.clone() {
+                                if let Err(e) = OpenAiWebSocketSession::run_warm_up(
+                                    client.clone(),
+                                    OpenAiWebSocketSession::build_warm_up_request(req),
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        target: "siumai::openai::websocket_session",
+                                        error = %e,
+                                        "Reconnect warm-up failed; proceeding with stream retry"
+                                    );
+                                }
+                            }
                             inner = client.chat_stream_request(request_retry.clone()).await?;
                             pending_action = None;
                             pending_error_code = None;
@@ -1136,6 +1225,161 @@ mod tests {
         )
         .await
         .unwrap();
+
+        let mut s = session
+            .chat_stream(vec![ChatMessage::user("hi").build()], None)
+            .await
+            .unwrap();
+
+        let first = s.next().await.unwrap().unwrap();
+        let ChatStreamEvent::Custom { event_type, .. } = first else {
+            panic!("expected openai:ws-recovery custom event");
+        };
+        assert_eq!(event_type, "openai:ws-recovery");
+
+        let mut out = String::new();
+        while let Some(item) = s.next().await {
+            let ev = item.unwrap();
+            if let ChatStreamEvent::ContentDelta { delta, .. } = ev {
+                out.push_str(&delta);
+            }
+        }
+        assert_eq!(out, "OK");
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn session_runs_reconnect_warm_up_before_retry_ws_fresh() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            // Connection A: force a `RetryWsFresh` recovery.
+            let (tcp_a, _) = listener.accept().await.unwrap();
+            let mut ws_a =
+                tokio_tungstenite::accept_hdr_async(tcp_a, |req: &Request, resp: Response| {
+                    assert_eq!(req.uri().path(), "/v1/responses");
+                    Ok(resp)
+                })
+                .await
+                .unwrap();
+
+            let _ = ws_a.next().await; // response.create
+            ws_a.send(Message::Text(
+                serde_json::json!({
+                    "type": "error",
+                    "error": { "code": "websocket_connection_limit_reached", "message": "limit" }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            let _ = ws_a.close(None).await;
+
+            // Connection B: warm-up request first, then the actual retry request.
+            let (tcp_b, _) = listener.accept().await.unwrap();
+            let mut ws_b =
+                tokio_tungstenite::accept_hdr_async(tcp_b, |req: &Request, resp: Response| {
+                    assert_eq!(req.uri().path(), "/v1/responses");
+                    Ok(resp)
+                })
+                .await
+                .unwrap();
+
+            // Warm-up: generate=false must be present (injected by build_warm_up_request).
+            let warm_req = ws_b.next().await.unwrap().unwrap();
+            let Message::Text(warm_txt) = warm_req else {
+                panic!("expected warm-up request text");
+            };
+            let warm_v: serde_json::Value = serde_json::from_str(&warm_txt).unwrap();
+            assert_eq!(warm_v["type"], "response.create");
+            assert_eq!(warm_v["generate"], false);
+            assert_eq!(warm_v["store"], false);
+
+            ws_b.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.created",
+                    "response": { "id": "warm_1", "model": "gpt-test", "created_at": 0 }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            ws_b.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.completed",
+                    "response": { "id": "warm_1", "model": "gpt-test", "created_at": 0, "output": [] }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+
+            // Retry request: should proceed normally (generate is absent or true).
+            let retry_req = ws_b.next().await.unwrap().unwrap();
+            let Message::Text(retry_txt) = retry_req else {
+                panic!("expected retry request text");
+            };
+            let retry_v: serde_json::Value = serde_json::from_str(&retry_txt).unwrap();
+            assert_eq!(retry_v["type"], "response.create");
+            assert_ne!(
+                retry_v.get("generate"),
+                Some(&serde_json::Value::Bool(false))
+            );
+
+            ws_b.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.created",
+                    "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0 }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            ws_b.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.output_text.delta",
+                    "delta": "OK"
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            ws_b.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.completed",
+                    "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0, "output": [] }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        });
+
+        let session = OpenAiWebSocketSession::from_builder(
+            crate::providers::openai::OpenAiBuilder::new(crate::builder::BuilderBase::default())
+                .api_key("test")
+                .base_url(format!("http://{addr}/v1"))
+                .model("gpt-test"),
+        )
+        .await
+        .unwrap()
+        .with_reconnect_warm_up_request(ChatRequest::new(Vec::new()).with_provider_option(
+            "openai",
+            serde_json::json!({
+                "responsesApi": {
+                    "enabled": true,
+                    "instructions": "cached"
+                }
+            }),
+        ));
 
         let mut s = session
             .chat_stream(vec![ChatMessage::user("hi").build()], None)
