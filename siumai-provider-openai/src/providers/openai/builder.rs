@@ -284,6 +284,49 @@ impl OpenAiBuilder {
         self.with_http_transport(transport)
     }
 
+    /// Use OpenAI WebSocket mode for streaming Responses requests (`POST /responses` with `stream=true`).
+    ///
+    /// This injects an `OpenAiWebSocketTransport` as the builder's HTTP transport:
+    /// - streaming `/responses` is routed through WebSocket
+    /// - all other requests still use HTTP
+    ///
+    /// Requires the `openai-websocket` feature.
+    #[cfg(feature = "openai-websocket")]
+    pub fn use_openai_websocket_transport(
+        self,
+        transport: super::OpenAiWebSocketTransport,
+    ) -> Self {
+        self.fetch(Arc::new(transport))
+    }
+
+    /// Build a single-connection OpenAI WebSocket session.
+    ///
+    /// This is the recommended entry point for agentic workflows (sequential tool loops) because it:
+    /// - enforces one in-flight stream at a time
+    /// - keeps `previous_response_id` continuation unambiguous (connection-local)
+    /// - supports connection warm-up (`generate=false`)
+    ///
+    /// Requires the `openai-websocket` feature.
+    #[cfg(feature = "openai-websocket")]
+    pub async fn use_openai_websocket_session(
+        self,
+    ) -> Result<super::OpenAiWebSocketSession, LlmError> {
+        super::OpenAiWebSocketSession::from_builder(self).await
+    }
+
+    /// Build a single-connection OpenAI WebSocket session with a custom recovery configuration.
+    ///
+    /// Requires the `openai-websocket` feature.
+    #[cfg(feature = "openai-websocket")]
+    pub async fn use_openai_websocket_session_with_recovery(
+        self,
+        recovery: super::OpenAiWebSocketRecoveryConfig,
+    ) -> Result<super::OpenAiWebSocketSession, LlmError> {
+        Ok(super::OpenAiWebSocketSession::from_builder(self)
+            .await?
+            .with_recovery_config(recovery))
+    }
+
     /// Use the OpenAI Responses API instead of Chat Completions.
     ///
     /// When enabled, the client routes chat requests to `/responses` and sets

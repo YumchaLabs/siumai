@@ -496,6 +496,7 @@ impl ProviderSpec for OpenAiSpec {
             .as_ref()
             .and_then(|cfg| cfg.response_format.clone());
         let background = responses_api_config.as_ref().and_then(|cfg| cfg.background);
+        let generate = responses_api_config.as_ref().and_then(|cfg| cfg.generate);
         let mut include = responses_api_config
             .as_ref()
             .and_then(|cfg| cfg.include.clone());
@@ -599,6 +600,7 @@ impl ProviderSpec for OpenAiSpec {
         let has_reasoning_effort = reasoning_effort.is_some();
         let has_service_tier = service_tier.is_some();
         let has_background = background.is_some();
+        let has_generate = generate.is_some();
         let has_include = include.is_some();
         let has_instructions = instructions.is_some();
         let has_max_tool_calls = max_tool_calls.is_some();
@@ -628,6 +630,7 @@ impl ProviderSpec for OpenAiSpec {
             && !has_reasoning_effort
             && !has_service_tier
             && !has_background
+            && !has_generate
             && !has_include
             && !has_instructions
             && !has_max_tool_calls
@@ -693,6 +696,11 @@ impl ProviderSpec for OpenAiSpec {
             }
             if let Some(pid) = &prev_id {
                 out["previous_response_id"] = serde_json::Value::String(pid.clone());
+            }
+            if use_responses_api {
+                if let Some(g) = generate {
+                    out["generate"] = serde_json::Value::Bool(g);
+                }
             }
             if let Some(key) = &prompt_cache_key {
                 out["prompt_cache_key"] = serde_json::Value::String(key.clone());
@@ -1337,6 +1345,26 @@ mod tests {
         let hook = spec.chat_before_send(&req, &ctx).expect("hook");
         let out = hook(&serde_json::json!({})).expect("hook ok");
         assert_eq!(out["previous_response_id"], "resp_123");
+    }
+
+    #[test]
+    fn openai_spec_injects_generate_from_provider_options_map() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "openai",
+                serde_json::json!({ "responsesApi": { "enabled": true, "generate": false } }),
+            );
+
+        let hook = spec.chat_before_send(&req, &ctx).expect("hook");
+        let out = hook(&serde_json::json!({})).expect("hook ok");
+        assert_eq!(out["generate"], false);
     }
 
     #[test]

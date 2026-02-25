@@ -147,6 +147,9 @@ openai = [
     "dep:siumai-protocol-openai",
     "siumai-protocol-openai/openai-standard",
 ]
+
+# OpenAI WebSocket transport for streaming `/responses` (persistent connection, lower TTFB in tool loops).
+openai-websocket = ["openai", "siumai-provider-openai/openai-websocket"]
 azure = [
     "siumai-core/openai",
     "siumai-registry/azure",

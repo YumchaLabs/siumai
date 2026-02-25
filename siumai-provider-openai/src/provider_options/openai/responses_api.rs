@@ -20,6 +20,8 @@ pub struct ResponsesApiConfig {
     pub conversation: Option<String>,
     /// Previous response ID for continuation
     pub previous_response_id: Option<String>,
+    /// Whether to generate output. Set to `false` for connection warm-up in WebSocket mode.
+    pub generate: Option<bool>,
     /// Prompt cache key (Responses API)
     pub prompt_cache_key: Option<String>,
     /// Prompt cache retention policy (Responses API).
@@ -62,6 +64,7 @@ impl Default for ResponsesApiConfig {
             enabled: true,
             conversation: None,
             previous_response_id: None,
+            generate: None,
             prompt_cache_key: None,
             prompt_cache_retention: None,
             response_format: None,
@@ -98,6 +101,12 @@ impl ResponsesApiConfig {
     /// Set previous response ID for continuation
     pub fn with_previous_response(mut self, response_id: String) -> Self {
         self.previous_response_id = Some(response_id);
+        self
+    }
+
+    /// Set whether to generate output. Use `false` to warm up WebSocket connections.
+    pub fn with_generate(mut self, generate: bool) -> Self {
+        self.generate = Some(generate);
         self
     }
 

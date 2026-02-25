@@ -73,6 +73,10 @@ pub mod middleware;
 pub mod models;
 pub mod moderation;
 pub mod spec;
+#[cfg(feature = "openai-websocket")]
+pub mod websocket_session;
+#[cfg(feature = "openai-websocket")]
+pub mod websocket_transport;
 
 // Model constants module
 pub mod model_constants;
@@ -83,6 +87,10 @@ pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
 pub use middleware::OpenAiResponsesInputWarningsMiddleware;
 pub use types::*;
+#[cfg(feature = "openai-websocket")]
+pub use websocket_session::{OpenAiWebSocketRecoveryConfig, OpenAiWebSocketSession};
+#[cfg(feature = "openai-websocket")]
+pub use websocket_transport::OpenAiWebSocketTransport;
 
 // Provider-owned typed options (kept out of `siumai-core`).
 pub use crate::provider_options::openai::{

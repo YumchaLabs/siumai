@@ -47,6 +47,7 @@ backoff.workspace = true
 lru.workspace = true
 base64.workspace = true
 once_cell.workspace = true
+tokio-tungstenite = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -66,6 +67,9 @@ openai-standard = [
 
 # Matches the feature name used by downstream crates.
 openai = ["openai-standard", "siumai-protocol-openai/openai-responses"]
+
+# Enable OpenAI WebSocket transport (routes streaming `/responses` through a persistent WebSocket).
+openai-websocket = ["openai", "dep:tokio-tungstenite"]
 
 [dev-dependencies]
 tokio-test.workspace = true

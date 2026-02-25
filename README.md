@@ -173,6 +173,126 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+#### Streaming cancellation
+
+`chat_stream_with_cancel` returns a `ChatStreamHandle` with a first-class `CancelHandle`.
+Cancellation is wakeable: it can stop a pending `next().await` immediately (useful for both SSE and WebSocket streams).
+
+```rust,no_run
+use futures::StreamExt;
+use siumai::prelude::unified::*;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Siumai::builder().openai().api_key("dummy").model("gpt-4o-mini").build().await?;
+    let handle = client.chat_stream_with_cancel(vec![user!("Stream...")], None).await?;
+
+    let ChatStreamHandle { mut stream, cancel } = handle;
+    let reader = tokio::spawn(async move { while stream.next().await.is_some() {} });
+
+    cancel.cancel();
+    reader.await?;
+    Ok(())
+}
+```
+
+### OpenAI WebSocket streaming (Responses API)
+
+If you have many sequential streaming steps (e.g., tool loops), OpenAI's WebSocket mode can reduce
+TTFB by reusing a persistent connection. Enable the feature and inject the transport:
+
+Note: `base_url` must use `http://` or `https://` (it is converted to `ws://` / `wss://` internally).
+
+```toml
+# Cargo.toml
+siumai = { version = "0.11.0-beta.5", features = ["openai-websocket"] }
+```
+
+```rust,no_run
+	use futures::StreamExt;
+	use siumai::prelude::unified::*;
+	use siumai::providers::openai::OpenAiWebSocketTransport;
+	
+	#[tokio::main]
+	async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let ws = OpenAiWebSocketTransport::default()
+        // Keep up to N idle connections for concurrent tool loops.
+        .with_max_idle_connections(2);
+
+    // Optional: connection-local incremental continuation (`previous_response_id`).
+    // Note: OpenAI caches the most recent response per WebSocket connection, so this is
+    // only unambiguous when `max_idle_connections == 1`.
+    // let ws = ws.with_stateful_previous_response_id(true);
+
+    let client = Siumai::builder()
+        .openai()
+        .api_key(std::env::var("OPENAI_API_KEY")?)
+        .model("gpt-4o-mini")
+        .use_openai_websocket_transport(ws.clone())
+        .build()
+        .await?;
+
+    // Streaming `/responses` requests are routed through WebSocket; everything else uses HTTP.
+    let mut stream = client.chat_stream(vec![user!("Hello!")], None).await?;
+    while let Some(ev) = stream.next().await {
+        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev {
+            print!("{delta}");
+        }
+    }
+
+    ws.close().await; // optional: close the cached connection
+    Ok(())
+}
+```
+
+#### OpenAI WebSocket session (warm-up + single connection)
+
+For agentic workflows with many sequential streaming steps, prefer a single-connection session
+so `previous_response_id` continuation stays unambiguous:
+
+This session also includes a conservative recovery strategy:
+- if WebSocket setup fails (transient/connectivity), it falls back to HTTP (SSE) streaming for that request
+- for some WebSocket-specific OpenAI errors, it may rebuild the connection and retry once
+
+Note: configuration errors (e.g. invalid `base_url`, unsupported URL scheme) are surfaced directly and do not fall back to HTTP.
+
+You can customize it, e.g. disable all recovery:
+`Siumai::builder().openai().use_openai_websocket_session_with_recovery(OpenAiWebSocketRecoveryConfig { allow_http_fallback: false, max_ws_retries: 0 }).await?;`
+
+Important: recovery may rebuild the WebSocket connection (or fall back to HTTP), which resets
+connection-local continuation state (`previous_response_id`). If you strictly rely on continuation
+via a single warm connection, consider disabling recovery.
+
+When recovery happens, the session also emits `ChatStreamEvent::Custom` with `event_type="openai:ws-recovery"`.
+
+```rust,no_run
+use futures::StreamExt;
+use siumai::prelude::unified::*;
+use siumai::providers::openai::OpenAiWebSocketSession;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let session = Siumai::builder()
+        .openai()
+        .api_key(std::env::var("OPENAI_API_KEY")?)
+        .model("gpt-4o-mini")
+        .use_openai_websocket_session()
+        .await?;
+
+    session.warm_up_messages(vec![user!("Warm up with my toolset")], None).await?;
+
+    let mut stream = session.chat_stream(vec![user!("Hello!")], None).await?;
+    while let Some(ev) = stream.next().await {
+        if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev {
+            print!("{delta}");
+        }
+    }
+
+    session.close().await;
+    Ok(())
+}
+```
+
 ### Structured output
 
 #### 1) Provider‑agnostic decoding (recommended for cross‑provider flows)

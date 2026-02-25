@@ -59,6 +59,9 @@ tokio-util = { version = "0.7", features = ["codec"] }
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
+# WebSocket (for OpenAI WebSocket transport)
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+
 # Error handling
 thiserror = "2.0"
 

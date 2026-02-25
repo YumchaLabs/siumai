@@ -137,6 +137,12 @@ impl OpenAiClient {
         &self.base_url
     }
 
+    pub(crate) fn clone_without_http_transport(&self) -> Self {
+        let mut out = self.clone();
+        out.http_transport = None;
+        out
+    }
+
     /// Convenience: configure structured outputs using a JSON object schema.
     /// Only applied to Chat Completions requests (`POST /chat/completions`).
     /// For the Responses API, use `OpenAiOptions.responses_api.response_format` (maps to `text.format`).

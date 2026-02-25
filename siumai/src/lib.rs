@@ -255,6 +255,12 @@ pub use crate::provider_ext as providers;
 pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai {
+        #[cfg(feature = "openai-websocket")]
+        pub use siumai_provider_openai::providers::openai::OpenAiWebSocketRecoveryConfig;
+        #[cfg(feature = "openai-websocket")]
+        pub use siumai_provider_openai::providers::openai::OpenAiWebSocketSession;
+        #[cfg(feature = "openai-websocket")]
+        pub use siumai_provider_openai::providers::openai::OpenAiWebSocketTransport;
         pub use siumai_provider_openai::providers::openai::{OpenAiClient, OpenAiConfig};
 
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
