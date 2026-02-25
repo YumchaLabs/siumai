@@ -31,14 +31,13 @@ fn wrap_handle_with_responses_remote_cancel(
         use futures_util::StreamExt;
         let _done = DoneOnDrop(Some(done_tx));
         while let Some(item) = inner.next().await {
-            if let Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) = item.as_ref() {
-                if event_type == "openai:response-metadata" {
-                    if let Some(id) = data.get("id").and_then(|v| v.as_str()) {
-                        let mut g = response_id_for_stream.lock().await;
-                        if g.is_none() {
-                            *g = Some(id.to_string());
-                        }
-                    }
+            if let Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) = item.as_ref()
+                && event_type == "openai:response-metadata"
+                && let Some(id) = data.get("id").and_then(|v| v.as_str())
+            {
+                let mut g = response_id_for_stream.lock().await;
+                if g.is_none() {
+                    *g = Some(id.to_string());
                 }
             }
             yield item;

@@ -43,17 +43,10 @@ struct WsCacheKey {
     headers_hash: u64,
 }
 
+#[derive(Default)]
 struct WsState {
     /// Idle WebSocket connections (per key) for reuse across sequential streams.
     idle: HashMap<WsCacheKey, Vec<CachedWs>>,
-}
-
-impl Default for WsState {
-    fn default() -> Self {
-        Self {
-            idle: HashMap::new(),
-        }
-    }
 }
 
 /// OpenAI WebSocket transport.
@@ -130,15 +123,15 @@ impl OpenAiWebSocketTransport {
     }
 
     fn is_stale(&self, c: &CachedWs, now: Instant) -> bool {
-        if let Some(max_age) = self.max_connection_age {
-            if now.duration_since(c.created_at) >= max_age {
-                return true;
-            }
+        if let Some(max_age) = self.max_connection_age
+            && now.duration_since(c.created_at) >= max_age
+        {
+            return true;
         }
-        if let Some(ttl) = self.idle_ttl {
-            if now.duration_since(c.last_used) >= ttl {
-                return true;
-            }
+        if let Some(ttl) = self.idle_ttl
+            && now.duration_since(c.last_used) >= ttl
+        {
+            return true;
         }
         false
     }
@@ -453,17 +446,15 @@ impl HttpTransport for OpenAiWebSocketTransport {
         let ws_created_at = cached_ws.created_at;
 
         let mut body = request.body;
-        if self.stateful_previous_response_id {
-            if let serde_json::Value::Object(obj) = &mut body {
-                if obj.get("previous_response_id").is_none() {
-                    if let Some(prev) = cached_ws.last_completed_response_id.clone() {
-                        obj.insert(
-                            "previous_response_id".to_string(),
-                            serde_json::Value::String(prev),
-                        );
-                    }
-                }
-            }
+        if self.stateful_previous_response_id
+            && let serde_json::Value::Object(obj) = &mut body
+            && obj.get("previous_response_id").is_none()
+            && let Some(prev) = cached_ws.last_completed_response_id.clone()
+        {
+            obj.insert(
+                "previous_response_id".to_string(),
+                serde_json::Value::String(prev),
+            );
         }
 
         let ws = cached_ws.ws;

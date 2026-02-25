@@ -320,14 +320,13 @@ impl OpenAiWebSocketSession {
         let wrapped = async_stream::stream! {
             let _done = DoneOnDrop(Some(done_tx));
             while let Some(item) = inner.next().await {
-                if let Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) = item.as_ref() {
-                    if event_type == "openai:response-metadata" {
-                        if let Some(id) = data.get("id").and_then(|v| v.as_str()) {
-                            let mut g = response_id_for_stream.lock().await;
-                            if g.is_none() {
-                                *g = Some(id.to_string());
-                            }
-                        }
+                if let Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) = item.as_ref()
+                    && event_type == "openai:response-metadata"
+                    && let Some(id) = data.get("id").and_then(|v| v.as_str())
+                {
+                    let mut g = response_id_for_stream.lock().await;
+                    if g.is_none() {
+                        *g = Some(id.to_string());
                     }
                 }
                 yield item;
@@ -554,11 +553,11 @@ impl ChatCapability for OpenAiWebSocketSession {
                     continue;
                 }
 
-                if let Ok(ev) = item.as_ref() {
-                    if let Some(code) = openai_error_code_from_event(ev) {
-                        pending_error_code = Some(code.clone());
-                        pending_action = recovery_action_from_openai_error_code(&code);
-                    }
+                if let Ok(ev) = item.as_ref()
+                    && let Some(code) = openai_error_code_from_event(ev)
+                {
+                    pending_error_code = Some(code.clone());
+                    pending_action = recovery_action_from_openai_error_code(&code);
                 }
 
                 let is_errorish = matches!(item, Err(_) | Ok(crate::types::ChatStreamEvent::Error { .. }))
@@ -616,19 +615,18 @@ impl ChatCapability for OpenAiWebSocketSession {
                                 }),
                             ));
                             transport.close().await;
-                            if let Some(req) = reconnect_warm_up.clone() {
-                                if let Err(e) = OpenAiWebSocketSession::run_warm_up(
+                            if let Some(req) = reconnect_warm_up.clone()
+                                && let Err(e) = OpenAiWebSocketSession::run_warm_up(
                                     client.clone(),
                                     OpenAiWebSocketSession::build_warm_up_request(req),
                                 )
                                 .await
-                                {
-                                    tracing::warn!(
-                                        target: "siumai::openai::websocket_session",
-                                        error = %e,
-                                        "Reconnect warm-up failed; proceeding with stream retry"
-                                    );
-                                }
+                            {
+                                tracing::warn!(
+                                    target: "siumai::openai::websocket_session",
+                                    error = %e,
+                                    "Reconnect warm-up failed; proceeding with stream retry"
+                                );
                             }
                             inner = client.chat_stream(messages_retry.clone(), tools_retry.clone()).await?;
                             pending_action = None;
@@ -771,11 +769,11 @@ impl ChatCapability for OpenAiWebSocketSession {
                     continue;
                 }
 
-                if let Ok(ev) = item.as_ref() {
-                    if let Some(code) = openai_error_code_from_event(ev) {
-                        pending_error_code = Some(code.clone());
-                        pending_action = recovery_action_from_openai_error_code(&code);
-                    }
+                if let Ok(ev) = item.as_ref()
+                    && let Some(code) = openai_error_code_from_event(ev)
+                {
+                    pending_error_code = Some(code.clone());
+                    pending_action = recovery_action_from_openai_error_code(&code);
                 }
 
                 let is_errorish = matches!(item, Err(_) | Ok(crate::types::ChatStreamEvent::Error { .. }))
@@ -833,19 +831,18 @@ impl ChatCapability for OpenAiWebSocketSession {
                                 }),
                             ));
                             transport.close().await;
-                            if let Some(req) = reconnect_warm_up.clone() {
-                                if let Err(e) = OpenAiWebSocketSession::run_warm_up(
+                            if let Some(req) = reconnect_warm_up.clone()
+                                && let Err(e) = OpenAiWebSocketSession::run_warm_up(
                                     client.clone(),
                                     OpenAiWebSocketSession::build_warm_up_request(req),
                                 )
                                 .await
-                                {
-                                    tracing::warn!(
-                                        target: "siumai::openai::websocket_session",
-                                        error = %e,
-                                        "Reconnect warm-up failed; proceeding with stream retry"
-                                    );
-                                }
+                            {
+                                tracing::warn!(
+                                    target: "siumai::openai::websocket_session",
+                                    error = %e,
+                                    "Reconnect warm-up failed; proceeding with stream retry"
+                                );
                             }
                             inner = client.chat_stream_request(request_retry.clone()).await?;
                             pending_action = None;

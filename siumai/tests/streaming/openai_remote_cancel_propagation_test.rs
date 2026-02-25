@@ -1,5 +1,3 @@
-#![cfg(feature = "openai")]
-
 use futures_util::StreamExt;
 use siumai::prelude::unified::*;
 use wiremock::matchers::{method, path};
@@ -63,10 +61,10 @@ async fn openai_remote_cancel_propagates_through_siumai_wrapper() {
     // Wait until we see response metadata (so the response id is known), then cancel.
     while let Some(item) = stream.next().await {
         let ev = item.unwrap();
-        if let ChatStreamEvent::Custom { event_type, .. } = ev {
-            if event_type == "openai:response-metadata" {
-                break;
-            }
+        if let ChatStreamEvent::Custom { event_type, .. } = ev
+            && event_type == "openai:response-metadata"
+        {
+            break;
         }
     }
 

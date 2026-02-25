@@ -697,10 +697,8 @@ impl ProviderSpec for OpenAiSpec {
             if let Some(pid) = &prev_id {
                 out["previous_response_id"] = serde_json::Value::String(pid.clone());
             }
-            if use_responses_api {
-                if let Some(g) = generate {
-                    out["generate"] = serde_json::Value::Bool(g);
-                }
+            if use_responses_api && let Some(g) = generate {
+                out["generate"] = serde_json::Value::Bool(g);
             }
             if let Some(key) = &prompt_cache_key {
                 out["prompt_cache_key"] = serde_json::Value::String(key.clone());

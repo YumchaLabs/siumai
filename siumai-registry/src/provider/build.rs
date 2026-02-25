@@ -439,7 +439,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 retry_options: builder.retry_options.clone(),
                 common_params: Some(common_params.clone()),
                 provider_id: builder.provider_id.clone(),
-                ..Default::default()
+                #[cfg(any(feature = "google", feature = "google-vertex"))]
+                gemini_token_provider: builder.gemini_token_provider.clone(),
             };
 
             let factory = crate::registry::factories::OpenAIProviderFactory;

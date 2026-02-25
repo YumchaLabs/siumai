@@ -163,16 +163,15 @@ impl OpenAiIncrementalWebSocketSession {
             }
         });
 
-        if let Some(instructions) = self.default_instructions.clone() {
-            if let Some(m) = openai_obj
+        if let Some(instructions) = self.default_instructions.clone()
+            && let Some(m) = openai_obj
                 .get_mut("responsesApi")
                 .and_then(|v| v.as_object_mut())
-            {
-                m.insert(
-                    "instructions".to_string(),
-                    serde_json::Value::String(instructions),
-                );
-            }
+        {
+            m.insert(
+                "instructions".to_string(),
+                serde_json::Value::String(instructions),
+            );
         }
 
         req.with_provider_option("openai", openai_obj)

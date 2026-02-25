@@ -199,7 +199,7 @@ async fn chat_stream_with_cancel_can_abort_handshake() {
     let waiter = tokio::spawn(async move { stream.next().await });
 
     // Ensure the streaming handshake started (we are inside `chat_stream()`).
-    let _ = tokio::time::timeout(Duration::from_millis(200), async {
+    tokio::time::timeout(Duration::from_millis(200), async {
         while started.load(Ordering::SeqCst) == 0 {
             tokio::task::yield_now().await;
         }
@@ -217,7 +217,7 @@ async fn chat_stream_with_cancel_can_abort_handshake() {
     assert!(out.is_none(), "stream should end without yielding events");
 
     // Dropping the handshake future should drop our guard promptly.
-    let _ = tokio::time::timeout(Duration::from_millis(200), async {
+    tokio::time::timeout(Duration::from_millis(200), async {
         while dropped.load(Ordering::SeqCst) == 0 {
             tokio::task::yield_now().await;
         }
