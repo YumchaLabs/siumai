@@ -182,7 +182,12 @@ where
         tokio::spawn(async move {
             tokio::select! {
                 _ = token_for_task.cancelled() => cancel_for_task.cancel(),
-                _ = done_rx => {}
+                _ = done_rx => {
+                    // If the stream was dropped because the caller cancelled, still propagate to the inner handle.
+                    if token_for_task.is_cancelled() {
+                        cancel_for_task.cancel();
+                    }
+                }
             }
         });
 
