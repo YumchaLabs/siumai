@@ -48,6 +48,7 @@ pub struct OpenAiWebSocketSession {
     transport: OpenAiWebSocketTransport,
     gate: Arc<Semaphore>,
     recovery: OpenAiWebSocketRecoveryConfig,
+    remote_cancel: bool,
 }
 
 impl std::fmt::Debug for OpenAiWebSocketSession {
@@ -75,6 +76,7 @@ impl OpenAiWebSocketSession {
             transport,
             gate: Arc::new(Semaphore::new(1)),
             recovery: OpenAiWebSocketRecoveryConfig::default(),
+            remote_cancel: true,
         })
     }
 
@@ -85,6 +87,23 @@ impl OpenAiWebSocketSession {
     pub fn with_recovery_config(mut self, cfg: OpenAiWebSocketRecoveryConfig) -> Self {
         self.recovery = cfg;
         self
+    }
+
+    /// Whether to attempt best-effort server-side cancellation for streaming responses when using
+    /// `chat_stream_with_cancel(...)` / `chat_stream_request_with_cancel(...)`.
+    ///
+    /// When enabled, the session will:
+    /// - capture the response id from the early `openai:response-metadata` stream event, and
+    /// - on cancel, call the HTTP endpoint `POST /responses/{id}/cancel`.
+    ///
+    /// Note: this is best-effort; if the response id isn't observed yet, no remote cancel is sent.
+    pub fn with_remote_cancel(mut self, enabled: bool) -> Self {
+        self.remote_cancel = enabled;
+        self
+    }
+
+    pub fn remote_cancel(&self) -> bool {
+        self.remote_cancel
     }
 
     /// Access the underlying OpenAI client.
@@ -172,6 +191,74 @@ impl OpenAiWebSocketSession {
             req = req.with_tools(t);
         }
         self.warm_up(req).await
+    }
+
+    fn wrap_stream_with_remote_cancel(
+        http_client: OpenAiClient,
+        stream: ChatStream,
+        cancel: crate::utils::cancel::CancelHandle,
+    ) -> ChatStreamHandle {
+        let response_id: Arc<tokio::sync::Mutex<Option<String>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+        let response_id_for_stream = Arc::clone(&response_id);
+
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+        struct DoneOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for DoneOnDrop {
+            fn drop(&mut self) {
+                if let Some(tx) = self.0.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+
+        let mut inner = stream;
+        let wrapped = async_stream::stream! {
+            let _done = DoneOnDrop(Some(done_tx));
+            while let Some(item) = inner.next().await {
+                if let Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) = item.as_ref() {
+                    if event_type == "openai:response-metadata" {
+                        if let Some(id) = data.get("id").and_then(|v| v.as_str()) {
+                            let mut g = response_id_for_stream.lock().await;
+                            if g.is_none() {
+                                *g = Some(id.to_string());
+                            }
+                        }
+                    }
+                }
+                yield item;
+            }
+        };
+
+        let cancel_for_task = cancel.clone();
+        let response_id_for_task = Arc::clone(&response_id);
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = cancel_for_task.cancelled() => {},
+                _ = done_rx => {
+                    // If the stream ended because the caller cancelled, still attempt remote cancel.
+                    if !cancel_for_task.is_cancelled() {
+                        return;
+                    }
+                }
+            }
+
+            let id = { response_id_for_task.lock().await.clone() };
+            let Some(id) = id else { return };
+            if let Err(e) = http_client.responses_cancel(&id).await {
+                tracing::warn!(
+                    target: "siumai::openai::websocket_session",
+                    error = %e,
+                    response_id = %id,
+                    "Remote cancel request failed"
+                );
+            }
+        });
+
+        ChatStreamHandle {
+            stream: Box::pin(wrapped),
+            cancel,
+        }
     }
 }
 
@@ -484,11 +571,20 @@ impl ChatCapability for OpenAiWebSocketSession {
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStreamHandle, LlmError> {
         let this = self.clone();
-        Ok(
+        let ChatStreamHandle { stream, cancel } =
             crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
                 this.chat_stream(messages, tools).await
-            }),
-        )
+            });
+
+        if !self.remote_cancel {
+            return Ok(ChatStreamHandle { stream, cancel });
+        }
+
+        Ok(Self::wrap_stream_with_remote_cancel(
+            self.http_fallback_client.clone(),
+            stream,
+            cancel,
+        ))
     }
 
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
@@ -674,11 +770,20 @@ impl ChatCapability for OpenAiWebSocketSession {
         request: ChatRequest,
     ) -> Result<ChatStreamHandle, LlmError> {
         let this = self.clone();
-        Ok(
+        let ChatStreamHandle { stream, cancel } =
             crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
                 this.chat_stream_request(request).await
-            }),
-        )
+            });
+
+        if !self.remote_cancel {
+            return Ok(ChatStreamHandle { stream, cancel });
+        }
+
+        Ok(Self::wrap_stream_with_remote_cancel(
+            self.http_fallback_client.clone(),
+            stream,
+            cancel,
+        ))
     }
 }
 
@@ -1267,6 +1372,127 @@ mod tests {
             "expected WebSocket error without HTTP fallback"
         );
         while s.next().await.is_some() {}
+    }
+
+    #[tokio::test]
+    async fn session_remote_cancel_calls_http_cancel_endpoint() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (cancel_seen_tx, cancel_seen_rx) = oneshot::channel::<()>();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            // WebSocket streaming connection.
+            let (tcp_ws, _) = listener.accept().await.unwrap();
+            let mut ws =
+                tokio_tungstenite::accept_hdr_async(tcp_ws, |req: &Request, resp: Response| {
+                    assert_eq!(req.uri().path(), "/v1/responses");
+                    Ok(resp)
+                })
+                .await
+                .unwrap();
+
+            // Wait for `response.create`.
+            let _ = ws.next().await;
+
+            // Emit `response.created` so the client can learn the response id.
+            ws.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.created",
+                    "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0 }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+
+            // Keep the stream alive until the client cancels.
+            ws.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.output_text.delta",
+                    "delta": "hello"
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+
+            // HTTP cancel request: `POST /v1/responses/resp_1/cancel`.
+            let (mut tcp_http, _) = listener.accept().await.unwrap();
+            let mut buf = Vec::<u8>::new();
+            let mut tmp = [0u8; 1024];
+            loop {
+                let n = tcp_http.read(&mut tmp).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let header_end = buf
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+                .map(|p| p + 4)
+                .unwrap_or(buf.len());
+            let header_str = String::from_utf8_lossy(&buf[..header_end]);
+            let first_line = header_str.lines().next().unwrap_or("");
+            assert!(
+                first_line.starts_with("POST /v1/responses/resp_1/cancel "),
+                "unexpected http request line: {first_line}"
+            );
+
+            let body = b"{}";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                body.len()
+            );
+            tcp_http.write_all(resp.as_bytes()).await.unwrap();
+            tcp_http.write_all(body).await.unwrap();
+            let _ = tcp_http.shutdown().await;
+
+            let _ = cancel_seen_tx.send(());
+            let _ = ws.close(None).await;
+        });
+
+        let session = OpenAiWebSocketSession::from_builder(
+            crate::providers::openai::OpenAiBuilder::new(crate::builder::BuilderBase::default())
+                .api_key("test")
+                .base_url(format!("http://{addr}/v1"))
+                .model("gpt-test"),
+        )
+        .await
+        .unwrap();
+
+        let ChatStreamHandle { mut stream, cancel } = session
+            .chat_stream_with_cancel(vec![ChatMessage::user("hi").build()], None)
+            .await
+            .unwrap();
+
+        // Wait until we see response metadata (so the response id is known), then cancel.
+        while let Some(item) = stream.next().await {
+            let ev = item.unwrap();
+            if let ChatStreamEvent::Custom { event_type, .. } = ev {
+                if event_type == "openai:response-metadata" {
+                    break;
+                }
+            }
+        }
+
+        cancel.cancel();
+        drop(stream);
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), cancel_seen_rx)
+            .await
+            .expect("expected HTTP cancel request")
+            .expect("cancel channel closed");
+
+        server.await.unwrap();
     }
 
     #[tokio::test]

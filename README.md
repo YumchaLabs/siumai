@@ -265,6 +265,9 @@ via a single warm connection, consider disabling recovery.
 
 When recovery happens, the session also emits `ChatStreamEvent::Custom` with `event_type="openai:ws-recovery"`.
 
+`OpenAiWebSocketSession` also attempts best-effort remote cancellation when using `chat_stream_with_cancel(...)`
+by calling `POST /responses/{id}/cancel` once the response id is observed. Disable via `session.with_remote_cancel(false)`.
+
 ```rust,no_run
 use futures::StreamExt;
 use siumai::prelude::unified::*;
