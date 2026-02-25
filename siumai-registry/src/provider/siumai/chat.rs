@@ -1,6 +1,6 @@
 use super::Siumai;
 use crate::error::LlmError;
-use crate::streaming::ChatStream;
+use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::traits::ChatCapability;
 use crate::types::*;
 
@@ -44,5 +44,55 @@ impl ChatCapability for Siumai {
         } else {
             self.client.chat_stream(messages, tools).await
         }
+    }
+
+    async fn chat_stream_with_cancel(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let this = self.clone();
+        Ok(
+            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+                if let Some(opts) = this.retry_options.clone() {
+                    crate::retry_api::retry_with(
+                        || {
+                            let m = messages.clone();
+                            let t = tools.clone();
+                            let client = std::sync::Arc::clone(&this.client);
+                            async move { client.chat_stream(m, t).await }
+                        },
+                        opts,
+                    )
+                    .await
+                } else {
+                    this.client.chat_stream(messages, tools).await
+                }
+            }),
+        )
+    }
+
+    async fn chat_stream_request_with_cancel(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let this = self.clone();
+        Ok(
+            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+                if let Some(opts) = this.retry_options.clone() {
+                    crate::retry_api::retry_with(
+                        || {
+                            let req = request.clone();
+                            let client = std::sync::Arc::clone(&this.client);
+                            async move { client.chat_stream_request(req).await }
+                        },
+                        opts,
+                    )
+                    .await
+                } else {
+                    this.client.chat_stream_request(request).await
+                }
+            }),
+        )
     }
 }

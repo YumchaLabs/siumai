@@ -1,6 +1,6 @@
 use super::OpenAiClient;
 use crate::error::LlmError;
-use crate::streaming::ChatStream;
+use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::traits::ChatCapability;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, Tool};
 use async_trait::async_trait;
@@ -97,11 +97,36 @@ impl ChatCapability for OpenAiClient {
         self.chat_stream_via_spec(messages, tools).await
     }
 
+    async fn chat_stream_with_cancel(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let this = self.clone();
+        Ok(
+            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+                this.chat_stream_via_spec(messages, tools).await
+            }),
+        )
+    }
+
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         self.chat_request_via_spec(request).await
     }
 
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
         self.chat_stream_request_via_spec(request).await
+    }
+
+    async fn chat_stream_request_with_cancel(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let this = self.clone();
+        Ok(
+            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+                this.chat_stream_request_via_spec(request).await
+            }),
+        )
     }
 }

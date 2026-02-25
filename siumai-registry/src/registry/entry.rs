@@ -15,7 +15,7 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
-use crate::streaming::ChatStream;
+use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::traits::{
     AudioCapability, ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
     ProviderCapabilities, RerankCapability,
@@ -651,6 +651,31 @@ impl ChatCapability for LanguageModelHandle {
         } else {
             client.chat_stream(messages, tools).await
         }
+    }
+
+    async fn chat_stream_with_cancel(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let this = self.clone();
+        Ok(
+            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+                this.chat_stream(messages, tools).await
+            }),
+        )
+    }
+
+    async fn chat_stream_request_with_cancel(
+        &self,
+        request: ChatRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let this = self.clone();
+        Ok(
+            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+                this.chat_stream_request(request).await
+            }),
+        )
     }
 }
 

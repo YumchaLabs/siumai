@@ -2,33 +2,38 @@
 //!
 //! Provides first-class cancellation handles for streams and long-running operations.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::future::Future;
+use tokio_util::sync::CancellationToken;
 
 /// A handle that can be used to request cancellation.
 #[derive(Clone, Debug)]
 pub struct CancelHandle {
-    flag: Arc<AtomicBool>,
+    token: CancellationToken,
 }
 
 impl CancelHandle {
-    /// Create a new cancel handle with a shared flag.
-    fn new(flag: Arc<AtomicBool>) -> Self {
-        Self { flag }
+    /// Create a new cancel handle.
+    fn new() -> Self {
+        Self {
+            token: CancellationToken::new(),
+        }
     }
 
     /// Request cancellation. Any wrapped streams/futures observing this handle
     /// will stop as soon as possible. Dropping the cancelled stream will close
     /// the underlying HTTP connection so providers stop generating tokens.
     pub fn cancel(&self) {
-        self.flag.store(true, Ordering::SeqCst);
+        self.token.cancel();
     }
 
     /// Check if cancellation was requested.
     pub fn is_cancelled(&self) -> bool {
-        self.flag.load(Ordering::SeqCst)
+        self.token.is_cancelled()
+    }
+
+    /// A future that resolves when cancellation is requested.
+    pub fn cancelled(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
+        self.token.cancelled()
     }
 }
 
@@ -38,23 +43,112 @@ impl CancelHandle {
 pub fn make_cancellable_stream(
     stream: crate::streaming::ChatStream,
 ) -> (crate::streaming::ChatStream, CancelHandle) {
-    let flag = Arc::new(AtomicBool::new(false));
-    let handle = CancelHandle::new(flag.clone());
-    // Implement the wrapper as a manual stream using async_stream! to avoid pin gymnastics
-    let wrapped_flag = flag.clone();
+    let handle = CancelHandle::new();
+    let token = handle.token.clone();
     let mut inner = stream;
     let s = async_stream::stream! {
         use futures::StreamExt;
-        while let Some(item) = inner.next().await {
-            if wrapped_flag.load(Ordering::SeqCst) { break; }
-            yield item;
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => break,
+                item = inner.next() => {
+                    let Some(item) = item else { break };
+                    yield item;
+                }
+            }
         }
     };
     (Box::pin(s), handle)
 }
 
+/// Create a `ChatStreamHandle` whose cancellation can abort both:
+/// - the streaming request handshake (connect/send/headers), and
+/// - the subsequent stream consumption.
+///
+/// This requires the caller to supply a `'static` future (typically by cloning an `Arc`-based
+/// client/executor into the future), because `ChatStream` is stored as a `'static` trait object.
+pub fn make_cancellable_stream_handle_from_future<F>(
+    future: F,
+) -> crate::streaming::ChatStreamHandle
+where
+    F: Future<Output = Result<crate::streaming::ChatStream, crate::error::LlmError>>
+        + Send
+        + 'static,
+{
+    let cancel = CancelHandle::new();
+    let token = cancel.token.clone();
+    let future = std::sync::Mutex::new(Some(future));
+
+    let s = async_stream::stream! {
+        use futures::StreamExt;
+
+        let res = tokio::select! {
+            _ = token.cancelled() => return,
+            res = async {
+                let fut = {
+                    let mut guard = future.lock().expect("handshake future mutex poisoned");
+                    guard
+                        .take()
+                        .expect("handshake future should only be awaited once")
+                };
+                fut.await
+            } => res,
+        };
+
+        let mut inner = match res {
+            Ok(s) => s,
+            Err(e) => {
+                yield Err(e);
+                return;
+            }
+        };
+
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => break,
+                item = inner.next() => {
+                    let Some(item) = item else { break };
+                    yield item;
+                }
+            }
+        }
+    };
+
+    crate::streaming::ChatStreamHandle {
+        stream: Box::pin(s),
+        cancel,
+    }
+}
+
 /// Create a standalone cancel handle that can be shared across tasks.
 /// Useful for orchestrating complex pipelines which need a single abort signal.
 pub fn new_cancel_handle() -> CancelHandle {
-    CancelHandle::new(Arc::new(AtomicBool::new(false)))
+    CancelHandle::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+
+    #[tokio::test]
+    async fn cancel_wakes_pending_next_immediately() {
+        // A stream that never yields and never ends.
+        let pending: crate::streaming::ChatStream = Box::pin(futures_util::stream::pending());
+        let (mut s, cancel) = make_cancellable_stream(pending);
+
+        let waiter = tokio::spawn(async move { s.next().await });
+
+        // Give the task a chance to poll and block on `next()`.
+        tokio::task::yield_now().await;
+
+        cancel.cancel();
+
+        let out = tokio::time::timeout(std::time::Duration::from_millis(200), waiter)
+            .await
+            .expect("cancel should wake the waiting task")
+            .expect("task ok");
+
+        assert!(out.is_none());
+    }
 }

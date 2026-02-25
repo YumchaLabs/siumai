@@ -14,7 +14,7 @@ pub use crate::types::ChatStreamEvent;
 ///
 /// This is a pinned, boxed stream that yields `ChatStreamEvent` items.
 /// All providers implement streaming by returning this type.
-pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + Sync>>;
+pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>>;
 
 /// Chat stream with first-class cancellation handle
 ///
