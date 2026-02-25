@@ -660,8 +660,32 @@ impl ChatCapability for LanguageModelHandle {
     ) -> Result<ChatStreamHandle, LlmError> {
         let this = self.clone();
         Ok(
-            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
-                this.chat_stream(messages, tools).await
+            crate::utils::cancel::make_cancellable_stream_handle_from_handle_future(async move {
+                // Align with chat_stream(...) middleware behavior, but preserve provider-specific cancellation.
+                let model_id = if !this.middlewares.is_empty() {
+                    crate::execution::middleware::language_model::apply_model_id_override(
+                        &this.middlewares,
+                        &this.model_id,
+                    )
+                } else {
+                    this.model_id.clone()
+                };
+
+                let client = this.get_or_create_client(&model_id).await?;
+
+                let mut req = ChatRequest::new(messages).with_streaming(true);
+                if let Some(t) = tools {
+                    req = req.with_tools(t);
+                }
+
+                if !this.middlewares.is_empty() {
+                    req = crate::execution::middleware::language_model::apply_transform_chain(
+                        &this.middlewares,
+                        req,
+                    );
+                }
+
+                client.chat_stream_request_with_cancel(req).await
             }),
         )
     }
@@ -672,8 +696,27 @@ impl ChatCapability for LanguageModelHandle {
     ) -> Result<ChatStreamHandle, LlmError> {
         let this = self.clone();
         Ok(
-            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
-                this.chat_stream_request(request).await
+            crate::utils::cancel::make_cancellable_stream_handle_from_handle_future(async move {
+                let model_id = if !this.middlewares.is_empty() {
+                    crate::execution::middleware::language_model::apply_model_id_override(
+                        &this.middlewares,
+                        &this.model_id,
+                    )
+                } else {
+                    this.model_id.clone()
+                };
+
+                let client = this.get_or_create_client(&model_id).await?;
+
+                let mut req = request.with_streaming(true);
+                if !this.middlewares.is_empty() {
+                    req = crate::execution::middleware::language_model::apply_transform_chain(
+                        &this.middlewares,
+                        req,
+                    );
+                }
+
+                client.chat_stream_request_with_cancel(req).await
             }),
         )
     }

@@ -20,6 +20,9 @@ mod http_partial_disconnect_cancel_interaction_test;
 #[cfg(feature = "openai")]
 #[path = "streaming/http_partial_disconnect_no_done_test.rs"]
 mod http_partial_disconnect_no_done_test;
+#[cfg(feature = "openai")]
+#[path = "streaming/openai_remote_cancel_propagation_test.rs"]
+mod openai_remote_cancel_propagation_test;
 #[path = "streaming/siumai_interceptor_request_assert_test.rs"]
 mod siumai_interceptor_request_assert_test;
 

@@ -53,20 +53,20 @@ impl ChatCapability for Siumai {
     ) -> Result<ChatStreamHandle, LlmError> {
         let this = self.clone();
         Ok(
-            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+            crate::utils::cancel::make_cancellable_stream_handle_from_handle_future(async move {
                 if let Some(opts) = this.retry_options.clone() {
                     crate::retry_api::retry_with(
                         || {
                             let m = messages.clone();
                             let t = tools.clone();
                             let client = std::sync::Arc::clone(&this.client);
-                            async move { client.chat_stream(m, t).await }
+                            async move { client.chat_stream_with_cancel(m, t).await }
                         },
                         opts,
                     )
                     .await
                 } else {
-                    this.client.chat_stream(messages, tools).await
+                    this.client.chat_stream_with_cancel(messages, tools).await
                 }
             }),
         )
@@ -78,19 +78,19 @@ impl ChatCapability for Siumai {
     ) -> Result<ChatStreamHandle, LlmError> {
         let this = self.clone();
         Ok(
-            crate::utils::cancel::make_cancellable_stream_handle_from_future(async move {
+            crate::utils::cancel::make_cancellable_stream_handle_from_handle_future(async move {
                 if let Some(opts) = this.retry_options.clone() {
                     crate::retry_api::retry_with(
                         || {
                             let req = request.clone();
                             let client = std::sync::Arc::clone(&this.client);
-                            async move { client.chat_stream_request(req).await }
+                            async move { client.chat_stream_request_with_cancel(req).await }
                         },
                         opts,
                     )
                     .await
                 } else {
-                    this.client.chat_stream_request(request).await
+                    this.client.chat_stream_request_with_cancel(request).await
                 }
             }),
         )
