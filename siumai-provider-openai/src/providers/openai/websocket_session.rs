@@ -185,7 +185,6 @@ impl Deref for OpenAiWebSocketSession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamRecoveryAction {
     RetryWsFresh,
-    FallbackHttp,
 }
 
 fn is_ws_connect_error(err: &LlmError) -> bool {
@@ -271,7 +270,9 @@ fn openai_error_code_from_event(ev: &crate::types::ChatStreamEvent) -> Option<St
 
 fn recovery_action_from_openai_error_code(code: &str) -> Option<StreamRecoveryAction> {
     match code {
-        "websocket_connection_limit_reached" => Some(StreamRecoveryAction::FallbackHttp),
+        // OpenAI WebSocket connections are time-limited (e.g. ~60 minutes). The recommended recovery
+        // is to open a fresh connection and retry the request.
+        "websocket_connection_limit_reached" => Some(StreamRecoveryAction::RetryWsFresh),
         // This error typically happens when `previous_response_id` references a response that is not
         // available in the current WebSocket connection-local cache. Retrying on a fresh connection
         // (without implicit `previous_response_id`) is a safe, conservative recovery attempt.
@@ -689,7 +690,6 @@ mod tests {
     use futures_util::SinkExt;
     use futures_util::StreamExt;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
     use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
@@ -951,95 +951,76 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn session_falls_back_to_http_on_ws_connection_limit_error() {
+    async fn session_retries_ws_on_connection_limit_error() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
-        let sse = concat!(
-            "event: response.created\n",
-            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-test\",\"created_at\":0}}\n\n",
-            "event: response.output_text.delta\n",
-            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n",
-            "event: response.completed\n",
-            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-test\",\"created_at\":0,\"output\":[]}}\n\n",
-        );
-
         let server = tokio::spawn(async move {
-            for _ in 0..2 {
-                let (mut tcp, _) = listener.accept().await.unwrap();
-                let mut peek = [0u8; 4];
-                let _ = tcp.peek(&mut peek).await.unwrap();
+            // Connection A: respond with websocket_connection_limit_reached.
+            let (tcp_a, _) = listener.accept().await.unwrap();
+            let mut ws_a =
+                tokio_tungstenite::accept_hdr_async(tcp_a, |req: &Request, resp: Response| {
+                    assert_eq!(req.uri().path(), "/v1/responses");
+                    Ok(resp)
+                })
+                .await
+                .unwrap();
 
-                if peek.starts_with(b"GET ") {
-                    let mut ws = tokio_tungstenite::accept_hdr_async(
-                        tcp,
-                        |req: &Request, resp: Response| {
-                            assert_eq!(req.uri().path(), "/v1/responses");
-                            Ok(resp)
-                        },
-                    )
-                    .await
-                    .unwrap();
+            let _ = ws_a.next().await; // response.create
+            ws_a.send(Message::Text(
+                serde_json::json!({
+                    "type": "error",
+                    "error": { "code": "websocket_connection_limit_reached", "message": "limit" }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            let _ = ws_a.close(None).await;
 
-                    // Wait for `response.create`, then return a WS-specific OpenAI error code.
-                    let _ = ws.next().await;
-                    ws.send(Message::Text(
-                        serde_json::json!({
-                            "type": "error",
-                            "error": {
-                                "code": "websocket_connection_limit_reached",
-                                "message": "limit"
-                            }
-                        })
-                        .to_string()
-                        .into(),
-                    ))
-                    .await
-                    .unwrap();
-                    let _ = ws.close(None).await;
-                    continue;
-                }
+            // Connection B: retry must open a fresh connection and succeed.
+            let (tcp_b, _) = listener.accept().await.unwrap();
+            let mut ws_b =
+                tokio_tungstenite::accept_hdr_async(tcp_b, |req: &Request, resp: Response| {
+                    assert_eq!(req.uri().path(), "/v1/responses");
+                    Ok(resp)
+                })
+                .await
+                .unwrap();
 
-                // HTTP fallback: minimal POST handler returning SSE.
-                let mut buf = Vec::<u8>::new();
-                let mut tmp = [0u8; 1024];
-                loop {
-                    let n = tcp.read(&mut tmp).await.unwrap();
-                    if n == 0 {
-                        break;
-                    }
-                    buf.extend_from_slice(&tmp[..n]);
-                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                        break;
-                    }
-                }
-
-                let header_end = buf
-                    .windows(4)
-                    .position(|w| w == b"\r\n\r\n")
-                    .map(|p| p + 4)
-                    .unwrap_or(buf.len());
-                let header_str = String::from_utf8_lossy(&buf[..header_end]);
-                let content_len = header_str
-                    .lines()
-                    .find_map(|l| l.strip_prefix("Content-Length: "))
-                    .and_then(|v| v.trim().parse::<usize>().ok())
-                    .unwrap_or(0);
-                let already = buf.len().saturating_sub(header_end);
-                if content_len > already {
-                    let mut remaining = vec![0u8; content_len - already];
-                    tcp.read_exact(&mut remaining).await.unwrap();
-                }
-
-                let body = sse.as_bytes();
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n",
-                    body.len()
-                );
-                tcp.write_all(resp.as_bytes()).await.unwrap();
-                tcp.write_all(body).await.unwrap();
-                let _ = tcp.shutdown().await;
-            }
+            let _ = ws_b.next().await; // response.create
+            ws_b.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.created",
+                    "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0 }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            ws_b.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.output_text.delta",
+                    "delta": "OK"
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            ws_b
+                .send(Message::Text(
+                    serde_json::json!({
+                        "type": "response.completed",
+                        "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0, "output": [] }
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
         });
 
         let session = OpenAiWebSocketSession::from_builder(
