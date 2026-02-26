@@ -12,7 +12,7 @@ use crate::error::LlmError;
 use crate::streaming::{ChatStreamEvent, JsonEventConverter, SseEventConverter};
 
 /// Byte stream suitable for HTTP responses (SSE/JSONL).
-pub type ChatByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, LlmError>> + Send + Sync>>;
+pub type ChatByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, LlmError>> + Send>>;
 
 /// Transform a unified chat event stream by expanding (or dropping) events.
 ///
@@ -22,10 +22,10 @@ pub type ChatByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, LlmError>> + S
 pub fn transform_chat_event_stream<S, F>(
     stream: S,
     mut transform: F,
-) -> Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + Sync>>
+) -> Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>>
 where
-    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + Sync + 'static,
-    F: FnMut(ChatStreamEvent) -> Vec<ChatStreamEvent> + Send + Sync + 'static,
+    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + 'static,
+    F: FnMut(ChatStreamEvent) -> Vec<ChatStreamEvent> + Send + 'static,
 {
     Box::pin(stream.flat_map(move |item| {
         let out: Vec<Result<ChatStreamEvent, LlmError>> = match item {
@@ -43,7 +43,7 @@ where
 pub fn encode_chat_stream_as_sse<C, S>(stream: S, converter: C) -> ChatByteStream
 where
     C: SseEventConverter + Send + Sync + 'static,
-    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + Sync + 'static,
+    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + 'static,
 {
     let converter: Arc<dyn SseEventConverter> = Arc::new(converter);
     Box::pin(stream.filter_map(move |item| {
@@ -68,7 +68,7 @@ where
 pub fn encode_chat_stream_as_jsonl<C, S>(stream: S, converter: C) -> ChatByteStream
 where
     C: JsonEventConverter + Send + Sync + 'static,
-    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + Sync + 'static,
+    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + 'static,
 {
     let converter: Arc<dyn JsonEventConverter> = Arc::new(converter);
     Box::pin(stream.filter_map(move |item| {
