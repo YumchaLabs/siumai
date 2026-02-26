@@ -29,6 +29,15 @@ use tokio_tungstenite::tungstenite::protocol::Message;
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
+const OPENAI_WS_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
+
+#[derive(Debug, Default)]
+struct WsResponsesEventMeta {
+    terminal: bool,
+    cacheable: bool,
+    completed_response_id: Option<String>,
+}
+
 #[derive(Debug)]
 struct CachedWs {
     ws: WsStream,
@@ -61,6 +70,7 @@ pub struct OpenAiWebSocketTransport {
     state: Arc<Mutex<WsState>>,
     max_idle_connections: usize,
     stateful_previous_response_id: bool,
+    emit_done_marker: bool,
     max_connection_age: Option<Duration>,
     idle_ttl: Option<Duration>,
 }
@@ -73,6 +83,7 @@ impl OpenAiWebSocketTransport {
             state: Arc::new(Mutex::new(WsState::default())),
             max_idle_connections: 1,
             stateful_previous_response_id: false,
+            emit_done_marker: false,
             // OpenAI WebSocket connections are time-limited; proactively avoid reusing old connections.
             max_connection_age: Some(Duration::from_secs(55 * 60)),
             idle_ttl: None,
@@ -89,6 +100,16 @@ impl OpenAiWebSocketTransport {
     /// for streaming `/responses` requests when the field is not already present.
     pub fn with_stateful_previous_response_id(mut self, enabled: bool) -> Self {
         self.stateful_previous_response_id = enabled;
+        self
+    }
+
+    /// Emit an extra SSE done marker (`data: [DONE]\n\n`) after a terminal WebSocket event.
+    ///
+    /// OpenAI Responses WebSocket mode terminates via JSON events like `response.completed` / `error`.
+    /// Emitting a `[DONE]` marker is optional and only needed for compatibility with SSE consumers
+    /// that expect Chat Completions-style done semantics.
+    pub fn with_emit_done_marker(mut self, enabled: bool) -> Self {
+        self.emit_done_marker = enabled;
         self
     }
 
@@ -212,6 +233,14 @@ impl OpenAiWebSocketTransport {
             req.headers_mut().insert(name, v.clone());
         }
 
+        // Match OpenAI's official WebSocket mode requirement.
+        if req.headers().get("openai-beta").is_none() {
+            req.headers_mut().insert(
+                reqwest::header::HeaderName::from_static("openai-beta"),
+                reqwest::header::HeaderValue::from_static(OPENAI_WS_BETA_HEADER_VALUE),
+            );
+        }
+
         Ok(req)
     }
 
@@ -261,16 +290,45 @@ impl OpenAiWebSocketTransport {
         })
     }
 
-    fn completed_response_id_from_event(json_text: &str) -> Option<String> {
-        let v: serde_json::Value = serde_json::from_str(json_text).ok()?;
-        let ty = v.get("type")?.as_str()?;
-        if ty != "response.completed" {
-            return None;
+    fn inspect_ws_responses_event(json_text: &str) -> WsResponsesEventMeta {
+        let mut meta = WsResponsesEventMeta {
+            terminal: false,
+            cacheable: true,
+            completed_response_id: None,
+        };
+
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
+            return meta;
+        };
+        let Some(t) = v.get("type").and_then(|x| x.as_str()) else {
+            return meta;
+        };
+
+        meta.terminal = matches!(
+            t,
+            "error"
+                | "response.completed"
+                | "response.incomplete"
+                | "response.failed"
+                | "response.canceled"
+                | "response.cancelled"
+        );
+
+        // Conservatively avoid reusing connections that emitted `error` events, because
+        // server-side cache semantics become ambiguous.
+        if t == "error" {
+            meta.cacheable = false;
         }
-        v.get("response")?
-            .get("id")?
-            .as_str()
-            .map(|s| s.to_string())
+
+        if t == "response.completed" {
+            meta.completed_response_id = v
+                .get("response")
+                .and_then(|r| r.get("id"))
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string());
+        }
+
+        meta
     }
 
     fn hash_ws_headers(headers: &HeaderMap) -> u64 {
@@ -282,6 +340,9 @@ impl OpenAiWebSocketTransport {
 
         let mut h = std::collections::hash_map::DefaultHasher::new();
         pick(headers, "authorization").hash(&mut h);
+        pick(headers, "openai-beta")
+            .unwrap_or(OPENAI_WS_BETA_HEADER_VALUE)
+            .hash(&mut h);
         pick(headers, "openai-organization").hash(&mut h);
         pick(headers, "openai-project").hash(&mut h);
         h.finish()
@@ -297,42 +358,8 @@ impl OpenAiWebSocketTransport {
         out
     }
 
-    fn is_terminal_responses_event(json_text: &str) -> bool {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
-            return false;
-        };
-        let Some(t) = v.get("type").and_then(|x| x.as_str()) else {
-            return false;
-        };
-        matches!(
-            t,
-            "error"
-                | "response.completed"
-                | "response.incomplete"
-                | "response.failed"
-                | "response.canceled"
-                | "response.cancelled"
-        )
-    }
-
-    fn is_connection_limit_error(json_text: &str) -> bool {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
-            return false;
-        };
-        if v.get("type").and_then(|x| x.as_str()) != Some("error") {
-            return false;
-        }
-        v.get("error")
-            .and_then(|e| e.get("code"))
-            .and_then(|c| c.as_str())
-            .is_some_and(|c| c == "websocket_connection_limit_reached")
-    }
-
-    fn is_error_event(json_text: &str) -> bool {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
-            return false;
-        };
-        v.get("type").and_then(|x| x.as_str()) == Some("error")
+    fn sse_done_frame() -> Vec<u8> {
+        b"data: [DONE]\n\n".to_vec()
     }
 
     fn build_response_create_message(
@@ -466,6 +493,7 @@ impl HttpTransport for OpenAiWebSocketTransport {
         let state = self.state.clone();
         let max_idle = self.max_idle_connections;
         let stateful_previous = self.stateful_previous_response_id;
+        let emit_done_marker = self.emit_done_marker;
         let key_for_state = key.clone();
         let ws_created_at_for_cache = ws_created_at;
         let max_connection_age = self.max_connection_age;
@@ -507,11 +535,12 @@ impl HttpTransport for OpenAiWebSocketTransport {
 
                 match msg {
                     Message::Text(text) => {
-                        terminal_seen = Self::is_terminal_responses_event(&text);
+                        let meta = Self::inspect_ws_responses_event(&text);
+                        terminal_seen = meta.terminal;
                         if completed_id.is_none() {
-                            completed_id = Self::completed_response_id_from_event(&text);
+                            completed_id = meta.completed_response_id;
                         }
-                        if Self::is_error_event(&text) || Self::is_connection_limit_error(&text) {
+                        if !meta.cacheable {
                             cacheable = false;
                         }
                         yield Ok(Self::sse_data_frame(&text));
@@ -522,11 +551,12 @@ impl HttpTransport for OpenAiWebSocketTransport {
                     Message::Binary(bin) => {
                         match String::from_utf8(bin.to_vec()) {
                             Ok(text) => {
-                                terminal_seen = Self::is_terminal_responses_event(&text);
+                                let meta = Self::inspect_ws_responses_event(&text);
+                                terminal_seen = meta.terminal;
                                 if completed_id.is_none() {
-                                    completed_id = Self::completed_response_id_from_event(&text);
+                                    completed_id = meta.completed_response_id;
                                 }
-                                if Self::is_error_event(&text) || Self::is_connection_limit_error(&text) {
+                                if !meta.cacheable {
                                     cacheable = false;
                                 }
                                 yield Ok(Self::sse_data_frame(&text));
@@ -584,6 +614,10 @@ impl HttpTransport for OpenAiWebSocketTransport {
                     });
                 }
             }
+
+            if terminal_seen && emit_done_marker {
+                yield Ok(Self::sse_done_frame());
+            }
         };
 
         Ok(HttpTransportStreamResponse {
@@ -630,6 +664,12 @@ mod tests {
                             .get("authorization")
                             .and_then(|v| v.to_str().ok()),
                         Some("Bearer test")
+                    );
+                    assert_eq!(
+                        req.headers()
+                            .get("openai-beta")
+                            .and_then(|v| v.to_str().ok()),
+                        Some(OPENAI_WS_BETA_HEADER_VALUE)
                     );
                     Ok(resp)
                 })
@@ -708,12 +748,16 @@ mod tests {
                 .contains("text/event-stream")
         );
 
+        let raw = resp.body.into_stream().try_concat().await.unwrap();
+        let raw_text = String::from_utf8_lossy(&raw).to_string();
+        assert!(!raw_text.contains("data: [DONE]\n\n"));
+
         // Ensure the returned byte stream can be consumed by the standard Responses SSE converter.
         let converter =
             crate::standards::openai::responses_sse::OpenAiResponsesEventConverter::new();
         let chat_stream = StreamFactory::stream_from_byte_stream_with_sse_fallback(
             resp.headers,
-            resp.body.into_stream(),
+            futures_util::stream::iter([Ok(raw)]),
             converter,
         )
         .await
@@ -726,6 +770,87 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, crate::types::ChatStreamEvent::StreamEnd { .. }))
         );
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn websocket_stream_emits_optional_done_marker() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let http_url = format!("http://{addr}/v1/responses");
+
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws =
+                tokio_tungstenite::accept_hdr_async(tcp, |req: &Request, resp: Response| {
+                    assert_eq!(
+                        req.headers()
+                            .get("authorization")
+                            .and_then(|v| v.to_str().ok()),
+                        Some("Bearer test")
+                    );
+                    assert_eq!(
+                        req.headers()
+                            .get("openai-beta")
+                            .and_then(|v| v.to_str().ok()),
+                        Some(OPENAI_WS_BETA_HEADER_VALUE)
+                    );
+                    Ok(resp)
+                })
+                .await
+                .unwrap();
+
+            let first = ws.next().await.unwrap().unwrap();
+            let Message::Text(_txt) = first else {
+                panic!("expected text message");
+            };
+
+            ws.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.created",
+                    "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0 }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            ws.send(Message::Text(
+                serde_json::json!({
+                    "type": "response.completed",
+                    "response": { "id": "resp_1", "model": "gpt-test", "created_at": 0, "output": [] }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        });
+
+        let transport =
+            OpenAiWebSocketTransport::new(reqwest::Client::new()).with_emit_done_marker(true);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer test"),
+        );
+
+        let request = HttpTransportRequest {
+            ctx: ctx(&http_url),
+            url: http_url,
+            headers,
+            body: serde_json::json!({
+                "model": "gpt-test",
+                "stream": true,
+                "input": "hello"
+            }),
+        };
+
+        let resp = transport.execute_stream(request).await.unwrap();
+        let raw = resp.body.into_stream().try_concat().await.unwrap();
+        let raw_text = String::from_utf8_lossy(&raw).to_string();
+        assert!(raw_text.contains("data: [DONE]\n\n"));
 
         server.await.unwrap();
     }
@@ -745,6 +870,12 @@ mod tests {
                             .get("authorization")
                             .and_then(|v| v.to_str().ok()),
                         Some("Bearer test")
+                    );
+                    assert_eq!(
+                        req.headers()
+                            .get("openai-beta")
+                            .and_then(|v| v.to_str().ok()),
+                        Some(OPENAI_WS_BETA_HEADER_VALUE)
                     );
                     Ok(resp)
                 })
