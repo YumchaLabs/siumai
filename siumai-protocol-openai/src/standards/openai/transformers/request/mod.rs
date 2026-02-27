@@ -288,13 +288,19 @@ impl RequestTransformer for OpenAiRequestTransformer {
         let image_mime = crate::utils::guess_mime(Some(&req.image), None);
         let image_part = Part::bytes(req.image.clone())
             .file_name("image")
-            .mime_str(&image_mime)?;
+            .mime_str(&image_mime)
+            .map_err(|e| {
+                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
+            })?;
         form = form.part("image", image_part);
         if let Some(mask) = &req.mask {
             let mask_mime = crate::utils::guess_mime(Some(mask), None);
             let mask_part = Part::bytes(mask.clone())
                 .file_name("mask")
-                .mime_str(&mask_mime)?;
+                .mime_str(&mask_mime)
+                .map_err(|e| {
+                    LlmError::InvalidParameter(format!("Invalid mask MIME type '{mask_mime}': {e}"))
+                })?;
             form = form.part("mask", mask_part);
         }
         if let Some(size) = &req.size {
@@ -318,7 +324,10 @@ impl RequestTransformer for OpenAiRequestTransformer {
         let image_mime = crate::utils::guess_mime(Some(&req.image), None);
         let image_part = Part::bytes(req.image.clone())
             .file_name("image")
-            .mime_str(&image_mime)?;
+            .mime_str(&image_mime)
+            .map_err(|e| {
+                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
+            })?;
         form = form.part("image", image_part);
         if let Some(size) = &req.size {
             form = form.text("size", size.clone());
