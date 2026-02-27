@@ -110,8 +110,6 @@ mod ollama;
 mod openai;
 #[cfg(feature = "openai")]
 mod openai_compatible;
-#[cfg(feature = "openai")]
-mod openrouter;
 #[cfg(test)]
 mod test;
 #[cfg(feature = "xai")]
@@ -139,8 +137,6 @@ pub use ollama::OllamaProviderFactory;
 pub use openai::OpenAIProviderFactory;
 #[cfg(feature = "openai")]
 pub use openai_compatible::OpenAICompatibleProviderFactory;
-#[cfg(feature = "openai")]
-pub use openrouter::OpenRouterProviderFactory;
 #[cfg(test)]
 pub use test::TestProviderFactory;
 #[cfg(feature = "xai")]

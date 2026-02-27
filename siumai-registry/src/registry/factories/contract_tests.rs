@@ -302,44 +302,14 @@ mod openai_contract {
         let req = transport.take().expect("captured request");
         assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
     }
-}
-
-#[cfg(feature = "openai")]
-mod openrouter_contract {
-    use super::*;
-    use crate::registry::factories::OpenRouterProviderFactory;
-    use reqwest::header::AUTHORIZATION;
 
     #[tokio::test]
-    async fn openrouter_factory_prefers_ctx_http_client_over_http_config() {
-        let _lock = ENV_LOCK.lock().unwrap();
-
-        let factory = OpenRouterProviderFactory;
-
-        let mut bad = HttpConfig::default();
-        bad.proxy = Some("not-a-url".to_string());
-
-        let ctx = BuildContext {
-            provider_id: Some("openrouter".to_string()),
-            api_key: Some("ctx-key".to_string()),
-            base_url: Some("https://example.com/v1".to_string()),
-            http_client: Some(reqwest::Client::new()),
-            http_config: Some(bad),
-            ..Default::default()
-        };
-
-        factory
-            .language_model_with_ctx("openai/gpt-4o", &ctx)
-            .await
-            .expect("factory should prefer ctx.http_client over invalid http_config");
-    }
-
-    #[tokio::test]
-    async fn openrouter_factory_uses_env_api_key_when_ctx_missing() {
+    async fn openai_compatible_factory_openrouter_uses_env_api_key_when_ctx_missing() {
         let _lock = ENV_LOCK.lock().unwrap();
 
         let _g = EnvGuard::set("OPENROUTER_API_KEY", "env-key");
-        let factory = OpenRouterProviderFactory;
+
+        let factory = OpenAICompatibleProviderFactory::new("openrouter".to_string());
         let transport = CaptureTransport::default();
 
         let ctx = BuildContext {
@@ -352,7 +322,7 @@ mod openrouter_contract {
         let client = factory
             .language_model_with_ctx("openai/gpt-4o", &ctx)
             .await
-            .expect("build client via env api key");
+            .expect("build openai-compatible client via env api key");
 
         let _ = client.chat_request(make_chat_request()).await;
         let req = transport.take().expect("captured request");
@@ -361,11 +331,12 @@ mod openrouter_contract {
     }
 
     #[tokio::test]
-    async fn openrouter_factory_prefers_ctx_api_key_over_env() {
+    async fn openai_compatible_factory_openrouter_prefers_ctx_api_key_over_env() {
         let _lock = ENV_LOCK.lock().unwrap();
 
         let _g = EnvGuard::set("OPENROUTER_API_KEY", "env-key");
-        let factory = OpenRouterProviderFactory;
+
+        let factory = OpenAICompatibleProviderFactory::new("openrouter".to_string());
         let transport = CaptureTransport::default();
 
         let ctx = BuildContext {
@@ -379,7 +350,7 @@ mod openrouter_contract {
         let client = factory
             .language_model_with_ctx("openai/gpt-4o", &ctx)
             .await
-            .expect("build client via ctx api key");
+            .expect("build openai-compatible client via ctx api key");
 
         let _ = client.chat_request(make_chat_request()).await;
         let req = transport.take().expect("captured request");

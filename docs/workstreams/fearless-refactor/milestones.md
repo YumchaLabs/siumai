@@ -97,8 +97,7 @@ Notes:
 
 - Covered factories (feature-gated):
   - OpenAI (`openai`)
-  - OpenAI-compatible preset example: DeepSeek (`openai`)
-  - OpenRouter (`openai`)
+  - OpenAI-compatible preset examples: DeepSeek, OpenRouter (`openai`)
   - Azure OpenAI (`azure`)
   - Gemini (`google`)
   - Google Vertex (Imagen) (`google-vertex`)
