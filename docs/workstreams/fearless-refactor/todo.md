@@ -17,7 +17,7 @@ Last updated: 2026-02-27
 
 - [x] Reduce the `provider/build.rs` `match ProviderType` further by delegating to factories uniformly
       (aim: only build `BuildContext` + select the factory; no per-provider wiring).
-- [ ] Consider deprecating `SiumaiBuilder.provider_type` in favor of `provider_id` as the sole routing key,
+- [x] Consider deprecating `SiumaiBuilder.provider_type` in favor of `provider_id` as the sole routing key,
       or enforce a strict consistency rule everywhere.
 - [ ] Make provider “variant routing” explicit:
   - `openai-chat` / `openai-responses`

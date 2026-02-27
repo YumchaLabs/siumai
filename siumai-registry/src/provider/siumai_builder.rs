@@ -30,7 +30,6 @@ use crate::types::{CommonParams, HttpConfig, ProviderType};
 ///   `BuildContext.retry_options`; the outer `Siumai` wrapper keeps an
 ///   explicit `.with_retry_options(...)` for advanced, opt-in scenarios
 pub struct SiumaiBuilder {
-    pub(crate) provider_type: Option<ProviderType>,
     pub(crate) provider_id: Option<String>,
     pub(crate) api_key: Option<String>,
     pub(crate) base_url: Option<String>,
@@ -65,7 +64,6 @@ impl SiumaiBuilder {
     /// Create a new builder
     pub fn new() -> Self {
         Self {
-            provider_type: None,
             provider_id: None,
             api_key: None,
             base_url: None,
@@ -90,9 +88,12 @@ impl SiumaiBuilder {
     }
 
     /// Set the provider type
+    #[deprecated(
+        since = "0.11.0-beta.5",
+        note = "Use `.provider_id(...)` or provider-specific helpers like `.openai()`/`.anthropic()`; the unified builder routes by provider_id."
+    )]
     pub fn provider(mut self, provider_type: ProviderType) -> Self {
         self.provider_id.get_or_insert(provider_type.to_string());
-        self.provider_type = Some(provider_type);
         self
     }
 
@@ -100,10 +101,8 @@ impl SiumaiBuilder {
     /// Recommended to use canonical ids like "openai", "anthropic", "gemini".
     pub fn provider_id<S: Into<String>>(mut self, id: S) -> Self {
         let raw = id.into();
-        let (provider_id, provider_type) = super::resolver::resolve_provider(&raw);
-
+        let provider_id = super::resolver::normalize_provider_id(&raw);
         self.provider_id = Some(provider_id);
-        self.provider_type = Some(provider_type);
         // OpenAI chat routing is resolved during client construction based on provider_id:
         // - "openai" / "openai-responses" => Responses API (default)
         // - "openai-chat" => Chat Completions
@@ -419,18 +418,21 @@ impl SiumaiBuilder {
 
         use siumai_provider_openai::providers::openai::OpenAiConfig;
 
-        let provider_type = self.provider_type.clone().ok_or_else(|| {
-            LlmError::ConfigurationError("Provider type not specified".to_string())
-        })?;
-        if !matches!(provider_type, ProviderType::OpenAi) {
-            return Err(LlmError::ConfigurationError(
-                "use_openai_websocket_session() requires provider=openai".to_string(),
-            ));
-        }
+        let raw_provider_id = self
+            .provider_id
+            .clone()
+            .ok_or_else(|| LlmError::ConfigurationError("Provider id not specified".to_string()))?;
+        let provider_id = crate::provider::resolver::normalize_provider_id(&raw_provider_id);
 
-        if matches!(self.provider_id.as_deref(), Some("openai-chat")) {
+        if provider_id == "openai-chat" {
             return Err(LlmError::ConfigurationError(
                 "use_openai_websocket_session() requires OpenAI Responses API (use .openai() or .openai_responses())".to_string(),
+            ));
+        }
+        if provider_id != "openai" && provider_id != "openai-responses" {
+            return Err(LlmError::ConfigurationError(
+                "use_openai_websocket_session() requires provider_id=openai (Responses API)"
+                    .to_string(),
             ));
         }
 
@@ -568,7 +570,6 @@ impl std::fmt::Debug for SiumaiBuilder {
         let mut debug_struct = f.debug_struct("SiumaiBuilder");
 
         debug_struct
-            .field("provider_type", &self.provider_type)
             .field("provider_id", &self.provider_id)
             .field("base_url", &self.base_url)
             .field("model", &self.common_params.model)

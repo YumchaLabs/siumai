@@ -60,3 +60,13 @@ Notes:
 
 - `siumai-registry/src/provider/build.rs` now follows a “build `BuildContext` + select `ProviderFactory`” flow.
 - Provider variants are routed via `provider_id` (e.g. `openai-chat`, `openai-responses`, `azure-chat`).
+
+## M5 — Builder routing key simplification
+
+Acceptance criteria:
+
+- Unified builder no longer stores redundant `provider_type` state for routing.
+- Routing is driven by `provider_id` (including variants like `openai-chat`).
+- Keep any remaining `ProviderType` usage limited to introspection/capabilities, not routing.
+
+Status: ✅ done

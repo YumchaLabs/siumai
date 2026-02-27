@@ -210,41 +210,47 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // Use unified HTTP client builder from utils
     use crate::execution::http::client::build_http_client_from_config;
 
-    // Resolve provider id aliases into canonical ids and keep provider_type consistent.
+    // Normalize provider id aliases into canonical ids.
     if let Some(raw_id) = builder.provider_id.clone() {
-        let (provider_id, inferred_type) = super::resolver::resolve_provider(&raw_id);
-        builder.provider_id = Some(provider_id);
-
-        if let Some(explicit_type) = builder.provider_type.clone()
-            && explicit_type != inferred_type
-        {
-            return Err(LlmError::ConfigurationError(format!(
-                "Conflicting provider configuration: provider_id '{}' resolves to '{}', but provider_type is '{}'",
-                raw_id, inferred_type, explicit_type
-            )));
-        }
-
-        builder.provider_type = Some(inferred_type);
-    } else if let Some(pt) = builder.provider_type.clone() {
-        // If only provider_type is set, derive a reasonable default provider_id for downstream routing.
-        builder.provider_id = Some(pt.to_string());
+        builder.provider_id = Some(super::resolver::normalize_provider_id(&raw_id));
     }
 
-    // Best-effort provider suggestion by model prefix (when provider is not set)
-    if builder.provider_type.is_none()
+    // Best-effort provider suggestion by model prefix (when provider is not set).
+    if builder.provider_id.is_none()
         && !builder.common_params.model.is_empty()
         && let Some(pt) =
             super::resolver::infer_provider_type_from_model(&builder.common_params.model)
     {
-        builder.provider_type = Some(pt.clone());
-        builder.provider_id.get_or_insert(pt.to_string());
+        let inferred_id = match pt {
+            ProviderType::OpenAi => "openai".to_string(),
+            ProviderType::Anthropic => "anthropic".to_string(),
+            ProviderType::Gemini => "gemini".to_string(),
+            ProviderType::Ollama => "ollama".to_string(),
+            ProviderType::XAI => "xai".to_string(),
+            ProviderType::Groq => "groq".to_string(),
+            ProviderType::MiniMaxi => "minimaxi".to_string(),
+            ProviderType::Custom(id) => id,
+        };
+        builder.provider_id = Some(inferred_id);
     }
 
-    // Extract all needed values first to avoid borrow checker issues
-    let provider_type = builder
-        .provider_type
+    let provider_id = builder
+        .provider_id
         .clone()
-        .ok_or_else(|| LlmError::ConfigurationError("Provider type not specified".to_string()))?;
+        .ok_or_else(|| LlmError::ConfigurationError("Provider id not specified".to_string()))?;
+
+    // Some routing decisions depend on base_url (Anthropic on Vertex).
+    let mut effective_provider_id = provider_id.clone();
+    if effective_provider_id == "anthropic" {
+        let base_url = builder.base_url.clone();
+        let is_vertex = base_url
+            .as_ref()
+            .map(|u| u.contains("aiplatform.googleapis.com"))
+            .unwrap_or(false);
+        if is_vertex {
+            effective_provider_id = "anthropic-vertex".to_string();
+        }
+    }
 
     // Validate explicit API key.
     // Actual API key resolution (context override -> env vars) is handled inside provider factories.
@@ -274,102 +280,123 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Set default model if none provided
     if common_params.model.is_empty() {
-        // Set default model based on provider type
-        common_params.model = match provider_type {
+        // Set default model based on provider id.
+        common_params.model = match effective_provider_id.as_str() {
             #[cfg(feature = "openai")]
-            ProviderType::OpenAi => siumai_provider_openai::providers::openai::model_constants::gpt_4o::GPT_4O.to_string(),
-            #[cfg(feature = "azure")]
-            ProviderType::Custom(ref provider_id) if provider_id == "azure" => {
-                return Err(LlmError::ConfigurationError(
-                    "Azure OpenAI requires an explicit model (deployment id)".to_string(),
-                ));
+            "openai" | "openai-chat" | "openai-responses" => {
+                siumai_provider_openai::providers::openai::model_constants::gpt_4o::GPT_4O
+                    .to_string()
             }
-            #[cfg(feature = "anthropic")]
-            ProviderType::Anthropic => siumai_provider_anthropic::providers::anthropic::model_constants::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022.to_string(),
-            #[cfg(feature = "google")]
-            ProviderType::Gemini => siumai_provider_gemini::providers::gemini::model_constants::gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
-            #[cfg(feature = "google-vertex")]
-            ProviderType::Custom(ref provider_id) if provider_id == "anthropic-vertex" => {
-                "claude-3-5-sonnet-20241022".to_string()
-            }
-            #[cfg(feature = "google-vertex")]
-            ProviderType::Custom(ref provider_id) if provider_id == "vertex" => {
-                "imagen-3.0-generate-002".to_string()
-            }
-            #[cfg(feature = "ollama")]
-            ProviderType::Ollama => "llama3.2".to_string(),
-            #[cfg(feature = "xai")]
-            ProviderType::XAI => "grok-beta".to_string(),
-            #[cfg(feature = "groq")]
-            ProviderType::Groq => "llama-3.1-70b-versatile".to_string(),
-            #[cfg(feature = "minimaxi")]
-            ProviderType::MiniMaxi => "MiniMax-M2".to_string(),
-            ProviderType::Custom(ref provider_id) => {
-                // Use shared helper function to get default model from registry
-                #[cfg(feature = "openai")]
-                {
-                    crate::utils::builder_helpers::get_effective_model("", provider_id)
-                }
-                #[cfg(not(feature = "openai"))]
-                {
-                    let _ = provider_id;
-                    "default-model".to_string()
-                }
-            }
-
-            // For disabled features, return error
             #[cfg(not(feature = "openai"))]
-            ProviderType::OpenAi => {
+            "openai" | "openai-chat" | "openai-responses" => {
                 return Err(LlmError::UnsupportedOperation(
                     "OpenAI feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "azure")]
+            "azure" | "azure-chat" => {
+                return Err(LlmError::ConfigurationError(
+                    "Azure OpenAI requires an explicit model (deployment id)".to_string(),
+                ));
+            }
+            #[cfg(not(feature = "azure"))]
+            "azure" | "azure-chat" => {
+                return Err(LlmError::UnsupportedOperation(
+                    "Azure OpenAI provider requires the 'azure' feature to be enabled".to_string(),
+                ));
+            }
+            #[cfg(feature = "anthropic")]
+            "anthropic" => siumai_provider_anthropic::providers::anthropic::model_constants::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022.to_string(),
             #[cfg(not(feature = "anthropic"))]
-            ProviderType::Anthropic => {
+            "anthropic" => {
                 return Err(LlmError::UnsupportedOperation(
                     "Anthropic feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "google")]
+            "gemini" => siumai_provider_gemini::providers::gemini::model_constants::gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
             #[cfg(not(feature = "google"))]
-            ProviderType::Gemini => {
+            "gemini" => {
                 return Err(LlmError::UnsupportedOperation(
                     "Google feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "google-vertex")]
+            "anthropic-vertex" => {
+                "claude-3-5-sonnet-20241022".to_string()
+            }
+            #[cfg(feature = "google-vertex")]
+            "vertex" => {
+                "imagen-3.0-generate-002".to_string()
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            "anthropic-vertex" | "vertex" => {
+                return Err(LlmError::UnsupportedOperation(
+                    "Google Vertex feature not enabled".to_string(),
+                ));
+            }
+            #[cfg(feature = "ollama")]
+            "ollama" => "llama3.2".to_string(),
             #[cfg(not(feature = "ollama"))]
-            ProviderType::Ollama => {
+            "ollama" => {
                 return Err(LlmError::UnsupportedOperation(
                     "Ollama feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "xai")]
+            "xai" => "grok-beta".to_string(),
             #[cfg(not(feature = "xai"))]
-            ProviderType::XAI => {
+            "xai" => {
                 return Err(LlmError::UnsupportedOperation(
                     "xAI feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "groq")]
+            "groq" => "llama-3.1-70b-versatile".to_string(),
             #[cfg(not(feature = "groq"))]
-            ProviderType::Groq => {
+            "groq" => {
                 return Err(LlmError::UnsupportedOperation(
                     "Groq feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "minimaxi")]
+            "minimaxi" => "MiniMax-M2".to_string(),
             #[cfg(not(feature = "minimaxi"))]
-            ProviderType::MiniMaxi => {
+            "minimaxi" => {
                 return Err(LlmError::UnsupportedOperation(
                     "MiniMaxi feature not enabled".to_string(),
                 ));
             }
+            other => {
+                // Use shared helper function to get default model from registry (OpenAI-compatible).
+                #[cfg(feature = "openai")]
+                {
+                    crate::utils::builder_helpers::get_effective_model("", other)
+                }
+                #[cfg(not(feature = "openai"))]
+                {
+                    let _ = other;
+                    "default-model".to_string()
+                }
+            }
         };
     }
 
+    let provider_type = super::resolver::provider_type_for_provider_id(&effective_provider_id);
+
     // Normalize model ID for OpenAI-compatible providers (handle aliases)
     // This ensures that model aliases like "chat" -> "deepseek-chat" are properly resolved
-    if let ProviderType::Custom(ref _provider_id) = provider_type {
-        #[cfg(feature = "openai")]
-        {
+    #[cfg(feature = "openai")]
+    {
+        let is_openai_compat = matches!(provider_type, ProviderType::Custom(_))
+            && !matches!(
+                effective_provider_id.as_str(),
+                "azure" | "azure-chat" | "vertex" | "anthropic-vertex"
+            );
+
+        if is_openai_compat {
             let normalized_model = crate::utils::builder_helpers::normalize_model_id(
-                _provider_id,
+                &effective_provider_id,
                 &common_params.model,
             );
             if !normalized_model.is_empty() {
@@ -415,23 +442,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         gemini_token_provider: builder.gemini_token_provider.clone(),
         ..Default::default()
     };
-
-    // Some routing decisions depend on base_url (Anthropic on Vertex).
-    let mut effective_provider_id = builder
-        .provider_id
-        .clone()
-        .unwrap_or_else(|| provider_type.to_string());
-    if provider_type == ProviderType::Anthropic {
-        let base_url = builder.base_url.clone();
-        let is_vertex = effective_provider_id == "anthropic-vertex"
-            || base_url
-                .as_ref()
-                .map(|u| u.contains("aiplatform.googleapis.com"))
-                .unwrap_or(false);
-        if is_vertex {
-            effective_provider_id = "anthropic-vertex".to_string();
-        }
-    }
 
     let factory = select_factory(&effective_provider_id)?;
     let mut ctx = base_ctx.clone();

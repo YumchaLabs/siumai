@@ -1,21 +1,9 @@
 //! SiumaiBuilder Provider Methods
 //!
 //! This module contains all provider-specific methods for SiumaiBuilder to keep the main provider.rs clean.
-//! Each provider gets its own method that sets the appropriate provider type and name.
+//! Each provider gets its own method that sets the appropriate provider id.
 
 use crate::provider::SiumaiBuilder;
-#[cfg(any(
-    feature = "openai",
-    feature = "azure",
-    feature = "anthropic",
-    feature = "google",
-    feature = "google-vertex",
-    feature = "ollama",
-    feature = "xai",
-    feature = "groq",
-    feature = "minimaxi"
-))]
-use crate::types::ProviderType;
 #[cfg(feature = "openai")]
 use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider;
 
@@ -25,10 +13,8 @@ use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provide
 macro_rules! gen_siumaibuilder_method {
     ($name:ident, $id:expr) => {
         #[cfg(feature = "openai")]
-        pub fn $name(mut self) -> Self {
-            self.provider_type = Some(ProviderType::Custom($id.to_string()));
-            self.provider_id = Some($id.to_string());
-            self
+        pub fn $name(self) -> Self {
+            self.provider_id($id)
         }
     };
 }

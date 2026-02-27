@@ -1,3 +1,15 @@
+#[cfg(any(
+    test,
+    feature = "openai",
+    feature = "azure",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex",
+    feature = "ollama",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi"
+))]
 use crate::types::ProviderType;
 
 /// Normalize provider id aliases into a canonical id used across the registry.
@@ -10,17 +22,22 @@ pub fn normalize_provider_id(raw: &str) -> String {
     }
 }
 
-/// Resolve a canonical provider id and its corresponding ProviderType.
-pub fn resolve_provider(raw_provider_id: &str) -> (String, ProviderType) {
-    let provider_id = normalize_provider_id(raw_provider_id);
-    let provider_type = provider_type_for_provider_id(&provider_id);
-    (provider_id, provider_type)
-}
-
 /// Map a canonical provider id to its ProviderType.
 ///
 /// Note: some ids are routing variants (e.g. `openai-chat`) and still map to the same ProviderType.
-pub fn provider_type_for_provider_id(provider_id: &str) -> ProviderType {
+#[cfg(any(
+    test,
+    feature = "openai",
+    feature = "azure",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex",
+    feature = "ollama",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi"
+))]
+pub(crate) fn provider_type_for_provider_id(provider_id: &str) -> ProviderType {
     match provider_id {
         "openai" | "openai-chat" | "openai-responses" => ProviderType::OpenAi,
         "azure" | "azure-chat" => ProviderType::Custom("azure".to_string()),
@@ -135,8 +152,9 @@ mod tests {
 
     #[test]
     fn resolve_provider_applies_normalization() {
-        let (id, ty) = resolve_provider("google");
-        assert_eq!(id, "gemini");
+        let id = normalize_provider_id("google");
+        let ty = provider_type_for_provider_id(&id);
+        assert_eq!(id, "gemini".to_string());
         assert_eq!(ty, ProviderType::Gemini);
     }
 }
