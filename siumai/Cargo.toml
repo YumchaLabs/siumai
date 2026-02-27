@@ -234,6 +234,8 @@ all-providers = [
     "groq",
     "minimaxi",
     "deepseek",
+    "cohere",
+    "togetherai",
 ]
 
 # Protocol-only facade (stable imports for protocol mapping).

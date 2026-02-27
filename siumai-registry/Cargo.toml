@@ -148,6 +148,8 @@ all-providers = [
     "xai",
     "groq",
     "minimaxi",
+    "cohere",
+    "togetherai",
 ]
 
 [dev-dependencies]
