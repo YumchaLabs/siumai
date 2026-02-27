@@ -91,6 +91,7 @@ impl SiumaiBuilder {
 
     /// Set the provider type
     pub fn provider(mut self, provider_type: ProviderType) -> Self {
+        self.provider_id.get_or_insert(provider_type.to_string());
         self.provider_type = Some(provider_type);
         self
     }
