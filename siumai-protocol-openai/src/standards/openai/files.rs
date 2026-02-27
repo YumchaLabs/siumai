@@ -21,7 +21,7 @@ fn build_upload_body_impl(
     let part = reqwest::multipart::Part::bytes(req.content.clone())
         .file_name(req.filename.clone())
         .mime_str(&detected)
-        .map_err(|e| LlmError::HttpError(format!("Invalid MIME type: {e}")))?;
+        .map_err(|e| LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}")))?;
     let form = reqwest::multipart::Form::new()
         .text("purpose", req.purpose.clone())
         .part("file", part);

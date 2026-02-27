@@ -347,7 +347,9 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
         let image_part = Part::bytes(req.image.clone())
             .file_name("image")
             .mime_str(&image_mime)
-            .map_err(|e| LlmError::InvalidParameter(format!("Invalid MIME type: {}", e)))?;
+            .map_err(|e| {
+                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
+            })?;
         form = form.part("image", image_part);
 
         if let Some(mask) = &req.mask {
@@ -355,7 +357,9 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             let mask_part = Part::bytes(mask.clone())
                 .file_name("mask")
                 .mime_str(&mask_mime)
-                .map_err(|e| LlmError::InvalidParameter(format!("Invalid MIME type: {}", e)))?;
+                .map_err(|e| {
+                    LlmError::InvalidParameter(format!("Invalid mask MIME type '{mask_mime}': {e}"))
+                })?;
             form = form.part("mask", mask_part);
         }
 
@@ -423,7 +427,9 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
         let image_part = Part::bytes(req.image.clone())
             .file_name("image")
             .mime_str(&image_mime)
-            .map_err(|e| LlmError::InvalidParameter(format!("Invalid MIME type: {}", e)))?;
+            .map_err(|e| {
+                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
+            })?;
         form = form.part("image", image_part);
 
         if let Some(n) = req.count {

@@ -75,7 +75,9 @@ impl FilesTransformer for GeminiFilesTransformer {
         let part = reqwest::multipart::Part::bytes(req.content.clone())
             .file_name(req.filename.clone())
             .mime_str(&detected)
-            .map_err(|e| LlmError::HttpError(format!("Invalid MIME type: {e}")))?;
+            .map_err(|e| {
+                LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}"))
+            })?;
         let mut form = reqwest::multipart::Form::new().part("file", part);
         if let Some(name) = req.metadata.get("display_name") {
             form = form.text("display_name", name.clone());
