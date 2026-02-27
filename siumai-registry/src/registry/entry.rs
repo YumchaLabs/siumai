@@ -545,6 +545,7 @@ impl LanguageModelHandle {
             http_interceptors: self.http_interceptors.clone(),
             retry_options: self.retry_options.clone(),
             http_config: self.http_config.clone(),
+            provider_id: Some(self.provider_id.clone()),
             ..Default::default()
         };
         // Note: model_middlewares are applied at the handle level; factories
