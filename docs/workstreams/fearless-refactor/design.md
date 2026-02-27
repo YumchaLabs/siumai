@@ -78,6 +78,7 @@ These should remain true throughout the refactor:
 - Provider routing rules are not duplicated across the codebase.
 - Registry handles normalize common aliases only when it is safe (avoid surprising custom registries).
 - `BuildContext` is the primary “configuration transport” to factories.
+- A small set of no-network factory “contract tests” protects shared precedence rules during refactors.
 
 ## Known risks
 
@@ -85,10 +86,11 @@ These should remain true throughout the refactor:
   - Mitigation: feature-gate heavier deps (e.g. `reqwest`) and keep conversions optional.
 - Routing compatibility regressions for alias ids / variants.
   - Mitigation: add targeted tests around alias normalization and variant routing.
+- Tests that mutate process-global env vars can become flaky when run in parallel.
+  - Mitigation: use a shared env lock + guards for env mutation tests.
 
 ## References
 
 - `docs/architecture/architecture-refactor-plan.md`
 - `docs/architecture/module-split-design.md`
 - `docs/architecture/registry-without-builtins.md`
-

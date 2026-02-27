@@ -5,55 +5,16 @@
 //! - `ctx.api_key` overrides env vars (when env fallback exists)
 //! - `ctx.base_url` overrides provider defaults (where applicable)
 
-#![allow(unsafe_code)]
-
 use crate::error::LlmError;
 use crate::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
 use crate::registry::entry::{BuildContext, ProviderFactory};
+use crate::test_support::{ENV_LOCK, EnvGuard};
 use crate::types::{ChatMessage, ChatRequest, HttpConfig};
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::sync::{Arc, Mutex};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-struct EnvGuard {
-    key: &'static str,
-    previous: Option<String>,
-}
-
-impl EnvGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-        let previous = std::env::var(key).ok();
-        unsafe {
-            std::env::set_var(key, value);
-        }
-        Self { key, previous }
-    }
-
-    fn remove(key: &'static str) -> Self {
-        let previous = std::env::var(key).ok();
-        unsafe {
-            std::env::remove_var(key);
-        }
-        Self { key, previous }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        match &self.previous {
-            Some(v) => unsafe {
-                std::env::set_var(self.key, v);
-            },
-            None => unsafe {
-                std::env::remove_var(self.key);
-            },
-        }
-    }
-}
 
 #[derive(Clone, Default)]
 struct CaptureTransport {
@@ -87,8 +48,125 @@ impl HttpTransport for CaptureTransport {
     }
 }
 
+#[allow(dead_code)]
 fn make_chat_request() -> ChatRequest {
     ChatRequest::new(vec![ChatMessage::user("hi").build()])
+}
+
+#[cfg(feature = "azure")]
+mod azure_contract {
+    use super::*;
+
+    #[tokio::test]
+    async fn azure_factory_prefers_ctx_http_client_over_http_config() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
+
+        let mut bad = HttpConfig::default();
+        bad.proxy = Some("not-a-url".to_string());
+
+        let ctx = BuildContext {
+            provider_id: Some("azure".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/openai".to_string()),
+            http_client: Some(reqwest::Client::new()),
+            http_config: Some(bad),
+            ..Default::default()
+        };
+
+        factory
+            .language_model_with_ctx("test-deployment", &ctx)
+            .await
+            .expect("factory should prefer ctx.http_client over invalid http_config");
+    }
+
+    #[tokio::test]
+    async fn azure_factory_uses_env_api_key_when_ctx_missing() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let _k = EnvGuard::set("AZURE_API_KEY", "env-key");
+        let _r = EnvGuard::set("AZURE_RESOURCE_NAME", "my-azure-resource");
+
+        let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("azure".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("test-deployment", &ctx)
+            .await
+            .expect("build client via env api key");
+
+        let _ = client.chat_request(make_chat_request()).await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get("api-key").unwrap(), "env-key");
+        assert!(
+            req.url
+                .starts_with("https://my-azure-resource.openai.azure.com/openai/"),
+            "unexpected url: {}",
+            req.url
+        );
+    }
+
+    #[tokio::test]
+    async fn azure_factory_prefers_ctx_api_key_over_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let _k = EnvGuard::set("AZURE_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("azure".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/custom/openai".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("test-deployment", &ctx)
+            .await
+            .expect("build client via ctx api key");
+
+        let _ = client.chat_request(make_chat_request()).await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get("api-key").unwrap(), "ctx-key");
+        assert!(req.url.starts_with("https://example.com/custom/openai/"));
+    }
+
+    #[tokio::test]
+    async fn azure_factory_prefers_ctx_base_url_over_resource_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let _k = EnvGuard::set("AZURE_API_KEY", "env-key");
+        let _r = EnvGuard::set("AZURE_RESOURCE_NAME", "my-azure-resource");
+
+        let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("azure".to_string()),
+            base_url: Some("https://example.com/override/openai".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("test-deployment", &ctx)
+            .await
+            .expect("build client via base_url override");
+
+        let _ = client.chat_request(make_chat_request()).await;
+        let req = transport.take().expect("captured request");
+        assert!(req.url.starts_with("https://example.com/override/openai/"));
+    }
 }
 
 #[cfg(feature = "openai")]
@@ -226,6 +304,90 @@ mod openai_contract {
     }
 }
 
+#[cfg(feature = "openai")]
+mod openrouter_contract {
+    use super::*;
+    use crate::registry::factories::OpenRouterProviderFactory;
+    use reqwest::header::AUTHORIZATION;
+
+    #[tokio::test]
+    async fn openrouter_factory_prefers_ctx_http_client_over_http_config() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let factory = OpenRouterProviderFactory;
+
+        let mut bad = HttpConfig::default();
+        bad.proxy = Some("not-a-url".to_string());
+
+        let ctx = BuildContext {
+            provider_id: Some("openrouter".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/v1".to_string()),
+            http_client: Some(reqwest::Client::new()),
+            http_config: Some(bad),
+            ..Default::default()
+        };
+
+        factory
+            .language_model_with_ctx("openai/gpt-4o", &ctx)
+            .await
+            .expect("factory should prefer ctx.http_client over invalid http_config");
+    }
+
+    #[tokio::test]
+    async fn openrouter_factory_uses_env_api_key_when_ctx_missing() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let _g = EnvGuard::set("OPENROUTER_API_KEY", "env-key");
+        let factory = OpenRouterProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("openrouter".to_string()),
+            base_url: Some("https://example.com/v1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("openai/gpt-4o", &ctx)
+            .await
+            .expect("build client via env api key");
+
+        let _ = client.chat_request(make_chat_request()).await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer env-key");
+        assert!(req.url.starts_with("https://example.com/v1"));
+    }
+
+    #[tokio::test]
+    async fn openrouter_factory_prefers_ctx_api_key_over_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let _g = EnvGuard::set("OPENROUTER_API_KEY", "env-key");
+        let factory = OpenRouterProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("openrouter".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/v1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("openai/gpt-4o", &ctx)
+            .await
+            .expect("build client via ctx api key");
+
+        let _ = client.chat_request(make_chat_request()).await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert!(req.url.starts_with("https://example.com/v1"));
+    }
+}
+
 #[cfg(feature = "google")]
 mod gemini_contract {
     use super::*;
@@ -359,5 +521,156 @@ mod gemini_contract {
             .downcast_ref::<siumai_provider_gemini::providers::gemini::GeminiClient>()
             .expect("GeminiClient");
         assert_eq!(typed.api_key(), "");
+    }
+}
+
+#[cfg(feature = "google-vertex")]
+mod vertex_contract {
+    use super::*;
+    use crate::registry::factories::GoogleVertexProviderFactory;
+    use crate::types::ImageGenerationRequest;
+
+    fn make_image_request() -> ImageGenerationRequest {
+        ImageGenerationRequest {
+            prompt: "hi".to_string(),
+            count: 1,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn vertex_factory_prefers_ctx_http_client_over_http_config() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let factory = GoogleVertexProviderFactory;
+
+        let mut bad = HttpConfig::default();
+        bad.proxy = Some("not-a-url".to_string());
+
+        let ctx = BuildContext {
+            provider_id: Some("vertex".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            http_client: Some(reqwest::Client::new()),
+            http_config: Some(bad),
+            ..Default::default()
+        };
+
+        factory
+            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .await
+            .expect("factory should prefer ctx.http_client over invalid http_config");
+    }
+
+    #[tokio::test]
+    async fn vertex_factory_uses_express_base_url_when_ctx_api_key_present() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let factory = GoogleVertexProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("vertex".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .await
+            .expect("build client");
+
+        let typed = client
+            .as_any()
+            .downcast_ref::<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient>()
+            .expect("GoogleVertexClient");
+        assert_eq!(
+            typed.base_url(),
+            crate::utils::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_factory_uses_env_project_location_when_no_api_key_or_base_url() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let _k = EnvGuard::remove("GOOGLE_VERTEX_API_KEY");
+        let _p = EnvGuard::set("GOOGLE_VERTEX_PROJECT", "test-project");
+        let _l = EnvGuard::set("GOOGLE_VERTEX_LOCATION", "us-central1");
+
+        let factory = GoogleVertexProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("vertex".to_string()),
+            http_client: Some(reqwest::Client::new()),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .await
+            .expect("build client via env project/location");
+
+        let typed = client
+            .as_any()
+            .downcast_ref::<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient>()
+            .expect("GoogleVertexClient");
+        assert_eq!(
+            typed.base_url(),
+            crate::utils::vertex::google_vertex_base_url("test-project", "us-central1")
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_factory_prefers_ctx_base_url_over_express_default() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let factory = GoogleVertexProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("vertex".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/custom".to_string()),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .await
+            .expect("build client");
+
+        let typed = client
+            .as_any()
+            .downcast_ref::<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient>()
+            .expect("GoogleVertexClient");
+        assert_eq!(typed.base_url(), "https://example.com/custom");
+    }
+
+    #[tokio::test]
+    async fn vertex_factory_prefers_ctx_api_key_over_env_for_express_query() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let _g = EnvGuard::set("GOOGLE_VERTEX_API_KEY", "env-key");
+        let factory = GoogleVertexProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("vertex".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("imagen-4.0-generate-001", &ctx)
+            .await
+            .expect("build client");
+
+        let cap = client
+            .as_image_generation_capability()
+            .expect("image generation capability");
+        let _ = cap.generate_images(make_image_request()).await;
+
+        let req = transport.take().expect("captured request");
+        assert!(
+            req.url.contains("key=ctx-key"),
+            "unexpected url: {}",
+            req.url
+        );
     }
 }

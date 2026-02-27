@@ -33,6 +33,9 @@ pub mod provider;
 pub mod provider_builders;
 pub mod registry;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 #[cfg(feature = "builtins")]
 mod native_provider_metadata;
 

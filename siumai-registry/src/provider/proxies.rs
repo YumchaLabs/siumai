@@ -319,26 +319,20 @@ mod tests {
     #[cfg(feature = "openai")]
     #[tokio::test]
     async fn test_openai_requires_api_key() {
-        // Temporarily remove API key from environment
-        let original_key = std::env::var("OPENAI_API_KEY").ok();
-        unsafe {
-            std::env::remove_var("OPENAI_API_KEY");
-        }
+        let _lock = crate::test_support::ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::EnvGuard::remove("OPENAI_API_KEY");
 
         // Test that OpenAI still requires API key
         let result = SiumaiBuilder::new().openai().model("gpt-4o").build().await;
 
-        // Restore original key if it existed
-        if let Some(key) = original_key {
-            unsafe {
-                std::env::set_var("OPENAI_API_KEY", key);
-            }
-        }
-
         // This should fail due to missing API key
         assert!(result.is_err());
         if let Err(LlmError::ConfigurationError(msg)) = result {
-            assert!(msg.contains("API key not specified"));
+            assert!(
+                msg.contains("OPENAI_API_KEY"),
+                "unexpected missing-api-key message: {}",
+                msg
+            );
         } else {
             panic!("Expected ConfigurationError for missing API key");
         }

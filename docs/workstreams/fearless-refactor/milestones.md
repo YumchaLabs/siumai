@@ -92,3 +92,13 @@ Acceptance criteria:
   - `ctx.base_url` overrides defaults (where applicable)
 
 Status: ✅ done
+
+Notes:
+
+- Covered factories (feature-gated):
+  - OpenAI (`openai`)
+  - OpenAI-compatible preset example: DeepSeek (`openai`)
+  - OpenRouter (`openai`)
+  - Azure OpenAI (`azure`)
+  - Gemini (`google`)
+  - Google Vertex (Imagen) (`google-vertex`)
