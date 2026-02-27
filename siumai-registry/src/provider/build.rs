@@ -59,173 +59,15 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         .clone()
         .ok_or_else(|| LlmError::ConfigurationError("Provider type not specified".to_string()))?;
 
-    // Check if API key is required for this provider type.
-    // For Gemini: if Authorization (Bearer) is provided via default headers
-    // or a TokenProvider is configured, do not enforce API Key (supports Vertex AI enterprise auth).
-    let requires_api_key = match provider_type {
-        ProviderType::Ollama => false,
-        ProviderType::Anthropic => {
-            // Anthropic on Vertex AI uses Bearer auth (Authorization header) rather than an API key.
-            // If we detect Vertex mode and Authorization is present, do not enforce API key.
-            let is_vertex = builder
-                .provider_id
-                .as_deref()
-                .map(|n| n == "anthropic-vertex")
-                .unwrap_or(false)
-                || builder
-                    .base_url
-                    .as_ref()
-                    .map(|u| u.contains("aiplatform.googleapis.com"))
-                    .unwrap_or(false);
-            if is_vertex {
-                let has_auth_header = builder
-                    .http_config
-                    .headers
-                    .keys()
-                    .any(|k| k.eq_ignore_ascii_case("authorization"));
-                !has_auth_header
-            } else {
-                true
-            }
-        }
-        #[cfg(feature = "google-vertex")]
-        ProviderType::Custom(ref id) if id == "anthropic-vertex" => false,
-        #[cfg(feature = "google-vertex")]
-        ProviderType::Custom(ref id) if id == "vertex" => false,
-        ProviderType::Gemini => {
-            let has_auth_header = builder
-                .http_config
-                .headers
-                .keys()
-                .any(|k| k.eq_ignore_ascii_case("authorization"));
-            let has_token_provider = {
-                #[cfg(any(feature = "google", feature = "google-vertex"))]
-                {
-                    builder.gemini_token_provider.is_some()
-                }
-                #[cfg(not(any(feature = "google", feature = "google-vertex")))]
-                {
-                    false
-                }
-            };
-            !(has_auth_header || has_token_provider)
-        }
-        _ => true,
-    };
-
-    // Vertex supports:
-    // - Express mode: API key passed as query parameter (`?key=...`).
-    // - Enterprise mode: Bearer auth via Authorization header or TokenProvider (recommended).
-    //
-    // We intentionally do not hard-require auth at build-time because users may supply auth
-    // via external interceptors, proxies, or per-request headers.
-    #[cfg(feature = "google-vertex")]
-    let vertex_api_key = if matches!(provider_type, ProviderType::Custom(ref id) if id == "vertex")
+    // Validate explicit API key.
+    // Actual API key resolution (context override -> env vars) is handled inside provider factories.
+    if let Some(key) = builder.api_key.as_ref()
+        && key.trim().is_empty()
     {
-        let from_builder = builder.api_key.clone();
-        let from_env = std::env::var("GOOGLE_VERTEX_API_KEY").ok();
-        from_builder.or(from_env).and_then(|k| {
-            let trimmed = k.trim().to_string();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        })
-    } else {
-        None
-    };
-
-    #[allow(unused_variables)]
-    let api_key = if requires_api_key {
-        // Try to get API key from builder first, then from environment variable
-        if let Some(key) = builder.api_key.clone() {
-            if key.trim().is_empty() {
-                return Err(LlmError::ConfigurationError(
-                    "API key cannot be empty".to_string(),
-                ));
-            }
-            key
-        } else {
-            // For Custom providers (OpenAI-compatible), use shared helper function
-            if let ProviderType::Custom(ref provider_id) = provider_type {
-                #[cfg(all(feature = "builtins", feature = "openai"))]
-                {
-                    if let Some(cfg) =
-                        siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
-                            provider_id,
-                        )
-                    {
-                        crate::utils::builder_helpers::get_api_key_with_envs(
-                            None,
-                            provider_id,
-                            cfg.api_key_env.as_deref(),
-                            &cfg.api_key_env_aliases,
-                        )?
-                    } else {
-                        crate::utils::builder_helpers::get_api_key_with_env(None, provider_id)?
-                    }
-                }
-
-                #[cfg(not(all(feature = "builtins", feature = "openai")))]
-                {
-                    crate::utils::builder_helpers::get_api_key_with_env(None, provider_id)?
-                }
-            } else {
-                // For native providers, check their specific environment variables
-                match provider_type {
-                    #[cfg(feature = "openai")]
-                    ProviderType::OpenAi => std::env::var("OPENAI_API_KEY").ok().ok_or_else(|| {
-                        LlmError::ConfigurationError(
-                            "API key not specified (missing OPENAI_API_KEY or explicit .api_key())"
-                                .to_string(),
-                        )
-                    })?,
-                    #[cfg(feature = "anthropic")]
-                    ProviderType::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok().ok_or_else(|| {
-                        LlmError::ConfigurationError(
-                            "API key not specified (missing ANTHROPIC_API_KEY or explicit .api_key())"
-                                .to_string(),
-                        )
-                    })?,
-                    #[cfg(feature = "google")]
-                    ProviderType::Gemini => std::env::var("GEMINI_API_KEY").ok().ok_or_else(|| {
-                        LlmError::ConfigurationError(
-                            "API key not specified (missing GEMINI_API_KEY or explicit .api_key(); or use Authorization/TokenProvider)"
-                                .to_string(),
-                        )
-                    })?,
-                    #[cfg(feature = "xai")]
-                    ProviderType::XAI => std::env::var("XAI_API_KEY").ok().ok_or_else(|| {
-                        LlmError::ConfigurationError(
-                            "API key not specified (missing XAI_API_KEY or explicit .api_key())".to_string(),
-                        )
-                    })?,
-                    #[cfg(feature = "groq")]
-                    ProviderType::Groq => std::env::var("GROQ_API_KEY").ok().ok_or_else(|| {
-                        LlmError::ConfigurationError(
-                            "API key not specified (missing GROQ_API_KEY or explicit .api_key())".to_string(),
-                        )
-                    })?,
-                    #[cfg(feature = "minimaxi")]
-                    ProviderType::MiniMaxi => std::env::var("MINIMAXI_API_KEY").ok().ok_or_else(|| {
-                        LlmError::ConfigurationError(
-                            "API key not specified (missing MINIMAXI_API_KEY or explicit .api_key())"
-                                .to_string(),
-                        )
-                    })?,
-                    _ => {
-                        return Err(LlmError::ConfigurationError(
-                            "API key not specified".to_string(),
-                        ));
-                    }
-                }
-            }
-        }
-    } else {
-        // For providers that don't require API key, use empty string or None
-        builder.api_key.clone().unwrap_or_default()
-    };
+        return Err(LlmError::ConfigurationError(
+            "API key cannot be empty".to_string(),
+        ));
+    }
 
     // Extract all needed values to avoid borrow checker issues
     let base_url = builder.base_url.clone();
@@ -378,6 +220,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         http_client: Some(built_http_client.clone()),
         http_transport: builder.http_transport.clone(),
         http_config: Some(http_config.clone()),
+        api_key: builder.api_key.clone(),
         tracing_config: builder.tracing_config.clone(),
         http_interceptors: interceptors.clone(),
         model_middlewares: user_model_middlewares.clone(),
@@ -398,7 +241,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
             // Build unified context and delegate to OpenAIProviderFactory.
             let mut ctx = base_ctx.clone();
-            ctx.api_key = Some(api_key.clone());
             ctx.base_url = Some(resolved_base);
             ctx.organization = organization.clone();
             ctx.project = project.clone();
@@ -455,7 +297,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
                 // Build unified context and delegate to AnthropicProviderFactory.
                 let mut ctx = base_ctx.clone();
-                ctx.api_key = Some(api_key.clone());
                 ctx.base_url = Some(anthropic_base_url);
 
                 let factory = crate::registry::factories::AnthropicProviderFactory;
@@ -476,9 +317,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
             // Build unified context and delegate to GeminiProviderFactory.
             let mut ctx = base_ctx.clone();
-            // Only override API key when explicitly set; otherwise allow factory
-            // to fall back to GEMINI_API_KEY or token-based auth.
-            ctx.api_key = builder.api_key.as_ref().map(|_| api_key.clone());
             ctx.base_url = Some(resolved_base);
 
             let factory = crate::registry::factories::GeminiProviderFactory;
@@ -494,7 +332,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             let mut ctx = base_ctx.clone();
-            ctx.api_key = Some(api_key.clone());
             ctx.base_url = Some(resolved_base);
 
             let factory = crate::registry::factories::XAIProviderFactory;
@@ -520,7 +357,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ProviderType::Groq => {
             // Build unified context and delegate to GroqProviderFactory.
             let mut ctx = base_ctx.clone();
-            ctx.api_key = Some(api_key.clone());
             ctx.base_url = base_url.clone();
 
             let factory = crate::registry::factories::GroqProviderFactory;
@@ -531,7 +367,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "azure")]
         ProviderType::Custom(name) if name == "azure" => {
             let mut ctx = base_ctx.clone();
-            ctx.api_key = Some(api_key.clone());
             ctx.base_url = base_url.clone();
 
             let chat_mode = match builder.provider_id.as_deref() {
@@ -566,7 +401,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "vertex" => {
             let mut ctx = base_ctx.clone();
-            ctx.api_key = vertex_api_key.clone();
             ctx.base_url = base_url.clone();
 
             let factory = crate::registry::factories::GoogleVertexProviderFactory;
@@ -580,7 +414,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 // Build unified context and delegate to a generic OpenAI-compatible
                 // provider factory using the given provider id.
                 let mut ctx = base_ctx.clone();
-                ctx.api_key = Some(api_key.clone());
                 ctx.base_url = base_url.clone();
 
                 let factory =
@@ -646,7 +479,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
             // Build unified context and delegate to MiniMaxiProviderFactory.
             let mut ctx = base_ctx.clone();
-            ctx.api_key = Some(api_key.clone());
             ctx.base_url = Some(resolved_base);
 
             let factory = crate::registry::factories::MiniMaxiProviderFactory;
