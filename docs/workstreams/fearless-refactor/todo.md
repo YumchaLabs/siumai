@@ -46,6 +46,19 @@ Last updated: 2026-02-27
 - [x] Add a small set of “contract tests” that can be reused by each factory (no network),
       and expand coverage across multiple factories.
 
+### Metadata-only providers (clarify intent)
+
+- [ ] Decide the policy for `cohere` / `togetherai` / `bedrock`:
+  - implement first-class built-in factories (preferred), or
+  - remove/disable their registry exposure until implementation exists
+
+Decision (2026-02-27):
+
+- [x] Treat them as metadata-only/reserved for now:
+  - exclude them from `all-providers` aggregation features
+  - keep them out of the default built-in catalog
+  - fail fast in unified build routing when selected by `provider_id`
+
 ### Docs & tooling
 
 - [ ] Add a lightweight changelog note for the refactor milestones (when ready).
