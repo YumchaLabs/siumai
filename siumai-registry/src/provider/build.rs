@@ -70,7 +70,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     }
 
     // Extract all needed values to avoid borrow checker issues
-    let base_url = builder.base_url.clone();
     #[cfg(feature = "openai")]
     let organization = builder.organization.clone();
     #[cfg(feature = "openai")]
@@ -221,6 +220,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         http_transport: builder.http_transport.clone(),
         http_config: Some(http_config.clone()),
         api_key: builder.api_key.clone(),
+        base_url: builder.base_url.clone(),
         tracing_config: builder.tracing_config.clone(),
         http_interceptors: interceptors.clone(),
         model_middlewares: user_model_middlewares.clone(),
@@ -235,13 +235,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     let client: Arc<dyn LlmClient> = match provider_type {
         #[cfg(feature = "openai")]
         ProviderType::OpenAi => {
-            let default_base = "https://api.openai.com/v1".to_string();
-            let resolved_base =
-                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
-
-            // Build unified context and delegate to OpenAIProviderFactory.
             let mut ctx = base_ctx.clone();
-            ctx.base_url = Some(resolved_base);
             ctx.organization = organization.clone();
             ctx.project = project.clone();
 
@@ -252,6 +246,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "anthropic")]
         ProviderType::Anthropic => {
+            let base_url = builder.base_url.clone();
             // Detect Anthropic on Vertex AI:
             // - If provider_id is explicitly set to "anthropic-vertex"
             // - Or base_url contains aiplatform.googleapis.com
@@ -291,13 +286,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     ));
                 }
             } else {
-                let default_base = "https://api.anthropic.com".to_string();
-                let anthropic_base_url =
-                    crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
-
                 // Build unified context and delegate to AnthropicProviderFactory.
                 let mut ctx = base_ctx.clone();
-                ctx.base_url = Some(anthropic_base_url);
 
                 let factory = crate::registry::factories::AnthropicProviderFactory;
                 factory
@@ -307,17 +297,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "google")]
         ProviderType::Gemini => {
-            let default_base = "https://generativelanguage.googleapis.com/v1beta".to_string();
-            let mut resolved_base =
-                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
-            // Accept a more "root" style base URL (no version segment) for convenience.
-            if resolved_base == "https://generativelanguage.googleapis.com" {
-                resolved_base = "https://generativelanguage.googleapis.com/v1beta".to_string();
-            }
-
             // Build unified context and delegate to GeminiProviderFactory.
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = Some(resolved_base);
+            let ctx = base_ctx.clone();
 
             let factory = crate::registry::factories::GeminiProviderFactory;
             factory
@@ -327,12 +308,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "xai")]
         ProviderType::XAI => {
             // Build unified context and delegate to XAIProviderFactory.
-            let default_base = "https://api.x.ai/v1".to_string();
-            let resolved_base =
-                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
-
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = Some(resolved_base);
+            let ctx = base_ctx.clone();
 
             let factory = crate::registry::factories::XAIProviderFactory;
             factory
@@ -342,11 +318,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "ollama")]
         ProviderType::Ollama => {
             // Build unified context and delegate to OllamaProviderFactory.
-            let ollama_base_url =
-                crate::utils::builder_helpers::resolve_base_url(base_url, "http://localhost:11434");
-
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = Some(ollama_base_url);
+            let ctx = base_ctx.clone();
 
             let factory = crate::registry::factories::OllamaProviderFactory;
             factory
@@ -356,8 +328,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "groq")]
         ProviderType::Groq => {
             // Build unified context and delegate to GroqProviderFactory.
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = base_url.clone();
+            let ctx = base_ctx.clone();
 
             let factory = crate::registry::factories::GroqProviderFactory;
             factory
@@ -366,8 +337,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "azure")]
         ProviderType::Custom(name) if name == "azure" => {
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = base_url.clone();
+            let ctx = base_ctx.clone();
 
             let chat_mode = match builder.provider_id.as_deref() {
                 Some("azure-chat") => {
@@ -390,8 +360,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "anthropic-vertex" => {
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = base_url.clone();
+            let ctx = base_ctx.clone();
 
             let factory = crate::registry::factories::AnthropicVertexProviderFactory;
             factory
@@ -400,8 +369,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "vertex" => {
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = base_url.clone();
+            let ctx = base_ctx.clone();
 
             let factory = crate::registry::factories::GoogleVertexProviderFactory;
             factory
@@ -413,8 +381,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             {
                 // Build unified context and delegate to a generic OpenAI-compatible
                 // provider factory using the given provider id.
-                let mut ctx = base_ctx.clone();
-                ctx.base_url = base_url.clone();
+                let ctx = base_ctx.clone();
 
                 let factory =
                     crate::registry::factories::OpenAICompatibleProviderFactory::new(name.clone());
@@ -470,16 +437,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "minimaxi")]
         ProviderType::MiniMaxi => {
-            // Use Anthropic-compatible endpoint by default
-            let default_base =
-                siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig::DEFAULT_BASE_URL
-                    .to_string();
-            let resolved_base =
-                crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
-
             // Build unified context and delegate to MiniMaxiProviderFactory.
-            let mut ctx = base_ctx.clone();
-            ctx.base_url = Some(resolved_base);
+            let ctx = base_ctx.clone();
 
             let factory = crate::registry::factories::MiniMaxiProviderFactory;
             factory

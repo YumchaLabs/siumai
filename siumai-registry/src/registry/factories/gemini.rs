@@ -63,10 +63,14 @@ impl ProviderFactory for GeminiProviderFactory {
         };
 
         // Resolve base URL (context override 鈫?default).
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        let mut base_url = crate::utils::builder_helpers::resolve_base_url(
             ctx.base_url.clone(),
             "https://generativelanguage.googleapis.com/v1beta",
         );
+        // Accept a more "root" style base URL (no version segment) for convenience.
+        if base_url == "https://generativelanguage.googleapis.com" {
+            base_url = "https://generativelanguage.googleapis.com/v1beta".to_string();
+        }
 
         // Resolve common parameters.
         let common_params = crate::utils::builder_helpers::resolve_common_params(

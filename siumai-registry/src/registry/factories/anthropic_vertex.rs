@@ -50,6 +50,12 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
         // We do not synthesize a default here; callers should provide
         // a concrete base_url via BuildContext.
         let base_url = ctx.base_url.clone().unwrap_or_default();
+        if base_url.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Anthropic on Vertex requires an explicit base_url (aiplatform.googleapis.com)"
+                    .to_string(),
+            ));
+        }
 
         crate::registry::factory::build_anthropic_vertex_client(
             base_url,
