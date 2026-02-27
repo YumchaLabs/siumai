@@ -12,7 +12,7 @@ async fn build_gemini_with_token_provider_without_api_key() {
     let tp = Arc::new(StaticTokenProvider::new("test-token"));
 
     let result = Siumai::builder()
-        .provider(ProviderType::Gemini)
+        .gemini()
         .model("gemini-1.5-flash")
         .base_url(vertex_base)
         .with_gemini_token_provider(tp)

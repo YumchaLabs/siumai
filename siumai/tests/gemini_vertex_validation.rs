@@ -10,7 +10,7 @@ async fn build_gemini_with_bearer_does_not_require_api_key() {
     let vertex_base = "https://us-central1-aiplatform.googleapis.com/v1/projects/test/locations/us-central1/publishers/google";
 
     let result = Siumai::builder()
-        .provider(ProviderType::Gemini)
+        .gemini()
         .model("gemini-1.5-flash")
         .base_url(vertex_base)
         // Inject Bearer auth header to trigger relaxed validation
@@ -39,7 +39,7 @@ async fn build_gemini_without_key_and_without_bearer_should_fail() {
     }
 
     let result = Siumai::builder()
-        .provider(ProviderType::Gemini)
+        .gemini()
         .model("gemini-1.5-flash")
         .base_url(genai_base)
         // No api_key and no Authorization header
