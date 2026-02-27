@@ -105,6 +105,8 @@ Notes:
   - xAI (`xai`)
   - Ollama (`ollama`)
   - MiniMaxi (`minimaxi`)
+  - Cohere (rerank) (`cohere`)
+  - TogetherAI (rerank) (`togetherai`)
   - Google Vertex (Imagen) (`google-vertex`)
   - Anthropic on Vertex (base_url required) (`google-vertex`)
 
