@@ -24,6 +24,10 @@ Last updated: 2026-02-27
   - `azure-chat`
   - future variants should not require editing multiple layers
 
+### Resolver cleanup
+
+- [x] Prefer `provider_id`-first helpers for inference and OpenAI-compatible behaviors.
+
 ### Spec/runtime boundary hardening
 
 - [ ] Audit `siumai-spec` dependencies for “runtime creep”

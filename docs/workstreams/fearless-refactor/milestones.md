@@ -70,3 +70,13 @@ Acceptance criteria:
 - Keep any remaining `ProviderType` usage limited to introspection/capabilities, not routing.
 
 Status: ✅ done
+
+## M6 — Resolver cleanup (provider_id-first helpers)
+
+Acceptance criteria:
+
+- Provider inference can return a canonical `provider_id` directly.
+- OpenAI-compatible behaviors use `provider_id` predicates (no `ProviderType` routing helpers).
+- Keep backwards-compatible inference API only as a thin wrapper (if needed).
+
+Status: ✅ done
