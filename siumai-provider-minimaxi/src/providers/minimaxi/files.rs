@@ -270,7 +270,9 @@ impl FileManagementCapability for MinimaxiFiles {
                 let part = reqwest::multipart::Part::bytes(content.clone())
                     .file_name(filename.clone())
                     .mime_str(&mime_type)
-                    .map_err(|e| LlmError::HttpError(format!("Invalid MIME type: {e}")))?;
+                    .map_err(|e| {
+                        LlmError::InvalidParameter(format!("Invalid MIME type '{mime_type}': {e}"))
+                    })?;
                 Ok(reqwest::multipart::Form::new()
                     .text("purpose", purpose.clone())
                     .part("file", part))

@@ -12,6 +12,7 @@ Last updated: 2026-02-27
 - Registry handle normalizes common aliases when safe.
 - Provider catalog prefers shared native metadata for built-in providers (avoids “Custom provider” mislabeling).
 - Built-in catalog sets default models for rerank-only providers (Cohere/TogetherAI) for better introspection output.
+- Standardize multipart MIME validation errors as `InvalidParameter` (avoid misleading `HttpError`).
 
 ## TODO (next)
 

@@ -121,7 +121,7 @@ impl AnthropicFiles {
                             .file_name(filename.clone());
                         if let Some(mt) = mime_type.as_deref() {
                             part = part.mime_str(mt).map_err(|e| {
-                                LlmError::InvalidInput(format!("Invalid MIME type: {e}"))
+                                LlmError::InvalidParameter(format!("Invalid MIME type '{mt}': {e}"))
                             })?;
                         }
                         form = form.part("file", part);

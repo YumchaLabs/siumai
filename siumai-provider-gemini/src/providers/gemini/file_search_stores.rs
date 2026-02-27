@@ -144,7 +144,11 @@ impl GeminiFileSearchStores {
                 serde_json::to_string(&metadata).map_err(|e| LlmError::JsonError(e.to_string()))?;
             let metadata_part = reqwest::multipart::Part::text(metadata_json)
                 .mime_str("application/json")
-                .map_err(|e| LlmError::HttpError(format!("Invalid MIME type: {e}")))?;
+                .map_err(|e| {
+                    LlmError::InternalError(format!(
+                        "Invalid hardcoded MIME type 'application/json': {e}"
+                    ))
+                })?;
 
             let detected = mime_type_clone.clone().unwrap_or_else(|| {
                 crate::utils::guess_mime(Some(&content_clone), Some(&filename_clone))
@@ -152,7 +156,9 @@ impl GeminiFileSearchStores {
             let file_part = reqwest::multipart::Part::bytes(content_clone.clone())
                 .file_name(filename_clone.clone())
                 .mime_str(&detected)
-                .map_err(|e| LlmError::HttpError(format!("Invalid MIME type: {e}")))?;
+                .map_err(|e| {
+                    LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}"))
+                })?;
 
             let form = reqwest::multipart::Form::new()
                 .part("metadata", metadata_part)
