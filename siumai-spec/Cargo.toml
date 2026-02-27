@@ -22,7 +22,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 thiserror.workspace = true
 futures.workspace = true
-reqwest = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
@@ -33,6 +32,3 @@ default = []
 
 # Enable structured JSON message content (MessageContent::Json).
 structured-messages = []
-
-# Enable conversions and helpers that reference `reqwest` types.
-reqwest = ["dep:reqwest"]

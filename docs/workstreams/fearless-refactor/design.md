@@ -87,6 +87,7 @@ built-in factories (e.g. Amazon Bedrock). These ids are **reserved** and:
 These should remain true throughout the refactor:
 
 - Spec types must not depend on provider protocol crates.
+- `siumai-spec` stays runtime-agnostic (no direct dependency on `reqwest` or other HTTP client types).
 - Provider routing rules are not duplicated across the codebase.
 - Registry handles normalize common aliases only when it is safe (avoid surprising custom registries).
 - `BuildContext` is the primary “configuration transport” to factories.

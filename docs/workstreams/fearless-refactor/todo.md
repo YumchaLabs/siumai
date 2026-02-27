@@ -31,10 +31,11 @@ Last updated: 2026-02-27
 
 ### Spec/runtime boundary hardening
 
-- [ ] Audit `siumai-spec` dependencies for “runtime creep”
+- [x] Audit `siumai-spec` dependencies for “runtime creep”
       (keep heavy deps behind features; prefer `siumai-core` for runtime-only conversions/helpers).
-- [ ] Decide whether `siumai-spec::error` should keep `From<reqwest::Error>` at all,
-      or move HTTP-specific conversions to runtime.
+- [x] Decide whether `siumai-spec::error` should keep `From<reqwest::Error>` at all.
+      Decision (2026-02-27): remove `reqwest` from `siumai-spec` entirely and use explicit error mapping
+      (`LlmError::HttpError(...)`, `TimeoutError(...)`, etc.) in runtime code.
 
 ### Factory consistency
 

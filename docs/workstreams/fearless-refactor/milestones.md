@@ -130,3 +130,12 @@ Acceptance criteria:
 - OpenAI-compatible adapters remain discoverable as “OpenAI-compatible (via adapter)”.
 
 Status: ✅ done
+
+## M10 — Spec boundary hardening (runtime-agnostic)
+
+Acceptance criteria:
+
+- `siumai-spec` does not depend on `reqwest` (even behind feature flags).
+- HTTP client errors are mapped explicitly in runtime crates (`siumai-core`, provider crates).
+
+Status: ✅ done

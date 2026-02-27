@@ -6,13 +6,6 @@
 use super::types::LlmError;
 
 // From implementations
-#[cfg(feature = "reqwest")]
-impl From<reqwest::Error> for LlmError {
-    fn from(err: reqwest::Error) -> Self {
-        Self::HttpError(err.to_string())
-    }
-}
-
 impl From<serde_json::Error> for LlmError {
     fn from(err: serde_json::Error) -> Self {
         Self::JsonError(err.to_string())
@@ -22,13 +15,6 @@ impl From<serde_json::Error> for LlmError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    #[cfg(feature = "reqwest")]
-    fn test_from_reqwest_error() {
-        // We can't easily create a reqwest::Error, so we'll just verify the trait exists
-        // The actual conversion is tested implicitly when used in the codebase
-    }
 
     #[test]
     fn test_from_serde_json_error() {

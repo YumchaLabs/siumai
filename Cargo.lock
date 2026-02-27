@@ -3613,7 +3613,6 @@ dependencies = [
  "base64",
  "chrono",
  "futures",
- "reqwest 0.13.2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
