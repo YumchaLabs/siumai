@@ -164,10 +164,14 @@ impl ImageGenerationCapability for GoogleVertexClient {
             crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
         );
 
-        let builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
+        let mut builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         let exec = if let Some(retry) = self.retry_options.clone() {
             builder
@@ -200,10 +204,14 @@ impl ImageExtras for GoogleVertexClient {
             crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
         );
 
-        let builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
+        let mut builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
             .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
 
         let selector = ImageGenerationRequest {
             model: request.model.clone(),
