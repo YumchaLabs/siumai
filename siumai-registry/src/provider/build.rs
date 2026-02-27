@@ -23,13 +23,34 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // Use unified HTTP client builder from utils
     use crate::execution::http::client::build_http_client_from_config;
 
+    // Resolve provider id aliases into canonical ids and keep provider_type consistent.
+    if let Some(raw_id) = builder.provider_id.clone() {
+        let (provider_id, inferred_type) = super::resolver::resolve_provider(&raw_id);
+        builder.provider_id = Some(provider_id);
+
+        if let Some(explicit_type) = builder.provider_type.clone()
+            && explicit_type != inferred_type
+        {
+            return Err(LlmError::ConfigurationError(format!(
+                "Conflicting provider configuration: provider_id '{}' resolves to '{}', but provider_type is '{}'",
+                raw_id, inferred_type, explicit_type
+            )));
+        }
+
+        builder.provider_type = Some(inferred_type);
+    } else if let Some(pt) = builder.provider_type.clone() {
+        // If only provider_type is set, derive a reasonable default provider_id for downstream routing.
+        builder.provider_id = Some(pt.to_string());
+    }
+
     // Best-effort provider suggestion by model prefix (when provider is not set)
     if builder.provider_type.is_none()
         && !builder.common_params.model.is_empty()
         && let Some(pt) =
             super::resolver::infer_provider_type_from_model(&builder.common_params.model)
     {
-        builder.provider_type = Some(pt);
+        builder.provider_type = Some(pt.clone());
+        builder.provider_id.get_or_insert(pt.to_string());
     }
 
     // Extract all needed values first to avoid borrow checker issues

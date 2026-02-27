@@ -301,6 +301,17 @@ impl ProviderRegistryHandle {
     pub fn language_model(&self, id: &str) -> Result<LanguageModelHandle, LlmError> {
         let (mut provider_id, model_id) = self.split_id(id)?;
 
+        // Normalize common provider id aliases (e.g. "google" -> "gemini") when possible.
+        // Only apply normalization when the canonical id is registered and the raw id is not,
+        // to avoid surprising overrides for custom registries.
+        let normalized = crate::provider::resolver::normalize_provider_id(&provider_id);
+        if normalized != provider_id
+            && !self.providers.contains_key(&provider_id)
+            && self.providers.contains_key(&normalized)
+        {
+            provider_id = normalized;
+        }
+
         // Combine global middlewares with auto middlewares
         let mut middlewares = self.middlewares.clone();
         if self.auto_middleware {
