@@ -353,6 +353,21 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     let user_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>> =
         builder.model_middlewares.clone();
 
+    let base_ctx = BuildContext {
+        http_client: Some(built_http_client.clone()),
+        http_transport: builder.http_transport.clone(),
+        http_config: Some(http_config.clone()),
+        tracing_config: builder.tracing_config.clone(),
+        http_interceptors: interceptors.clone(),
+        model_middlewares: user_model_middlewares.clone(),
+        retry_options: builder.retry_options.clone(),
+        common_params: Some(common_params.clone()),
+        provider_id: builder.provider_id.clone(),
+        #[cfg(any(feature = "google", feature = "google-vertex"))]
+        gemini_token_provider: builder.gemini_token_provider.clone(),
+        ..Default::default()
+    };
+
     let client: Arc<dyn LlmClient> = match provider_type {
         #[cfg(feature = "openai")]
         ProviderType::OpenAi => {
@@ -361,23 +376,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             // Build unified context and delegate to OpenAIProviderFactory.
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                api_key: Some(api_key.clone()),
-                base_url: Some(resolved_base),
-                organization: organization.clone(),
-                project: project.clone(),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                provider_id: builder.provider_id.clone(),
-                #[cfg(any(feature = "google", feature = "google-vertex"))]
-                gemini_token_provider: builder.gemini_token_provider.clone(),
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = Some(resolved_base);
+            ctx.organization = organization.clone();
+            ctx.project = project.clone();
 
             let factory = crate::registry::factories::OpenAIProviderFactory;
             factory
@@ -409,18 +412,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     })?;
 
                     // Build unified context and delegate to AnthropicVertexProviderFactory.
-                    let ctx = BuildContext {
-                        http_client: Some(built_http_client.clone()),
-                        http_transport: builder.http_transport.clone(),
-                        http_config: Some(http_config.clone()),
-                        base_url: Some(base),
-                        tracing_config: builder.tracing_config.clone(),
-                        http_interceptors: interceptors.clone(),
-                        model_middlewares: user_model_middlewares.clone(),
-                        retry_options: builder.retry_options.clone(),
-                        common_params: Some(common_params.clone()),
-                        ..Default::default()
-                    };
+                    let mut ctx = base_ctx.clone();
+                    ctx.base_url = Some(base);
 
                     let factory = crate::registry::factories::AnthropicVertexProviderFactory;
                     factory
@@ -440,19 +433,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
                 // Build unified context and delegate to AnthropicProviderFactory.
-                let ctx = BuildContext {
-                    http_client: Some(built_http_client.clone()),
-                    http_transport: builder.http_transport.clone(),
-                    http_config: Some(http_config.clone()),
-                    api_key: Some(api_key.clone()),
-                    base_url: Some(anthropic_base_url),
-                    tracing_config: builder.tracing_config.clone(),
-                    http_interceptors: interceptors.clone(),
-                    model_middlewares: user_model_middlewares.clone(),
-                    retry_options: builder.retry_options.clone(),
-                    common_params: Some(common_params.clone()),
-                    ..Default::default()
-                };
+                let mut ctx = base_ctx.clone();
+                ctx.api_key = Some(api_key.clone());
+                ctx.base_url = Some(anthropic_base_url);
 
                 let factory = crate::registry::factories::AnthropicProviderFactory;
                 factory
@@ -471,23 +454,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             }
 
             // Build unified context and delegate to GeminiProviderFactory.
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                // Only override API key when explicitly set; otherwise allow factory
-                // to fall back to GEMINI_API_KEY or token-based auth.
-                api_key: builder.api_key.as_ref().map(|_| api_key.clone()),
-                base_url: Some(resolved_base),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                #[cfg(any(feature = "google", feature = "google-vertex"))]
-                gemini_token_provider: builder.gemini_token_provider.clone(),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            // Only override API key when explicitly set; otherwise allow factory
+            // to fall back to GEMINI_API_KEY or token-based auth.
+            ctx.api_key = builder.api_key.as_ref().map(|_| api_key.clone());
+            ctx.base_url = Some(resolved_base);
 
             let factory = crate::registry::factories::GeminiProviderFactory;
             factory
@@ -501,19 +472,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             let resolved_base =
                 crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                api_key: Some(api_key.clone()),
-                base_url: Some(resolved_base),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = Some(resolved_base);
 
             let factory = crate::registry::factories::XAIProviderFactory;
             factory
@@ -526,18 +487,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             let ollama_base_url =
                 crate::utils::builder_helpers::resolve_base_url(base_url, "http://localhost:11434");
 
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                base_url: Some(ollama_base_url),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.base_url = Some(ollama_base_url);
 
             let factory = crate::registry::factories::OllamaProviderFactory;
             factory
@@ -547,19 +498,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         #[cfg(feature = "groq")]
         ProviderType::Groq => {
             // Build unified context and delegate to GroqProviderFactory.
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                api_key: Some(api_key.clone()),
-                base_url: base_url.clone(),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = base_url.clone();
 
             let factory = crate::registry::factories::GroqProviderFactory;
             factory
@@ -568,20 +509,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "azure")]
         ProviderType::Custom(name) if name == "azure" => {
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                api_key: Some(api_key.clone()),
-                base_url: base_url.clone(),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                provider_id: builder.provider_id.clone(),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = base_url.clone();
 
             let chat_mode = match builder.provider_id.as_deref() {
                 Some("azure-chat") => {
@@ -604,18 +534,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "anthropic-vertex" => {
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                base_url: base_url.clone(),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.base_url = base_url.clone();
 
             let factory = crate::registry::factories::AnthropicVertexProviderFactory;
             factory
@@ -624,21 +544,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         }
         #[cfg(feature = "google-vertex")]
         ProviderType::Custom(name) if name == "vertex" => {
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                api_key: vertex_api_key.clone(),
-                base_url: base_url.clone(),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                #[cfg(any(feature = "google", feature = "google-vertex"))]
-                gemini_token_provider: builder.gemini_token_provider.clone(),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.api_key = vertex_api_key.clone();
+            ctx.base_url = base_url.clone();
 
             let factory = crate::registry::factories::GoogleVertexProviderFactory;
             factory
@@ -650,19 +558,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             {
                 // Build unified context and delegate to a generic OpenAI-compatible
                 // provider factory using the given provider id.
-                let ctx = BuildContext {
-                    http_client: Some(built_http_client.clone()),
-                    http_transport: builder.http_transport.clone(),
-                    http_config: Some(http_config.clone()),
-                    api_key: Some(api_key.clone()),
-                    base_url: base_url.clone(),
-                    tracing_config: builder.tracing_config.clone(),
-                    http_interceptors: interceptors.clone(),
-                    model_middlewares: user_model_middlewares.clone(),
-                    retry_options: builder.retry_options.clone(),
-                    common_params: Some(common_params.clone()),
-                    ..Default::default()
-                };
+                let mut ctx = base_ctx.clone();
+                ctx.api_key = Some(api_key.clone());
+                ctx.base_url = base_url.clone();
 
                 let factory =
                     crate::registry::factories::OpenAICompatibleProviderFactory::new(name.clone());
@@ -726,19 +624,9 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 crate::utils::builder_helpers::resolve_base_url(base_url, &default_base);
 
             // Build unified context and delegate to MiniMaxiProviderFactory.
-            let ctx = BuildContext {
-                http_client: Some(built_http_client.clone()),
-                http_transport: builder.http_transport.clone(),
-                http_config: Some(http_config.clone()),
-                api_key: Some(api_key.clone()),
-                base_url: Some(resolved_base),
-                tracing_config: builder.tracing_config.clone(),
-                http_interceptors: interceptors.clone(),
-                model_middlewares: user_model_middlewares.clone(),
-                retry_options: builder.retry_options.clone(),
-                common_params: Some(common_params.clone()),
-                ..Default::default()
-            };
+            let mut ctx = base_ctx.clone();
+            ctx.api_key = Some(api_key.clone());
+            ctx.base_url = Some(resolved_base);
 
             let factory = crate::registry::factories::MiniMaxiProviderFactory;
             factory
