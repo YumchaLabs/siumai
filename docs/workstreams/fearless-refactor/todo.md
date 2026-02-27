@@ -15,7 +15,7 @@ Last updated: 2026-02-27
 
 ### Registry routing (high value)
 
-- [ ] Reduce the `provider/build.rs` `match ProviderType` further by delegating to factories uniformly
+- [x] Reduce the `provider/build.rs` `match ProviderType` further by delegating to factories uniformly
       (aim: only build `BuildContext` + select the factory; no per-provider wiring).
 - [ ] Consider deprecating `SiumaiBuilder.provider_type` in favor of `provider_id` as the sole routing key,
       or enforce a strict consistency rule everywhere.
@@ -43,4 +43,3 @@ Last updated: 2026-02-27
 
 - [ ] Add a lightweight changelog note for the refactor milestones (when ready).
 - [ ] Add a migration note if any public paths change (only when unavoidable).
-

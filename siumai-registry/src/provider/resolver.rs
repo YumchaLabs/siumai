@@ -84,3 +84,59 @@ pub fn infer_provider_type_from_model(model: &str) -> Option<ProviderType> {
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_provider_id_aliases() {
+        assert_eq!(normalize_provider_id("google"), "gemini");
+        assert_eq!(normalize_provider_id("google-vertex"), "vertex");
+        assert_eq!(
+            normalize_provider_id("google-vertex-anthropic"),
+            "anthropic-vertex"
+        );
+    }
+
+    #[test]
+    fn provider_type_for_variants() {
+        assert_eq!(
+            provider_type_for_provider_id("openai"),
+            ProviderType::OpenAi
+        );
+        assert_eq!(
+            provider_type_for_provider_id("openai-chat"),
+            ProviderType::OpenAi
+        );
+        assert_eq!(
+            provider_type_for_provider_id("openai-responses"),
+            ProviderType::OpenAi
+        );
+
+        assert_eq!(
+            provider_type_for_provider_id("azure"),
+            ProviderType::Custom("azure".to_string())
+        );
+        assert_eq!(
+            provider_type_for_provider_id("azure-chat"),
+            ProviderType::Custom("azure".to_string())
+        );
+
+        assert_eq!(
+            provider_type_for_provider_id("anthropic-vertex"),
+            ProviderType::Custom("anthropic-vertex".to_string())
+        );
+        assert_eq!(
+            provider_type_for_provider_id("vertex"),
+            ProviderType::Custom("vertex".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_provider_applies_normalization() {
+        let (id, ty) = resolve_provider("google");
+        assert_eq!(id, "gemini");
+        assert_eq!(ty, ProviderType::Gemini);
+    }
+}

@@ -1,5 +1,192 @@
 use crate::error::LlmError;
 
+#[cfg(any(
+    feature = "openai",
+    feature = "azure",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex",
+    feature = "ollama",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi"
+))]
+fn select_factory(
+    provider_id: &str,
+) -> Result<std::sync::Arc<dyn crate::registry::entry::ProviderFactory>, LlmError> {
+    use crate::registry::entry::ProviderFactory;
+    use std::sync::Arc;
+
+    match provider_id {
+        "openai" | "openai-chat" | "openai-responses" => {
+            #[cfg(feature = "openai")]
+            {
+                Ok(Arc::new(crate::registry::factories::OpenAIProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "OpenAI provider requires the 'openai' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        "anthropic" => {
+            #[cfg(feature = "anthropic")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::AnthropicProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "anthropic"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Anthropic provider requires the 'anthropic' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        "anthropic-vertex" => {
+            #[cfg(feature = "google-vertex")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::AnthropicVertexProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Anthropic on Vertex requires the 'google-vertex' feature to be enabled"
+                        .to_string(),
+                ))
+            }
+        }
+        "gemini" => {
+            #[cfg(feature = "google")]
+            {
+                Ok(Arc::new(crate::registry::factories::GeminiProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "google"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Gemini provider requires the 'google' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        "vertex" => {
+            #[cfg(feature = "google-vertex")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Google Vertex provider requires the 'google-vertex' feature to be enabled"
+                        .to_string(),
+                ))
+            }
+        }
+        "ollama" => {
+            #[cfg(feature = "ollama")]
+            {
+                Ok(Arc::new(crate::registry::factories::OllamaProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "ollama"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Ollama provider requires the 'ollama' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        "xai" => {
+            #[cfg(feature = "xai")]
+            {
+                Ok(Arc::new(crate::registry::factories::XAIProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "xai"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "xAI provider requires the 'xai' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        "groq" => {
+            #[cfg(feature = "groq")]
+            {
+                Ok(Arc::new(crate::registry::factories::GroqProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "groq"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Groq provider requires the 'groq' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        "minimaxi" => {
+            #[cfg(feature = "minimaxi")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::MiniMaxiProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "minimaxi"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "MiniMaxi provider requires the 'minimaxi' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        "azure" | "azure-chat" => {
+            #[cfg(feature = "azure")]
+            {
+                let chat_mode = match provider_id {
+                    "azure-chat" => {
+                        siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions
+                    }
+                    _ => siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
+                };
+                Ok(
+                    Arc::new(crate::registry::factories::AzureOpenAiProviderFactory::new(
+                        chat_mode,
+                    )) as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "azure"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Azure OpenAI provider requires the 'azure' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        other => {
+            #[cfg(feature = "openai")]
+            {
+                Ok(Arc::new(
+                    crate::registry::factories::OpenAICompatibleProviderFactory::new(
+                        other.to_string(),
+                    ),
+                ) as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(LlmError::UnsupportedOperation(format!(
+                    "Custom provider '{}' requires 'openai' feature",
+                    other
+                )))
+            }
+        }
+    }
+}
+
 /// Build the unified Siumai provider from SiumaiBuilder
 #[cfg(any(
     feature = "openai",
@@ -16,7 +203,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     use crate::client::LlmClient;
     use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
     use crate::execution::middleware::LanguageModelMiddleware;
-    use crate::registry::entry::{BuildContext, ProviderFactory};
+    use crate::registry::entry::BuildContext;
     use crate::types::ProviderType;
     use std::sync::Arc;
 
@@ -69,11 +256,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ));
     }
 
-    // Extract all needed values to avoid borrow checker issues
-    #[cfg(feature = "openai")]
-    let organization = builder.organization.clone();
-    #[cfg(feature = "openai")]
-    let project = builder.project.clone();
     let reasoning_enabled = builder.reasoning_enabled;
     let reasoning_budget = builder.reasoning_budget;
     let http_config = builder.http_config.clone();
@@ -221,6 +403,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         http_config: Some(http_config.clone()),
         api_key: builder.api_key.clone(),
         base_url: builder.base_url.clone(),
+        organization: builder.organization.clone(),
+        project: builder.project.clone(),
         tracing_config: builder.tracing_config.clone(),
         http_interceptors: interceptors.clone(),
         model_middlewares: user_model_middlewares.clone(),
@@ -232,226 +416,29 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ..Default::default()
     };
 
-    let client: Arc<dyn LlmClient> = match provider_type {
-        #[cfg(feature = "openai")]
-        ProviderType::OpenAi => {
-            let mut ctx = base_ctx.clone();
-            ctx.organization = organization.clone();
-            ctx.project = project.clone();
+    // Some routing decisions depend on base_url (Anthropic on Vertex).
+    let mut effective_provider_id = builder
+        .provider_id
+        .clone()
+        .unwrap_or_else(|| provider_type.to_string());
+    if provider_type == ProviderType::Anthropic {
+        let base_url = builder.base_url.clone();
+        let is_vertex = effective_provider_id == "anthropic-vertex"
+            || base_url
+                .as_ref()
+                .map(|u| u.contains("aiplatform.googleapis.com"))
+                .unwrap_or(false);
+        if is_vertex {
+            effective_provider_id = "anthropic-vertex".to_string();
+        }
+    }
 
-            let factory = crate::registry::factories::OpenAIProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(feature = "anthropic")]
-        ProviderType::Anthropic => {
-            let base_url = builder.base_url.clone();
-            // Detect Anthropic on Vertex AI:
-            // - If provider_id is explicitly set to "anthropic-vertex"
-            // - Or base_url contains aiplatform.googleapis.com
-            // - Or Authorization header is present (and base_url looks like Vertex)
-            let is_vertex = builder
-                .provider_id
-                .as_deref()
-                .map(|n| n == "anthropic-vertex")
-                .unwrap_or(false)
-                || base_url
-                    .as_ref()
-                    .map(|u| u.contains("aiplatform.googleapis.com"))
-                    .unwrap_or(false);
-            if is_vertex {
-                #[cfg(feature = "google-vertex")]
-                {
-                    let base = base_url.clone().ok_or_else(|| {
-                        LlmError::ConfigurationError(
-                            "Anthropic on Vertex requires an explicit base_url (aiplatform.googleapis.com)".to_string(),
-                        )
-                    })?;
-
-                    // Build unified context and delegate to AnthropicVertexProviderFactory.
-                    let mut ctx = base_ctx.clone();
-                    ctx.base_url = Some(base);
-
-                    let factory = crate::registry::factories::AnthropicVertexProviderFactory;
-                    factory
-                        .language_model_with_ctx(&common_params.model, &ctx)
-                        .await?
-                }
-                #[cfg(not(feature = "google-vertex"))]
-                {
-                    return Err(LlmError::UnsupportedOperation(
-                        "Anthropic on Vertex requires the 'google-vertex' feature to be enabled"
-                            .to_string(),
-                    ));
-                }
-            } else {
-                // Build unified context and delegate to AnthropicProviderFactory.
-                let mut ctx = base_ctx.clone();
-
-                let factory = crate::registry::factories::AnthropicProviderFactory;
-                factory
-                    .language_model_with_ctx(&common_params.model, &ctx)
-                    .await?
-            }
-        }
-        #[cfg(feature = "google")]
-        ProviderType::Gemini => {
-            // Build unified context and delegate to GeminiProviderFactory.
-            let ctx = base_ctx.clone();
-
-            let factory = crate::registry::factories::GeminiProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(feature = "xai")]
-        ProviderType::XAI => {
-            // Build unified context and delegate to XAIProviderFactory.
-            let ctx = base_ctx.clone();
-
-            let factory = crate::registry::factories::XAIProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(feature = "ollama")]
-        ProviderType::Ollama => {
-            // Build unified context and delegate to OllamaProviderFactory.
-            let ctx = base_ctx.clone();
-
-            let factory = crate::registry::factories::OllamaProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(feature = "groq")]
-        ProviderType::Groq => {
-            // Build unified context and delegate to GroqProviderFactory.
-            let ctx = base_ctx.clone();
-
-            let factory = crate::registry::factories::GroqProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(feature = "azure")]
-        ProviderType::Custom(name) if name == "azure" => {
-            let ctx = base_ctx.clone();
-
-            let chat_mode = match builder.provider_id.as_deref() {
-                Some("azure-chat") => {
-                    siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions
-                }
-                _ => siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
-            };
-
-            let factory = crate::registry::factories::AzureOpenAiProviderFactory::new(chat_mode);
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(not(feature = "azure"))]
-        ProviderType::Custom(name) if name == "azure" => {
-            let _ = name;
-            return Err(LlmError::UnsupportedOperation(
-                "Azure OpenAI provider requires the 'azure' feature to be enabled".to_string(),
-            ));
-        }
-        #[cfg(feature = "google-vertex")]
-        ProviderType::Custom(name) if name == "anthropic-vertex" => {
-            let ctx = base_ctx.clone();
-
-            let factory = crate::registry::factories::AnthropicVertexProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(feature = "google-vertex")]
-        ProviderType::Custom(name) if name == "vertex" => {
-            let ctx = base_ctx.clone();
-
-            let factory = crate::registry::factories::GoogleVertexProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        ProviderType::Custom(name) => {
-            #[cfg(feature = "openai")]
-            {
-                // Build unified context and delegate to a generic OpenAI-compatible
-                // provider factory using the given provider id.
-                let ctx = base_ctx.clone();
-
-                let factory =
-                    crate::registry::factories::OpenAICompatibleProviderFactory::new(name.clone());
-                factory
-                    .language_model_with_ctx(&common_params.model, &ctx)
-                    .await?
-            }
-            #[cfg(not(feature = "openai"))]
-            {
-                return Err(LlmError::UnsupportedOperation(format!(
-                    "Custom provider '{}' requires 'openai' feature",
-                    name
-                )));
-            }
-        }
-
-        // Handle cases where required features are not enabled
-        #[cfg(not(feature = "openai"))]
-        ProviderType::OpenAi => {
-            return Err(LlmError::UnsupportedOperation(
-                "OpenAI provider requires the 'openai' feature to be enabled".to_string(),
-            ));
-        }
-        #[cfg(not(feature = "anthropic"))]
-        ProviderType::Anthropic => {
-            return Err(LlmError::UnsupportedOperation(
-                "Anthropic provider requires the 'anthropic' feature to be enabled".to_string(),
-            ));
-        }
-        #[cfg(not(feature = "google"))]
-        ProviderType::Gemini => {
-            return Err(LlmError::UnsupportedOperation(
-                "Gemini provider requires the 'google' feature to be enabled".to_string(),
-            ));
-        }
-        #[cfg(not(feature = "ollama"))]
-        ProviderType::Ollama => {
-            return Err(LlmError::UnsupportedOperation(
-                "Ollama provider requires the 'ollama' feature to be enabled".to_string(),
-            ));
-        }
-        #[cfg(not(feature = "xai"))]
-        ProviderType::XAI => {
-            return Err(LlmError::UnsupportedOperation(
-                "xAI provider requires the 'xai' feature to be enabled".to_string(),
-            ));
-        }
-        #[cfg(not(feature = "groq"))]
-        ProviderType::Groq => {
-            return Err(LlmError::UnsupportedOperation(
-                "Groq provider requires the 'groq' feature to be enabled".to_string(),
-            ));
-        }
-        #[cfg(feature = "minimaxi")]
-        ProviderType::MiniMaxi => {
-            // Build unified context and delegate to MiniMaxiProviderFactory.
-            let ctx = base_ctx.clone();
-
-            let factory = crate::registry::factories::MiniMaxiProviderFactory;
-            factory
-                .language_model_with_ctx(&common_params.model, &ctx)
-                .await?
-        }
-        #[cfg(not(feature = "minimaxi"))]
-        ProviderType::MiniMaxi => {
-            return Err(LlmError::UnsupportedOperation(
-                "MiniMaxi provider requires the 'minimaxi' feature to be enabled".to_string(),
-            ));
-        }
-    };
+    let factory = select_factory(&effective_provider_id)?;
+    let mut ctx = base_ctx.clone();
+    ctx.provider_id = Some(effective_provider_id);
+    let client: Arc<dyn LlmClient> = factory
+        .language_model_with_ctx(&common_params.model, &ctx)
+        .await?;
 
     // Retry options are now applied directly to underlying provider clients via
     // BuildContext and ProviderFactory. The outer Siumai wrapper keeps a

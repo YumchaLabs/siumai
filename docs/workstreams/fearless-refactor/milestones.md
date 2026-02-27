@@ -54,5 +54,9 @@ Acceptance criteria:
 - Provider-specific wiring lives in factories only.
 - Variants (e.g. `openai-chat`, `azure-chat`) are handled without new branching in build.
 
-Status: ⏳ in progress
+Status: ✅ done
 
+Notes:
+
+- `siumai-registry/src/provider/build.rs` now follows a “build `BuildContext` + select `ProviderFactory`” flow.
+- Provider variants are routed via `provider_id` (e.g. `openai-chat`, `openai-responses`, `azure-chat`).
