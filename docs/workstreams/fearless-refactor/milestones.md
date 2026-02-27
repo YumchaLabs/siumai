@@ -80,3 +80,15 @@ Acceptance criteria:
 - Keep backwards-compatible inference API only as a thin wrapper (if needed).
 
 Status: ✅ done
+
+## M7 — Factory contract tests (precedence rules)
+
+Acceptance criteria:
+
+- Add a small set of no-network “contract tests” for `ProviderFactory` implementations.
+- Validate BuildContext precedence (at least):
+  - `ctx.http_client` overrides `ctx.http_config`
+  - `ctx.api_key` overrides env fallback (where applicable)
+  - `ctx.base_url` overrides defaults (where applicable)
+
+Status: ✅ done

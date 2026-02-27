@@ -92,6 +92,8 @@ mod anthropic;
 mod anthropic_vertex;
 #[cfg(feature = "azure")]
 mod azure;
+#[cfg(test)]
+mod contract_tests;
 #[cfg(feature = "openai")]
 mod deepseek;
 #[cfg(feature = "google")]

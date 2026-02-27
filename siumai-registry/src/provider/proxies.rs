@@ -175,6 +175,8 @@ impl<'a> VisionCapabilityProxy<'a> {
 mod tests {
     use super::*;
     use crate::client::LlmClient;
+    #[cfg(any(feature = "ollama", feature = "openai"))]
+    use crate::provider::SiumaiBuilder;
     use crate::streaming::ChatStream;
     use crate::traits::*;
     use crate::types::*;
