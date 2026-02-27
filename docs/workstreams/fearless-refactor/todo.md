@@ -41,7 +41,8 @@ Last updated: 2026-02-27
   1) `ctx.http_client` > build from `ctx.http_config`
   2) `ctx.api_key` > env var (when required)
   3) `ctx.base_url` > provider default (when applicable)
--   - Progress: contract tests cover `openai`, `deepseek` (OpenAI-compatible), `openrouter`, `azure`, `gemini`, `vertex`.
+-   - Progress: contract tests cover `openai`, OpenAI-compatible presets (`deepseek`, `openrouter`),
+        `azure`, `anthropic`, `gemini`, `groq`, `xai`, `ollama`, `minimaxi`, `vertex`, `anthropic-vertex`.
 - [x] Add a small set of “contract tests” that can be reused by each factory (no network),
       and expand coverage across multiple factories.
 
