@@ -143,12 +143,15 @@ impl Default for HttpConfig {
             }
             Err(_) => true,
         };
+        const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+        const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+        const DEFAULT_USER_AGENT: &str = concat!("siumai/", env!("CARGO_PKG_VERSION"));
         Self {
-            timeout: Some(crate::defaults::http::REQUEST_TIMEOUT),
-            connect_timeout: Some(crate::defaults::http::CONNECT_TIMEOUT),
+            timeout: Some(DEFAULT_REQUEST_TIMEOUT),
+            connect_timeout: Some(DEFAULT_CONNECT_TIMEOUT),
             headers: HashMap::new(),
             proxy: None,
-            user_agent: Some(crate::defaults::http::USER_AGENT.to_string()),
+            user_agent: Some(DEFAULT_USER_AGENT.to_string()),
             stream_disable_compression: sdc,
         }
     }

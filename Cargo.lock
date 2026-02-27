@@ -2995,6 +2995,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "siumai-spec",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -3603,6 +3604,19 @@ dependencies = [
  "tokio-test",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "siumai-spec"
+version = "0.11.0-beta.5"
+dependencies = [
+ "base64",
+ "chrono",
+ "futures",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

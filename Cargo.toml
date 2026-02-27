@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "siumai",
     "siumai-core",
+    "siumai-spec",
     "siumai-registry",
     "siumai-extras",
     "siumai-provider-openai",
@@ -85,6 +86,7 @@ infer = "0.19"
 # Disable default features; downstream crates must opt-in provider features explicitly
 siumai = { version = "0.11.0-beta.5", path = "siumai", default-features = false }
 siumai-core = { version = "0.11.0-beta.5", path = "siumai-core", default-features = false }
+siumai-spec = { version = "0.11.0-beta.5", path = "siumai-spec", default-features = false }
 siumai-registry = { version = "0.11.0-beta.5", path = "siumai-registry", default-features = false }
 
 # Security

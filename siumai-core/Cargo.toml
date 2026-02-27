@@ -21,6 +21,7 @@ features = ["openai"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+siumai-spec = { workspace = true, default-features = false }
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -51,7 +52,7 @@ jsonrepair = { version = "0.1", optional = true, features = ["serde"] }
 [features]
 default = []
 
-structured-messages = []
+structured-messages = ["siumai-spec/structured-messages"]
 
 openai = []
 anthropic = []
@@ -90,4 +91,3 @@ wiremock.workspace = true
 tracing-test.workspace = true
 tempfile.workspace = true
 proptest.workspace = true
-
