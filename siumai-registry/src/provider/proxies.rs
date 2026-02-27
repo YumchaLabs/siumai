@@ -182,8 +182,6 @@ mod tests {
     use std::borrow::Cow;
     use std::sync::Arc;
 
-    use super::super::SiumaiBuilder;
-
     // Mock provider for testing that doesn't support embedding
     #[derive(Debug)]
     struct MockProvider;

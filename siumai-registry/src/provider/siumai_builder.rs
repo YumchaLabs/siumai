@@ -99,36 +99,10 @@ impl SiumaiBuilder {
     /// Recommended to use canonical ids like "openai", "anthropic", "gemini".
     pub fn provider_id<S: Into<String>>(mut self, id: S) -> Self {
         let raw = id.into();
-        let name = match raw.as_str() {
-            "google" => "gemini",
-            "google-vertex" => "vertex",
-            "google-vertex-anthropic" => "anthropic-vertex",
-            other => other,
-        }
-        .to_string();
+        let (provider_id, provider_type) = super::resolver::resolve_provider(&raw);
 
-        self.provider_id = Some(name.clone());
-
-        // Map provider name to type
-        self.provider_type = Some(match name.as_str() {
-            "openai" => ProviderType::OpenAi,
-            "openai-chat" => ProviderType::OpenAi,
-            "openai-responses" => ProviderType::OpenAi,
-            "azure" => ProviderType::Custom("azure".to_string()),
-            "azure-chat" => ProviderType::Custom("azure".to_string()),
-            "anthropic" => ProviderType::Anthropic,
-            "anthropic-vertex" => ProviderType::Custom("anthropic-vertex".to_string()),
-            "gemini" => ProviderType::Gemini,
-            "vertex" => ProviderType::Custom("vertex".to_string()),
-            "ollama" => ProviderType::Ollama,
-            "xai" => ProviderType::XAI,
-            "groq" => ProviderType::Groq,
-            "minimaxi" => ProviderType::MiniMaxi,
-            "siliconflow" => ProviderType::Custom("siliconflow".to_string()),
-            "deepseek" => ProviderType::Custom("deepseek".to_string()),
-            "openrouter" => ProviderType::Custom("openrouter".to_string()),
-            _ => ProviderType::Custom(name.clone()),
-        });
+        self.provider_id = Some(provider_id);
+        self.provider_type = Some(provider_type);
         // OpenAI chat routing is resolved during client construction based on provider_id:
         // - "openai" / "openai-responses" => Responses API (default)
         // - "openai-chat" => Chat Completions

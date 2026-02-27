@@ -1,70 +1,4 @@
 use crate::error::LlmError;
-#[cfg(any(
-    test,
-    feature = "openai",
-    feature = "azure",
-    feature = "anthropic",
-    feature = "google",
-    feature = "google-vertex",
-    feature = "ollama",
-    feature = "xai",
-    feature = "groq",
-    feature = "minimaxi"
-))]
-use crate::types::ProviderType;
-
-#[cfg(any(
-    test,
-    feature = "openai",
-    feature = "azure",
-    feature = "anthropic",
-    feature = "google",
-    feature = "google-vertex",
-    feature = "ollama",
-    feature = "xai",
-    feature = "groq",
-    feature = "minimaxi"
-))]
-fn infer_provider_from_model(model: &str) -> Option<ProviderType> {
-    let model = model.trim();
-    if model.is_empty() {
-        return None;
-    }
-
-    // Keep inference intentionally conservative:
-    // - only infer when the model prefix is strongly associated with a provider
-    // - do not infer OpenAI / OpenAI-compatible providers because prefixes overlap heavily
-    #[cfg(feature = "anthropic")]
-    {
-        if model.starts_with("claude") {
-            return Some(ProviderType::Anthropic);
-        }
-    }
-
-    #[cfg(feature = "google")]
-    {
-        if model.starts_with("gemini")
-            || model.contains("/models/gemini")
-            || model.contains("models/gemini")
-            || model.contains("publishers/google/models/gemini")
-        {
-            return Some(ProviderType::Gemini);
-        }
-    }
-
-    #[cfg(feature = "google-vertex")]
-    {
-        if model.starts_with("imagen")
-            || model.contains("/models/imagen")
-            || model.contains("models/imagen")
-            || model.contains("publishers/google/models/imagen")
-        {
-            return Some(ProviderType::Custom("vertex".to_string()));
-        }
-    }
-
-    None
-}
 
 /// Build the unified Siumai provider from SiumaiBuilder
 #[cfg(any(
@@ -83,6 +17,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
     use crate::execution::middleware::LanguageModelMiddleware;
     use crate::registry::entry::{BuildContext, ProviderFactory};
+    use crate::types::ProviderType;
     use std::sync::Arc;
 
     // Use unified HTTP client builder from utils
@@ -91,7 +26,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     // Best-effort provider suggestion by model prefix (when provider is not set)
     if builder.provider_type.is_none()
         && !builder.common_params.model.is_empty()
-        && let Some(pt) = infer_provider_from_model(&builder.common_params.model)
+        && let Some(pt) =
+            super::resolver::infer_provider_type_from_model(&builder.common_params.model)
     {
         builder.provider_type = Some(pt);
     }
@@ -844,19 +780,19 @@ pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmE
 
 #[cfg(test)]
 mod tests {
-    use super::infer_provider_from_model;
+    use super::super::resolver::infer_provider_type_from_model;
 
     #[test]
     fn infer_provider_empty_is_none() {
-        assert!(infer_provider_from_model("").is_none());
-        assert!(infer_provider_from_model("   ").is_none());
+        assert!(infer_provider_type_from_model("").is_none());
+        assert!(infer_provider_type_from_model("   ").is_none());
     }
 
     #[test]
     fn infer_provider_is_conservative_for_openai_like_models() {
-        assert!(infer_provider_from_model("gpt-4o").is_none());
-        assert!(infer_provider_from_model("gpt-4.1").is_none());
-        assert!(infer_provider_from_model("text-embedding-3-large").is_none());
+        assert!(infer_provider_type_from_model("gpt-4o").is_none());
+        assert!(infer_provider_type_from_model("gpt-4.1").is_none());
+        assert!(infer_provider_type_from_model("text-embedding-3-large").is_none());
     }
 
     #[cfg(feature = "anthropic")]
@@ -864,7 +800,7 @@ mod tests {
     fn infer_provider_anthropic_claude() {
         use crate::types::ProviderType;
         assert_eq!(
-            infer_provider_from_model("claude-3-5-sonnet-20241022"),
+            infer_provider_type_from_model("claude-3-5-sonnet-20241022"),
             Some(ProviderType::Anthropic)
         );
     }
@@ -874,15 +810,15 @@ mod tests {
     fn infer_provider_gemini_prefixes() {
         use crate::types::ProviderType;
         assert_eq!(
-            infer_provider_from_model("gemini-2.5-flash"),
+            infer_provider_type_from_model("gemini-2.5-flash"),
             Some(ProviderType::Gemini)
         );
         assert_eq!(
-            infer_provider_from_model("models/gemini-1.5-flash"),
+            infer_provider_type_from_model("models/gemini-1.5-flash"),
             Some(ProviderType::Gemini)
         );
         assert_eq!(
-            infer_provider_from_model("publishers/google/models/gemini-1.5-pro"),
+            infer_provider_type_from_model("publishers/google/models/gemini-1.5-pro"),
             Some(ProviderType::Gemini)
         );
     }

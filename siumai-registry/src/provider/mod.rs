@@ -72,5 +72,7 @@ pub use proxies::{AudioCapabilityProxy, EmbeddingCapabilityProxy};
 mod siumai_builder;
 pub use siumai_builder::SiumaiBuilder;
 
+mod resolver;
+
 // Keep module slim by moving heavy build logic out
 pub mod build;
