@@ -152,5 +152,5 @@ macro_rules! quick_chat {
     };
 }
 
-// `siumai_for_each_openai_compatible_provider` is defined in `siumai-core` and
-// re-exported from this crate (see `siumai/src/lib.rs`).
+// `siumai_for_each_openai_compatible_provider` is defined in
+// `siumai-provider-openai-compatible` and re-exported from this crate (see `siumai/src/lib.rs`).

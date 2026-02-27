@@ -17,7 +17,7 @@ use crate::provider::SiumaiBuilder;
 ))]
 use crate::types::ProviderType;
 #[cfg(feature = "openai")]
-use siumai_core::siumai_for_each_openai_compatible_provider;
+use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider;
 
 // Generate SiumaiBuilder methods for all OpenAI-compatible providers
 // Placed at module scope so methods can be expanded inside impl blocks.

@@ -9,6 +9,8 @@
 //! implementation (vendor adapters + routing), aligned with the Vercel AI SDK package layout.
 #![deny(unsafe_code)]
 
+mod macros;
+
 pub use siumai_protocol_openai::*;
 
 /// OpenAI-compatible providers (vendor presets, adapter registry, client).
