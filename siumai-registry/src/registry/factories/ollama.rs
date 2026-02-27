@@ -1,6 +1,7 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::provider::ids;
 
 /// Ollama provider factory
 #[cfg(feature = "ollama")]
@@ -12,7 +13,7 @@ impl ProviderFactory for OllamaProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
         let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
-            .find(|m| m.id == "ollama")
+            .find(|m| m.id == ids::OLLAMA)
             .map(|m| m.capabilities)
             .unwrap_or_else(ProviderCapabilities::new)
     }
@@ -97,6 +98,6 @@ impl ProviderFactory for OllamaProviderFactory {
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("ollama")
+        std::borrow::Cow::Borrowed(ids::OLLAMA)
     }
 }

@@ -1,6 +1,7 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::provider::ids;
 
 /// Anthropic provider factory
 #[cfg(feature = "anthropic")]
@@ -12,7 +13,7 @@ impl ProviderFactory for AnthropicProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
         let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
-            .find(|m| m.id == "anthropic")
+            .find(|m| m.id == ids::ANTHROPIC)
             .map(|m| m.capabilities)
             .unwrap_or_else(ProviderCapabilities::new)
     }
@@ -109,6 +110,6 @@ impl ProviderFactory for AnthropicProviderFactory {
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("anthropic")
+        std::borrow::Cow::Borrowed(ids::ANTHROPIC)
     }
 }

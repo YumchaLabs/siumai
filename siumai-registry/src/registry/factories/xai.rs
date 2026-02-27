@@ -1,6 +1,7 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::provider::ids;
 
 /// xAI provider factory
 #[cfg(feature = "xai")]
@@ -12,7 +13,7 @@ impl ProviderFactory for XAIProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
         let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
-            .find(|m| m.id == "xai")
+            .find(|m| m.id == ids::XAI)
             .map(|m| m.capabilities)
             .unwrap_or_else(ProviderCapabilities::new)
     }
@@ -150,6 +151,6 @@ impl ProviderFactory for XAIProviderFactory {
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("xai")
+        std::borrow::Cow::Borrowed(ids::XAI)
     }
 }
