@@ -33,6 +33,8 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 .collect()
         };
 
+    let native_metas = crate::native_provider_metadata::native_providers_metadata();
+
     let mut out = Vec::new();
     for rec in providers_iter {
         let ptype = ProviderType::from_name(&rec.id);
@@ -40,7 +42,6 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
         match ptype {
             #[cfg(feature = "openai")]
             ProviderType::OpenAi => {
-                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "openai")
@@ -74,7 +75,6 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "anthropic")]
             ProviderType::Anthropic => {
-                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "anthropic")
@@ -148,7 +148,6 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "google")]
             ProviderType::Gemini => {
-                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "gemini")
@@ -216,7 +215,6 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "ollama")]
             ProviderType::Ollama => {
-                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "ollama")
@@ -263,7 +261,6 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "xai")]
             ProviderType::XAI => {
-                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "xai")
@@ -284,7 +281,6 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "groq")]
             ProviderType::Groq => {
-                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "groq")
@@ -306,7 +302,6 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
             }
             #[cfg(feature = "minimaxi")]
             ProviderType::MiniMaxi => {
-                let native_metas = crate::native_provider_metadata::native_providers_metadata();
                 let meta = native_metas
                     .iter()
                     .find(|m| m.id == "minimaxi")
@@ -331,6 +326,25 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 });
             }
             ProviderType::Custom(_) => {
+                // Treat native providers that aren't represented in `ProviderType` as built-ins
+                // when they are registered via the shared native metadata table.
+                if let Some(meta) = native_metas.iter().find(|m| m.id == rec.id) {
+                    let mut models: Vec<Cow<'static, str>> = Vec::new();
+                    if let Some(m) = rec.default_model.clone() {
+                        models.push(Cow::Owned(m));
+                    }
+
+                    out.push(ProviderInfo {
+                        provider_type: ProviderType::Custom(rec.id.clone()),
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(meta.default_base_url.unwrap_or("N/A")),
+                        supported_models: models,
+                    });
+                    continue;
+                }
+
                 // OpenAI-compatible providers are registered as concrete provider ids
                 // (e.g. "deepseek", "openrouter", "siliconflow"). Keep this catalog
                 // as a discovery helper, not a strict source of truth for model lists.
@@ -447,7 +461,6 @@ pub fn is_model_supported_by_id(provider_id: &str, model: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "openai")]
     use super::*;
 
     #[test]
@@ -467,5 +480,29 @@ mod tests {
     fn provider_catalog_lookup_by_id_works_for_openai_compatible() {
         let info = get_provider_info_by_id("deepseek").expect("deepseek should exist");
         assert!(matches!(info.provider_type, ProviderType::Custom(id) if id == "deepseek"));
+    }
+
+    #[test]
+    #[cfg(feature = "cohere")]
+    fn provider_catalog_uses_native_metadata_for_cohere() {
+        let info = get_provider_info_by_id("cohere").expect("cohere should exist");
+        assert_eq!(info.name.as_ref(), "Cohere");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.capabilities.rerank,
+            "expected cohere to support rerank"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "togetherai")]
+    fn provider_catalog_uses_native_metadata_for_togetherai() {
+        let info = get_provider_info_by_id("togetherai").expect("togetherai should exist");
+        assert_eq!(info.name.as_ref(), "TogetherAI");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.capabilities.rerank,
+            "expected togetherai to support rerank"
+        );
     }
 }

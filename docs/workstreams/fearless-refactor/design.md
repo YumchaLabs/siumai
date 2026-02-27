@@ -24,6 +24,9 @@ to reduce coupling and simplify long-term maintenance.
    - API key/env/base_url defaults must live in `ProviderFactory` implementations, not in a top-level match.
 4. **Stable surfaces via re-export shims**
    - We can move internals while keeping downstream imports stable during transition periods.
+5. **Catalogs are metadata-driven**
+   - Provider “catalog” output should be built from the shared metadata table when available.
+   - Avoid misleading labels like “Custom provider” for built-ins that are simply not represented in `ProviderType`.
 
 ## Target layering (medium granularity)
 

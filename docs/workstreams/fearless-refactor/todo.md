@@ -10,6 +10,7 @@ Last updated: 2026-02-27
 - Provider id resolver centralized in `siumai-registry`.
 - Unified builder/build path delegates API key and base_url defaults to `ProviderFactory`.
 - Registry handle normalizes common aliases when safe.
+- Provider catalog prefers shared native metadata for built-in providers (avoids “Custom provider” mislabeling).
 
 ## TODO (next)
 

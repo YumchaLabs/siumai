@@ -120,3 +120,13 @@ Acceptance criteria:
   - error fast if selected by `provider_id`
 
 Status: ✅ done
+
+## M9 — Provider catalog accuracy (native metadata first)
+
+Acceptance criteria:
+
+- Providers registered via the native metadata table are shown as built-ins in the catalog,
+  even when `ProviderType` does not have a dedicated enum variant for them.
+- OpenAI-compatible adapters remain discoverable as “OpenAI-compatible (via adapter)”.
+
+Status: ✅ done
