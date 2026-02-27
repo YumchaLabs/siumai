@@ -6,6 +6,7 @@
 use super::types::LlmError;
 
 // From implementations
+#[cfg(feature = "reqwest")]
 impl From<reqwest::Error> for LlmError {
     fn from(err: reqwest::Error) -> Self {
         Self::HttpError(err.to_string())
@@ -23,6 +24,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "reqwest")]
     fn test_from_reqwest_error() {
         // We can't easily create a reqwest::Error, so we'll just verify the trait exists
         // The actual conversion is tested implicitly when used in the codebase
