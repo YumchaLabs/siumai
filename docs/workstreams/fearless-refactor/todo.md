@@ -11,6 +11,7 @@ Last updated: 2026-02-27
 - Unified builder/build path delegates API key and base_url defaults to `ProviderFactory`.
 - Registry handle normalizes common aliases when safe.
 - Provider catalog prefers shared native metadata for built-in providers (avoids “Custom provider” mislabeling).
+- Built-in catalog sets default models for rerank-only providers (Cohere/TogetherAI) for better introspection output.
 
 ## TODO (next)
 

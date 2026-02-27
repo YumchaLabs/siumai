@@ -492,6 +492,12 @@ mod tests {
             info.capabilities.rerank,
             "expected cohere to support rerank"
         );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "rerank-english-v3.0"),
+            "expected cohere default model to be listed"
+        );
     }
 
     #[test]
@@ -503,6 +509,12 @@ mod tests {
         assert!(
             info.capabilities.rerank,
             "expected togetherai to support rerank"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "Salesforce/Llama-Rank-v1"),
+            "expected togetherai default model to be listed"
         );
     }
 }

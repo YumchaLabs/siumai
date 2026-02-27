@@ -130,6 +130,20 @@ mod builtins {
                 );
             }
 
+            // Default models for rerank-only providers (improves catalog output).
+            #[cfg(feature = "cohere")]
+            {
+                if let Some(rec) = self.resolve(crate::provider::ids::COHERE).cloned() {
+                    self.register(rec.with_default_model("rerank-english-v3.0"));
+                }
+            }
+            #[cfg(feature = "togetherai")]
+            {
+                if let Some(rec) = self.resolve(crate::provider::ids::TOGETHERAI).cloned() {
+                    self.register(rec.with_default_model("Salesforce/Llama-Rank-v1"));
+                }
+            }
+
             // Anthropic on Vertex AI (native wrapper around Anthropic via Vertex).
             #[cfg(feature = "google-vertex")]
             {
@@ -392,6 +406,29 @@ mod builtins {
         fn test_registry_registers_togetherai() {
             let registry = ProviderRegistry::with_builtin_providers();
             assert!(registry.resolve(crate::provider::ids::TOGETHERAI).is_some());
+        }
+
+        #[test]
+        #[cfg(feature = "cohere")]
+        fn test_registry_sets_cohere_default_model() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            let rec = registry
+                .resolve(crate::provider::ids::COHERE)
+                .expect("cohere should be registered");
+            assert_eq!(rec.default_model.as_deref(), Some("rerank-english-v3.0"));
+        }
+
+        #[test]
+        #[cfg(feature = "togetherai")]
+        fn test_registry_sets_togetherai_default_model() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            let rec = registry
+                .resolve(crate::provider::ids::TOGETHERAI)
+                .expect("togetherai should be registered");
+            assert_eq!(
+                rec.default_model.as_deref(),
+                Some("Salesforce/Llama-Rank-v1")
+            );
         }
 
         #[test]
