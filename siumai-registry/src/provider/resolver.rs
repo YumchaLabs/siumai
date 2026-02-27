@@ -1,9 +1,11 @@
+use crate::provider::ids;
+
 /// Normalize provider id aliases into a canonical id used across the registry.
 pub fn normalize_provider_id(raw: &str) -> String {
     match raw.trim() {
-        "google" => "gemini".to_string(),
-        "google-vertex" => "vertex".to_string(),
-        "google-vertex-anthropic" => "anthropic-vertex".to_string(),
+        "google" => ids::GEMINI.to_string(),
+        ids::GOOGLE_VERTEX_ALIAS => ids::VERTEX.to_string(),
+        "google-vertex-anthropic" => ids::ANTHROPIC_VERTEX.to_string(),
         other => other.to_string(),
     }
 }
@@ -16,11 +18,11 @@ pub fn normalize_provider_id(raw: &str) -> String {
 pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
     match provider_id {
         // Native / built-in families (not OpenAI-compatible)
-        "openai" | "openai-chat" | "openai-responses" => false,
-        "azure" | "azure-chat" => false,
-        "anthropic" | "anthropic-vertex" => false,
-        "gemini" | "vertex" => false,
-        "ollama" | "xai" | "groq" | "minimaxi" => false,
+        ids::OPENAI | ids::OPENAI_CHAT | ids::OPENAI_RESPONSES => false,
+        ids::AZURE | ids::AZURE_CHAT => false,
+        ids::ANTHROPIC | ids::ANTHROPIC_VERTEX => false,
+        ids::GEMINI | ids::VERTEX => false,
+        ids::OLLAMA | ids::XAI | ids::GROQ | ids::MINIMAXI => false,
         // Anything else is treated as OpenAI-compatible (custom providers).
         _ => true,
     }
@@ -50,7 +52,7 @@ pub fn infer_provider_id_from_model(model: &str) -> Option<String> {
     #[cfg(feature = "anthropic")]
     {
         if model.starts_with("claude") {
-            return Some("anthropic".to_string());
+            return Some(ids::ANTHROPIC.to_string());
         }
     }
 
@@ -61,7 +63,7 @@ pub fn infer_provider_id_from_model(model: &str) -> Option<String> {
             || model.contains("models/gemini")
             || model.contains("publishers/google/models/gemini")
         {
-            return Some("gemini".to_string());
+            return Some(ids::GEMINI.to_string());
         }
     }
 
@@ -72,7 +74,7 @@ pub fn infer_provider_id_from_model(model: &str) -> Option<String> {
             || model.contains("models/imagen")
             || model.contains("publishers/google/models/imagen")
         {
-            return Some("vertex".to_string());
+            return Some(ids::VERTEX.to_string());
         }
     }
 

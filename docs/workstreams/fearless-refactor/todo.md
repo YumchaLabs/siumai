@@ -19,10 +19,10 @@ Last updated: 2026-02-27
       (aim: only build `BuildContext` + select the factory; no per-provider wiring).
 - [x] Consider deprecating `SiumaiBuilder.provider_type` in favor of `provider_id` as the sole routing key,
       or enforce a strict consistency rule everywhere.
-- [ ] Make provider “variant routing” explicit:
+- [x] Make provider “variant routing” explicit:
   - `openai-chat` / `openai-responses`
   - `azure-chat`
-  - future variants should not require editing multiple layers
+  - centralized ids + parsing live in `siumai-registry/src/provider/ids.rs`
 
 ### Resolver cleanup
 

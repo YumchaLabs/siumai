@@ -1,4 +1,5 @@
 use crate::error::LlmError;
+use crate::provider::ids;
 
 #[cfg(any(
     feature = "openai",
@@ -17,8 +18,12 @@ fn select_factory(
     use crate::registry::entry::ProviderFactory;
     use std::sync::Arc;
 
-    match provider_id {
-        "openai" | "openai-chat" | "openai-responses" => {
+    match ids::BuiltinProviderId::parse(provider_id) {
+        Some(
+            ids::BuiltinProviderId::OpenAi
+            | ids::BuiltinProviderId::OpenAiChat
+            | ids::BuiltinProviderId::OpenAiResponses,
+        ) => {
             #[cfg(feature = "openai")]
             {
                 Ok(Arc::new(crate::registry::factories::OpenAIProviderFactory)
@@ -31,7 +36,7 @@ fn select_factory(
                 ))
             }
         }
-        "anthropic" => {
+        Some(ids::BuiltinProviderId::Anthropic) => {
             #[cfg(feature = "anthropic")]
             {
                 Ok(
@@ -46,7 +51,7 @@ fn select_factory(
                 ))
             }
         }
-        "anthropic-vertex" => {
+        Some(ids::BuiltinProviderId::AnthropicVertex) => {
             #[cfg(feature = "google-vertex")]
             {
                 Ok(
@@ -62,7 +67,7 @@ fn select_factory(
                 ))
             }
         }
-        "gemini" => {
+        Some(ids::BuiltinProviderId::Gemini) => {
             #[cfg(feature = "google")]
             {
                 Ok(Arc::new(crate::registry::factories::GeminiProviderFactory)
@@ -75,7 +80,7 @@ fn select_factory(
                 ))
             }
         }
-        "vertex" => {
+        Some(ids::BuiltinProviderId::Vertex) => {
             #[cfg(feature = "google-vertex")]
             {
                 Ok(
@@ -91,7 +96,7 @@ fn select_factory(
                 ))
             }
         }
-        "ollama" => {
+        Some(ids::BuiltinProviderId::Ollama) => {
             #[cfg(feature = "ollama")]
             {
                 Ok(Arc::new(crate::registry::factories::OllamaProviderFactory)
@@ -104,7 +109,7 @@ fn select_factory(
                 ))
             }
         }
-        "xai" => {
+        Some(ids::BuiltinProviderId::Xai) => {
             #[cfg(feature = "xai")]
             {
                 Ok(Arc::new(crate::registry::factories::XAIProviderFactory)
@@ -117,7 +122,7 @@ fn select_factory(
                 ))
             }
         }
-        "groq" => {
+        Some(ids::BuiltinProviderId::Groq) => {
             #[cfg(feature = "groq")]
             {
                 Ok(Arc::new(crate::registry::factories::GroqProviderFactory)
@@ -130,7 +135,7 @@ fn select_factory(
                 ))
             }
         }
-        "minimaxi" => {
+        Some(ids::BuiltinProviderId::MiniMaxi) => {
             #[cfg(feature = "minimaxi")]
             {
                 Ok(
@@ -145,11 +150,11 @@ fn select_factory(
                 ))
             }
         }
-        "azure" | "azure-chat" => {
+        Some(ids::BuiltinProviderId::Azure | ids::BuiltinProviderId::AzureChat) => {
             #[cfg(feature = "azure")]
             {
                 let chat_mode = match provider_id {
-                    "azure-chat" => {
+                    ids::AZURE_CHAT => {
                         siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions
                     }
                     _ => siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
@@ -167,12 +172,12 @@ fn select_factory(
                 ))
             }
         }
-        other => {
+        None => {
             #[cfg(feature = "openai")]
             {
                 Ok(Arc::new(
                     crate::registry::factories::OpenAICompatibleProviderFactory::new(
-                        other.to_string(),
+                        provider_id.to_string(),
                     ),
                 ) as Arc<dyn ProviderFactory>)
             }
@@ -180,7 +185,7 @@ fn select_factory(
             {
                 Err(LlmError::UnsupportedOperation(format!(
                     "Custom provider '{}' requires 'openai' feature",
-                    other
+                    provider_id
                 )))
             }
         }
@@ -230,14 +235,14 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Some routing decisions depend on base_url (Anthropic on Vertex).
     let mut effective_provider_id = provider_id.clone();
-    if effective_provider_id == "anthropic" {
+    if effective_provider_id == ids::ANTHROPIC {
         let base_url = builder.base_url.clone();
         let is_vertex = base_url
             .as_ref()
             .map(|u| u.contains("aiplatform.googleapis.com"))
             .unwrap_or(false);
         if is_vertex {
-            effective_provider_id = "anthropic-vertex".to_string();
+            effective_provider_id = ids::ANTHROPIC_VERTEX.to_string();
         }
     }
 
@@ -272,86 +277,86 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         // Set default model based on provider id.
         common_params.model = match effective_provider_id.as_str() {
             #[cfg(feature = "openai")]
-            "openai" | "openai-chat" | "openai-responses" => {
+            id if ids::is_openai_family(id) => {
                 siumai_provider_openai::providers::openai::model_constants::gpt_4o::GPT_4O
                     .to_string()
             }
             #[cfg(not(feature = "openai"))]
-            "openai" | "openai-chat" | "openai-responses" => {
+            id if ids::is_openai_family(id) => {
                 return Err(LlmError::UnsupportedOperation(
                     "OpenAI feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "azure")]
-            "azure" | "azure-chat" => {
+            id if ids::is_azure_family(id) => {
                 return Err(LlmError::ConfigurationError(
                     "Azure OpenAI requires an explicit model (deployment id)".to_string(),
                 ));
             }
             #[cfg(not(feature = "azure"))]
-            "azure" | "azure-chat" => {
+            id if ids::is_azure_family(id) => {
                 return Err(LlmError::UnsupportedOperation(
                     "Azure OpenAI provider requires the 'azure' feature to be enabled".to_string(),
                 ));
             }
             #[cfg(feature = "anthropic")]
-            "anthropic" => siumai_provider_anthropic::providers::anthropic::model_constants::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022.to_string(),
+            ids::ANTHROPIC => siumai_provider_anthropic::providers::anthropic::model_constants::claude_sonnet_3_5::CLAUDE_3_5_SONNET_20241022.to_string(),
             #[cfg(not(feature = "anthropic"))]
-            "anthropic" => {
+            ids::ANTHROPIC => {
                 return Err(LlmError::UnsupportedOperation(
                     "Anthropic feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "google")]
-            "gemini" => siumai_provider_gemini::providers::gemini::model_constants::gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
+            ids::GEMINI => siumai_provider_gemini::providers::gemini::model_constants::gemini_2_5_flash::GEMINI_2_5_FLASH.to_string(),
             #[cfg(not(feature = "google"))]
-            "gemini" => {
+            ids::GEMINI => {
                 return Err(LlmError::UnsupportedOperation(
                     "Google feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "google-vertex")]
-            "anthropic-vertex" => {
+            ids::ANTHROPIC_VERTEX => {
                 "claude-3-5-sonnet-20241022".to_string()
             }
             #[cfg(feature = "google-vertex")]
-            "vertex" => {
+            ids::VERTEX => {
                 "imagen-3.0-generate-002".to_string()
             }
             #[cfg(not(feature = "google-vertex"))]
-            "anthropic-vertex" | "vertex" => {
+            ids::ANTHROPIC_VERTEX | ids::VERTEX => {
                 return Err(LlmError::UnsupportedOperation(
                     "Google Vertex feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "ollama")]
-            "ollama" => "llama3.2".to_string(),
+            ids::OLLAMA => "llama3.2".to_string(),
             #[cfg(not(feature = "ollama"))]
-            "ollama" => {
+            ids::OLLAMA => {
                 return Err(LlmError::UnsupportedOperation(
                     "Ollama feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "xai")]
-            "xai" => "grok-beta".to_string(),
+            ids::XAI => "grok-beta".to_string(),
             #[cfg(not(feature = "xai"))]
-            "xai" => {
+            ids::XAI => {
                 return Err(LlmError::UnsupportedOperation(
                     "xAI feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "groq")]
-            "groq" => "llama-3.1-70b-versatile".to_string(),
+            ids::GROQ => "llama-3.1-70b-versatile".to_string(),
             #[cfg(not(feature = "groq"))]
-            "groq" => {
+            ids::GROQ => {
                 return Err(LlmError::UnsupportedOperation(
                     "Groq feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "minimaxi")]
-            "minimaxi" => "MiniMax-M2".to_string(),
+            ids::MINIMAXI => "MiniMax-M2".to_string(),
             #[cfg(not(feature = "minimaxi"))]
-            "minimaxi" => {
+            ids::MINIMAXI => {
                 return Err(LlmError::UnsupportedOperation(
                     "MiniMaxi feature not enabled".to_string(),
                 ));

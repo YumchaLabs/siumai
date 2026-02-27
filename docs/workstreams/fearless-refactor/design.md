@@ -19,6 +19,7 @@ to reduce coupling and simplify long-term maintenance.
    - If two concerns change at different rates, they should not be owned by the same crate.
 2. **Single source of truth for routing**
    - Provider id normalization and inference rules must live in one place.
+   - Provider id constants + variant parsing should be centralized (avoid duplicated strings).
 3. **Factories own provider-specific defaults**
    - API key/env/base_url defaults must live in `ProviderFactory` implementations, not in a top-level match.
 4. **Stable surfaces via re-export shims**

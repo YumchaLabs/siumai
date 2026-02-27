@@ -62,7 +62,9 @@ impl ProviderFactory for OpenAIProviderFactory {
         );
 
         let mode = match ctx.provider_id.as_deref() {
-            Some("openai-chat") => crate::registry::factory::OpenAiChatApiMode::ChatCompletions,
+            Some(crate::provider::ids::OPENAI_CHAT) => {
+                crate::registry::factory::OpenAiChatApiMode::ChatCompletions
+            }
             // Default to Responses API for OpenAI (Vercel-aligned).
             _ => crate::registry::factory::OpenAiChatApiMode::Responses,
         };

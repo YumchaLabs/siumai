@@ -127,7 +127,10 @@ mod builtins {
             // Anthropic on Vertex AI (native wrapper around Anthropic via Vertex).
             #[cfg(feature = "google-vertex")]
             {
-                if let Some(rec) = self.resolve("anthropic-vertex").cloned() {
+                if let Some(rec) = self
+                    .resolve(crate::provider::ids::ANTHROPIC_VERTEX)
+                    .cloned()
+                {
                     let rec = rec
                         .with_alias("google-vertex-anthropic")
                         .with_model_prefix("claude");
@@ -138,13 +141,16 @@ mod builtins {
             // Google Gemini alias.
             #[cfg(feature = "google")]
             {
-                self.add_alias("gemini", "google");
+                self.add_alias(crate::provider::ids::GEMINI, "google");
             }
 
             // Google Vertex alias (package naming consistency with `@ai-sdk/google-vertex`).
             #[cfg(feature = "google-vertex")]
             {
-                self.add_alias("vertex", "google-vertex");
+                self.add_alias(
+                    crate::provider::ids::VERTEX,
+                    crate::provider::ids::GOOGLE_VERTEX_ALIAS,
+                );
             }
         }
 

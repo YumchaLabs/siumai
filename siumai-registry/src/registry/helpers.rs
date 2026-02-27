@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::execution::http::interceptor::LoggingInterceptor;
 #[cfg(feature = "builtins")]
 use crate::execution::middleware::samples::chain_default_and_clamp;
+use crate::provider::ids;
 use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_provider_registry};
 
 #[cfg(feature = "builtins")]
@@ -36,7 +37,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "openai")]
     {
         providers.insert(
-            "openai".to_string(),
+            ids::OPENAI.to_string(),
             Arc::new(crate::registry::factories::OpenAIProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
@@ -44,13 +45,13 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "azure")]
     {
         providers.insert(
-            "azure".to_string(),
+            ids::AZURE.to_string(),
             Arc::new(crate::registry::factories::AzureOpenAiProviderFactory::default())
                 as Arc<dyn ProviderFactory>,
         );
         // Variant: Azure Chat Completions (Vercel-aligned `azure.chat(...)`).
         providers.insert(
-            "azure-chat".to_string(),
+            ids::AZURE_CHAT.to_string(),
             Arc::new(crate::registry::factories::AzureOpenAiProviderFactory::new(
                 siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions,
             )) as Arc<dyn ProviderFactory>,
@@ -60,7 +61,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "anthropic")]
     {
         providers.insert(
-            "anthropic".to_string(),
+            ids::ANTHROPIC.to_string(),
             Arc::new(crate::registry::factories::AnthropicProviderFactory)
                 as Arc<dyn ProviderFactory>,
         );
@@ -69,7 +70,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "google")]
     {
         providers.insert(
-            "gemini".to_string(),
+            ids::GEMINI.to_string(),
             Arc::new(crate::registry::factories::GeminiProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
@@ -77,18 +78,18 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "google-vertex")]
     {
         providers.insert(
-            "anthropic-vertex".to_string(),
+            ids::ANTHROPIC_VERTEX.to_string(),
             Arc::new(crate::registry::factories::AnthropicVertexProviderFactory)
                 as Arc<dyn ProviderFactory>,
         );
         providers.insert(
-            "vertex".to_string(),
+            ids::VERTEX.to_string(),
             Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
                 as Arc<dyn ProviderFactory>,
         );
         // Alias for package naming consistency (Vercel-style `@ai-sdk/google-vertex`).
         providers.insert(
-            "google-vertex".to_string(),
+            ids::GOOGLE_VERTEX_ALIAS.to_string(),
             Arc::new(crate::registry::factories::GoogleVertexProviderFactory)
                 as Arc<dyn ProviderFactory>,
         );
@@ -97,7 +98,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "groq")]
     {
         providers.insert(
-            "groq".to_string(),
+            ids::GROQ.to_string(),
             Arc::new(crate::registry::factories::GroqProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
@@ -105,7 +106,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "xai")]
     {
         providers.insert(
-            "xai".to_string(),
+            ids::XAI.to_string(),
             Arc::new(crate::registry::factories::XAIProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
@@ -113,7 +114,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "ollama")]
     {
         providers.insert(
-            "ollama".to_string(),
+            ids::OLLAMA.to_string(),
             Arc::new(crate::registry::factories::OllamaProviderFactory) as Arc<dyn ProviderFactory>,
         );
     }
@@ -121,7 +122,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     #[cfg(feature = "minimaxi")]
     {
         providers.insert(
-            "minimaxi".to_string(),
+            ids::MINIMAXI.to_string(),
             Arc::new(crate::registry::factories::MiniMaxiProviderFactory)
                 as Arc<dyn ProviderFactory>,
         );

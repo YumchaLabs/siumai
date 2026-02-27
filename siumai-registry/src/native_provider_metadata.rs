@@ -6,6 +6,8 @@
 //! - Documentation helpers (e.g., `get_supported_providers`) can reuse the
 //!   same metadata without re-encoding strings or URLs.
 
+#[allow(unused_imports)]
+use crate::provider::ids;
 use crate::traits::ProviderCapabilities;
 
 /// Static metadata for a native provider.
@@ -95,7 +97,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
     // Google Gemini
     #[cfg(feature = "google")]
     out.push(NativeProviderMetadata {
-        id: "gemini",
+        id: ids::GEMINI,
         name: "Google Gemini",
         description: "Google Gemini models with multimodal capabilities and code execution",
         default_base_url: Some("https://generativelanguage.googleapis.com/v1beta"),
@@ -116,7 +118,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
     {
         // Anthropic on Vertex AI (wrapper around Anthropic served via Vertex).
         out.push(NativeProviderMetadata {
-            id: "anthropic-vertex",
+            id: ids::ANTHROPIC_VERTEX,
             name: "Anthropic on Vertex",
             description: "Anthropic Claude models served via Google Vertex AI",
             default_base_url: None,
@@ -127,7 +129,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
         });
 
         out.push(NativeProviderMetadata {
-            id: "vertex",
+            id: ids::VERTEX,
             name: "Google Vertex AI",
             description: "Google Vertex AI models (e.g., Imagen) served via Vertex endpoints",
             // Requires project/location; use `base_url_for_vertex` or explicit `base_url`.

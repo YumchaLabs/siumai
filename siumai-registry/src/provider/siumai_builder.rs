@@ -424,12 +424,12 @@ impl SiumaiBuilder {
             .ok_or_else(|| LlmError::ConfigurationError("Provider id not specified".to_string()))?;
         let provider_id = crate::provider::resolver::normalize_provider_id(&raw_provider_id);
 
-        if provider_id == "openai-chat" {
+        if provider_id == crate::provider::ids::OPENAI_CHAT {
             return Err(LlmError::ConfigurationError(
                 "use_openai_websocket_session() requires OpenAI Responses API (use .openai() or .openai_responses())".to_string(),
             ));
         }
-        if provider_id != "openai" && provider_id != "openai-responses" {
+        if !crate::provider::ids::is_openai_responses_variant(&provider_id) {
             return Err(LlmError::ConfigurationError(
                 "use_openai_websocket_session() requires provider_id=openai (Responses API)"
                     .to_string(),

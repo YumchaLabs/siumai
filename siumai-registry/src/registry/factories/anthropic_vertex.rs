@@ -1,6 +1,7 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::provider::ids;
 
 /// Anthropic on Vertex AI provider factory
 ///
@@ -16,7 +17,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
         let meta = crate::native_provider_metadata::native_providers_metadata();
         meta.into_iter()
-            .find(|m| m.id == "anthropic-vertex")
+            .find(|m| m.id == ids::ANTHROPIC_VERTEX)
             .map(|m| m.capabilities)
             .unwrap_or_else(ProviderCapabilities::new)
     }
@@ -105,6 +106,6 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("anthropic-vertex")
+        std::borrow::Cow::Borrowed(ids::ANTHROPIC_VERTEX)
     }
 }
