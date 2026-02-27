@@ -9,6 +9,8 @@
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -23,6 +25,8 @@ use std::sync::Arc;
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -36,6 +40,8 @@ use crate::client::LlmClient;
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -53,6 +59,8 @@ use crate::execution::http::client::build_http_client_from_config;
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -66,6 +74,8 @@ use crate::registry::entry::ProviderFactory;
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -79,6 +89,8 @@ use crate::traits::ProviderCapabilities;
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -92,6 +104,8 @@ mod anthropic;
 mod anthropic_vertex;
 #[cfg(feature = "azure")]
 mod azure;
+#[cfg(feature = "cohere")]
+mod cohere;
 #[cfg(test)]
 mod contract_tests;
 #[cfg(feature = "openai")]
@@ -112,6 +126,8 @@ mod openai;
 mod openai_compatible;
 #[cfg(test)]
 mod test;
+#[cfg(feature = "togetherai")]
+mod togetherai;
 #[cfg(feature = "xai")]
 mod xai;
 
@@ -121,6 +137,8 @@ pub use anthropic::AnthropicProviderFactory;
 pub use anthropic_vertex::AnthropicVertexProviderFactory;
 #[cfg(feature = "azure")]
 pub use azure::AzureOpenAiProviderFactory;
+#[cfg(feature = "cohere")]
+pub use cohere::CohereProviderFactory;
 #[cfg(feature = "openai")]
 pub use deepseek::DeepSeekProviderFactory;
 #[cfg(feature = "google")]
@@ -139,5 +157,7 @@ pub use openai::OpenAIProviderFactory;
 pub use openai_compatible::OpenAICompatibleProviderFactory;
 #[cfg(test)]
 pub use test::TestProviderFactory;
+#[cfg(feature = "togetherai")]
+pub use togetherai::TogetherAiProviderFactory;
 #[cfg(feature = "xai")]
 pub use xai::XAIProviderFactory;

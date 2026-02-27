@@ -54,10 +54,10 @@ Last updated: 2026-02-27
 
 Decision (2026-02-27):
 
-- [x] Treat them as metadata-only/reserved for now:
-  - exclude them from `all-providers` aggregation features
-  - keep them out of the default built-in catalog
-  - fail fast in unified build routing when selected by `provider_id`
+- [x] Implement `cohere` and `togetherai` as built-in rerank-only providers:
+  - add `ProviderFactory` implementations
+  - add no-network factory contract tests
+- [x] Keep `bedrock` as metadata-only/reserved until a first-class factory exists
 
 ### Docs & tooling
 

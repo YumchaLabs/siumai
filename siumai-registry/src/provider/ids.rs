@@ -25,13 +25,14 @@ pub(crate) const XAI: &str = "xai";
 pub(crate) const GROQ: &str = "groq";
 pub(crate) const MINIMAXI: &str = "minimaxi";
 
-// Metadata-only (not yet implemented as built-in factories).
-//
-// These ids are reserved so that we can add first-class factories later without
-// breaking routing rules. For now, the registry should not register them as
-// built-ins, and the unified build path should error fast if selected.
 pub(crate) const COHERE: &str = "cohere";
 pub(crate) const TOGETHERAI: &str = "togetherai";
+
+// Metadata-only (not yet implemented as built-in factories).
+//
+// This id is reserved so that we can add a first-class factory later without
+// breaking routing rules. For now, the registry should not register it as a
+// built-in, and the unified build path should error fast if selected.
 pub(crate) const BEDROCK: &str = "bedrock";
 
 /// Alias id for registry convenience (canonical id is `vertex`).

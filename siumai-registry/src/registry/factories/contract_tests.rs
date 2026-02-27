@@ -11,7 +11,7 @@ use crate::execution::http::transport::{
 };
 use crate::registry::entry::{BuildContext, ProviderFactory};
 use crate::test_support::{ENV_LOCK, EnvGuard};
-use crate::types::{ChatMessage, ChatRequest, HttpConfig};
+use crate::types::{ChatMessage, ChatRequest, HttpConfig, RerankRequest};
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -64,6 +64,15 @@ fn make_chat_request_with_model(model: &str) -> ChatRequest {
     let mut req = make_chat_request();
     req.common_params.model = model.to_string();
     req
+}
+
+#[allow(dead_code)]
+fn make_rerank_request(model: &str) -> RerankRequest {
+    RerankRequest::new(
+        model.to_string(),
+        "query".to_string(),
+        vec!["doc-1".to_string(), "doc-2".to_string()],
+    )
 }
 
 #[cfg(feature = "azure")]
@@ -179,6 +188,258 @@ mod azure_contract {
         let _ = client.chat_request(make_chat_request()).await;
         let req = transport.take().expect("captured request");
         assert!(req.url.starts_with("https://example.com/override/openai/"));
+    }
+}
+
+#[cfg(feature = "cohere")]
+mod cohere_contract {
+    use super::*;
+    use reqwest::header::AUTHORIZATION;
+
+    #[tokio::test]
+    async fn cohere_factory_prefers_ctx_http_client_over_http_config() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::CohereProviderFactory;
+
+        let mut bad = HttpConfig::default();
+        bad.proxy = Some("not-a-url".to_string());
+
+        let ctx = BuildContext {
+            provider_id: Some("cohere".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            http_client: Some(reqwest::Client::new()),
+            http_config: Some(bad),
+            ..Default::default()
+        };
+
+        factory
+            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .await
+            .expect("factory should prefer ctx.http_client over invalid http_config");
+    }
+
+    #[tokio::test]
+    async fn cohere_factory_uses_env_api_key_when_ctx_missing() {
+        let _lock = lock_env();
+
+        let _k = EnvGuard::set("COHERE_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::CohereProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("cohere".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .await
+            .expect("build client via env api key");
+
+        let rerank = client
+            .as_rerank_capability()
+            .expect("cohere client should expose rerank capability");
+        let _ = rerank
+            .rerank(make_rerank_request("rerank-english-v3.0"))
+            .await;
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer env-key");
+        assert_eq!(req.url, "https://api.cohere.com/v2/rerank");
+    }
+
+    #[tokio::test]
+    async fn cohere_factory_prefers_ctx_api_key_over_env() {
+        let _lock = lock_env();
+
+        let _k = EnvGuard::set("COHERE_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::CohereProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("cohere".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .await
+            .expect("build client via ctx api key");
+
+        let rerank = client
+            .as_rerank_capability()
+            .expect("cohere client should expose rerank capability");
+        let _ = rerank
+            .rerank(make_rerank_request("rerank-english-v3.0"))
+            .await;
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+    }
+
+    #[tokio::test]
+    async fn cohere_factory_prefers_ctx_base_url_over_default() {
+        let _lock = lock_env();
+
+        let _k = EnvGuard::set("COHERE_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::CohereProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("cohere".to_string()),
+            base_url: Some("https://example.com/cohere".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .await
+            .expect("build client via base_url override");
+
+        let rerank = client
+            .as_rerank_capability()
+            .expect("cohere client should expose rerank capability");
+        let _ = rerank
+            .rerank(make_rerank_request("rerank-english-v3.0"))
+            .await;
+
+        let req = transport.take().expect("captured request");
+        assert!(req.url.starts_with("https://example.com/cohere/"));
+        assert!(req.url.ends_with("/rerank"));
+    }
+}
+
+#[cfg(feature = "togetherai")]
+mod togetherai_contract {
+    use super::*;
+    use reqwest::header::AUTHORIZATION;
+
+    #[tokio::test]
+    async fn togetherai_factory_prefers_ctx_http_client_over_http_config() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::TogetherAiProviderFactory;
+
+        let mut bad = HttpConfig::default();
+        bad.proxy = Some("not-a-url".to_string());
+
+        let ctx = BuildContext {
+            provider_id: Some("togetherai".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            http_client: Some(reqwest::Client::new()),
+            http_config: Some(bad),
+            ..Default::default()
+        };
+
+        factory
+            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .await
+            .expect("factory should prefer ctx.http_client over invalid http_config");
+    }
+
+    #[tokio::test]
+    async fn togetherai_factory_uses_env_api_key_when_ctx_missing() {
+        let _lock = lock_env();
+
+        let _k = EnvGuard::set("TOGETHER_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::TogetherAiProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("togetherai".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .await
+            .expect("build client via env api key");
+
+        let rerank = client
+            .as_rerank_capability()
+            .expect("togetherai client should expose rerank capability");
+        let _ = rerank
+            .rerank(make_rerank_request("Salesforce/Llama-Rank-v1"))
+            .await;
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer env-key");
+        assert_eq!(req.url, "https://api.together.xyz/v1/rerank");
+    }
+
+    #[tokio::test]
+    async fn togetherai_factory_prefers_ctx_api_key_over_env() {
+        let _lock = lock_env();
+
+        let _k = EnvGuard::set("TOGETHER_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::TogetherAiProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("togetherai".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .await
+            .expect("build client via ctx api key");
+
+        let rerank = client
+            .as_rerank_capability()
+            .expect("togetherai client should expose rerank capability");
+        let _ = rerank
+            .rerank(make_rerank_request("Salesforce/Llama-Rank-v1"))
+            .await;
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+    }
+
+    #[tokio::test]
+    async fn togetherai_factory_prefers_ctx_base_url_over_default() {
+        let _lock = lock_env();
+
+        let _k = EnvGuard::set("TOGETHER_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::TogetherAiProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("togetherai".to_string()),
+            base_url: Some("https://example.com/together".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .await
+            .expect("build client via base_url override");
+
+        let rerank = client
+            .as_rerank_capability()
+            .expect("togetherai client should expose rerank capability");
+        let _ = rerank
+            .rerank(make_rerank_request("Salesforce/Llama-Rank-v1"))
+            .await;
+
+        let req = transport.take().expect("captured request");
+        assert!(req.url.starts_with("https://example.com/together/"));
+        assert!(req.url.ends_with("/rerank"));
     }
 }
 

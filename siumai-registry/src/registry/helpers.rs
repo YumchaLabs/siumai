@@ -128,6 +128,23 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         );
     }
 
+    #[cfg(feature = "cohere")]
+    {
+        providers.insert(
+            ids::COHERE.to_string(),
+            Arc::new(crate::registry::factories::CohereProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "togetherai")]
+    {
+        providers.insert(
+            ids::TOGETHERAI.to_string(),
+            Arc::new(crate::registry::factories::TogetherAiProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
     // OpenAI-compatible provider factories (DeepSeek, SiliconFlow, OpenRouter, etc.)
     #[cfg(feature = "openai")]
     {

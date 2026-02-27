@@ -7,6 +7,8 @@ use crate::provider::ids;
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -150,14 +152,35 @@ fn select_factory(
                 ))
             }
         }
-        Some(ids::BuiltinProviderId::Cohere) => Err(LlmError::UnsupportedOperation(
-            "Cohere provider id is reserved, but a built-in factory is not implemented yet"
-                .to_string(),
-        )),
-        Some(ids::BuiltinProviderId::TogetherAi) => Err(LlmError::UnsupportedOperation(
-            "TogetherAI provider id is reserved, but a built-in factory is not implemented yet"
-                .to_string(),
-        )),
+        Some(ids::BuiltinProviderId::Cohere) => {
+            #[cfg(feature = "cohere")]
+            {
+                Ok(Arc::new(crate::registry::factories::CohereProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "cohere"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Cohere provider requires the 'cohere' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        Some(ids::BuiltinProviderId::TogetherAi) => {
+            #[cfg(feature = "togetherai")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::TogetherAiProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "togetherai"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "TogetherAI provider requires the 'togetherai' feature to be enabled"
+                        .to_string(),
+                ))
+            }
+        }
         Some(ids::BuiltinProviderId::Bedrock) => Err(LlmError::UnsupportedOperation(
             "Amazon Bedrock provider id is reserved, but a built-in factory is not implemented yet"
                 .to_string(),
@@ -211,6 +234,8 @@ fn select_factory(
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -373,6 +398,22 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     "MiniMaxi feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "cohere")]
+            ids::COHERE => "rerank-english-v3.0".to_string(),
+            #[cfg(not(feature = "cohere"))]
+            ids::COHERE => {
+                return Err(LlmError::UnsupportedOperation(
+                    "Cohere feature not enabled".to_string(),
+                ));
+            }
+            #[cfg(feature = "togetherai")]
+            ids::TOGETHERAI => "Salesforce/Llama-Rank-v1".to_string(),
+            #[cfg(not(feature = "togetherai"))]
+            ids::TOGETHERAI => {
+                return Err(LlmError::UnsupportedOperation(
+                    "TogetherAI feature not enabled".to_string(),
+                ));
+            }
             other => {
                 // Use shared helper function to get default model from registry (OpenAI-compatible).
                 #[cfg(feature = "openai")]
@@ -462,6 +503,8 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -469,7 +512,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 )))]
 pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     Err(LlmError::UnsupportedOperation(
-        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi)".to_string(),
+        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, cohere, togetherai, ollama, xai, groq, minimaxi)".to_string(),
     ))
 }
 
