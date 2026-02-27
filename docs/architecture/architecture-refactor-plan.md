@@ -4,6 +4,14 @@ This document is a working plan for the ongoing split-crate refactor (currently 
 It is intentionally pragmatic: it focuses on reducing coupling and improving maintainability while
 keeping the *user-facing* surface aligned with the Vercel AI SDK philosophy.
 
+## Status (2026-02-27)
+
+Recent progress (see `docs/workstreams/fearless-refactor/` for the live tracker):
+
+- `siumai-spec` introduced and now owns provider-agnostic types/tools/errors.
+- Provider id resolution is centralized in `siumai-registry` (alias normalization + conservative inference).
+- Unified builder/build path delegates API key and base_url defaults to provider factories.
+
 ## Goals
 
 - **Keep the stable surface small and consistent**: 6 model families only
@@ -25,7 +33,8 @@ keeping the *user-facing* surface aligned with the Vercel AI SDK philosophy.
 ## Current Workspace Layout (beta.5)
 
 - `siumai` (facade): recommended entry for most users; exports prelude and feature flags.
-- `siumai-core` (core/runtime): types, traits, execution runtime, retry, and streaming normalization (provider-agnostic).
+- `siumai-core` (core/runtime): runtime execution, retry, streaming normalization; re-exports spec types during transition.
+- `siumai-spec` (spec): provider-agnostic request/response/message/tool types and shared error types.
 - `siumai-registry` (registry): provider factories, registry handles; optional built-ins behind `builtins`.
 - `siumai-registry` can be used as a pure abstraction layer; see `docs/architecture/registry-without-builtins.md`.
 - `siumai-extras` (extras): orchestrator, schema helpers, telemetry, OpenTelemetry, server adapters, MCP.

@@ -25,3 +25,6 @@ This folder is intentionally organized by **concern** to keep the Alpha.5 refact
 - Next steps: `docs/roadmap/next-steps.md`
 - MVP roadmap: `docs/roadmap/roadmap-mvp.md`
 
+## Workstreams
+
+- Fearless refactor (design + TODOs + milestones): `docs/workstreams/fearless-refactor/`
