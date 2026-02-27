@@ -107,3 +107,14 @@ Notes:
   - MiniMaxi (`minimaxi`)
   - Google Vertex (Imagen) (`google-vertex`)
   - Anthropic on Vertex (base_url required) (`google-vertex`)
+
+## M8 — Built-in catalog consistency (no “phantom” providers)
+
+Acceptance criteria:
+
+- Providers registered into the default built-in catalog are buildable via factories.
+- Provider ids that are feature-gated but not implemented as factories are treated as **reserved**:
+  - not registered in the default built-in catalog
+  - error fast if selected by `provider_id`
+
+Status: ✅ done

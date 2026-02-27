@@ -25,6 +25,15 @@ pub(crate) const XAI: &str = "xai";
 pub(crate) const GROQ: &str = "groq";
 pub(crate) const MINIMAXI: &str = "minimaxi";
 
+// Metadata-only (not yet implemented as built-in factories).
+//
+// These ids are reserved so that we can add first-class factories later without
+// breaking routing rules. For now, the registry should not register them as
+// built-ins, and the unified build path should error fast if selected.
+pub(crate) const COHERE: &str = "cohere";
+pub(crate) const TOGETHERAI: &str = "togetherai";
+pub(crate) const BEDROCK: &str = "bedrock";
+
 /// Alias id for registry convenience (canonical id is `vertex`).
 pub(crate) const GOOGLE_VERTEX_ALIAS: &str = "google-vertex";
 
@@ -43,6 +52,9 @@ pub(crate) enum BuiltinProviderId {
     Xai,
     Groq,
     MiniMaxi,
+    Cohere,
+    TogetherAi,
+    Bedrock,
 }
 
 impl BuiltinProviderId {
@@ -61,6 +73,9 @@ impl BuiltinProviderId {
             XAI => Some(Self::Xai),
             GROQ => Some(Self::Groq),
             MINIMAXI => Some(Self::MiniMaxi),
+            COHERE => Some(Self::Cohere),
+            TOGETHERAI => Some(Self::TogetherAi),
+            BEDROCK => Some(Self::Bedrock),
             _ => None,
         }
     }

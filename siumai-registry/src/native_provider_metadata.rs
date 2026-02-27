@@ -33,8 +33,10 @@ pub struct NativeProviderMetadata {
 
 /// Return metadata for all native providers enabled in this build.
 ///
-/// This mirrors the feature-gated set that `ProviderRegistry` registers by
-/// default and should stay in sync with the registry wiring.
+/// Most entries are registered into the built-in provider catalog by default.
+/// A small set may be **metadata-only** (feature-gated, but not yet backed by
+/// built-in factories). Those should be excluded from the default catalog until
+/// their factories exist.
 #[allow(clippy::vec_init_then_push)]
 pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
     #[allow(unused_mut)]

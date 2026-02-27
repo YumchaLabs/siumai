@@ -116,6 +116,17 @@ mod builtins {
             // registry and documentation helpers.
             let metas = crate::native_provider_metadata::native_providers_metadata();
             for meta in metas {
+                // Metadata-only provider ids (not backed by built-in factories yet).
+                // Keep them out of the default built-in catalog to avoid suggesting
+                // they are buildable.
+                if matches!(
+                    meta.id,
+                    crate::provider::ids::COHERE
+                        | crate::provider::ids::TOGETHERAI
+                        | crate::provider::ids::BEDROCK
+                ) {
+                    continue;
+                }
                 self.register_native(
                     meta.id,
                     meta.name,
@@ -365,6 +376,27 @@ mod builtins {
 
             #[cfg(feature = "google")]
             assert!(_registry.resolve("gemini").is_some());
+        }
+
+        #[test]
+        #[cfg(feature = "cohere")]
+        fn test_registry_does_not_register_metadata_only_cohere() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            assert!(registry.resolve(crate::provider::ids::COHERE).is_none());
+        }
+
+        #[test]
+        #[cfg(feature = "togetherai")]
+        fn test_registry_does_not_register_metadata_only_togetherai() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            assert!(registry.resolve(crate::provider::ids::TOGETHERAI).is_none());
+        }
+
+        #[test]
+        #[cfg(feature = "bedrock")]
+        fn test_registry_does_not_register_metadata_only_bedrock() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            assert!(registry.resolve(crate::provider::ids::BEDROCK).is_none());
         }
 
         #[test]

@@ -150,6 +150,18 @@ fn select_factory(
                 ))
             }
         }
+        Some(ids::BuiltinProviderId::Cohere) => Err(LlmError::UnsupportedOperation(
+            "Cohere provider id is reserved, but a built-in factory is not implemented yet"
+                .to_string(),
+        )),
+        Some(ids::BuiltinProviderId::TogetherAi) => Err(LlmError::UnsupportedOperation(
+            "TogetherAI provider id is reserved, but a built-in factory is not implemented yet"
+                .to_string(),
+        )),
+        Some(ids::BuiltinProviderId::Bedrock) => Err(LlmError::UnsupportedOperation(
+            "Amazon Bedrock provider id is reserved, but a built-in factory is not implemented yet"
+                .to_string(),
+        )),
         Some(ids::BuiltinProviderId::Azure | ids::BuiltinProviderId::AzureChat) => {
             #[cfg(feature = "azure")]
             {

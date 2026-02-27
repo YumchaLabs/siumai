@@ -71,6 +71,14 @@ Remove env-var and vendor-specific resolution from the unified build “router�
 - Benefit: each provider factory owns its own rules; the unified layer stays thin.
 - Trade-off: more responsibility in factories (which is the correct ownership).
 
+### D4: Keep “metadata-only” providers out of built-ins
+
+Some provider ids are feature-gated and have metadata (capabilities/base_url), but do not yet have
+built-in factories (e.g. rerank-only providers). These ids are **reserved** and:
+
+- are not registered into the default built-in catalog
+- fail fast when selected by `provider_id` (instead of silently falling back to OpenAI-compatible)
+
 ## Invariants
 
 These should remain true throughout the refactor:
