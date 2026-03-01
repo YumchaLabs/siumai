@@ -81,6 +81,7 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
 - [ ] Ensure constructors build HTTP client/interceptors/middlewares from `*_Config` + `HttpConfig`
 - [ ] Update key docs/examples to use config-first construction
 - [ ] Keep builder path under `compat` (document removal target)
+- [x] Add a config-first shortcut for OpenAI-compatible vendors (built-in registry)
 
 ## 7) Cleanup and deprecation
 

@@ -24,13 +24,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🌙 Moonshot AI - Long Context Processing Example\n");
     println!("================================================\n");
 
-    // Use Kimi K2 for maximum context window (256K tokens)
-    // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
-    let client = Siumai::builder()
-        .moonshot()
-        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
-        .build()
-        .await?;
+    // Use Kimi K2 for maximum context window (256K tokens).
+    // Note: API key is automatically read from `MOONSHOT_API_KEY`.
+    let client = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+        "moonshot",
+        Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+    )
+    .await?;
 
     // Example 1: Long document summarization
     println!("📝 Example 1: Long Document Summarization\n");
@@ -99,12 +99,15 @@ As we continue to advance AI technology, it's crucial to address ethical conside
 ensure responsible development, and work towards AI systems that benefit all of humanity.
 "#;
 
-    let response = client
-        .chat(vec![user!(format!(
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!(format!(
             "请用中文总结以下英文文档的主要内容，包括关键时间节点和重要事件：\n\n{}",
             long_document
-        ))])
-        .await?;
+        ))]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     println!("📄 Document Summary:");
     println!("{}\n", response.content_text().unwrap());
@@ -123,7 +126,12 @@ ensure responsible development, and work towards AI systems that benefit all of 
         user!("What were the main challenges during the first AI winter?"),
     ];
 
-    let response = client.chat(conversation.clone()).await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(conversation.clone()),
+        text::GenerateOptions::default(),
+    )
+    .await?;
     println!("🌙 Kimi: {}\n", response.content_text().unwrap());
 
     // Continue the conversation
@@ -132,7 +140,12 @@ ensure responsible development, and work towards AI systems that benefit all of 
         "How did deep learning change the field in the 2010s?"
     ));
 
-    let response = client.chat(conversation.clone()).await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(conversation.clone()),
+        text::GenerateOptions::default(),
+    )
+    .await?;
     println!("🌙 Kimi: {}\n", response.content_text().unwrap());
 
     // Example 3: Comparing different context window models
@@ -154,11 +167,15 @@ ensure responsible development, and work towards AI systems that benefit all of 
     // Example 4: Document Q&A
     println!("📝 Example 4: Document Q&A\n");
 
-    let qa_response = client
-        .chat(vec![
-            user!(format!("Document:\n{}\n\nQuestion: When was the term 'Artificial Intelligence' coined and by whom?", long_document)),
-        ])
-        .await?;
+    let qa_response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!(format!(
+            "Document:\n{}\n\nQuestion: When was the term 'Artificial Intelligence' coined and by whom?",
+            long_document
+        ))]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     println!("❓ Question: When was the term 'Artificial Intelligence' coined and by whom?");
     println!("💬 Answer: {}\n", qa_response.content_text().unwrap());

@@ -22,6 +22,9 @@ model-family APIs.
 - Legacy method-style entry points are treated as compatibility surface:
   - explicit module: `siumai::compat`
 
+- OpenAI-compatible vendors (DeepSeek/OpenRouter/Moonshot/etc.) now have a config-first shortcut:
+  - `siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(...)`
+
 ## Before/after cheatsheet
 
 The most common migration is “keep construction, swap invocation”:

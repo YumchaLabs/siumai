@@ -28,33 +28,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🌙 Moonshot AI (Kimi) - Basic Chat Example\n");
     println!("===========================================\n");
 
-    // Build Moonshot client using the latest Kimi K2 model
-    // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
-    let client = Siumai::builder()
-        .moonshot()
-        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW) // Using model constant
-        .build()
-        .await?;
+    // Build Moonshot client using the latest Kimi K2 model (config-first).
+    // Note: API key is automatically read from `MOONSHOT_API_KEY`.
+    let client = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+        "moonshot",
+        Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+    )
+    .await?;
 
     // Example 1: Simple chat
     println!("📝 Example 1: Simple Chat\n");
 
-    let response = client
-        .chat(vec![user!(
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!(
             "你好！请用中文简单介绍一下 Moonshot AI 的特点。"
-        )])
-        .await?;
+        )]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     println!("Kimi: {}\n", response.content_text().unwrap());
 
     // Example 2: Bilingual conversation
     println!("📝 Example 2: Bilingual Conversation\n");
 
-    let response = client
-        .chat(vec![user!(
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!(
             "What are the key advantages of Moonshot AI's models?"
-        )])
-        .await?;
+        )]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     println!("Kimi: {}\n", response.content_text().unwrap());
 
@@ -62,28 +68,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 3: Different Context Window Models\n");
 
     // For short conversations, use 8K model (more cost-effective)
-    let client_8k = Siumai::builder()
-        .moonshot()
-        .model(models::openai_compatible::moonshot::MOONSHOT_V1_8K)
-        .build()
-        .await?;
+    let client_8k = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+        "moonshot",
+        Some(models::openai_compatible::moonshot::MOONSHOT_V1_8K),
+    )
+    .await?;
 
-    let response = client_8k.chat(vec![user!("What is 2+2?")]).await?;
+    let response = text::generate(
+        &client_8k,
+        ChatRequest::new(vec![user!("What is 2+2?")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     println!("Kimi (8K): {}\n", response.content_text().unwrap());
 
     // For long documents, use 128K model
-    let client_128k = Siumai::builder()
-        .moonshot()
-        .model(models::openai_compatible::moonshot::MOONSHOT_V1_128K)
-        .build()
+    let client_128k =
+        siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+            "moonshot",
+            Some(models::openai_compatible::moonshot::MOONSHOT_V1_128K),
+        )
         .await?;
 
-    let response = client_128k
-        .chat(vec![user!(
+    let response = text::generate(
+        &client_128k,
+        ChatRequest::new(vec![user!(
             "Explain the concept of long-context understanding in AI models."
-        )])
-        .await?;
+        )]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     println!("Kimi (128K): {}\n", response.content_text().unwrap());
 

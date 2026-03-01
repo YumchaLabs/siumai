@@ -23,13 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🌙 Moonshot AI - Function Calling Example\n");
     println!("==========================================\n");
 
-    // Build Moonshot client
-    // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
-    let client = Siumai::builder()
-        .moonshot()
-        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
-        .build()
-        .await?;
+    // Build Moonshot client (config-first).
+    // Note: API key is automatically read from `MOONSHOT_API_KEY`.
+    let client = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+        "moonshot",
+        Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+    )
+    .await?;
 
     // Define tools
     let get_weather_tool = Tool::function(
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(vec![get_weather_tool.clone()])
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(vec![get_weather_tool.clone(), search_info_tool.clone()])
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(vec![get_weather_tool.clone()])
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     // Add assistant's response to conversation
     messages.extend(response.to_messages());
@@ -177,7 +177,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .tools(vec![get_weather_tool])
             .build();
 
-        let final_response = client.chat_request(final_request).await?;
+        let final_response =
+            text::generate(&client, final_request, text::GenerateOptions::default()).await?;
 
         println!("🌙 Kimi's final response:");
         println!("{}\n", final_response.content_text().unwrap_or_default());

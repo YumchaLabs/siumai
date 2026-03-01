@@ -110,6 +110,31 @@ Supported examples of `provider:model`:
 
 OpenAI‑compatible vendors follow the same pattern (API keys read as `{PROVIDER_ID}_API_KEY` when possible). See docs for details.
 
+### OpenAI-compatible vendors (config-first)
+
+For OpenAI-compatible providers like Moonshot/OpenRouter/DeepSeek, you can use the built-in vendor registry:
+
+```rust,no_run
+use siumai::prelude::unified::*;
+use siumai::providers::openai_compatible::OpenAiCompatibleClient;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Reads `DEEPSEEK_API_KEY` by default.
+    let client = OpenAiCompatibleClient::from_builtin_env("deepseek", Some("deepseek-chat")).await?;
+
+    let resp = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("hi")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
+
+    println!("{}", resp.content_text().unwrap_or_default());
+    Ok(())
+}
+```
+
 ### Provider clients (config-first)
 
 Provider-specific client:
