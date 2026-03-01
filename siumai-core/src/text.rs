@@ -44,7 +44,7 @@ pub trait TextModelV3: Send + Sync {
 #[async_trait]
 impl<T> TextModelV3 for T
 where
-    T: ChatCapability + Send + Sync,
+    T: ChatCapability + Send + Sync + ?Sized,
 {
     async fn generate(&self, request: TextRequest) -> Result<TextResponse, LlmError> {
         self.chat_request(request).await
