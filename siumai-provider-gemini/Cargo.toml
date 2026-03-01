@@ -17,7 +17,7 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-protocol-gemini = { version = "0.11.0-beta.5", path = "../siumai-protocol-gemini", default-features = false }
+siumai-protocol-gemini = { version = "0.11.0-beta.6", path = "../siumai-protocol-gemini", default-features = false }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true

@@ -4,6 +4,33 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+## [0.11.0-beta.6](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.5...v0.11.0-beta.6) - 2026-03-01
+
+### Added
+
+- *(openai)* default unified builder to responses api
+- *(openai-websocket)* expose unified builder session APIs
+- *(openai-websocket)* add incremental session helpers
+- *(openai)* ws connection aging
+- *(openai)* remote cancel for websocket session
+- *(openai)* add WebSocket mode for responses streaming
+
+### Fixed
+
+- *(clippy)* satisfy -D warnings
+- *(packaging)* exclude tests fixtures from crate
+
+### Other
+
+- *(features)* include cohere and togetherai in all-providers
+- *(tests)* remove deprecated builder provider
+- *(features)* narrow all-providers aggregation
+- *(openai-compatible)* move vendor macro
+- *(openai)* document responses default and ws constraints
+- *(openai)* cover unified builder api routing
+- *(streaming)* delegate cancellation to provider handles
+- *(streaming)* improve cancellable streams
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Highlights

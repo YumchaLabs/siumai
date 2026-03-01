@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.6](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.5...siumai-provider-openai-v0.11.0-beta.6) - 2026-03-01
+
+### Added
+
+- *(openai)* add WS done marker toggle
+- *(openai-websocket)* expose unified builder session APIs
+- *(openai-websocket)* add incremental session helpers
+- *(openai)* ws connection aging
+- *(openai)* remote cancel on stream cancellation
+- *(openai)* remote cancel for websocket session
+- *(openai)* add WebSocket mode for responses streaming
+
+### Fixed
+
+- *(clippy)* satisfy -D warnings
+- *(openai)* retry websocket on connection limit
+
+### Other
+
+- *(openai)* document responses default and ws constraints
+- *(streaming)* improve cancellable streams
+- *(changelog)* release 0.11.0-beta.5
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added
