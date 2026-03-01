@@ -130,8 +130,13 @@ pub mod tools;
 // Unified retry facade (siumai-core re-export + provider-aware defaults)
 pub mod retry_api;
 
-/// Text model family (recommended).
+pub mod embedding;
+pub mod image;
+pub mod rerank;
+pub mod speech;
+/// Model families (recommended Rust-first surface).
 pub mod text;
+pub mod transcription;
 
 /// Tool runtime (schema + execution binding).
 pub mod tooling;
@@ -729,10 +734,10 @@ pub mod prelude {
         pub use crate::Provider;
         pub use crate::provider::Siumai;
         pub use crate::retry_api::*;
-        pub use crate::text;
         pub use crate::tooling;
         pub use crate::tools;
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
+        pub use crate::{embedding, image, rerank, speech, text, transcription};
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::error::{ErrorCategory, LlmError};
         pub use siumai_core::streaming::*;
