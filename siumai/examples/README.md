@@ -45,8 +45,8 @@ Start with the basics and build up:
 
 1. **01-quickstart/basic-chat.rs** - Simplest possible usage
 2. **01-quickstart/streaming.rs** - Real-time responses
-3. **02-core-api/chat/simple-chat.rs** - Using `client.chat()`
-4. **02-core-api/chat/chat-request.rs** - Using `chat_request()` (recommended ⭐)
+3. **02-core-api/chat/chat-request.rs** - Full-control `ChatRequest` + `text::generate` ⭐ Recommended
+4. **02-core-api/chat/simple-chat.rs** - Legacy method-style `client.chat()` (compat)
 5. **02-core-api/tools/function-calling.rs** - Adding tools
 
 ### 💼 Developer Path
@@ -84,14 +84,14 @@ The fastest way to get started. Each example is 15-50 lines.
 Learn the core API methods. Organized by functionality.
 
 **chat/**
-- **simple-chat.rs** - `client.chat()`
+- **simple-chat.rs** - legacy `client.chat()` (compat)
 - **chat-with-tools.rs** - `client.chat_with_tools()`
-- **chat-request.rs** - `client.chat_request()` ⭐ Recommended
+- **chat-request.rs** - `ChatRequest` + `text::generate()` ⭐ Recommended
 - **usage-builder-demo.rs** - Usage statistics builder API
 
 **streaming/**
-- **basic-stream.rs** - `client.chat_stream()`
-- **stream-request.rs** - `client.chat_stream_request()` ⭐ Recommended
+- **basic-stream.rs** - legacy `client.chat_stream()` (compat)
+- **stream-request.rs** - `ChatRequest` + `text::stream()` ⭐ Recommended
 - **stream-with-cancel.rs** - Cancellable streams
 
 **tools/**

@@ -41,7 +41,7 @@ Acceptance criteria:
 - Registry handles can be passed directly to these APIs.
 - Compatibility layer exists for existing examples/tests (temporary).
 
-Status: ⏳ in progress
+Status: ✅ done
 
 ## V3-M4 — Tools unified (schema + execute)
 

@@ -283,7 +283,12 @@ siumai = { version = "0.11.0-beta.5", features = ["openai-websocket"] }
         .await?;
 
     // Streaming `/responses` requests are routed through WebSocket; everything else uses HTTP.
-    let mut stream = client.chat_stream(vec![user!("Hello!")], None).await?;
+    let mut stream = text::stream(
+        &client,
+        ChatRequest::new(vec![user!("Hello!")]),
+        text::StreamOptions::default(),
+    )
+    .await?;
     while let Some(ev) = stream.next().await {
         if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev {
             print!("{delta}");
@@ -334,7 +339,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     session.warm_up_messages(vec![user!("Warm up with my toolset")], None).await?;
 
-    let mut stream = session.chat_stream(vec![user!("Hello!")], None).await?;
+    let mut stream = text::stream(
+        &session,
+        ChatRequest::new(vec![user!("Hello!")]),
+        text::StreamOptions::default(),
+    )
+    .await?;
     while let Some(ev) = stream.next().await {
         if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev {
             print!("{delta}");
@@ -399,7 +409,7 @@ let req = ChatRequestBuilder::new()
             "json_schema": { "schema": schema, "strict": true }
         }))
     ));
-let resp = client.chat_request(req).await?;
+let resp = text::generate(&client, req, text::GenerateOptions::default()).await?;
 // Optionally: further validate/repair/deserialize using `siumai-extras` helpers.
 ```
 
