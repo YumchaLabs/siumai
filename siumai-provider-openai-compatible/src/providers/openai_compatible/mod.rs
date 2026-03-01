@@ -6,23 +6,15 @@
 //!
 //! # Usage
 //! ```rust,no_run
-//! use siumai_provider_openai_compatible::providers::openai_compatible::{
-//!     get_provider_config, ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig,
-//! };
-//! use siumai_provider_openai_compatible::providers::openai_compatible::deepseek;
+//! use siumai_provider_openai_compatible::providers::openai_compatible::{deepseek, OpenAiCompatibleClient};
 //! use siumai_provider_openai_compatible::types::ChatRequest;
 //! use siumai_provider_openai_compatible::{text, user};
-//! use std::sync::Arc;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Config-first construction (recommended):
-//!     let provider = get_provider_config("deepseek").expect("builtin provider");
-//!     let adapter = Arc::new(ConfigurableAdapter::new(provider.clone()));
-//!     let cfg =
-//!         OpenAiCompatibleConfig::new(&provider.id, "your-api-key", &provider.base_url, adapter)
-//!             .with_model(deepseek::CHAT);
-//!     let client = OpenAiCompatibleClient::from_config(cfg).await?;
+//!     // Reads `DEEPSEEK_API_KEY` by default for provider_id = "deepseek".
+//!     let client = OpenAiCompatibleClient::from_builtin_env("deepseek", Some(deepseek::CHAT)).await?;
 //!
 //!     // Invocation goes through the stable model-family APIs:
 //!     let req = ChatRequest::new(vec![user!("hi")]);

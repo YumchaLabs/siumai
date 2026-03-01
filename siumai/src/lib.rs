@@ -364,6 +364,16 @@ pub mod provider_ext {
         }
     }
 
+    /// OpenAI-compatible vendors (DeepSeek/OpenRouter/Moonshot/etc.) via the OpenAI-like protocol family.
+    #[cfg(feature = "openai")]
+    pub mod openai_compatible {
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+            ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig, ProviderAdapter,
+            ProviderCompatibility, ProviderConfig, get_provider_config, list_provider_ids,
+            provider_supports_capability,
+        };
+    }
+
     #[cfg(feature = "azure")]
     pub mod azure {
         pub use siumai_provider_azure::providers::azure_openai::{

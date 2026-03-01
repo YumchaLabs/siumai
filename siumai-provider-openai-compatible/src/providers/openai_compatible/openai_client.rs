@@ -9,6 +9,7 @@ use crate::error::LlmError;
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
@@ -315,6 +316,76 @@ impl OpenAiCompatibleClient {
     /// other provider clients (`*_Client::from_config`).
     pub async fn from_config(config: OpenAiCompatibleConfig) -> Result<Self, LlmError> {
         Self::new(config).await
+    }
+
+    /// Construct an `OpenAiCompatibleClient` from a built-in provider id + API key.
+    ///
+    /// This uses the bundled provider registry (base_url + field mappings) and a
+    /// configuration-driven adapter (`ConfigurableAdapter`).
+    ///
+    /// If `model` is None, we fall back to the provider's `default_model` when available.
+    pub async fn from_builtin(
+        provider_id: &str,
+        api_key: &str,
+        model: Option<&str>,
+    ) -> Result<Self, LlmError> {
+        let provider = super::config::get_provider_config(provider_id).ok_or_else(|| {
+            LlmError::ConfigurationError(format!(
+                "Unknown OpenAI-compatible provider id: {provider_id}"
+            ))
+        })?;
+
+        let model = model.or(provider.default_model.as_deref()).ok_or_else(|| {
+            LlmError::ConfigurationError(format!(
+                "Missing model for OpenAI-compatible provider: {provider_id}"
+            ))
+        })?;
+
+        let adapter = std::sync::Arc::new(ConfigurableAdapter::new(provider.clone()));
+        let cfg = OpenAiCompatibleConfig::new(&provider.id, api_key, &provider.base_url, adapter)
+            .with_model(model);
+
+        Self::from_config(cfg).await
+    }
+
+    /// Construct an `OpenAiCompatibleClient` from a built-in provider id, reading the API key from env.
+    ///
+    /// Env lookup precedence:
+    /// 1) `ProviderConfig.api_key_env` (when provided)
+    /// 2) `ProviderConfig.api_key_env_aliases` (fallbacks)
+    /// 3) `${PROVIDER_ID}_API_KEY` (uppercased, `-` replaced with `_`)
+    pub async fn from_builtin_env(
+        provider_id: &str,
+        model: Option<&str>,
+    ) -> Result<Self, LlmError> {
+        let provider = super::config::get_provider_config(provider_id).ok_or_else(|| {
+            LlmError::ConfigurationError(format!(
+                "Unknown OpenAI-compatible provider id: {provider_id}"
+            ))
+        })?;
+
+        fn default_env_var(id: &str) -> String {
+            format!("{}_API_KEY", id.to_ascii_uppercase().replace('-', "_"))
+        }
+
+        let mut candidates: Vec<String> = Vec::new();
+        if let Some(name) = &provider.api_key_env {
+            candidates.push(name.clone());
+        }
+        candidates.extend(provider.api_key_env_aliases.clone());
+        candidates.push(default_env_var(&provider.id));
+
+        let api_key = candidates
+            .iter()
+            .find_map(|k| std::env::var(k).ok())
+            .ok_or_else(|| {
+                LlmError::MissingApiKey(format!(
+                    "API key not found for provider '{provider_id}'. Tried: {}",
+                    candidates.join(", ")
+                ))
+            })?;
+
+        Self::from_builtin(provider_id, &api_key, model).await
     }
 
     /// Create a new OpenAI compatible client with custom HTTP client
