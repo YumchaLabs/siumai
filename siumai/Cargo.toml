@@ -39,23 +39,23 @@ siumai-core = { workspace = true, default-features = false }
 siumai-registry = { workspace = true, default-features = false }
 
 # Provider crates (direct dependencies; breaking from the legacy umbrella `siumai-providers`)
-siumai-provider-openai = { version = "0.11.0-beta.5", path = "../siumai-provider-openai", default-features = false, optional = true }
-siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
-siumai-provider-azure = { version = "0.11.0-beta.5", path = "../siumai-provider-azure", default-features = false, optional = true }
-siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false, optional = true }
-siumai-provider-anthropic = { version = "0.11.0-beta.5", path = "../siumai-provider-anthropic", default-features = false, optional = true }
-siumai-protocol-anthropic = { version = "0.11.0-beta.5", path = "../siumai-protocol-anthropic", default-features = false, optional = true }
-siumai-provider-gemini = { version = "0.11.0-beta.5", path = "../siumai-provider-gemini", default-features = false, optional = true }
-siumai-protocol-gemini = { version = "0.11.0-beta.5", path = "../siumai-protocol-gemini", default-features = false, optional = true }
-siumai-provider-google-vertex = { version = "0.11.0-beta.5", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
-siumai-provider-ollama = { version = "0.11.0-beta.5", path = "../siumai-provider-ollama", default-features = false, optional = true }
-siumai-provider-groq = { version = "0.11.0-beta.5", path = "../siumai-provider-groq", default-features = false, optional = true }
-siumai-provider-xai = { version = "0.11.0-beta.5", path = "../siumai-provider-xai", default-features = false, optional = true }
-siumai-provider-minimaxi = { version = "0.11.0-beta.5", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
-siumai-provider-deepseek = { version = "0.11.0-beta.5", path = "../siumai-provider-deepseek", default-features = false, optional = true }
-siumai-provider-cohere = { version = "0.11.0-beta.5", path = "../siumai-provider-cohere", default-features = false, optional = true }
-siumai-provider-togetherai = { version = "0.11.0-beta.5", path = "../siumai-provider-togetherai", default-features = false, optional = true }
-siumai-provider-amazon-bedrock = { version = "0.11.0-beta.5", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
+siumai-provider-openai = { version = "0.11.0-beta.6", path = "../siumai-provider-openai", default-features = false, optional = true }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.6", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
+siumai-provider-azure = { version = "0.11.0-beta.6", path = "../siumai-provider-azure", default-features = false, optional = true }
+siumai-protocol-openai = { version = "0.11.0-beta.6", path = "../siumai-protocol-openai", default-features = false, optional = true }
+siumai-provider-anthropic = { version = "0.11.0-beta.6", path = "../siumai-provider-anthropic", default-features = false, optional = true }
+siumai-protocol-anthropic = { version = "0.11.0-beta.6", path = "../siumai-protocol-anthropic", default-features = false, optional = true }
+siumai-provider-gemini = { version = "0.11.0-beta.6", path = "../siumai-provider-gemini", default-features = false, optional = true }
+siumai-protocol-gemini = { version = "0.11.0-beta.6", path = "../siumai-protocol-gemini", default-features = false, optional = true }
+siumai-provider-google-vertex = { version = "0.11.0-beta.6", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
+siumai-provider-ollama = { version = "0.11.0-beta.6", path = "../siumai-provider-ollama", default-features = false, optional = true }
+siumai-provider-groq = { version = "0.11.0-beta.6", path = "../siumai-provider-groq", default-features = false, optional = true }
+siumai-provider-xai = { version = "0.11.0-beta.6", path = "../siumai-provider-xai", default-features = false, optional = true }
+siumai-provider-minimaxi = { version = "0.11.0-beta.6", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
+siumai-provider-deepseek = { version = "0.11.0-beta.6", path = "../siumai-provider-deepseek", default-features = false, optional = true }
+siumai-provider-cohere = { version = "0.11.0-beta.6", path = "../siumai-provider-cohere", default-features = false, optional = true }
+siumai-provider-togetherai = { version = "0.11.0-beta.6", path = "../siumai-provider-togetherai", default-features = false, optional = true }
+siumai-provider-amazon-bedrock = { version = "0.11.0-beta.6", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
 
 # Async traits
 async-trait.workspace = true
@@ -249,7 +249,7 @@ mockito.workspace = true
 wiremock.workspace = true
 futures-util.workspace = true
 axum.workspace = true
-siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, features = ["openai-standard"] }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.6", path = "../siumai-provider-openai-compatible", default-features = false, features = ["openai-standard"] }
 
 # Examples configuration
 # Examples (0.11.0 refactored structure)

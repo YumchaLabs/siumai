@@ -16,7 +16,7 @@ pr_branch_prefix = "release-plz-"
 pr_labels = ["release"]
 
 # During the migration phase, allow releasing packages that are already committed to `main`
-# (e.g. `0.11.0-beta.5` is currently unreleased).
+# (e.g. `0.11.0-beta.6` is currently unreleased).
 #
 # After the first release via release-plz, you may want to switch to `false` so releases happen
 # only when the release PR is merged (safer against race conditions on `main`).
@@ -26,7 +26,7 @@ release_always = true
 name = "siumai"
 changelog_path = "./CHANGELOG.md"
 
-# Keep the existing tag style: `v0.11.0-beta.5`.
+# Keep the existing tag style: `v0.11.0-beta.6`.
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 

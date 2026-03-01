@@ -19,10 +19,10 @@ doctest = false
 siumai-core = { workspace = true, default-features = false }
 # Always depend on the shared OpenAI-like protocol crate.
 # This keeps provider-owned typed metadata available via re-exports.
-siumai-protocol-openai = { version = "0.11.0-beta.5", path = "../siumai-protocol-openai", default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.6", path = "../siumai-protocol-openai", default-features = false }
 
 # OpenAI-compatible providers (vendor presets + adapter registry) live in a dedicated crate.
-siumai-provider-openai-compatible = { version = "0.11.0-beta.5", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
+siumai-provider-openai-compatible = { version = "0.11.0-beta.6", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
 
 # Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
