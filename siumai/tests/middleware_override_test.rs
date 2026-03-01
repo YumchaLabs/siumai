@@ -105,6 +105,10 @@ impl LlmClient for MockClient {
     fn clone_box(&self) -> Box<dyn LlmClient> {
         Box::new(self.clone())
     }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
 }
 
 /// Middleware that overrides model ID to "gpt-4"

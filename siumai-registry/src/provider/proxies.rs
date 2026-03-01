@@ -241,6 +241,10 @@ mod tests {
         fn clone_box(&self) -> Box<dyn LlmClient> {
             Box::new(MockProvider)
         }
+
+        fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+            Some(self)
+        }
     }
 
     #[tokio::test]

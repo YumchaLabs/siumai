@@ -16,6 +16,10 @@ impl LlmClient for Siumai {
         self.metadata.capabilities.clone()
     }
 
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         self.client.as_embedding_capability()
     }

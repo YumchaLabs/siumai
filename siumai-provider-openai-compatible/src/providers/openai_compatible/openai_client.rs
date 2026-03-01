@@ -790,6 +790,14 @@ impl LlmClient for OpenAiCompatibleClient {
         Box::new((*self).clone())
     }
 
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        if self.config.adapter.capabilities().chat {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         if self.config.adapter.capabilities().embedding {
             Some(self)

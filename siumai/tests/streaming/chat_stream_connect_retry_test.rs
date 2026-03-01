@@ -70,6 +70,10 @@ impl LlmClient for ConnectRetryProvider {
             .store(self.attempts.load(Ordering::SeqCst), Ordering::SeqCst);
         Box::new(cloned)
     }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
 }
 
 #[tokio::test]

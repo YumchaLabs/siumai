@@ -69,6 +69,10 @@ impl LlmClient for CancelTestProvider {
             .store(self.start_count.load(Ordering::SeqCst), Ordering::SeqCst);
         Box::new(cloned)
     }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
 }
 
 #[tokio::test]
@@ -178,6 +182,10 @@ impl LlmClient for SlowStartProvider {
             started: Arc::clone(&self.started),
             dropped: Arc::clone(&self.dropped),
         })
+    }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
     }
 }
 

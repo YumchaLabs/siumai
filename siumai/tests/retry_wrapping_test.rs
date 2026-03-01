@@ -85,6 +85,10 @@ impl LlmClient for TestProvider {
         cloned.attempts.store(current, Ordering::SeqCst);
         Box::new(cloned)
     }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
 }
 
 #[tokio::test]

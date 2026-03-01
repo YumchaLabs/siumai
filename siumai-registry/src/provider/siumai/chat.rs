@@ -11,18 +11,30 @@ impl ChatCapability for Siumai {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
+        let client = std::sync::Arc::clone(&self.client);
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
                 || {
                     let m = messages.clone();
                     let t = tools.clone();
-                    async move { self.client.chat_with_tools(m, t).await }
+                    let c = std::sync::Arc::clone(&client);
+                    async move {
+                        let chat = c.as_chat_capability().ok_or_else(|| {
+                            LlmError::UnsupportedOperation(
+                                "Client does not support chat.".to_string(),
+                            )
+                        })?;
+                        chat.chat_with_tools(m, t).await
+                    }
                 },
                 opts.clone(),
             )
             .await
         } else {
-            self.client.chat_with_tools(messages, tools).await
+            let chat = client.as_chat_capability().ok_or_else(|| {
+                LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+            })?;
+            chat.chat_with_tools(messages, tools).await
         }
     }
 
@@ -31,18 +43,30 @@ impl ChatCapability for Siumai {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
+        let client = std::sync::Arc::clone(&self.client);
         if let Some(opts) = &self.retry_options {
             crate::retry_api::retry_with(
                 || {
                     let m = messages.clone();
                     let t = tools.clone();
-                    async move { self.client.chat_stream(m, t).await }
+                    let c = std::sync::Arc::clone(&client);
+                    async move {
+                        let chat = c.as_chat_capability().ok_or_else(|| {
+                            LlmError::UnsupportedOperation(
+                                "Client does not support chat.".to_string(),
+                            )
+                        })?;
+                        chat.chat_stream(m, t).await
+                    }
                 },
                 opts.clone(),
             )
             .await
         } else {
-            self.client.chat_stream(messages, tools).await
+            let chat = client.as_chat_capability().ok_or_else(|| {
+                LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+            })?;
+            chat.chat_stream(messages, tools).await
         }
     }
 
@@ -60,13 +84,24 @@ impl ChatCapability for Siumai {
                             let m = messages.clone();
                             let t = tools.clone();
                             let client = std::sync::Arc::clone(&this.client);
-                            async move { client.chat_stream_with_cancel(m, t).await }
+                            async move {
+                                let chat = client.as_chat_capability().ok_or_else(|| {
+                                    LlmError::UnsupportedOperation(
+                                        "Client does not support chat.".to_string(),
+                                    )
+                                })?;
+                                chat.chat_stream_with_cancel(m, t).await
+                            }
                         },
                         opts,
                     )
                     .await
                 } else {
-                    this.client.chat_stream_with_cancel(messages, tools).await
+                    let client = std::sync::Arc::clone(&this.client);
+                    let chat = client.as_chat_capability().ok_or_else(|| {
+                        LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+                    })?;
+                    chat.chat_stream_with_cancel(messages, tools).await
                 }
             }),
         )
@@ -84,13 +119,24 @@ impl ChatCapability for Siumai {
                         || {
                             let req = request.clone();
                             let client = std::sync::Arc::clone(&this.client);
-                            async move { client.chat_stream_request_with_cancel(req).await }
+                            async move {
+                                let chat = client.as_chat_capability().ok_or_else(|| {
+                                    LlmError::UnsupportedOperation(
+                                        "Client does not support chat.".to_string(),
+                                    )
+                                })?;
+                                chat.chat_stream_request_with_cancel(req).await
+                            }
                         },
                         opts,
                     )
                     .await
                 } else {
-                    this.client.chat_stream_request_with_cancel(request).await
+                    let client = std::sync::Arc::clone(&this.client);
+                    let chat = client.as_chat_capability().ok_or_else(|| {
+                        LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+                    })?;
+                    chat.chat_stream_request_with_cancel(request).await
                 }
             }),
         )

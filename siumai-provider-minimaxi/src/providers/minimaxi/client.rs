@@ -226,6 +226,10 @@ impl LlmClient for MinimaxiClient {
         Box::new(self.clone())
     }
 
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
     fn as_audio_capability(&self) -> Option<&dyn crate::traits::AudioCapability> {
         Some(self)
     }

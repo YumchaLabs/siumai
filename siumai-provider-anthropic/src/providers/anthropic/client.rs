@@ -740,6 +740,10 @@ impl LlmClient for AnthropicClient {
         Box::new(self.clone())
     }
 
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
     fn as_model_listing_capability(&self) -> Option<&dyn crate::traits::ModelListingCapability> {
         Some(self)
     }

@@ -589,6 +589,10 @@ impl LlmClient for LanguageModelHandle {
     fn clone_box(&self) -> Box<dyn LlmClient> {
         Box::new(self.clone())
     }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
 }
 
 /// Implementation of ChatCapability for LanguageModelHandle
@@ -614,6 +618,9 @@ impl ChatCapability for LanguageModelHandle {
 
         // Get or create cached client with potentially overridden model_id
         let client = self.get_or_create_client(&model_id).await?;
+        let chat = client.as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support chat".to_string())
+        })?;
 
         // Apply middlewares if any
         if !self.middlewares.is_empty() {
@@ -625,9 +632,9 @@ impl ChatCapability for LanguageModelHandle {
                 &self.middlewares,
                 req,
             );
-            client.chat_with_tools(req.messages, req.tools).await
+            chat.chat_with_tools(req.messages, req.tools).await
         } else {
-            client.chat_with_tools(messages, tools).await
+            chat.chat_with_tools(messages, tools).await
         }
     }
 
@@ -648,6 +655,9 @@ impl ChatCapability for LanguageModelHandle {
 
         // Get or create cached client with potentially overridden model_id
         let client = self.get_or_create_client(&model_id).await?;
+        let chat = client.as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support chat".to_string())
+        })?;
 
         // Apply middlewares if any
         if !self.middlewares.is_empty() {
@@ -659,9 +669,9 @@ impl ChatCapability for LanguageModelHandle {
                 &self.middlewares,
                 req,
             );
-            client.chat_stream(req.messages, req.tools).await
+            chat.chat_stream(req.messages, req.tools).await
         } else {
-            client.chat_stream(messages, tools).await
+            chat.chat_stream(messages, tools).await
         }
     }
 
@@ -684,6 +694,9 @@ impl ChatCapability for LanguageModelHandle {
                 };
 
                 let client = this.get_or_create_client(&model_id).await?;
+                let chat = client.as_chat_capability().ok_or_else(|| {
+                    LlmError::UnsupportedOperation("Provider does not support chat".to_string())
+                })?;
 
                 let mut req = ChatRequest::new(messages).with_streaming(true);
                 if let Some(t) = tools {
@@ -697,7 +710,7 @@ impl ChatCapability for LanguageModelHandle {
                     );
                 }
 
-                client.chat_stream_request_with_cancel(req).await
+                chat.chat_stream_request_with_cancel(req).await
             }),
         )
     }
@@ -719,6 +732,9 @@ impl ChatCapability for LanguageModelHandle {
                 };
 
                 let client = this.get_or_create_client(&model_id).await?;
+                let chat = client.as_chat_capability().ok_or_else(|| {
+                    LlmError::UnsupportedOperation("Provider does not support chat".to_string())
+                })?;
 
                 let mut req = request.with_streaming(true);
                 if !this.middlewares.is_empty() {
@@ -728,7 +744,7 @@ impl ChatCapability for LanguageModelHandle {
                     );
                 }
 
-                client.chat_stream_request_with_cancel(req).await
+                chat.chat_stream_request_with_cancel(req).await
             }),
         )
     }
@@ -1110,6 +1126,10 @@ impl LlmClient for TestProvClient {
     }
     fn clone_box(&self) -> Box<dyn LlmClient> {
         Box::new(TestProvClient)
+    }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
     }
 }
 

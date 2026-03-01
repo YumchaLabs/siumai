@@ -720,6 +720,10 @@ impl LlmClient for GeminiClient {
         Box::new(self.clone())
     }
 
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         Some(self)
     }

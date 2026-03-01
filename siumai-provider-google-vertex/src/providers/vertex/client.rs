@@ -406,6 +406,10 @@ impl LlmClient for GoogleVertexClient {
         Box::new(self.clone())
     }
 
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
         Some(self)
     }

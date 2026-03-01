@@ -441,6 +441,10 @@ impl LlmClient for CustomProviderClient {
             http_client: self.http_client.clone(),
         })
     }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
 }
 
 /// Helper trait for building custom providers

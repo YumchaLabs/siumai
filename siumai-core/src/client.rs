@@ -9,7 +9,7 @@ use crate::types::*;
 use std::borrow::Cow;
 
 /// Unified LLM client interface
-pub trait LlmClient: ChatCapability + Send + Sync {
+pub trait LlmClient: Send + Sync {
     /// Get the canonical provider id (e.g., "openai", "anthropic")
     fn provider_id(&self) -> Cow<'static, str>;
 
@@ -29,6 +29,14 @@ pub trait LlmClient: ChatCapability + Send + Sync {
 
     /// Clone the client into a boxed trait object
     fn clone_box(&self) -> Box<dyn LlmClient>;
+
+    /// Get as chat capability if supported.
+    ///
+    /// Returns None by default. Clients that implement chat should override this
+    /// method to return Some(self).
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        None
+    }
 
     /// Get as embedding capability if supported
     ///
@@ -280,7 +288,10 @@ impl ChatCapability for ClientWrapper {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        self.client().chat_with_tools(messages, tools).await
+        let chat = self.client().as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+        })?;
+        chat.chat_with_tools(messages, tools).await
     }
 
     async fn chat_stream(
@@ -288,7 +299,10 @@ impl ChatCapability for ClientWrapper {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        self.client().chat_stream(messages, tools).await
+        let chat = self.client().as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+        })?;
+        chat.chat_stream(messages, tools).await
     }
 }
 
@@ -322,6 +336,10 @@ impl LlmClient for ClientWrapper {
 
     fn clone_box(&self) -> Box<dyn LlmClient> {
         Box::new(self.clone())
+    }
+
+    fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        self.client().as_chat_capability()
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
