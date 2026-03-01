@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use backoff::ExponentialBackoffBuilder;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
 use crate::client::LlmClient;
@@ -148,6 +148,33 @@ impl AnthropicClient {
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
         }
+    }
+
+    /// Construct an `AnthropicClient` from an `AnthropicConfig` (config-first construction).
+    ///
+    /// This is the recommended construction style for new code that does not want to
+    /// depend on the unified builder surface.
+    pub fn from_config(config: super::AnthropicConfig) -> Result<Self, LlmError> {
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+
+        let specific_params = super::specific_params_from_legacy_params(&config.anthropic_params);
+
+        let mut client = Self::new(
+            config.api_key.expose_secret().to_string(),
+            config.base_url,
+            http_client,
+            config.common_params,
+            config.anthropic_params,
+            config.http_config,
+        )
+        .with_specific_params(specific_params);
+
+        if let Some(transport) = config.http_transport {
+            client = client.with_http_transport(transport);
+        }
+
+        Ok(client)
     }
 
     /// Get Anthropic-specific parameters
@@ -752,6 +779,7 @@ impl LlmClient for AnthropicClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::anthropic::AnthropicConfig;
 
     #[test]
     fn test_anthropic_client_creation() {
@@ -769,6 +797,17 @@ mod tests {
             std::borrow::Cow::Borrowed("anthropic")
         );
         assert!(!client.supported_models().is_empty());
+    }
+
+    #[test]
+    fn anthropic_client_from_config_builds_http_client() {
+        let cfg = AnthropicConfig::new("test-key").with_model("claude-3-5-haiku-20241022");
+        let client = AnthropicClient::from_config(cfg).expect("from_config ok");
+        assert_eq!(
+            client.provider_id(),
+            std::borrow::Cow::Borrowed("anthropic")
+        );
+        assert_eq!(client.common_params().model, "claude-3-5-haiku-20241022");
     }
 
     #[test]

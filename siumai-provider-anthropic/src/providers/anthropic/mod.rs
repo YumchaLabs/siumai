@@ -50,3 +50,27 @@ pub use crate::provider_metadata::anthropic::{
 
 // Re-export capability implementations
 pub use models::AnthropicModels;
+
+pub(crate) fn specific_params_from_legacy_params(
+    params: &crate::params::AnthropicParams,
+) -> crate::providers::anthropic::types::AnthropicSpecificParams {
+    crate::providers::anthropic::types::AnthropicSpecificParams {
+        beta_features: params.beta_features.clone().unwrap_or_default(),
+        // Legacy params are retained for backward compatibility; prompt caching is modeled as a
+        // modern request-level provider option (`providerOptions["anthropic"]`) for new code.
+        cache_control: params
+            .cache_control
+            .as_ref()
+            .map(|_cc| crate::providers::anthropic::cache::CacheControl::ephemeral()),
+        thinking_config: params
+            .thinking_budget
+            .map(|budget| crate::providers::anthropic::thinking::ThinkingConfig::enabled(budget)),
+        metadata: params.metadata.as_ref().map(|m| {
+            let mut json_map = serde_json::Map::new();
+            for (k, v) in m {
+                json_map.insert(k.clone(), serde_json::Value::String(v.clone()));
+            }
+            serde_json::Value::Object(json_map)
+        }),
+    }
+}

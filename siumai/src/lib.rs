@@ -373,7 +373,9 @@ pub mod provider_ext {
 
     #[cfg(feature = "anthropic")]
     pub mod anthropic {
-        pub use siumai_provider_anthropic::providers::anthropic::AnthropicClient;
+        pub use siumai_provider_anthropic::providers::anthropic::{
+            AnthropicClient, AnthropicConfig,
+        };
 
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         pub mod tools {

@@ -137,6 +137,16 @@ impl OpenAiClient {
         &self.base_url
     }
 
+    /// Construct an `OpenAiClient` from an `OpenAiConfig` (config-first construction).
+    ///
+    /// This is the recommended construction style for new code that does not want to
+    /// depend on the unified builder surface.
+    pub fn from_config(config: super::OpenAiConfig) -> Result<Self, LlmError> {
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Ok(Self::new(config, http_client))
+    }
+
     pub(crate) fn clone_without_http_transport(&self) -> Self {
         let mut out = self.clone();
         out.http_transport = None;
@@ -790,6 +800,14 @@ mod tests {
             std::borrow::Cow::Borrowed("openai")
         );
         assert!(!LlmProvider::supported_models(&client).is_empty());
+    }
+
+    #[test]
+    fn openai_client_from_config_builds_http_client() {
+        let cfg = OpenAiConfig::new("test-key").with_model("gpt-4o-mini");
+        let client = OpenAiClient::from_config(cfg).expect("from_config ok");
+        assert_eq!(client.base_url(), "https://api.openai.com/v1");
+        assert_eq!(client.common_params.model, "gpt-4o-mini");
     }
 
     #[test]

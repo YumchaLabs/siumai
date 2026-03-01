@@ -247,27 +247,8 @@ impl AnthropicBuilder {
         // Step 3: Build configuration
         let model_id = self.common_params.model.clone();
 
-        let specific_params = crate::providers::anthropic::types::AnthropicSpecificParams {
-            beta_features: self
-                .anthropic_params
-                .beta_features
-                .clone()
-                .unwrap_or_default(),
-            cache_control: self.anthropic_params.cache_control.as_ref().map(|_cc| {
-                crate::providers::anthropic::cache::CacheControl::ephemeral() // Convert from params::CacheControl
-            }),
-            thinking_config: self.anthropic_params.thinking_budget.map(|budget| {
-                crate::providers::anthropic::thinking::ThinkingConfig::enabled(budget)
-            }),
-            metadata: self.anthropic_params.metadata.as_ref().map(|m| {
-                // Convert HashMap<String, String> to serde_json::Value
-                let mut json_map = serde_json::Map::new();
-                for (k, v) in m {
-                    json_map.insert(k.clone(), serde_json::Value::String(v.clone()));
-                }
-                serde_json::Value::Object(json_map)
-            }),
-        };
+        let specific_params =
+            crate::providers::anthropic::specific_params_from_legacy_params(&self.anthropic_params);
 
         // Step 4: Build HTTP client from core
         let http_client = self.core.build_http_client()?;

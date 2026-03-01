@@ -81,18 +81,27 @@ impl Clone for GeminiClient {
 }
 
 impl GeminiClient {
-    /// Create a new Gemini client with the given configuration
-    pub fn new(config: GeminiConfig) -> Result<Self, LlmError> {
-        let timeout = Duration::from_secs(config.timeout.unwrap_or(30));
+    /// Construct a `GeminiClient` from a `GeminiConfig` (config-first construction).
+    ///
+    /// This is the recommended construction style for new code that does not want to
+    /// depend on the unified builder surface.
+    pub fn from_config(mut config: GeminiConfig) -> Result<Self, LlmError> {
+        // Backward-compat: `GeminiConfig` historically carried `timeout` as seconds.
+        // Prefer `http_config.timeout` when set; otherwise map `timeout` into it.
+        if config.http_config.timeout.is_none()
+            && let Some(secs) = config.timeout
+        {
+            config.http_config.timeout = Some(Duration::from_secs(secs));
+        }
 
-        let http_client = HttpClient::builder()
-            .timeout(timeout)
-            .build()
-            .map_err(|e| {
-                LlmError::ConfigurationError(format!("Failed to create HTTP client: {e}"))
-            })?;
-
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
         Self::with_http_client(config, http_client)
+    }
+
+    /// Create a new Gemini client with the given configuration.
+    pub fn new(config: GeminiConfig) -> Result<Self, LlmError> {
+        Self::from_config(config)
     }
 
     /// Create a new Gemini client with a custom HTTP client
@@ -763,4 +772,16 @@ pub(super) fn gemini_backoff_executor() -> crate::retry_api::BackoffRetryExecuto
         .with_max_elapsed_time(Some(Duration::from_secs(300)))
         .build();
     crate::retry_api::BackoffRetryExecutor::with_backoff(backoff)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_client_from_config_builds_http_client() {
+        let cfg = GeminiConfig::new("test-key").with_model("gemini-2.0-flash-exp".to_string());
+        let client = GeminiClient::from_config(cfg).expect("from_config ok");
+        assert_eq!(client.provider_id(), std::borrow::Cow::Borrowed("google"));
+    }
 }
