@@ -76,9 +76,27 @@ impl std::fmt::Debug for MinimaxiClient {
 }
 
 impl MinimaxiClient {
+    /// Construct a `MinimaxiClient` from a config-first `MinimaxiConfig`.
+    pub fn from_config(config: MinimaxiConfig) -> Result<Self, LlmError> {
+        config.validate()?;
+
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+
+        let http_config = config.http_config.clone();
+        let mut client = Self::new_with_http_config(config, http_client, http_config);
+
+        if let Some(transport) = client.config.http_transport.clone() {
+            client = client.with_http_transport(transport);
+        }
+
+        Ok(client)
+    }
+
     /// Create a new MiniMaxi client
     pub fn new(config: MinimaxiConfig, http_client: reqwest::Client) -> Self {
-        Self::new_with_http_config(config, http_client, HttpConfig::default())
+        let http_config = config.http_config.clone();
+        Self::new_with_http_config(config, http_client, http_config)
     }
 
     pub(crate) fn new_with_http_config(
@@ -86,6 +104,7 @@ impl MinimaxiClient {
         http_client: reqwest::Client,
         http_config: HttpConfig,
     ) -> Self {
+        let http_transport = config.http_transport.clone();
         Self {
             config,
             http_client,
@@ -95,7 +114,7 @@ impl MinimaxiClient {
             retry_options: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
-            http_transport: None,
+            http_transport,
         }
     }
 

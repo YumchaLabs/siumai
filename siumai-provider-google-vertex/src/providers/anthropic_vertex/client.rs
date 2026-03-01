@@ -40,6 +40,24 @@ pub struct VertexAnthropicClient {
 }
 
 impl VertexAnthropicClient {
+    /// Construct a `VertexAnthropicClient` from a config-first `VertexAnthropicConfig`.
+    pub fn from_config(config: VertexAnthropicConfig) -> Result<Self, LlmError> {
+        if config.base_url.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Vertex Anthropic requires a non-empty base_url".to_string(),
+            ));
+        }
+        if config.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Vertex Anthropic requires a non-empty model id".to_string(),
+            ));
+        }
+
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Ok(Self::new(config, http_client))
+    }
+
     pub fn new(config: VertexAnthropicConfig, http_client: HttpClient) -> Self {
         Self {
             http_client,
@@ -342,7 +360,7 @@ impl ModelListingCapability for VertexAnthropicClient {
 
 impl crate::client::LlmClient for VertexAnthropicClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("anthropic")
+        std::borrow::Cow::Borrowed("anthropic-vertex")
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -362,6 +380,10 @@ impl crate::client::LlmClient for VertexAnthropicClient {
 
     fn clone_box(&self) -> Box<dyn crate::client::LlmClient> {
         Box::new(self.clone())
+    }
+
+    fn as_chat_capability(&self) -> Option<&dyn crate::traits::ChatCapability> {
+        Some(self)
     }
 
     fn as_model_listing_capability(&self) -> Option<&dyn crate::traits::ModelListingCapability> {

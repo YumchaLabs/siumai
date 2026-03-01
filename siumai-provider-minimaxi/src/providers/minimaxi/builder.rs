@@ -143,6 +143,7 @@ impl MinimaxiBuilder {
         // Update config with API key
         let mut config = self.config;
         config.api_key = api_key;
+        config.http_config = self.core.http_config.clone();
 
         // Build HTTP client from core
         let http_client = self.core.build_http_client()?;

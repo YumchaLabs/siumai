@@ -148,6 +148,15 @@ impl OpenAiConfig {
         self
     }
 
+    /// Set the HTTP configuration for this client.
+    ///
+    /// This config is used when building the internal `reqwest::Client` via
+    /// `OpenAiClient::from_config(...)`.
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = http_config;
+        self
+    }
+
     /// Set the model name.
     ///
     /// # Arguments

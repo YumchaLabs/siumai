@@ -120,6 +120,16 @@ impl OpenAiWebSocketSession {
         })
     }
 
+    /// Create a session from an [`OpenAiConfig`] by building the HTTP client from `config.http_config`.
+    ///
+    /// This matches the config-first ergonomics of other provider clients:
+    /// `OpenAiClient::from_config(OpenAiConfig)`.
+    pub fn from_config_default_http(config: super::OpenAiConfig) -> Result<Self, LlmError> {
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Self::from_config(config, http_client)
+    }
+
     pub fn recovery_config(&self) -> OpenAiWebSocketRecoveryConfig {
         self.recovery
     }
@@ -922,6 +932,7 @@ impl ChatCapability for OpenAiWebSocketSession {
 #[cfg(feature = "openai-websocket")]
 mod tests {
     use super::*;
+    use crate::providers::openai::OpenAiConfig;
     use crate::types::ChatStreamEvent;
     use futures_util::SinkExt;
     use futures_util::StreamExt;
@@ -932,6 +943,15 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::Message;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn session_from_config_default_http_constructs() {
+        let cfg = OpenAiConfig::new("test-key")
+            .with_base_url("http://localhost:1234/v1")
+            .with_model("gpt-test");
+        let session = OpenAiWebSocketSession::from_config_default_http(cfg).expect("session ok");
+        assert_eq!(session.base_url(), "http://localhost:1234/v1");
+    }
 
     #[tokio::test]
     async fn session_gate_prevents_concurrent_second_connection() {

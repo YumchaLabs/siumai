@@ -74,6 +74,24 @@ pub struct GoogleVertexClient {
 }
 
 impl GoogleVertexClient {
+    /// Construct a `GoogleVertexClient` from a config-first `GoogleVertexConfig`.
+    pub fn from_config(config: GoogleVertexConfig) -> Result<Self, LlmError> {
+        if config.base_url.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Google Vertex requires a non-empty base_url".to_string(),
+            ));
+        }
+        if config.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Google Vertex requires a non-empty model id".to_string(),
+            ));
+        }
+
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Ok(Self::new(config, http_client))
+    }
+
     pub fn new(config: GoogleVertexConfig, http_client: HttpClient) -> Self {
         let common_params = crate::types::CommonParams {
             model: config.model.clone(),

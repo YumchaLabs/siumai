@@ -3,11 +3,12 @@
 //! Configuration structures for MiniMaxi API client.
 
 use crate::error::LlmError;
-use crate::types::CommonParams;
+use crate::types::{CommonParams, HttpConfig};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// MiniMaxi API configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MinimaxiConfig {
     /// API key for authentication
     pub api_key: String,
@@ -15,6 +16,24 @@ pub struct MinimaxiConfig {
     pub base_url: String,
     /// Common parameters (model, temperature, etc.)
     pub common_params: CommonParams,
+    /// HTTP configuration
+    #[serde(default)]
+    pub http_config: HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    #[serde(skip)]
+    pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+}
+
+impl std::fmt::Debug for MinimaxiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MinimaxiConfig")
+            .field("base_url", &self.base_url)
+            .field("common_params", &self.common_params)
+            .field("http_config", &self.http_config)
+            .field("has_api_key", &(!self.api_key.is_empty()))
+            .field("has_http_transport", &self.http_transport.is_some())
+            .finish()
+    }
 }
 
 impl MinimaxiConfig {
@@ -36,6 +55,8 @@ impl MinimaxiConfig {
                 model: Self::DEFAULT_MODEL.to_string(),
                 ..Default::default()
             },
+            http_config: HttpConfig::default(),
+            http_transport: None,
         }
     }
 
@@ -48,6 +69,21 @@ impl MinimaxiConfig {
     /// Set the default model
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.common_params.model = model.into();
+        self
+    }
+
+    /// Set the HTTP configuration.
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = http_config;
+        self
+    }
+
+    /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.http_transport = Some(transport);
         self
     }
 
@@ -65,6 +101,12 @@ impl MinimaxiConfig {
             ));
         }
 
+        if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
+            return Err(LlmError::ConfigurationError(
+                "MiniMaxi base URL must start with http:// or https://".to_string(),
+            ));
+        }
+
         Ok(())
     }
 }
@@ -78,6 +120,8 @@ impl Default for MinimaxiConfig {
                 model: Self::DEFAULT_MODEL.to_string(),
                 ..Default::default()
             },
+            http_config: HttpConfig::default(),
+            http_transport: None,
         }
     }
 }
