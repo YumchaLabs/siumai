@@ -20,6 +20,19 @@ model-family APIs.
 - Legacy method-style entry points are treated as compatibility surface:
   - explicit module: `siumai::compat`
 
+## Before/after cheatsheet
+
+The most common migration is “keep construction, swap invocation”:
+
+- `client.chat(messages)` → `text::generate(&client, ChatRequest::new(messages), ..)`
+- `client.chat_stream(messages, tools)` → `text::stream(&client, ChatRequest::new(messages).with_tools(tools), ..)`
+- `client.chat_stream_with_cancel(messages, tools)` → `text::stream_with_cancel(&client, ChatRequest::new(messages).with_tools(tools), ..)`
+- `client.embed(...)` / `client.embed_with_config(..)` → `embedding::embed(&client, EmbeddingRequest { .. }, ..)`
+- `client.generate_images(..)` → `image::generate(&client, ImageGenerationRequest { .. }, ..)`
+- `client.rerank(..)` → `rerank::rerank(&client, RerankRequest::new(..), ..)`
+- `client.tts(..)` → `speech::synthesize(&client, TtsRequest::new(..), ..)`
+- `client.stt(..)` → `transcription::transcribe(&client, SttRequest::from_audio(..), ..)`
+
 ## 1) Text generation: `client.chat_*` → `siumai::text::*`
 
 ### Non-streaming
@@ -66,6 +79,31 @@ let ChatStreamHandle { mut stream, cancel } = handle;
 let reader = tokio::spawn(async move { while stream.next().await.is_some() {} });
 cancel.cancel();
 let _ = reader.await;
+```
+
+## 1b) Other model families (quick examples)
+
+```rust,ignore
+use siumai::prelude::unified::*;
+
+// Embeddings
+let _ = embedding::embed(
+    &client,
+    EmbeddingRequest {
+        input: vec!["hello".to_string()],
+        ..Default::default()
+    },
+    embedding::EmbedOptions::default(),
+)
+.await?;
+
+// Rerank
+let _ = rerank::rerank(
+    &client,
+    RerankRequest::new("rerank-model".into(), "q".into(), vec!["a".into(), "b".into()]),
+    rerank::RerankOptions::default(),
+)
+.await?;
 ```
 
 ## 2) Provider-specific features
