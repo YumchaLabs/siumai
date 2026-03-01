@@ -14,7 +14,7 @@
 //! ```
 
 use siumai::hosted_tools::openai as openai_tools;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{
     OpenAiChatRequestExt, OpenAiOptions, PredictionContent, ResponsesApiConfig,
 };
@@ -74,7 +74,7 @@ Here is the original content:\n\n{}",
         OpenAiOptions::new().with_prediction(PredictionContent::text(original_content)),
     );
 
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
     println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -92,7 +92,7 @@ async fn web_search_context_size(client: &Siumai) -> Result<(), Box<dyn std::err
     ])
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
     println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -115,7 +115,7 @@ async fn web_search_location(client: &Siumai) -> Result<(), Box<dyn std::error::
         ])
         .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
     println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -145,7 +145,7 @@ async fn two_phase_workflow(client: &Siumai) -> Result<(), Box<dyn std::error::E
         OpenAiOptions::new().with_prediction(PredictionContent::text(template_content)),
     );
 
-    let resp1 = client.chat_request(req1).await?;
+    let resp1 = text::generate(client, req1, text::GenerateOptions::default()).await?;
     println!(
         "Phase 1 (prediction) text:\n{}\n",
         resp1.content_text().unwrap_or_default()
@@ -162,7 +162,7 @@ async fn two_phase_workflow(client: &Siumai) -> Result<(), Box<dyn std::error::E
     ])
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let resp2 = client.chat_request(req2).await?;
+    let resp2 = text::generate(client, req2, text::GenerateOptions::default()).await?;
     println!(
         "Phase 2 (web search) text:\n{}\n",
         resp2.content_text().unwrap_or_default()

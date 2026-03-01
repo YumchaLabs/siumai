@@ -20,7 +20,7 @@
 //! cargo run --example tool-choice-demo --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(tools.clone())
     .with_tool_choice(ToolChoice::Auto); // Explicit, but this is the default
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tools(tools.clone())
         .with_tool_choice(ToolChoice::Required);
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -127,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(tools.clone())
     .with_tool_choice(ToolChoice::None);
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     println!(
         "Tool calls: {}",
@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tools(tools.clone())
         .with_tool_choice(ToolChoice::tool("get_weather"));
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tool_choice(ToolChoice::tool("get_time"))
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();

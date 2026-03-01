@@ -19,7 +19,7 @@
 //! cargo run --example file_search --features google
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::gemini::ext::file_search_stores::{
     ChunkingConfig, FileSearchUploadConfig, WhiteSpaceChunkingConfig,
 };
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .build();
 
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(&client, req, text::GenerateOptions::default()).await?;
     println!(
         "AI (grounded):\n{}\n",
         resp.content_text().unwrap_or_default()

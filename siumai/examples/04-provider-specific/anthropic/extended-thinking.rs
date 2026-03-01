@@ -8,7 +8,7 @@
 //! cargo run --example extended-thinking --features anthropic
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::anthropic::{
     AnthropicChatRequestExt, AnthropicOptions, ThinkingModeConfig,
 };
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             thinking_budget: Some(5000),
         }));
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     // The response will include thinking process
     let reasoning = response.reasoning();
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("📝 Final answer:");
-    println!("{}", response.content_text().unwrap());
+    println!("{}", response.content_text().unwrap_or_default());
     println!();
 
     println!("💡 Migration Note:");

@@ -33,7 +33,7 @@ cargo run -p siumai --example minimaxi_basic --features minimaxi
 - Streaming responses
 - Multi-modal chat (text + images)
 - Image generation
-- Speech (TTS) via unified `SpeechCapability`
+- Speech (TTS) via the `speech::synthesize` family API
 - MiniMaxi video/music via extension APIs (see below)
 
 ### 2. Provider Extensions (`*_ext.rs`)
@@ -159,7 +159,7 @@ let request = ImageGenerationRequest {
     ..Default::default()
 };
 
-let response = client.generate_images(request).await?;
+let response = image::generate(&client, request, image::GenerateOptions::default()).await?;
 for (i, image) in response.images.iter().enumerate() {
     if let Some(url) = &image.url {
         println!("image[{i}] url = {url}");
@@ -188,7 +188,7 @@ let request = MinimaxiTtsRequestBuilder::new("Hello, this is a test of MiniMaxi 
     .format("mp3")
     .build();
 
-let response = client.tts(request).await?;
+let response = speech::synthesize(&client, request, speech::SynthesizeOptions::default()).await?;
 std::fs::write("speech.mp3", &response.audio_data)?;
 ```
 

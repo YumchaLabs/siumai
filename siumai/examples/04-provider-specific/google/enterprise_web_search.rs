@@ -8,7 +8,7 @@
 //! cargo run --example google-enterprise-web-search --features google
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(vec![siumai::hosted_tools::google::enterprise_web_search()])
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("{}", response.content_text().unwrap_or_default());
     Ok(())
 }

@@ -8,7 +8,7 @@
 //! cargo run --example vision --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,9 +27,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .build();
 
-    let response = client.chat(vec![message]).await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![message]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
-    println!("AI: {}", response.content_text().unwrap());
+    println!("AI: {}", response.content_text().unwrap_or_default());
 
     Ok(())
 }

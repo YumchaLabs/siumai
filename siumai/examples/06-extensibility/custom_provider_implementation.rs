@@ -19,9 +19,11 @@
 use async_trait::async_trait;
 use futures::stream;
 use siumai::experimental::custom_provider::{
-    CustomChatRequest, CustomChatResponse, CustomProvider,
+    CustomChatRequest, CustomChatResponse, CustomProvider, CustomProviderClient,
+    CustomProviderConfig,
 };
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
+use std::sync::Arc;
 
 /// Custom provider example — simulates a simple AI service
 #[derive(Clone)]
@@ -145,15 +147,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 2: Use custom provider for chat");
     println!("============================================\n");
 
-    let request = CustomChatRequest::new(
-        vec![ChatMessage::user("Hello! Please introduce yourself.").build()],
-        "custom-model-v1".to_string(),
-    );
+    let client = CustomProviderClient::new(
+        Arc::new(provider.clone()),
+        CustomProviderConfig::new(
+            provider.name(),
+            "https://api.my-custom-ai.com",
+            "sk-custom-api-key-12345",
+        )
+        .with_model("custom-model-v1"),
+    )?;
 
-    let response = provider.chat(request).await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![
+            ChatMessage::user("Hello! Please introduce yourself.").build(),
+        ]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     println!("\n✅ Received response:");
-    println!("   {}", response.content);
+    println!("   {}", response.content_text().unwrap_or_default());
     println!("   Token usage: {:?}", response.usage);
     println!();
 
@@ -163,12 +177,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 3: Use streaming response");
     println!("======================================\n");
 
-    let request = CustomChatRequest::new(
-        vec![ChatMessage::user("Tell me a story").build()],
-        "custom-model-pro".to_string(),
-    );
+    let client_stream = CustomProviderClient::new(
+        Arc::new(provider.clone()),
+        CustomProviderConfig::new(
+            provider.name(),
+            "https://api.my-custom-ai.com",
+            "sk-custom-api-key-12345",
+        )
+        .with_model("custom-model-pro"),
+    )?;
 
-    let mut stream = provider.chat_stream(request).await?;
+    let mut stream = text::stream(
+        &client_stream,
+        ChatRequest::new(vec![ChatMessage::user("Tell me a story").build()]),
+        text::StreamOptions::default(),
+    )
+    .await?;
 
     print!("📥 Streaming response: ");
     use futures::StreamExt;

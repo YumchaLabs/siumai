@@ -15,7 +15,7 @@
 //! cargo run --example responses-multi-turn --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
@@ -48,9 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response1 = client.chat_request(request1).await?;
+    let response1 = text::generate(&client, request1, text::GenerateOptions::default()).await?;
     println!("User: What is Rust programming language?");
-    println!("AI: {}\n", response1.content_text().unwrap());
+    println!("AI: {}\n", response1.content_text().unwrap_or_default());
 
     // Extract response ID for next turn
     let response_id_1 = response1
@@ -76,9 +76,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response2 = client.chat_request(request2).await?;
+    let response2 = text::generate(&client, request2, text::GenerateOptions::default()).await?;
     println!("User: Can you give me a simple code example?");
-    println!("AI: {}\n", response2.content_text().unwrap());
+    println!("AI: {}\n", response2.content_text().unwrap_or_default());
 
     let response_id_2 = response2
         .response_id()
@@ -104,9 +104,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response3 = client.chat_request(request3).await?;
+    let response3 = text::generate(&client, request3, text::GenerateOptions::default()).await?;
     println!("User: Explain ownership in that example");
-    println!("AI: {}\n", response3.content_text().unwrap());
+    println!("AI: {}\n", response3.content_text().unwrap_or_default());
 
     let response_id_3 = response3
         .response_id()
@@ -132,9 +132,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response4 = client.chat_request(request4).await?;
+    let response4 = text::generate(&client, request4, text::GenerateOptions::default()).await?;
     println!("User: What are the main benefits?");
-    println!("AI: {}\n", response4.content_text().unwrap());
+    println!("AI: {}\n", response4.content_text().unwrap_or_default());
 
     if let Some(response_id_4) = response4.response_id() {
         println!("📝 Response ID: {} (not stored on server)\n", response_id_4);

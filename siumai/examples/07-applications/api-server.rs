@@ -21,21 +21,21 @@
 
 use axum::{Router, extract::State, http::StatusCode, response::Json, routing::post};
 use serde::{Deserialize, Serialize};
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use std::sync::Arc;
 
 #[derive(Clone)]
 struct AppState {
-    client: Arc<Box<dyn ChatCapability + Send + Sync>>,
+    client: Arc<dyn siumai::text::TextModelV3 + Send + Sync>,
 }
 
 #[derive(Deserialize)]
-struct ChatRequest {
+struct ChatInput {
     message: String,
 }
 
 #[derive(Serialize)]
-struct ChatResponse {
+struct ChatOutput {
     response: String,
 }
 
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let state = AppState {
-        client: Arc::new(Box::new(client)),
+        client: Arc::new(client),
     };
 
     // Build router
@@ -74,15 +74,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn chat_handler(
     State(state): State<AppState>,
-    Json(req): Json<ChatRequest>,
-) -> Result<Json<ChatResponse>, StatusCode> {
-    let response = state
-        .client
-        .chat(vec![user!(&req.message)])
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Json(req): Json<ChatInput>,
+) -> Result<Json<ChatOutput>, StatusCode> {
+    let response = text::generate(
+        state.client.as_ref(),
+        ChatRequest::new(vec![user!(&req.message)]),
+        text::GenerateOptions::default(),
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let text = response.content_text().unwrap_or("No response").to_string();
 
-    Ok(Json(ChatResponse { response: text }))
+    Ok(Json(ChatOutput { response: text }))
 }

@@ -1,4 +1,4 @@
-//! Stream with Cancellation - Using client.chat_stream_with_cancel()
+//! Stream with Cancellation - Using `text::stream_with_cancel` (recommended)
 //!
 //! This example demonstrates how to cancel a stream early.
 //! Useful for: User interruptions, timeouts, or conditional stopping.
@@ -9,7 +9,7 @@
 //! ```
 
 use futures::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use std::time::Duration;
 
 #[tokio::main]
@@ -21,10 +21,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // Get cancellable stream handle
-    let handle = client
-        .chat_stream_with_cancel(vec![user!("Write a very long story about a dragon")], None)
-        .await?;
+    let handle = text::stream_with_cancel(
+        &client,
+        ChatRequest::new(vec![user!("Write a very long story about a dragon")]),
+        text::StreamOptions::default(),
+    )
+    .await?;
 
     println!("AI: ");
     println!("(Will cancel after 2 seconds)\n");

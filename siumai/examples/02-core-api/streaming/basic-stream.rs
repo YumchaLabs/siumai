@@ -1,4 +1,4 @@
-//! Basic Stream - Using client.chat_stream()
+//! Basic Stream - Using `text::stream` (recommended)
 //!
 //! This example demonstrates basic streaming for real-time responses.
 //!
@@ -8,7 +8,7 @@
 //! ```
 
 use futures::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,9 +20,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("AI: ");
-    let mut stream = client
-        .chat_stream(vec![user!("Count from 1 to 10")], None)
-        .await?;
+    let mut stream = text::stream(
+        &client,
+        ChatRequest::new(vec![user!("Count from 1 to 10")]),
+        text::StreamOptions::default(),
+    )
+    .await?;
 
     while let Some(event) = stream.next().await {
         match event? {

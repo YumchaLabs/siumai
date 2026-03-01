@@ -200,8 +200,8 @@ impl MyCustomProviderClient {
         self
     }
 
-    /// Execute a chat request
-    pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+    /// Execute a text-generation request (Chat Completions style in this example).
+    pub async fn execute_chat(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         let spec = Arc::new(MyCustomProviderSpec::new(self.config.clone()));
         let ctx = ProviderContext::new(
             "my-custom-provider",
@@ -228,6 +228,28 @@ impl MyCustomProviderClient {
         };
 
         executor.execute(request).await
+    }
+}
+
+#[async_trait::async_trait]
+impl siumai::text::TextModelV3 for MyCustomProviderClient {
+    async fn generate(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        self.execute_chat(request).await
+    }
+
+    async fn stream(&self, _request: ChatRequest) -> Result<ChatStream, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Streaming is not implemented in this custom provider example.".to_string(),
+        ))
+    }
+
+    async fn stream_with_cancel(
+        &self,
+        _request: ChatRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Streaming is not implemented in this custom provider example.".to_string(),
+        ))
     }
 }
 
@@ -264,7 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📤 Sending request...\n");
 
     // Step 4: Execute request
-    let response = client.chat(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     println!("📥 Response:");
     if let MessageContent::Text(text) = &response.content {

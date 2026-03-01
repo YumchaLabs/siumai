@@ -8,7 +8,7 @@
 //! cargo run --example prompt-caching --features anthropic
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 
 #[tokio::main]
@@ -32,11 +32,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // First request - will create cache
     println!("First request (creating cache)...");
-    let response1 = client
-        .chat(vec![system_msg.clone(), user!("Summarize the document")])
-        .await?;
+    let response1 = text::generate(
+        &client,
+        ChatRequest::new(vec![system_msg.clone(), user!("Summarize the document")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
-    println!("AI: {}\n", response1.content_text().unwrap());
+    println!("AI: {}\n", response1.content_text().unwrap_or_default());
     if let Some(usage) = &response1.usage {
         println!("Usage: {:?}", usage);
         if let Some(anthropic_meta) = response1.anthropic_metadata()
@@ -48,11 +51,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Second request - will use cache
     println!("Second request (using cache)...");
-    let response2 = client
-        .chat(vec![system_msg, user!("What are the key points?")])
-        .await?;
+    let response2 = text::generate(
+        &client,
+        ChatRequest::new(vec![system_msg, user!("What are the key points?")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
-    println!("AI: {}\n", response2.content_text().unwrap());
+    println!("AI: {}\n", response2.content_text().unwrap_or_default());
     if let Some(usage) = &response2.usage {
         println!("Usage: {:?}", usage);
         if let Some(anthropic_meta) = response2.anthropic_metadata()

@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .messages(vec![question, replayable_assistant, follow_up])
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("Summary:\n{}", response.content_text().unwrap_or_default());
 
     Ok(())

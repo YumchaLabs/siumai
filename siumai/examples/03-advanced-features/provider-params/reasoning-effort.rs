@@ -8,7 +8,7 @@
 //! cargo run --example reasoning-effort --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ReasoningEffort};
 
 #[tokio::main]
@@ -30,10 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::High),
         );
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     println!("🤖 AI (with high reasoning effort):");
-    println!("{}", response.content_text().unwrap());
+    println!("{}", response.content_text().unwrap_or_default());
     println!();
 
     println!("💡 Migration Note:");

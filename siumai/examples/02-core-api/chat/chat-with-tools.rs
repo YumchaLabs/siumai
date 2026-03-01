@@ -1,4 +1,4 @@
-//! Chat with Tools - Using client.chat_with_tools()
+//! Chat with Tools - Using `text::generate` + tools
 //!
 //! This example demonstrates chat with function calling.
 //! Best for: Conversations that need tool/function calling.
@@ -9,7 +9,7 @@
 //! ```
 
 use serde_json::json;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,10 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     )];
 
-    // Chat with tools
-    let response = client
-        .chat_with_tools(vec![user!("What's the weather in Tokyo?")], Some(tools))
-        .await?;
+    let request = ChatRequest::new(vec![user!("What's the weather in Tokyo?")]).with_tools(tools);
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     // Check for tool calls
     if response.has_tool_calls() {

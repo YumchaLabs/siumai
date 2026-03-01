@@ -14,7 +14,7 @@
 //! cargo run --example openai-audio-multimodal --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
     ChatCompletionModalities, OpenAiChatRequestExt, OpenAiOptions,
@@ -50,7 +50,7 @@ async fn example_audio_input(client: &Siumai) -> Result<(), Box<dyn std::error::
         .build();
 
     let req = ChatRequest::new(vec![message]);
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
     println!("Text: {}\n", resp.content_text().unwrap_or_default());
 
     Ok(())
@@ -76,7 +76,7 @@ async fn example_audio_output(client: &Siumai) -> Result<(), Box<dyn std::error:
             .with_audio(audio_config),
     );
 
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
     println!("Text: {}", resp.content_text().unwrap_or_default());
     println!("Has audio: {}\n", resp.audio.is_some());
 
@@ -106,7 +106,7 @@ async fn example_audio_bidirectional(client: &Siumai) -> Result<(), Box<dyn std:
             .with_audio(audio_config),
     );
 
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
     println!("Text: {}", resp.content_text().unwrap_or_default());
     println!("Has audio: {}\n", resp.audio.is_some());
 

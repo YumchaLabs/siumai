@@ -9,7 +9,7 @@
 //! ```
 
 use siumai::experimental::execution::http::{HttpInterceptor, HttpRequestContext};
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -58,9 +58,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Sending request with HTTP interceptor...\n");
 
-    let response = client.chat(vec![user!("Hello!")]).await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("Hello!")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
-    println!("\nAI: {}", response.content_text().unwrap());
+    println!("\nAI: {}", response.content_text().unwrap_or_default());
 
     Ok(())
 }

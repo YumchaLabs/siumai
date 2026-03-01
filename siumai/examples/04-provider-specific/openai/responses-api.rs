@@ -21,7 +21,7 @@
 //! cargo run --example responses-api --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{
     OpenAiChatRequestExt, OpenAiOptions, ReasoningEffort, ResponsesApiConfig, TextVerbosity,
     Truncation,
@@ -65,8 +65,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response = client.chat_request(request).await?;
-    println!("AI Response: {}\n", response.content_text().unwrap());
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    println!(
+        "AI Response: {}\n",
+        response.content_text().unwrap_or_default()
+    );
 
     // Example 2: Using Responses API with reasoning effort
     println!("📝 Example 2: With Reasoning Effort\n");
@@ -80,8 +83,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_reasoning_effort(ReasoningEffort::Medium),
     );
 
-    let response2 = client.chat_request(request2).await?;
-    println!("AI Response: {}\n", response2.content_text().unwrap());
+    let response2 = text::generate(&client, request2, text::GenerateOptions::default()).await?;
+    println!(
+        "AI Response: {}\n",
+        response2.content_text().unwrap_or_default()
+    );
 
     // Example 3: Advanced Responses API configuration
     println!("📝 Example 3: Advanced Configuration\n");
@@ -105,8 +111,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response3 = client.chat_request(request3).await?;
-    println!("AI Response: {}\n", response3.content_text().unwrap());
+    let response3 = text::generate(&client, request3, text::GenerateOptions::default()).await?;
+    println!(
+        "AI Response: {}\n",
+        response3.content_text().unwrap_or_default()
+    );
 
     // Example 4: Multi-turn conversation with previous_response_id
     println!("📝 Example 4: Multi-turn Conversation (Simulated)\n");
@@ -124,8 +133,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response4 = client.chat_request(request4).await?;
-    println!("AI Response: {}\n", response4.content_text().unwrap());
+    let response4 = text::generate(&client, request4, text::GenerateOptions::default()).await?;
+    println!(
+        "AI Response: {}\n",
+        response4.content_text().unwrap_or_default()
+    );
 
     println!("✅ Responses API examples completed!");
     println!("\n💡 New features demonstrated:");

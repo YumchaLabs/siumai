@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates how to use `siumai::provider_ext::minimaxi` helpers
 //! to configure MiniMaxi-specific TTS parameters, while calling the unified
-//! `SpeechCapability::tts` method.
+//! `speech::synthesize` family API.
 //!
 //! ## Run
 //! ```bash
@@ -31,7 +31,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .channel(1)
         .build();
 
-    let response = client.tts(request).await?;
+    let response =
+        speech::synthesize(&client, request, speech::SynthesizeOptions::default()).await?;
     println!("Audio bytes = {}", response.audio_data.len());
     println!("Format = {}", response.format);
     Ok(())

@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .build(),
         ])
         .build();
-    let resp = client.chat_request(req).await?;
+    let resp = text::generate(&client, req, text::GenerateOptions::default()).await?;
     println!("AI:\n{}\n", resp.content_text().unwrap_or_default());
 
     // Cleanup

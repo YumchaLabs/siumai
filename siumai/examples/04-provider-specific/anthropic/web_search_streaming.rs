@@ -10,7 +10,7 @@
 //! ```
 
 use futures_util::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,11 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_uses(1)
         .build();
 
-    let mut request =
+    let request =
         ChatRequest::new(vec![user!("Search the web: What is Rust 1.85?")]).with_tools(vec![tool]);
-    request.stream = true;
 
-    let mut stream = client.chat_stream_request(request).await?;
+    let mut stream = text::stream(&client, request, text::StreamOptions::default()).await?;
 
     while let Some(ev) = stream.next().await {
         let ev = ev?;

@@ -46,7 +46,7 @@ Start with the basics and build up:
 1. **01-quickstart/basic-chat.rs** - Simplest possible usage
 2. **01-quickstart/streaming.rs** - Real-time responses
 3. **02-core-api/chat/chat-request.rs** - Full-control `ChatRequest` + `text::generate` ⭐ Recommended
-4. **02-core-api/chat/simple-chat.rs** - Legacy method-style `client.chat()` (compat)
+4. **02-core-api/chat/simple-chat.rs** - Minimal `ChatRequest` + `text::generate`
 5. **02-core-api/tools/function-calling.rs** - Adding tools
 
 ### 💼 Developer Path
@@ -84,15 +84,15 @@ The fastest way to get started. Each example is 15-50 lines.
 Learn the core API methods. Organized by functionality.
 
 **chat/**
-- **simple-chat.rs** - legacy `client.chat()` (compat)
-- **chat-with-tools.rs** - `client.chat_with_tools()`
+- **simple-chat.rs** - Minimal `ChatRequest` + `text::generate()`
+- **chat-with-tools.rs** - `ChatRequest` + tools + `text::generate()`
 - **chat-request.rs** - `ChatRequest` + `text::generate()` ⭐ Recommended
 - **usage-builder-demo.rs** - Usage statistics builder API
 
 **streaming/**
-- **basic-stream.rs** - legacy `client.chat_stream()` (compat)
+- **basic-stream.rs** - `ChatRequest` + `text::stream()`
 - **stream-request.rs** - `ChatRequest` + `text::stream()` ⭐ Recommended
-- **stream-with-cancel.rs** - Cancellable streams
+- **stream-with-cancel.rs** - `text::stream_with_cancel()` (cancellable streams)
 
 **tools/**
 - **function-calling.rs** - Define and use tools
@@ -193,10 +193,8 @@ Siumai's biggest advantage is the unified interface. The same code works across 
 
 ```rust
 // Works with OpenAI, Anthropic, Google, Ollama, xAI, Groq
-let client = Siumai::builder()
-    .openai()  // or .anthropic() / .google() / .ollama()
-    .build()
-    .await?;
+let reg = registry::global();
+let client = reg.language_model("openai:gpt-4o-mini")?; // or "anthropic:..." / "gemini:..." / "ollama:..."
 
 let response = text::generate(
     &client,
@@ -206,11 +204,11 @@ let response = text::generate(
 .await?;
 ```
 
-### Recommended API (0.11.0+)
+### Recommended API (0.11.0-beta.6+)
 Use the model-family APIs for inference, and pass a `ChatRequest` for full control:
 
 ```rust
-use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions};
+use siumai::providers::openai::{OpenAiChatRequestExt, OpenAiOptions};
 let request = ChatRequest::builder()
     .message(user!("Hello!"))
     .temperature(0.7)
@@ -298,7 +296,7 @@ cargo run --example provider-switching --features "openai,anthropic,google"
 
 When adding new examples:
 1. Keep them focused (one concept per example)
-2. Use the recommended APIs (`chat_request`, `chat_stream_request`)
+2. Use the recommended model-family APIs (`text::generate`, `text::stream`, etc.)
 3. Add clear comments and documentation
 4. Place in the appropriate directory
 5. Update this README

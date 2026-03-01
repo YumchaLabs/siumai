@@ -8,7 +8,7 @@
 //! cargo run --example grounding --features google
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::gemini::GeminiChatResponseExt;
 
 #[tokio::main]
@@ -33,10 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ])
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     println!("AI (with web search):");
-    println!("{}\n", response.content_text().unwrap());
+    println!("{}\n", response.content_text().unwrap_or_default());
 
     // Check for grounding metadata and normalized sources via typed helper
     if let Some(meta) = response.gemini_metadata() {

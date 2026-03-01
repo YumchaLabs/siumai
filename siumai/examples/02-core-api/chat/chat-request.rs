@@ -1,10 +1,9 @@
-//! Chat Request - Using client.chat_request() (Recommended ⭐)
+//! Chat Request - Using `text::generate` + `ChatRequest` (Recommended ⭐)
 //!
-//! This example demonstrates the recommended way to use chat API in 0.12.0+.
-//! ChatRequest supports all features: provider_options, http_config,
-//! and telemetry.
+//! This example demonstrates the recommended way to do text generation in `0.11.0-beta.6+`.
+//! `ChatRequest` supports all enhanced fields: provider options, http config, telemetry, etc.
 //!
-//! ## Why use chat_request?
+//! ## Why use `ChatRequest`?
 //! - ✅ Full control over all request parameters
 //! - ✅ Preserves provider-specific parameters
 //! - ✅ Supports HTTP configuration and telemetry
@@ -15,7 +14,7 @@
 //! cargo run --example chat-request --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,8 +30,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Method 1: Simple ChatRequest
     println!("Method 1: Simple ChatRequest");
     let request = ChatRequest::new(vec![user!("What is Rust?")]);
-    let response = client.chat_request(request).await?;
-    println!("AI: {}\n", response.content_text().unwrap());
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    println!("AI: {}\n", response.content_text().unwrap_or_default());
 
     // Method 2: ChatRequestBuilder (for complex requests)
     println!("Method 2: ChatRequestBuilder");
@@ -43,8 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tokens(500)
         .build();
 
-    let response = client.chat_request(request).await?;
-    println!("AI: {}\n", response.content_text().unwrap());
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    println!("AI: {}\n", response.content_text().unwrap_or_default());
 
     // Method 3: With multiple parameters
     println!("Method 3: With multiple parameters");
@@ -54,8 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tokens(100)
         .build();
 
-    let response = client.chat_request(request).await?;
-    println!("AI: {}\n", response.content_text().unwrap());
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    println!("AI: {}\n", response.content_text().unwrap_or_default());
 
     println!("✅ Example completed!");
     Ok(())

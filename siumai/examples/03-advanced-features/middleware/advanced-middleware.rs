@@ -174,8 +174,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // through the registry or by wrapping the executor directly.
     let messages = vec![ChatMessage::user("Say 'Hello from logging middleware!'").build()];
 
-    let response = client.chat(messages).await?;
-    println!("Response: {}\n", response.content_text().unwrap());
+    let response = text::generate(
+        &client,
+        ChatRequest::new(messages),
+        text::GenerateOptions::default(),
+    )
+    .await?;
+    println!(
+        "Response: {}\n",
+        response.content_text().unwrap_or_default()
+    );
 
     // Example 2: Caching middleware with pre_generate
     println!("\n📝 Example 2: Caching Middleware (pre_generate)");

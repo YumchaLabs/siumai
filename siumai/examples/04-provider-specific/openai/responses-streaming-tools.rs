@@ -10,7 +10,7 @@
 //! ```
 
 use futures_util::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
@@ -26,14 +26,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_search_context_size("high")
         .build();
 
-    let mut request = ChatRequest::new(vec![user!(
+    let request = ChatRequest::new(vec![user!(
         "Find the latest Rust release notes and summarize."
     )])
     .with_tools(vec![tool])
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
-    request.stream = true;
 
-    let mut stream = client.chat_stream_request(request).await?;
+    let mut stream = text::stream(&client, request, text::StreamOptions::default()).await?;
 
     while let Some(ev) = stream.next().await {
         let ev = ev?;

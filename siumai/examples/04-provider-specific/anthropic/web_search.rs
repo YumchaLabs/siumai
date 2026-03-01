@@ -9,7 +9,7 @@
 //! cargo run --example anthropic-web-search --features anthropic
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 
 #[tokio::main]
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let request =
         ChatRequest::new(vec![user!("Search the web: What is Rust 1.85?")]).with_tools(vec![tool]);
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("{}", response.content_text().unwrap_or_default());
 
     if let Some(meta) = response.anthropic_metadata() {

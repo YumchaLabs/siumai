@@ -10,7 +10,7 @@
 //! cargo run --example openai-computer-use --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(vec![tool])
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("{}", response.content_text().unwrap_or_default());
 
     Ok(())

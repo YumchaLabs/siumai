@@ -12,7 +12,7 @@ Acceptance criteria:
 - Existing integration tests still compile (`--no-run`) on the branch.
 - No new crates introduced for tools/UI.
 
-Status: ⏳ in progress
+Status: ✅ done
 
 ## V3-M1 — Client foundation decoupled
 
@@ -69,7 +69,7 @@ Acceptance criteria:
 - OpenAI / Anthropic / Gemini providers implement the new family traits (directly or via adapters).
 - No-network tests cover provider-specific mapping invariants.
 
-Status: ⬜ planned
+Status: ⏳ in progress
 
 ## V3-M7 — Cleanup and stabilization
 
@@ -92,4 +92,4 @@ Acceptance criteria:
 - README + the top “quickstart” examples no longer require `Siumai::builder()`.
 - Builder surface is explicitly marked as `compat` and time-bounded.
 
-Status: ⬜ planned
+Status: ✅ done

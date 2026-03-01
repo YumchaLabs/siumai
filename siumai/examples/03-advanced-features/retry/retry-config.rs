@@ -7,7 +7,7 @@
 //! cargo run --example retry-config --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::retry_api::{RetryOptions, RetryPolicy};
 use std::time::Duration;
 
@@ -33,16 +33,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .openai()
         .api_key(&std::env::var("OPENAI_API_KEY")?)
         .model("gpt-4o-mini")
-        .with_retry(retry_options)
         .build()
         .await?;
 
     println!("Sending request with retry configuration...");
     println!("(Will retry up to 3 times on transient failures)\n");
 
-    let response = client.chat(vec![user!("Hello!")]).await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("Hello!")]),
+        text::GenerateOptions {
+            retry: Some(retry_options),
+        },
+    )
+    .await?;
 
-    println!("AI: {}", response.content_text().unwrap());
+    println!("AI: {}", response.content_text().unwrap_or_default());
     println!("\n✅ Request succeeded!");
 
     Ok(())

@@ -10,7 +10,7 @@
 //! ```
 
 #[cfg(all(feature = "google", feature = "gcp"))]
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[cfg(all(feature = "google", feature = "gcp"))]
 #[tokio::main]
@@ -30,9 +30,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let response = client
-        .chat(vec![user!("Say hello from Vertex AI!")])
-        .await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("Say hello from Vertex AI!")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
     println!("{}", response.content_text().unwrap_or_default());
     Ok(())
 }

@@ -15,7 +15,8 @@
 //! See `siumai/examples/05_use_cases/code_assistant.rs` for the complete
 //! implementation with all features.
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
+use siumai::text::TextModelV3;
 use std::fs;
 use std::io::{self, Write};
 
@@ -76,21 +77,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn explain_code(
-    client: &impl ChatCapability,
+    client: &impl TextModelV3,
     file_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let code = fs::read_to_string(file_path)?;
 
     let prompt = format!("Explain this code in simple terms:\n\n```\n{}\n```", code);
 
-    let response = client.chat(vec![user!(&prompt)]).await?;
-    println!("\n{}\n", response.content_text().unwrap());
+    let response = text::generate(
+        client,
+        ChatRequest::new(vec![user!(&prompt)]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
+    println!("\n{}\n", response.content_text().unwrap_or_default());
 
     Ok(())
 }
 
 async fn review_code(
-    client: &impl ChatCapability,
+    client: &impl TextModelV3,
     file_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let code = fs::read_to_string(file_path)?;
@@ -100,8 +106,13 @@ async fn review_code(
         code
     );
 
-    let response = client.chat(vec![user!(&prompt)]).await?;
-    println!("\n{}\n", response.content_text().unwrap());
+    let response = text::generate(
+        client,
+        ChatRequest::new(vec![user!(&prompt)]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
+    println!("\n{}\n", response.content_text().unwrap_or_default());
 
     Ok(())
 }

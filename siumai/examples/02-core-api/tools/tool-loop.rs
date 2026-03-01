@@ -12,7 +12,7 @@
 //! ```
 
 use serde_json::json;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(tools.clone())
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     // Check for tool calls
     if response.has_tool_calls() {
@@ -74,8 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .tools(tools)
             .build();
 
-        let final_response = client.chat_request(request).await?;
-        println!("AI: {}", final_response.content_text().unwrap());
+        let final_response =
+            text::generate(&client, request, text::GenerateOptions::default()).await?;
+        println!("AI: {}", final_response.content_text().unwrap_or_default());
     }
 
     Ok(())

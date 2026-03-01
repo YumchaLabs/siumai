@@ -9,7 +9,7 @@
 //! ```
 
 use serde_json::json;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
@@ -58,10 +58,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ResponsesApiConfig::new().with_response_format(response_format),
             ));
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     println!("✅ Structured Output:");
-    println!("{}", response.content_text().unwrap());
+    println!("{}", response.content_text().unwrap_or_default());
     println!();
 
     println!("💡 Migration Note:");

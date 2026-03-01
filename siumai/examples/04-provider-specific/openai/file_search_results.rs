@@ -12,7 +12,7 @@
 //! cargo run --example openai-file-search-results --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
 
 #[tokio::main]
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ResponsesApiConfig::new().with_include(vec!["file_search_call.results".to_string()]),
     ));
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     println!("Answer:\n{}\n", response.content_text().unwrap_or_default());
     println!(

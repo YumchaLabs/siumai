@@ -1,7 +1,7 @@
-//! Stream Request - Using client.chat_stream_request() (Recommended ⭐)
+//! Stream Request - Using `text::stream` + `ChatRequest` (Recommended ⭐)
 //!
-//! This example demonstrates the recommended way to use streaming in 0.11.0+.
-//! Similar to chat_request, this preserves all enhanced fields.
+//! This example demonstrates the recommended streaming API in `0.11.0-beta.6+`.
+//! Like `ChatRequest`, it preserves all enhanced fields (provider options, http config, etc.).
 //!
 //! ## Run
 //! ```bash
@@ -9,7 +9,7 @@
 //! ```
 
 use futures::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,9 +27,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tokens(100)
         .build();
 
-    // Stream with chat_stream_request
     println!("AI: ");
-    let mut stream = client.chat_stream_request(request).await?;
+    let mut stream = text::stream(&client, request, text::StreamOptions::default()).await?;
 
     while let Some(event) = stream.next().await {
         match event? {

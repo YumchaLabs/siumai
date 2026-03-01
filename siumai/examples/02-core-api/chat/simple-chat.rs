@@ -1,6 +1,6 @@
-//! Simple Chat - Using client.chat()
+//! Simple Chat - Using `text::generate` (recommended)
 //!
-//! This example demonstrates the simplest chat method.
+//! This example demonstrates the simplest text generation request.
 //! Best for: Quick single-turn conversations without tools.
 //!
 //! ## Run
@@ -8,7 +8,7 @@
 //! cargo run --example simple-chat --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,10 +19,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // Simple chat - just messages
-    let response = client.chat(vec![user!("What is Rust?")]).await?;
+    // Simple request - just messages
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("What is Rust?")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
-    println!("AI: {}", response.content_text().unwrap());
+    println!("AI: {}", response.content_text().unwrap_or_default());
 
     Ok(())
 }

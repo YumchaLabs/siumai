@@ -13,7 +13,7 @@
 //! cargo run --example local-models --features ollama
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,11 +29,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Using local model: llama3.2\n");
 
-    let response = client
-        .chat(vec![user!("Explain what Ollama is in one sentence")])
-        .await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("Explain what Ollama is in one sentence")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
-    println!("AI: {}\n", response.content_text().unwrap());
+    println!("AI: {}\n", response.content_text().unwrap_or_default());
 
     println!("✅ Running models locally - no API costs!");
     println!("💡 Try other models: ollama pull mistral");

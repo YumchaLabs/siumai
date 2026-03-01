@@ -16,7 +16,7 @@
 //! implementation with all features.
 
 use futures::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use std::collections::VecDeque;
 use std::io::{self, Write};
 
@@ -76,7 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         io::stdout().flush()?;
 
         let messages: Vec<ChatMessage> = conversation.iter().cloned().collect();
-        let mut stream = client.chat_stream(messages, None).await?;
+        let mut stream = text::stream(
+            &client,
+            ChatRequest::new(messages),
+            text::StreamOptions::default(),
+        )
+        .await?;
 
         let mut full_response = String::new();
         while let Some(event) = stream.next().await {

@@ -8,7 +8,7 @@
 //! ```
 
 use serde_json::json;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use std::time::Duration;
 
 #[tokio::main]
@@ -49,13 +49,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .http_config(http_config)
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
         println!("🔧 Tool calls: {:#?}", tool_calls);
     } else {
-        println!("AI: {}", response.content_text().unwrap());
+        println!("AI: {}", response.content_text().unwrap_or_default());
     }
 
     Ok(())

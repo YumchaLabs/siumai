@@ -45,7 +45,7 @@
 //! - Environment variable: Automatically reads MOONSHOT_API_KEY
 
 use siumai::models;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,11 +67,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test basic chat
     println!("📝 Testing Basic Chat\n");
 
-    let response = client
-        .chat(vec![user!("你好！请用一句话介绍 Moonshot AI。")])
-        .await?;
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("你好！请用一句话介绍 Moonshot AI。")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
-    println!("Kimi: {}\n", response.content_text().unwrap());
+    println!("Kimi: {}\n", response.content_text().unwrap_or_default());
 
     // Demonstrate provider abstraction
     println!("🔄 Provider Abstraction Benefits:\n");

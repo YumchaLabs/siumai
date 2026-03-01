@@ -8,7 +8,7 @@
 //! cargo run --example registry-with-cache --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::registry::{RegistryOptions, create_provider_registry};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -35,13 +35,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("OPENAI_API_KEY").is_ok() {
         println!("First call (creates client):");
         let lm1 = registry.language_model("openai:gpt-4o-mini")?;
-        let response1 = lm1.chat(vec![user!("What is 2+2?")]).await?;
-        println!("  {}\n", response1.content_text().unwrap());
+        let response1 = text::generate(
+            &lm1,
+            ChatRequest::new(vec![user!("What is 2+2?")]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
+        println!("  {}\n", response1.content_text().unwrap_or_default());
 
         println!("Second call (uses cached client):");
         let lm2 = registry.language_model("openai:gpt-4o-mini")?;
-        let response2 = lm2.chat(vec![user!("What is 3+3?")]).await?;
-        println!("  {}\n", response2.content_text().unwrap());
+        let response2 = text::generate(
+            &lm2,
+            ChatRequest::new(vec![user!("What is 3+3?")]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
+        println!("  {}\n", response2.content_text().unwrap_or_default());
 
         println!("✅ Second call reused cached client!");
         println!("💡 Cache reduces overhead for repeated model access");

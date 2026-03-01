@@ -18,9 +18,10 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
   - `speech::synthesize`
   - `transcription::transcribe`
 - [ ] Choose result type naming conventions (`*Result`, `*Output`, etc.)
-- [ ] Choose construction story (beta.6):
+- [x] Choose construction story (beta.6):
   - config-first constructors on provider clients (recommended)
   - builder-style as compat only (time-bounded)
+  - registry-first as the default path in docs/examples
 
 ## 1) Fix the foundation: decouple `LlmClient` from chat
 
@@ -46,7 +47,7 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
   - [x] `transcription::transcribe`
 - [ ] Expose a small options struct per family (timeouts/retry/tooling/telemetry)
   - [x] Retry-only options for each family (first cut)
-- [ ] Provide a compatibility facade (`siumai::compat::*`) to keep older examples building temporarily
+- [x] Provide a compatibility facade (`siumai::compat::*`) to keep older examples building temporarily
 
 ## 4) Tools: unify definition + execution (without new crates)
 
@@ -75,11 +76,18 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
 Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
 
 - [ ] Add `from_config(...)` (or equivalent) constructor for core providers:
-  - [ ] `OpenAiClient`
-  - [ ] `AnthropicClient`
-  - [ ] `GeminiClient`
+  - [x] `OpenAiClient`
+  - [x] `AnthropicClient`
+  - [x] `GeminiClient`
+  - [x] `AzureOpenAiClient`
+  - [x] `OllamaClient`
+  - [x] `GroqClient`
+  - [x] `MinimaxiClient`
+  - [x] `GoogleVertexClient`
+  - [x] `VertexAnthropicClient`
 - [ ] Ensure constructors build HTTP client/interceptors/middlewares from `*_Config` + `HttpConfig`
-- [ ] Update key docs/examples to use config-first construction
+- [x] Fix provider `LlmClient` wiring regressions (e.g. `VertexAnthropicClient` must expose `as_chat_capability` and correct `provider_id`)
+- [x] Update key docs/examples to use config-first construction
 - [ ] Keep builder path under `compat` (document removal target)
 - [x] Add a config-first shortcut for OpenAI-compatible vendors (built-in registry)
 
@@ -89,4 +97,4 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
 - [ ] Deprecate `Siumai::builder()` as the recommended entry (keep as convenience for provider construction)
 - [ ] Update docs and examples to the new recommended surface
   - [x] Add `siumai::compat` as an explicit legacy surface
-  - [ ] Migrate README + key examples to family APIs
+  - [x] Migrate README + key examples to family APIs

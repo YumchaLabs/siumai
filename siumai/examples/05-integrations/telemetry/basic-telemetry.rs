@@ -21,7 +21,7 @@
 use siumai::experimental::observability::telemetry::{
     TelemetryConfig, events::TelemetryEvent, exporters::TelemetryExporter,
 };
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 // Simple console exporter for demonstration
 struct ConsoleExporter;
@@ -71,9 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     request.telemetry = Some(telemetry);
 
     println!("Sending request with telemetry...\n");
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 
-    println!("\nAI: {}", response.content_text().unwrap());
+    println!("\nAI: {}", response.content_text().unwrap_or_default());
 
     println!("\n💡 For production use:");
     println!("  - Use Langfuse exporter for full observability");

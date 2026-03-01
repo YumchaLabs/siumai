@@ -7,7 +7,7 @@
 //! cargo run --example google-url-context --features google
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::provider_ext::gemini::GeminiChatResponseExt;
 
 #[tokio::main]
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(vec![siumai::hosted_tools::google::url_context()])
         .build();
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
     println!("{}", response.content_text().unwrap_or_default());
 
     if let Some(meta) = response.gemini_metadata()

@@ -135,6 +135,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Notes:
+- `OpenAiCompatibleClient::from_builtin_env` reads API keys from env using this precedence:
+  1) `ProviderConfig.api_key_env` (when present)
+  2) `ProviderConfig.api_key_env_aliases` (fallbacks)
+  3) `${PROVIDER_ID}_API_KEY` (uppercased, `-` replaced with `_`)
+- To discover built-in OpenAI-compatible provider ids, call
+  `siumai::providers::openai_compatible::list_provider_ids()`.
+
 ### Provider clients (config-first)
 
 Provider-specific client:
@@ -156,6 +164,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         text::GenerateOptions::default(),
     )
     .await?;
+    println!("{}", resp.content_text().unwrap_or_default());
+    Ok(())
+}
+```
+
+MiniMaxi (config-first):
+
+```rust,no_run
+use siumai::models;
+use siumai::prelude::unified::*;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?)
+        .with_model(models::minimaxi::MINIMAX_M2);
+    let client = MinimaxiClient::from_config(cfg)?;
+
+    let resp = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("Hello MiniMaxi!")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
+
     println!("{}", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -238,9 +271,10 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder().openai().api_key("dummy").model("gpt-4o-mini").build().await?;
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
     let handle = text::stream_with_cancel(
-        &client,
+        &model,
         ChatRequest::new(vec![user!("Stream...")]),
         text::StreamOptions::default(),
     )
@@ -325,7 +359,7 @@ This session also includes a conservative recovery strategy:
 Note: configuration errors (e.g. invalid `base_url`, unsupported URL scheme) are surfaced directly and do not fall back to HTTP.
 
 You can customize it, e.g. disable all recovery:
-`Siumai::builder().openai().use_openai_websocket_session_with_recovery(OpenAiWebSocketRecoveryConfig { allow_http_fallback: false, max_ws_retries: 0 }).await?;`
+`OpenAiWebSocketSession::from_config_default_http(cfg)?.with_recovery_config(OpenAiWebSocketRecoveryConfig { allow_http_fallback: false, max_ws_retries: 0 });`
 
 Important: recovery may rebuild the WebSocket connection (or fall back to HTTP), which resets
 connection-local continuation state (`previous_response_id`). If you strictly rely on continuation
@@ -339,16 +373,13 @@ by calling `POST /responses/{id}/cancel` once the response id is observed. Disab
 ```rust,no_run
 use futures::StreamExt;
 use siumai::prelude::unified::*;
-use siumai::providers::openai::OpenAiWebSocketSession;
+use siumai::providers::openai::{OpenAiConfig, OpenAiWebSocketSession};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let session = Siumai::builder()
-        .openai()
-        .api_key(std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .use_openai_websocket_session()
-        .await?;
+    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+        .with_model("gpt-4o-mini");
+    let session = OpenAiWebSocketSession::from_config_default_http(cfg)?;
 
     session.warm_up_messages(vec![user!("Warm up with my toolset")], None).await?;
 
@@ -385,7 +416,9 @@ struct Post { title: String }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder().openai().model("gpt-4o-mini").build().await?;
+    let cfg = siumai::providers::openai::OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+        .with_model("gpt-4o-mini");
+    let client = siumai::providers::openai::OpenAiClient::from_config(cfg)?;
     let (post, _resp) = generate_object::<Post>(
         &client,
         vec![user!("Return JSON: {\"title\":\"hi\"}")],
@@ -448,30 +481,32 @@ let text = client
 
 You have three practical ways to control HTTP behavior, from simple to advanced.
 
-1) Per‑builder toggles (most common)
+1) Provider config + `HttpConfig` (most common)
 
 ```rust
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 
-// Unified builder (Siumai::builder) with SSE stability control
-let client = Siumai::builder()
-    .openai()
-    .api_key(std::env::var("OPENAI_API_KEY")?)
-    .model("gpt-4o-mini")
-    .http_timeout(std::time::Duration::from_secs(30))
-    .http_connect_timeout(std::time::Duration::from_secs(10))
-    .http_user_agent("my-app/1.0")
-    .http_header("X-User-Project", "acme")
-    .http_stream_disable_compression(true) // keep SSE stable; default can be controlled by env
-    .build()
-    .await?;
+let http_cfg = HttpConfig::builder()
+    .timeout(Some(std::time::Duration::from_secs(30)))
+    .connect_timeout(Some(std::time::Duration::from_secs(10)))
+    .user_agent(Some("my-app/1.0"))
+    .header("X-User-Project", "acme")
+    .stream_disable_compression(true) // keep SSE stable; default can be controlled by env
+    .build();
+
+let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+    .with_model("gpt-4o-mini")
+    .with_http_config(http_cfg);
+let client = OpenAiClient::from_config(cfg)?;
 ```
 
-2) HttpConfig builder + shared client builder (centralized configuration)
+2) `HttpConfig` builder + shared client builder (centralized configuration)
 
 ```rust
 use siumai::experimental::execution::http::client::build_http_client_from_config;
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 
 // Construct a reusable HTTP config
 let http_cfg = HttpConfig::builder()
@@ -486,38 +521,31 @@ let http_cfg = HttpConfig::builder()
 // Build reqwest client using the shared helper
 let http = build_http_client_from_config(&http_cfg)?;
 
-// Inject it into a builder (takes precedence over other HTTP settings)
-let client = Siumai::builder()
-    .with_http_client(http)
-    .openai()
-    .api_key(std::env::var("OPENAI_API_KEY")?)
-    .model("gpt-4o-mini")
-    .build()
-    .await?;
+let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+    .with_model("gpt-4o-mini")
+    .with_http_config(http_cfg);
+let client = OpenAiClient::new(cfg, http);
 ```
 
 3) Fully custom reqwest client (maximum control)
 
 ```rust
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 
 let http = reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(30))
     // .danger_accept_invalid_certs(true) // if needed for dev
     .build()?;
 
-let client = Siumai::builder()
-    .with_http_client(http)
-    .openai()
-    .api_key(std::env::var("OPENAI_API_KEY")?)
-    .model("gpt-4o-mini")
-    .build()
-    .await?;
+let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+    .with_model("gpt-4o-mini");
+let client = OpenAiClient::new(cfg, http);
 ```
 
 Notes:
-- Streaming stability: By default, `stream_disable_compression` is derived from `SIUMAI_STREAM_DISABLE_COMPRESSION` (true unless set to `false|0|off|no`). You can override it per request via the unified builder method `http_stream_disable_compression`.
-- When a custom `reqwest::Client` is provided via `.with_http_client(..)`, it takes precedence over any other HTTP settings on the builder.
+- Streaming stability: By default, `stream_disable_compression` is derived from `SIUMAI_STREAM_DISABLE_COMPRESSION` (true unless set to `false|0|off|no`). You can override it per client using `HttpConfig::builder().stream_disable_compression(...)`.
+- Builder-style HTTP toggles remain available under the compatibility surface (`Siumai::builder()`).
 
 Registry with custom middleware and interceptors:
 

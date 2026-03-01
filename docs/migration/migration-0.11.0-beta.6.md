@@ -9,6 +9,7 @@ model-family APIs.
 - Construction (recommended):
   - registry: `registry::global().language_model("openai:gpt-4o-mini")?`
   - provider config-first: `OpenAiClient::from_config(OpenAiConfig { .. })?`
+  - provider config-first (example): `MinimaxiClient::from_config(MinimaxiConfig { .. })?`
 - Builders remain available as compatibility conveniences:
   - unified builder: `Siumai::builder()...build().await?`
   - provider builders: `Provider::openai()...build().await?`
@@ -24,6 +25,14 @@ model-family APIs.
 
 - OpenAI-compatible vendors (DeepSeek/OpenRouter/Moonshot/etc.) now have a config-first shortcut:
   - `siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(...)`
+
+`from_builtin_env` reads API keys from env using this precedence:
+1) `ProviderConfig.api_key_env` (when present)
+2) `ProviderConfig.api_key_env_aliases` (fallbacks)
+3) `${PROVIDER_ID}_API_KEY` (uppercased, `-` replaced with `_`)
+
+To discover built-in OpenAI-compatible provider ids, call
+`siumai::providers::openai_compatible::list_provider_ids()`.
 
 ## Before/after cheatsheet
 
@@ -44,13 +53,11 @@ The most common migration is “keep construction, swap invocation”:
 
 ```rust,ignore
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 
-let client = Siumai::builder()
-    .openai()
-    .api_key("...")
-    .model("gpt-4o-mini")
-    .build()
-    .await?;
+let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+    .with_model("gpt-4o-mini");
+let client = OpenAiClient::from_config(cfg)?;
 
 let req = ChatRequest::new(vec![user!("hi")]);
 let resp = text::generate(&client, req, text::GenerateOptions::default()).await?;

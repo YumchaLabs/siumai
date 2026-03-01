@@ -27,9 +27,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Send a simple message
-    let resp = client
-        .chat(vec![siumai::user!("Hello MiniMaxi! Give me one fun fact.")])
-        .await?;
+    let resp = text::generate(
+        &client,
+        ChatRequest::new(vec![siumai::user!("Hello MiniMaxi! Give me one fun fact.")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     // Optionally show extracted reasoning (default: hidden)
     let show_reasoning = std::env::var("SIUMAI_SHOW_THINKING").ok().as_deref() == Some("1");
@@ -42,14 +45,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Streaming demo: prints ThinkingDelta and ContentDelta ---
     println!("\nStreaming (answer only):\n");
-    let mut stream = client
-        .chat_stream(
-            vec![siumai::user!(
-                "Give me a short fun fact and think step by step."
-            )],
-            None,
-        )
-        .await?;
+    let mut stream = text::stream(
+        &client,
+        ChatRequest::new(vec![siumai::user!(
+            "Give me a short fun fact and think step by step."
+        )]),
+        text::StreamOptions::default(),
+    )
+    .await?;
 
     let mut printed_any_content = false;
 
@@ -116,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .format("mp3")
         .build();
 
-    match client.tts(tts_request).await {
+    match speech::synthesize(&client, tts_request, speech::SynthesizeOptions::default()).await {
         Ok(response) => {
             println!("✅ TTS Success!");
             println!("Audio data length: {} bytes", response.audio_data.len());
@@ -136,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    match client.generate_images(image_request).await {
+    match image::generate(&client, image_request, image::GenerateOptions::default()).await {
         Ok(response) => {
             println!("✅ Image Generation Success!");
             println!("Generated {} image(s)", response.images.len());

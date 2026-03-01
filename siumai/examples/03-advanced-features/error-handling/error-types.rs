@@ -7,7 +7,7 @@
 //! cargo run --example error-types --features openai
 //! ```
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match result {
         Ok(client) => {
             // Try to use it
-            match client.chat(vec![user!("Hello")]).await {
+            match text::generate(
+                &client,
+                ChatRequest::new(vec![user!("Hello")]),
+                text::GenerateOptions::default(),
+            )
+            .await
+            {
                 Ok(_) => println!("  Unexpected success"),
                 Err(e) => println!("  Error: {:?}", e),
             }
@@ -41,7 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()
             .await?;
 
-        match client.chat(vec![user!("Hello")]).await {
+        match text::generate(
+            &client,
+            ChatRequest::new(vec![user!("Hello")]),
+            text::GenerateOptions::default(),
+        )
+        .await
+        {
             Ok(_) => println!("  Unexpected success"),
             Err(e) => match e {
                 LlmError::ApiError { code, message, .. } => {
@@ -62,9 +74,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()
             .await?;
 
-        match client.chat(vec![user!("Hello!")]).await {
+        match text::generate(
+            &client,
+            ChatRequest::new(vec![user!("Hello!")]),
+            text::GenerateOptions::default(),
+        )
+        .await
+        {
             Ok(response) => {
-                println!("  ✅ Success: {}", response.content_text().unwrap());
+                println!(
+                    "  ✅ Success: {}",
+                    response.content_text().unwrap_or_default()
+                );
             }
             Err(e) => match e {
                 LlmError::ApiError { code, message, .. } => {

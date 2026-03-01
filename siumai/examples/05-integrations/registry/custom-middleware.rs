@@ -15,7 +15,7 @@
 //! ```
 
 use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai::registry::{RegistryOptions, create_provider_registry};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -112,8 +112,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("OPENAI_API_KEY").is_ok() {
         println!("Requesting gpt-4o (will be overridden to gpt-4o-mini):");
         let lm = registry.language_model("openai:gpt-4o")?;
-        let response = lm.chat(vec![user!("Hello!")]).await?;
-        println!("  {}\n", response.content_text().unwrap());
+        let response = text::generate(
+            &lm,
+            ChatRequest::new(vec![user!("Hello!")]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
+        println!("  {}\n", response.content_text().unwrap_or_default());
 
         println!("✅ Middleware applied:");
         println!("  - Default temperature set to 0.8");

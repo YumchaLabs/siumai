@@ -14,7 +14,8 @@
 //! cargo run --example registry_quickstart --features all-providers
 //! ```
 
-use siumai::prelude::*;
+use futures::StreamExt;
+use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,7 +29,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "openai")]
     {
         let model = reg.language_model("openai:gpt-4o-mini")?;
-        let resp = model.chat(vec![user!("Say hello in one sentence")]).await?;
+        let resp = text::generate(
+            &model,
+            ChatRequest::new(vec![user!("Say hello in one sentence")]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
         println!("Response: {}\n", resp.content_text().unwrap_or_default());
     }
 
@@ -37,9 +43,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "anthropic")]
     {
         let model = reg.language_model("anthropic:claude-3-5-sonnet-20240620")?;
-        let resp = model
-            .chat(vec![user!("What is Rust in one sentence?")])
-            .await?;
+        let resp = text::generate(
+            &model,
+            ChatRequest::new(vec![user!("What is Rust in one sentence?")]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
         println!("Response: {}\n", resp.content_text().unwrap_or_default());
     }
 
@@ -49,9 +58,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Note: You can use either "gemini:" or "google:" prefix
         let model = reg.language_model("gemini:gemini-2.0-flash-exp")?;
-        let resp = model
-            .chat(vec![user!("Explain AI in one sentence")])
-            .await?;
+        let resp = text::generate(
+            &model,
+            ChatRequest::new(vec![user!("Explain AI in one sentence")]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
         println!("Response: {}\n", resp.content_text().unwrap_or_default());
     }
 
@@ -59,12 +71,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 4: Streaming with OpenAI");
     #[cfg(feature = "openai")]
     {
-        use futures::StreamExt;
-
         let model = reg.language_model("openai:gpt-4o-mini")?;
-        let mut stream = model
-            .chat_stream(vec![user!("Count from 1 to 5")], None)
-            .await?;
+        let mut stream = text::stream(
+            &model,
+            ChatRequest::new(vec![user!("Count from 1 to 5")]),
+            text::StreamOptions::default(),
+        )
+        .await?;
 
         print!("Streaming: ");
         while let Some(event) = stream.next().await {
@@ -83,7 +96,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Note: Requires DEEPSEEK_API_KEY environment variable
         if std::env::var("DEEPSEEK_API_KEY").is_ok() {
             let model = reg.language_model("deepseek:deepseek-chat")?;
-            let resp = model.chat(vec![user!("What is your name?")]).await?;
+            let resp = text::generate(
+                &model,
+                ChatRequest::new(vec![user!("What is your name?")]),
+                text::GenerateOptions::default(),
+            )
+            .await?;
             println!("Response: {}\n", resp.content_text().unwrap_or_default());
         } else {
             println!("Skipped: DEEPSEEK_API_KEY not set\n");
@@ -95,7 +113,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "openai")]
     {
         let model = reg.embedding_model("openai:text-embedding-3-small")?;
-        let resp = model.embed(vec!["Hello, world!".to_string()]).await?;
+        let resp = embedding::embed(
+            &model,
+            EmbeddingRequest::new(vec!["Hello, world!".to_string()]),
+            embedding::EmbedOptions::default(),
+        )
+        .await?;
         println!("Embedding dimension: {}\n", resp.embeddings[0].len());
     }
 
