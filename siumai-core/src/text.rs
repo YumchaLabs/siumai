@@ -58,3 +58,96 @@ where
         self.chat_stream_request_with_cancel(request).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::streaming::ChatStream;
+    use crate::types::{ChatMessage, ChatStreamEvent, MessageContent};
+    use async_trait::async_trait;
+    use futures::StreamExt;
+
+    struct FakeChat;
+
+    #[async_trait]
+    impl ChatCapability for FakeChat {
+        async fn chat_with_tools(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<crate::types::ChatResponse, LlmError> {
+            Ok(crate::types::ChatResponse::new(MessageContent::Text(
+                "ok".to_string(),
+            )))
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<ChatStream, LlmError> {
+            let end = crate::types::ChatResponse::new(MessageContent::Text("ok".to_string()));
+            let events = vec![
+                Ok(ChatStreamEvent::ContentDelta {
+                    delta: "o".to_string(),
+                    index: None,
+                }),
+                Ok(ChatStreamEvent::ContentDelta {
+                    delta: "k".to_string(),
+                    index: None,
+                }),
+                Ok(ChatStreamEvent::StreamEnd { response: end }),
+            ];
+            Ok(Box::pin(futures::stream::iter(events)))
+        }
+    }
+
+    #[tokio::test]
+    async fn adapter_generate_calls_chat_request() {
+        let model = FakeChat;
+        let resp = TextModelV3::generate(
+            &model,
+            ChatRequest::new(vec![ChatMessage::user("hi").build()]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.content_text(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn adapter_stream_calls_chat_stream_request() {
+        let model = FakeChat;
+        let mut stream = TextModelV3::stream(
+            &model,
+            ChatRequest::new(vec![ChatMessage::user("hi").build()]),
+        )
+        .await
+        .unwrap();
+
+        let mut acc = String::new();
+        while let Some(ev) = stream.next().await {
+            match ev.unwrap() {
+                ChatStreamEvent::ContentDelta { delta, .. } => acc.push_str(&delta),
+                ChatStreamEvent::StreamEnd { response } => {
+                    assert_eq!(response.content_text(), Some("ok"));
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(acc, "ok");
+    }
+
+    #[tokio::test]
+    async fn adapter_stream_with_cancel_wraps_stream() {
+        let model = FakeChat;
+        let handle = TextModelV3::stream_with_cancel(
+            &model,
+            ChatRequest::new(vec![ChatMessage::user("hi").build()]),
+        )
+        .await
+        .unwrap();
+
+        let items: Vec<_> = handle.stream.collect().await;
+        assert!(!items.is_empty());
+    }
+}
