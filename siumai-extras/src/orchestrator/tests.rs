@@ -286,6 +286,59 @@ async fn test_generate_with_tool_calls() {
 }
 
 #[tokio::test]
+async fn test_generate_with_executable_tools_resolver() {
+    use siumai::tooling::{ExecutableTool, ExecutableTools};
+
+    let tool_call = create_tool_call("get_weather", json!({"city": "Tokyo"}));
+    let responses = vec![
+        create_response_with_tools(vec![tool_call]),
+        create_text_response("The weather in Tokyo is sunny, 25°C."),
+    ];
+
+    let model = MockChatModel::new(responses);
+
+    let tools = ExecutableTools::from_tools([ExecutableTool::function(
+        "get_weather",
+        "Get weather for a city",
+        json!({
+            "type": "object",
+            "properties": { "city": { "type": "string" } },
+            "required": ["city"]
+        }),
+        |args| async move {
+            let city = args
+                .get("city")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown")
+                .to_string();
+            Ok(json!({"city": city, "temperature": 25, "condition": "sunny"}))
+        },
+    )]);
+
+    let messages = vec![ChatMessage::user("What's the weather in Tokyo?").build()];
+    let stop_conditions: Vec<&dyn StopCondition> = vec![];
+
+    let (response, steps) = generate(
+        &model,
+        messages,
+        Some(tools.schemas()),
+        Some(&tools),
+        &stop_conditions,
+        OrchestratorOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        response.content_text().unwrap(),
+        "The weather in Tokyo is sunny, 25°C."
+    );
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].tool_calls.len(), 1);
+    assert_eq!(steps[0].tool_results.len(), 1);
+}
+
+#[tokio::test]
 async fn test_generate_with_stop_condition() {
     let tool_call = create_tool_call("search", json!({"query": "test"}));
     let responses = vec![

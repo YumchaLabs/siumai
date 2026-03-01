@@ -10,6 +10,17 @@ use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai::prelude::unified::*;
 use std::collections::HashMap;
 
+// ---------------------------------------------------------------------------
+// ToolResolver adapters
+// ---------------------------------------------------------------------------
+
+#[async_trait::async_trait]
+impl ToolResolver for siumai::tooling::ExecutableTools {
+    async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, LlmError> {
+        self.execute(name, arguments).await
+    }
+}
+
 /// Result of a single step during orchestration.
 #[derive(Debug, Clone)]
 pub struct StepResult {
