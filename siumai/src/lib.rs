@@ -31,12 +31,11 @@
 //!         .build()
 //!         .await?;
 //!
-//!     // Send a chat request
-//!     let messages = vec![user!("Hello, world!")];
-//!     let response = client.chat(messages).await?;
-//!     if let Some(text) = response.content_text() {
-//!         println!("Response: {}", text);
-//!     }
+//!     // Recommended invocation style: model-family APIs.
+//!     let request = ChatRequest::new(vec![user!("Hello, world!")]);
+//!     let response = siumai::text::generate(&client, request, siumai::text::GenerateOptions::default())
+//!         .await?;
+//!     println!("Response: {}", response.content_text().unwrap_or_default());
 //!
 //!     Ok(())
 //! }
@@ -63,7 +62,12 @@
 //!     // Vercel-aligned approach: image understanding is done via multimodal Chat messages.
 //!     // (No separate "VisionCapability" unified surface.)
 //!     let messages = vec![user_with_image!("Describe this image", "https://example.com/a.png")];
-//!     let resp = client.chat(messages).await?;
+//!     let resp = siumai::text::generate(
+//!         &client,
+//!         ChatRequest::new(messages),
+//!         siumai::text::GenerateOptions::default(),
+//!     )
+//!     .await?;
 //!     println!("Answer: {}", resp.content_text().unwrap_or_default());
 //!
 //!     Ok(())
@@ -140,6 +144,9 @@ pub mod transcription;
 
 /// Tool runtime (schema + execution binding).
 pub mod tooling;
+
+/// Compatibility surface for legacy, method-style APIs.
+pub mod compat;
 
 // Compatibility / internal modules (kept but hidden to reduce accidental coupling).
 //
