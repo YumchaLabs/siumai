@@ -29,10 +29,21 @@ pub async fn generate_stream(
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     _resolver: Option<&dyn ToolResolver>,
-    _opts: OrchestratorStreamOptions,
+    opts: OrchestratorStreamOptions,
 ) -> Result<StreamOrchestration, LlmError> {
     let (tx, rx) = oneshot::channel();
-    let stream = model.chat_stream(messages, tools).await?;
+    let mut request = ChatRequest::new(messages);
+
+    if let Some(tools) = tools {
+        request = request.with_tools(tools);
+    }
+
+    if let Some(ref common_params) = opts.common_params {
+        request = request.with_common_params(common_params.clone());
+    }
+
+    let stream =
+        siumai::text::stream(model, request, siumai::text::StreamOptions::default()).await?;
     let (stream, cancel) = siumai::experimental::utils::cancel::make_cancellable_stream(stream);
     let _ = tx.send(Vec::new());
     Ok(StreamOrchestration {
@@ -125,9 +136,22 @@ where
             }
             // First step streams; subsequent steps may be non-streaming providers.
             let resp = if step_idx == 0 {
-                let handle = match model
-                    .chat_stream_with_cancel(history.clone(), tools.clone())
-                    .await
+                let mut request = ChatRequest::new(history.clone());
+
+                if let Some(tools) = tools.clone() {
+                    request = request.with_tools(tools);
+                }
+
+                if let Some(ref common_params) = opts.common_params {
+                    request = request.with_common_params(common_params.clone());
+                }
+
+                let handle = match siumai::text::stream_with_cancel(
+                    &model,
+                    request,
+                    siumai::text::StreamOptions::default(),
+                )
+                .await
                 {
                     Ok(h) => h,
                     Err(e) => {
@@ -171,23 +195,22 @@ where
                     .unwrap_or_else(|| ChatResponse::new(MessageContent::Text(acc_text.clone())))
             } else {
                 // Non-streaming follow-up to advance conversation efficiently
-                // Use chat_request if we have common_params
-                let result = if opts.common_params.is_some() {
-                    let mut request = ChatRequest::new(history.clone());
+                let mut request = ChatRequest::new(history.clone());
 
-                    if let Some(tools) = tools.clone() {
-                        request = request.with_tools(tools);
-                    }
+                if let Some(tools) = tools.clone() {
+                    request = request.with_tools(tools);
+                }
 
-                    // Apply agent-level common_params
-                    if let Some(ref common_params) = opts.common_params {
-                        request = request.with_common_params(common_params.clone());
-                    }
+                if let Some(ref common_params) = opts.common_params {
+                    request = request.with_common_params(common_params.clone());
+                }
 
-                    model.chat_request(request).await
-                } else {
-                    model.chat_with_tools(history.clone(), tools.clone()).await
-                };
+                let result = siumai::text::generate(
+                    &model,
+                    request,
+                    siumai::text::GenerateOptions::default(),
+                )
+                .await;
 
                 match result {
                     Ok(r) => r,

@@ -129,36 +129,28 @@ pub async fn generate(
             current_messages.insert(0, ChatMessage::system(system).build());
         }
 
-        // Use chat_request if we have tool_choice override, common_params, or providerOptions.
-        let resp = if current_tool_choice.is_some()
-            || opts.common_params.is_some()
-            || current_provider_options_map.is_some()
-        {
-            let mut request = ChatRequest::new(current_messages.clone());
+        let mut request = ChatRequest::new(current_messages.clone());
 
-            if let Some(tools) = current_tools.clone() {
-                request = request.with_tools(tools);
-            }
+        if let Some(tools) = current_tools.clone() {
+            request = request.with_tools(tools);
+        }
 
-            if let Some(tool_choice) = current_tool_choice {
-                request = request.with_tool_choice(tool_choice);
-            }
+        if let Some(tool_choice) = current_tool_choice {
+            request = request.with_tool_choice(tool_choice);
+        }
 
-            // Apply agent-level common_params
-            if let Some(ref common_params) = opts.common_params {
-                request = request.with_common_params(common_params.clone());
-            }
+        // Apply agent-level common_params
+        if let Some(ref common_params) = opts.common_params {
+            request = request.with_common_params(common_params.clone());
+        }
 
-            if let Some(map) = current_provider_options_map {
-                request.provider_options_map.merge_overrides(map);
-            }
+        // Apply provider options override
+        if let Some(map) = current_provider_options_map {
+            request.provider_options_map.merge_overrides(map);
+        }
 
-            model.chat_request(request).await?
-        } else {
-            model
-                .chat_with_tools(current_messages.clone(), current_tools.clone())
-                .await?
-        };
+        let resp = siumai::text::generate(model, request, siumai::text::GenerateOptions::default())
+            .await?;
 
         let mut step_msgs: Vec<ChatMessage> = Vec::new();
         // Build assistant message; include tool_calls if present
