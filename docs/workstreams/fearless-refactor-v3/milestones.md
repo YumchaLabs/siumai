@@ -21,7 +21,7 @@ Acceptance criteria:
 - `LlmClient` is no longer “chat-first” (no inheritance from chat capability).
 - Registry model handles still work with caching + middleware.
 
-Status: ⬜ planned
+Status: ✅ done
 
 ## V3-M2 — V3 model-family traits exist (six families)
 
@@ -31,7 +31,7 @@ Acceptance criteria:
 - Text supports both non-stream and stream in a single interface.
 - Minimal no-network tests exist for trait adapters.
 
-Status: ⬜ planned
+Status: ✅ done
 
 ## V3-M3 — New recommended public API in `siumai`
 
@@ -41,7 +41,7 @@ Acceptance criteria:
 - Registry handles can be passed directly to these APIs.
 - Compatibility layer exists for existing examples/tests (temporary).
 
-Status: ⬜ planned
+Status: ⏳ in progress
 
 ## V3-M4 — Tools unified (schema + execute)
 
@@ -51,7 +51,7 @@ Acceptance criteria:
 - Typed wrapper exists but is optional.
 - Adapters exist from the current tool system.
 
-Status: ⬜ planned
+Status: ✅ done
 
 ## V3-M5 — Orchestrator migrated
 
@@ -60,7 +60,7 @@ Acceptance criteria:
 - `siumai-extras` orchestrator uses the new text APIs.
 - Stop conditions, approvals, streaming remain functionally equivalent.
 
-Status: ⬜ planned
+Status: ✅ done
 
 ## V3-M6 — Core providers migrated
 
@@ -80,4 +80,3 @@ Acceptance criteria:
 - Release notes prepared (breaking changes clearly listed).
 
 Status: ⬜ planned
-

@@ -21,43 +21,44 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
 
 ## 1) Fix the foundation: decouple `LlmClient` from chat
 
-- [ ] Refactor `siumai-core::client::LlmClient` to remove `: ChatCapability`
-- [ ] Ensure `siumai-registry` model handles can still cache + delegate correctly
-- [ ] Keep downcast-style `as_*_capability` methods (or replace with new model-family traits)
+- [x] Refactor `siumai-core::client::LlmClient` to remove `: ChatCapability`
+- [x] Ensure `siumai-registry` model handles can still cache + delegate correctly
+- [x] Keep downcast-style `as_*_capability` methods (or replace with new model-family traits)
 
 ## 2) Introduce model-family V3 traits and adapters
 
-- [ ] Define V3 traits for the six families (text must support generate + stream)
-- [ ] Provide adapters from existing provider clients to these traits
-- [ ] Provide adapters for registry handles to implement these traits
-- [ ] Add minimal unit tests (no network) for the adapters
+- [x] Define V3 traits for the six families (text must support generate + stream)
+- [x] Provide adapters from existing provider clients to these traits
+- [x] Provide adapters for registry handles to implement these traits
+- [x] Add minimal unit tests (no network) for the adapters
 
 ## 3) Add the new recommended public surface in `siumai`
 
 - [ ] Add function-style entry points:
-  - `text::generate`, `text::stream`
-  - `embed::one`, `embed::many`
-  - `image::generate`
-  - `rerank::rerank`
-  - `speech::generate`
-  - `transcription::transcribe`
+  - [x] `text::generate`, `text::stream`, `text::stream_with_cancel`
+  - [x] `embedding::embed`, `embedding::embed_many`
+  - [x] `image::generate`
+  - [x] `rerank::rerank`
+  - [x] `speech::synthesize`
+  - [x] `transcription::transcribe`
 - [ ] Expose a small options struct per family (timeouts/retry/tooling/telemetry)
+  - [x] Retry-only options for each family (first cut)
 - [ ] Provide a compatibility facade (`siumai::compat::*`) to keep older examples building temporarily
 
 ## 4) Tools: unify definition + execution (without new crates)
 
-- [ ] Introduce a single executable tool representation:
+- [x] Introduce a single executable tool representation:
   - JSON schema as data (already in spec)
   - async execute hook (runtime)
-- [ ] Provide a typed tool wrapper (optional) for apps that want it
+- [x] Provide a typed tool wrapper (optional) for apps that want it
 - [ ] Provide bridging adapters from:
   - current `Tool` + `ToolResolver` pattern
   - provider-defined/hosted tool patterns
 
 ## 5) Migrate `siumai-extras` orchestrator to new APIs
 
-- [ ] Make orchestrator call the new text APIs instead of calling chat traits directly
-- [ ] Keep stop conditions + approvals + streaming behavior intact
+- [x] Make orchestrator call the new text APIs instead of calling chat traits directly
+- [x] Keep stop conditions + approvals + streaming behavior intact
 - [ ] Add a small “contract suite” for tool-loop behavior (no network)
 
 ## 6) Provider-by-provider migration
