@@ -256,6 +256,7 @@ Benefits:
 Breaking-change details and “before/after” snippets:
 
 - `docs/migration/migration-0.11.0-beta.5.md`
+- `docs/migration/migration-0.11.0-beta.6.md`
 
 ## Testing strategy
 

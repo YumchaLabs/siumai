@@ -4,6 +4,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+### Highlights
+
+- Fearless Refactor V3: add Rust-first model-family APIs (`siumai::{text,embedding,image,rerank,speech,transcription}`) and keep method-style APIs behind an explicit compatibility module (`siumai::compat`).
+- Orchestrator now routes internal calls through `siumai::text::*` to decouple from chat-centric traits.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Highlights

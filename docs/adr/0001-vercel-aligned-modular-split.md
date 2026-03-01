@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Siumai is in a fearless refactor phase (currently `0.11.0-beta.5`) and already split into:
+Siumai is in a fearless refactor phase (currently `0.11.0-beta.6`) and already split into:
 
 - `siumai` (facade)
 - `siumai-core` (types/runtime)

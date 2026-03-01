@@ -25,27 +25,28 @@ This README keeps things straightforward: what you can do, how to customize, and
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.5"
+siumai = "0.11.0-beta.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
-## Migration (beta.5)
+## Migration (beta.6)
 
 Upgrading from `0.11.0-beta.4` (or earlier)?
 
-- See `docs/migration/migration-0.11.0-beta.5.md`
+- See `docs/migration/migration-0.11.0-beta.6.md`
+  - Note: legacy method-style entry points are treated as compatibility surface; the explicit module is `siumai::compat`.
 
 Feature flags (enable only what you need):
 
 ```toml
 # One provider
-siumai = { version = "0.11.0-beta.5", features = ["openai"] }
+siumai = { version = "0.11.0-beta.6", features = ["openai"] }
 
 # Multiple providers
-siumai = { version = "0.11.0-beta.5", features = ["openai", "anthropic", "google"] }
+siumai = { version = "0.11.0-beta.6", features = ["openai", "anthropic", "google"] }
 
 # All
-siumai = { version = "0.11.0-beta.5", features = ["all-providers"] }
+siumai = { version = "0.11.0-beta.6", features = ["all-providers"] }
 ```
 
 Note: `siumai` enables `openai` by default. Disable defaults via `default-features = false`.
@@ -54,8 +55,8 @@ Optional package for advanced utilities:
 
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.5"
-siumai-extras = { version = "0.11.0-beta.5", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
+siumai = "0.11.0-beta.6"
+siumai-extras = { version = "0.11.0-beta.6", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
 ```
 
 ## Usage
@@ -251,7 +252,7 @@ Chat Completions (`Siumai::builder().openai_chat()`).
 
 ```toml
 # Cargo.toml
-siumai = { version = "0.11.0-beta.5", features = ["openai-websocket"] }
+siumai = { version = "0.11.0-beta.6", features = ["openai-websocket"] }
 ```
 
 ```rust,no_run

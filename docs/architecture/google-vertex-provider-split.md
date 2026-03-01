@@ -9,7 +9,7 @@ In Vercel AI SDK, the Google provider surface is split into:
 - `@ai-sdk/google` (Gemini API)
 - `@ai-sdk/google-vertex` (Vertex AI, including Imagen)
 
-In `siumai` today (`0.11.0-beta.5`), Vertex-specific image support (Imagen via `:predict`) is routed
+In `siumai` today (`0.11.0-beta.6`), Vertex-specific image support (Imagen via `:predict`) is routed
 through the Gemini provider (`siumai-provider-gemini`) using the base URL heuristic
 (`aiplatform.googleapis.com`) and model prefix (`imagen-*`).
 

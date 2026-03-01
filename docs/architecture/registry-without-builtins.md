@@ -19,7 +19,7 @@ Avoid enabling features like `openai`, `anthropic`, etc. if you want a pure abst
 
 ```toml
 [dependencies]
-siumai-registry = { version = "0.11.0-beta.5", default-features = false }
+siumai-registry = { version = "0.11.0-beta.6", default-features = false }
 ```
 
 ## Minimal example (custom `ProviderFactory`)

@@ -122,4 +122,5 @@ They may exist in lower-level crates (e.g. `siumai-core`) but should not be used
 
 - `docs/roadmap/next-steps.md` (refactor checkpoints and guardrails)
 - `docs/architecture/provider-extensions.md` (how provider-specific features work)
-- `docs/migration/migration-0.11.0-beta.5.md` (breaking changes and migration cookbook)
+- `docs/migration/migration-0.11.0-beta.6.md` (family APIs + compat surface)
+- `docs/migration/migration-0.11.0-beta.5.md` (split-crate breaking changes and migration cookbook)

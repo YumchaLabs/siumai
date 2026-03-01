@@ -1,6 +1,6 @@
 # Architecture Refactor Plan (Fearless Refactor)
 
-This document is a working plan for the ongoing split-crate refactor (currently `0.11.0-beta.5`).
+This document is a working plan for the ongoing split-crate refactor (currently `0.11.0-beta.6`).
 It is intentionally pragmatic: it focuses on reducing coupling and improving maintainability while
 keeping the *user-facing* surface aligned with the Vercel AI SDK philosophy.
 
@@ -30,7 +30,7 @@ Recent progress (see `docs/workstreams/fearless-refactor/` for the live tracker)
   - Protocol adapters do not leak into the unified surface.
   - Registry does not need built-in provider implementations unless requested.
 
-## Current Workspace Layout (beta.5)
+## Current Workspace Layout (beta.6)
 
 - `siumai` (facade): recommended entry for most users; exports prelude and feature flags.
 - `siumai-core` (core/runtime): runtime execution, retry, streaming normalization; re-exports spec types during transition.

@@ -29,7 +29,9 @@ For the full rationale and architecture direction, see:
 1. **Write and ship a migration guide (breaking changes)**
    - Document the removal of the legacy `ProviderOptions` enum and the `provider_options` request fields.
    - Document “before/after” imports for typed provider options (moved to `siumai::provider_ext::<provider>::*`).
-   - See: `docs/migration/migration-0.11.0-beta.5.md`
+   - See:
+     - `docs/migration/migration-0.11.0-beta.5.md` (split-crate breaking changes)
+     - `docs/migration/migration-0.11.0-beta.6.md` (family APIs + compat surface)
 
 2. **Converge on one OpenAI-like strategy**
    - Treat “OpenAI-compatible vendors” as **configuration** (base URL, headers, error mapping), not as a separate “standard” split.

@@ -18,7 +18,8 @@ This folder is intentionally organized by **concern** to keep the Alpha.5 refact
 
 ## Migration
 
-- Beta.5 migration guide: `docs/migration/migration-0.11.0-beta.5.md`
+- Beta.6 migration guide: `docs/migration/migration-0.11.0-beta.6.md`
+- Beta.5 migration guide: `docs/migration/migration-0.11.0-beta.5.md` (historical; split-crate breaking changes)
 
 ## Roadmap
 
