@@ -662,7 +662,7 @@ pub mod provider_ext {
 
     #[cfg(feature = "groq")]
     pub mod groq {
-        pub use siumai_provider_groq::providers::groq::GroqClient;
+        pub use siumai_provider_groq::providers::groq::{GroqClient, GroqConfig};
 
         /// Typed provider options (`provider_options_map["groq"]`).
         pub mod options {

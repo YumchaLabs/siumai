@@ -144,9 +144,22 @@ impl OllamaClient {
         }
     }
 
+    /// Construct an `OllamaClient` from an `OllamaConfig` (config-first construction).
+    ///
+    /// This is the recommended construction style for new code that does not want to
+    /// depend on the unified builder surface.
+    pub fn from_config(config: OllamaConfig) -> Result<Self, LlmError> {
+        config.validate()?;
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Ok(Self::new(config, http_client))
+    }
+
     /// Creates a new Ollama client with configuration
     pub fn new_with_config(config: OllamaConfig) -> Self {
-        let http_client = reqwest::Client::new();
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)
+                .unwrap_or_else(|_| reqwest::Client::new());
         Self::new(config, http_client)
     }
 
@@ -562,6 +575,13 @@ mod tests {
             LlmProvider::provider_id(&client),
             std::borrow::Cow::Borrowed("ollama")
         );
+        assert_eq!(client.base_url(), "http://localhost:11434");
+    }
+
+    #[test]
+    fn ollama_client_from_config_builds_http_client() {
+        let config = OllamaConfig::default();
+        let client = OllamaClient::from_config(config).expect("from_config ok");
         assert_eq!(client.base_url(), "http://localhost:11434");
     }
 

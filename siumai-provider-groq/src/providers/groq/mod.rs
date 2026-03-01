@@ -33,6 +33,7 @@
 
 pub mod builder;
 mod client;
+pub mod config;
 pub mod ext;
 pub mod models;
 pub mod spec;
@@ -40,4 +41,5 @@ mod transformers;
 mod utils;
 pub use builder::GroqBuilder;
 pub use client::GroqClient;
+pub use config::GroqConfig;
 pub use spec::GroqSpec;
