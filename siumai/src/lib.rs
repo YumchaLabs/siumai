@@ -133,6 +133,9 @@ pub mod retry_api;
 /// Text model family (recommended).
 pub mod text;
 
+/// Tool runtime (schema + execution binding).
+pub mod tooling;
+
 // Compatibility / internal modules (kept but hidden to reduce accidental coupling).
 //
 // NOTE: These low-level modules are intentionally NOT re-exported at the top-level.
@@ -727,6 +730,7 @@ pub mod prelude {
         pub use crate::provider::Siumai;
         pub use crate::retry_api::*;
         pub use crate::text;
+        pub use crate::tooling;
         pub use crate::tools;
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
         pub use crate::{system, tool, user, user_with_image};

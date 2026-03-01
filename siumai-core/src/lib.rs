@@ -20,6 +20,7 @@ pub mod retry_api;
 pub mod standards;
 pub mod streaming;
 pub mod text;
+pub mod tooling;
 pub mod tools;
 pub mod traits;
 pub mod types;
