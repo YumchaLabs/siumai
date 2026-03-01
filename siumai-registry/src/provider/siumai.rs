@@ -14,11 +14,13 @@ mod chat;
 mod embedding;
 mod embedding_extensions;
 mod files;
+mod image;
 mod image_extras;
 mod llm_client;
 mod model_listing;
 mod moderation;
 mod music;
+mod rerank;
 mod video;
 
 /// The main siumai LLM provider that can dynamically dispatch to different capabilities
