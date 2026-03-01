@@ -279,7 +279,7 @@ cargo run --example provider-switching --features "openai,anthropic,google"
 ## 💡 Tips
 
 1. **Start Simple**: Begin with `01-quickstart/` examples
-2. **Use Recommended APIs**: Prefer `chat_request()` over `chat()`
+2. **Use Recommended APIs**: Prefer model-family APIs (e.g. `text::generate`) over `client.chat()`
 3. **Leverage Unified Interface**: Write provider-agnostic code
 4. **Check Provider-Specific**: Only when you need unique features
 5. **Explore Complete Apps**: See real-world patterns in `06-applications/`

@@ -20,18 +20,14 @@ use siumai::prelude::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🌊 Siumai Streaming Example\n");
 
-    // Build client
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Resolve a model via the registry - change provider/model here
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
 
     // Start streaming
     println!("AI: ");
     let mut stream = text::stream(
-        &client,
+        &model,
         ChatRequest::new(vec![user!("Write a short poem about Rust programming")]),
         text::StreamOptions::default(),
     )

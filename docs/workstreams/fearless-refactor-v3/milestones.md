@@ -80,3 +80,16 @@ Acceptance criteria:
 - Release notes prepared (breaking changes clearly listed).
 
 Status: ⬜ planned
+
+## V3-M8 — Config-first construction (beta.6)
+
+Acceptance criteria:
+
+- Core providers support config-first construction (no global builder required for new code):
+  - `OpenAiClient::from_config(...)` (or equivalent)
+  - `AnthropicClient::from_config(...)` (or equivalent)
+  - `GeminiClient::from_config(...)` (or equivalent)
+- README + the top “quickstart” examples no longer require `Siumai::builder()`.
+- Builder surface is explicitly marked as `compat` and time-bounded.
+
+Status: ⬜ planned

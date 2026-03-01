@@ -26,47 +26,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Try OpenAI
     if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
         println!("🤖 OpenAI (GPT-4o-mini):");
-        let client = Siumai::builder()
-            .openai()
-            .api_key(&api_key)
-            .model("gpt-4o-mini")
-            .build()
-            .await?;
+        let cfg = siumai::providers::openai::OpenAiConfig::new(api_key).with_model("gpt-4o-mini");
+        let client = siumai::providers::openai::OpenAiClient::from_config(cfg)?;
 
-        let response = client.chat(vec![user!(prompt)]).await?;
+        let response = text::generate(
+            &client,
+            ChatRequest::new(vec![user!(prompt)]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
         println!("   {}\n", response.content_text().unwrap());
     }
 
-    // Try Anthropic - same code, just different builder!
+    // Try Anthropic - same code, different provider config!
     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
         println!("🤖 Anthropic (Claude 3.5 Haiku):");
-        let client = Siumai::builder()
-            .anthropic()
-            .api_key(&api_key)
-            .model("claude-3-5-haiku-20241022")
-            .build()
-            .await?;
+        let cfg = siumai::providers::anthropic::AnthropicConfig::new(api_key)
+            .with_model("claude-3-5-haiku-20241022");
+        let client = siumai::providers::anthropic::AnthropicClient::from_config(cfg)?;
 
-        let response = client.chat(vec![user!(prompt)]).await?;
+        let response = text::generate(
+            &client,
+            ChatRequest::new(vec![user!(prompt)]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
         println!("   {}\n", response.content_text().unwrap());
     }
 
     // Try Google - same code again!
     if let Ok(api_key) = std::env::var("GOOGLE_API_KEY") {
         println!("🤖 Google (Gemini 2.0 Flash):");
-        let client = Siumai::builder()
-            .gemini()
-            .api_key(&api_key)
-            .model("gemini-2.0-flash-exp")
-            .build()
-            .await?;
+        let cfg = siumai::providers::gemini::GeminiConfig::new(api_key)
+            .with_model("gemini-2.0-flash-exp".to_string());
+        let client = siumai::providers::gemini::GeminiClient::from_config(cfg)?;
 
-        let response = client.chat(vec![user!(prompt)]).await?;
+        let response = text::generate(
+            &client,
+            ChatRequest::new(vec![user!(prompt)]),
+            text::GenerateOptions::default(),
+        )
+        .await?;
         println!("   {}\n", response.content_text().unwrap());
     }
 
     println!("✅ Provider switching completed!");
-    println!("💡 Notice: The same client.chat() method works for all providers!");
+    println!("💡 Notice: The same text::generate() call works for all providers!");
 
     Ok(())
 }

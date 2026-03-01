@@ -18,6 +18,9 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
   - `speech::synthesize`
   - `transcription::transcribe`
 - [ ] Choose result type naming conventions (`*Result`, `*Output`, etc.)
+- [ ] Choose construction story (beta.6):
+  - config-first constructors on provider clients (recommended)
+  - builder-style as compat only (time-bounded)
 
 ## 1) Fix the foundation: decouple `LlmClient` from chat
 
@@ -66,6 +69,18 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
 - [ ] Migrate OpenAI providers first (highest usage surface)
 - [ ] Migrate Anthropic + Gemini next
 - [ ] Migrate remaining providers as time allows
+
+## 6.5) Construction ergonomics (remove global builder dependency)
+
+Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
+
+- [ ] Add `from_config(...)` (or equivalent) constructor for core providers:
+  - [ ] `OpenAiClient`
+  - [ ] `AnthropicClient`
+  - [ ] `GeminiClient`
+- [ ] Ensure constructors build HTTP client/interceptors/middlewares from `*_Config` + `HttpConfig`
+- [ ] Update key docs/examples to use config-first construction
+- [ ] Keep builder path under `compat` (document removal target)
 
 ## 7) Cleanup and deprecation
 

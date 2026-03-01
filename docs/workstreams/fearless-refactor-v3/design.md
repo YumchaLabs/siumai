@@ -4,6 +4,9 @@ Last updated: 2026-03-01
 
 ## Context
 
+This workstream corresponds to the `v0.11.0-beta.6` refactor line: **Rust-first, model-family APIs**
+with provider extensions, inspired by (but not copying) the Vercel AI SDK V3 provider abstraction.
+
 The `siumai` workspace already completed a medium-granularity split:
 
 - `siumai-spec`: provider-agnostic types/tools/errors
@@ -23,6 +26,10 @@ monorepo/package fragmentation.
 2. **Provide a single recommended entry style**
    - Function-style call sites (Rust-friendly naming) that accept a model instance/handle.
    - Registry returns family-specific model handles that are directly callable.
+
+3. **Make construction builder-optional (config-first)**
+   - Users can construct provider clients and registry handles without calling `Siumai::builder()`.
+   - Builder-style construction can remain as a *compatibility convenience*, but is not the recommended entry.
 
 3. **Unify tools without creating many “tool packages”**
    - Tools remain one cohesive system: definition + schema + execution binding.
@@ -144,7 +151,7 @@ We keep builders where Rust benefits from them (configuration), but we do not re
 builder-style APIs for invocation.
 
 - **Construction** (recommended):
-  - Provider builders (e.g. `Provider::openai()`) configure credentials/transport/provider defaults.
+  - Provider configs/clients (e.g. `providers::openai::{OpenAiConfig, OpenAiClient}`) configure credentials/transport/provider defaults.
   - Registry handles (e.g. `registry.language_model("openai:gpt-4o")`) select models and apply middleware/caching.
 
 - **Invocation** (recommended):
@@ -165,6 +172,41 @@ are handled via three mechanisms, in order of preference:
    `provider_options_map` and typed accessors for provider metadata in responses/streams.
 
 Unified calls remain stable; provider-specific behavior is opt-in and does not pollute the family APIs.
+
+### D7 — “No `Siumai::builder()` required” (Rust ergonomics)
+
+We will treat `Siumai::builder()` / `Provider::*()` builders as **compatibility conveniences**, not the primary entry.
+The recommended construction style is **config-first** and provider-owned:
+
+```rust,no_run
+use siumai::prelude::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Construction (config-first)
+    let cfg = OpenAiConfig::new("OPENAI_API_KEY")
+        .with_model("gpt-4o-mini")
+        .with_temperature(0.7);
+
+    // (Planned) one-shot constructor that builds HTTP internals from config.
+    // The exact name is up to us; the key is: no global builder required.
+    let client = OpenAiClient::from_config(cfg)?;
+
+    // Invocation (family API)
+    let req = ChatRequest::new(vec![user!("hello")]);
+    let resp = siumai::text::generate(&client, req, siumai::text::GenerateOptions::default()).await?;
+    println!("{}", resp.content_text().unwrap_or_default());
+    Ok(())
+}
+```
+
+Notes:
+
+- Provider-specific resources remain available on the provider client type (e.g. OpenAI Files/Moderation/Responses admin).
+- Advanced provider-only request knobs are attached via `provider_options_map` using typed extension traits:
+  - `providers::openai::OpenAiChatRequestExt::with_openai_options(...)`
+  - `providers::anthropic::AnthropicChatRequestExt::with_anthropic_options(...)`
 
 ## Target layering (minimal crate changes)
 
@@ -201,6 +243,11 @@ Unified calls remain stable; provider-specific behavior is opt-in and does not p
 4. **Provider migration**
    - Migrate core providers first (OpenAI/Anthropic/Gemini) to the new family traits.
    - Expand to other providers and keep feature gating consistent.
+
+5. **Construction cleanup (beta.6)**
+   - Add config-first constructors (`*_Client::from_config(...)`) for core providers.
+   - Update README and key examples to avoid `Siumai::builder()` for new code.
+   - Keep builder path under `compat` and time-bound it (removal target is a future beta).
 
 ## Risks & mitigations
 

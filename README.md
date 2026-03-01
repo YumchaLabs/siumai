@@ -84,7 +84,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Note: OpenAI routing via the registry uses the Responses API by default. If you specifically need
-Chat Completions (`/chat/completions`), use the unified builder `Siumai::builder().openai_chat()`.
+Chat Completions (`POST /chat/completions`) for a specific request, override it via provider options:
+
+```rust
+use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
+
+let req = ChatRequest::new(vec![user!("Hello")]).with_openai_options(
+    OpenAiOptions::new().with_responses_api(ResponsesApiConfig {
+        enabled: false,
+        ..Default::default()
+    }),
+);
+```
 
 Supported examples of `provider:model`:
 - `openai:gpt-4o`, `openai:gpt-4o-mini`
@@ -98,20 +110,20 @@ Supported examples of `provider:model`:
 
 OpenAI‑compatible vendors follow the same pattern (API keys read as `{PROVIDER_ID}_API_KEY` when possible). See docs for details.
 
-### Builder (unified or provider‑specific)
+### Provider clients (config-first)
 
-Provider‑specific client:
+Provider-specific client:
 
 ```rust
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Provider::openai()
-        .api_key(std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o")
-        .build()
-        .await?;
+    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+        .with_model("gpt-4o")
+        .with_temperature(0.7);
+    let client = OpenAiClient::from_config(cfg)?;
 
     let resp = text::generate(
         &client,
@@ -124,45 +136,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Unified interface (portable across providers):
-
-```rust
-use siumai::prelude::unified::*;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .anthropic()
-        .api_key(std::env::var("ANTHROPIC_API_KEY")?)
-        .model("claude-3-5-sonnet")
-        .build()
-        .await?;
-
-    let resp = text::generate(
-        &client,
-        ChatRequest::new(vec![user!("What's Rust?")]),
-        text::GenerateOptions::default(),
-    )
-    .await?;
-    println!("{}", resp.content_text().unwrap_or_default());
-    Ok(())
-}
-```
-
 OpenAI‑compatible (custom base URL):
 
 ```rust
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // For OpenAI-compatible local endpoints, you can use any non-empty API key.
-    let vllm = Siumai::builder().openai()
-        .api_key("dummy")
-        .base_url("http://localhost:8000/v1")
-        .model("meta-llama/Llama-3.1-8B-Instruct")
-        .build()
-        .await?;
+    let cfg = OpenAiConfig::new("dummy")
+        .with_base_url("http://localhost:8000/v1")
+        .with_model("meta-llama/Llama-3.1-8B-Instruct");
+    let vllm = OpenAiClient::from_config(cfg)?;
 
     let resp = text::generate(
         &vllm,
@@ -179,12 +165,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Siumai supports both OpenAI chat endpoints:
 
-- **Responses API**: `POST /responses` (default for `Siumai::builder().openai()`)
-- **Chat Completions**: `POST /chat/completions` (use `Siumai::builder().openai_chat()`)
-- For readability, you can also use `Siumai::builder().openai_responses()` (equivalent to `openai()` today).
+- **Responses API**: `POST /responses` (default)
+- **Chat Completions**: `POST /chat/completions` (override via `providerOptions.openai.responsesApi.enabled = false`)
 
 If you need to override the default on a per-request basis, set `providerOptions.openai.responsesApi.enabled`
 explicitly on the `ChatRequest`.
+
+### Compatibility: builders
+
+Builder-style construction remains available as a temporary compatibility surface:
+
+- Unified: `Siumai::builder()`
+- Provider-specific: `Provider::openai()` / `Provider::anthropic()` / ...
 
 ### Streaming
 
@@ -194,14 +186,11 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder().openai()
-        .api_key(std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
 
     let mut stream = text::stream(
-        &client,
+        &model,
         ChatRequest::new(vec![user!("Stream a long answer")]),
         text::StreamOptions::default(),
     )

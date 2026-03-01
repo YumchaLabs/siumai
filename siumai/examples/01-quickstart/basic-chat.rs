@@ -20,17 +20,13 @@ use siumai::prelude::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Siumai Basic Chat Example\n");
 
-    // Build client - change provider here
-    let client = Siumai::builder()
-        .openai() // or .anthropic() / .google() / .ollama()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Resolve a model via the registry - change provider/model here
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
 
     // Recommended invocation style: model-family APIs.
     let response = text::generate(
-        &client,
+        &model,
         ChatRequest::new(vec![user!("Hello! Introduce yourself in one sentence.")]),
         text::GenerateOptions::default(),
     )
