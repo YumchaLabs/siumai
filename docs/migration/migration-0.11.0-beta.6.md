@@ -6,10 +6,12 @@ model-family APIs.
 
 ## TL;DR
 
-- Construction stays the same:
+- Construction (recommended):
+  - registry: `registry::global().language_model("openai:gpt-4o-mini")?`
+  - provider config-first: `OpenAiClient::from_config(OpenAiConfig { .. })?`
+- Builders remain available as compatibility conveniences:
   - unified builder: `Siumai::builder()...build().await?`
   - provider builders: `Provider::openai()...build().await?`
-  - registry: `registry::global().language_model("openai:gpt-4o-mini")?`
 - Invocation is now recommended to go through model-family functions:
   - `siumai::text::{generate, stream, stream_with_cancel}`
   - `siumai::embedding::{embed, embed_many}`

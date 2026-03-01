@@ -237,7 +237,7 @@ TTFB by reusing a persistent connection. Enable the feature and inject the trans
 
 Note: `base_url` must use `http://` or `https://` (it is converted to `ws://` / `wss://` internally).
 WebSocket mode only applies to **Responses streaming** (`POST /responses`). It is not compatible with
-Chat Completions (`Siumai::builder().openai_chat()`).
+Chat Completions (`POST /chat/completions`).
 
 ```toml
 # Cargo.toml
@@ -247,7 +247,8 @@ siumai = { version = "0.11.0-beta.6", features = ["openai-websocket"] }
 ```rust,no_run
 	use futures::StreamExt;
 	use siumai::prelude::unified::*;
-	use siumai::providers::openai::OpenAiWebSocketTransport;
+	use siumai::providers::openai::{OpenAiClient, OpenAiConfig, OpenAiWebSocketTransport};
+	use std::sync::Arc;
 	
 	#[tokio::main]
 	async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -264,13 +265,10 @@ siumai = { version = "0.11.0-beta.6", features = ["openai-websocket"] }
     // only unambiguous when `max_idle_connections == 1`.
     // let ws = ws.with_stateful_previous_response_id(true);
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .use_openai_websocket_transport(ws.clone())
-        .build()
-        .await?;
+    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+        .with_model("gpt-4o-mini")
+        .with_http_transport(Arc::new(ws.clone()));
+    let client = OpenAiClient::from_config(cfg)?;
 
     // Streaming `/responses` requests are routed through WebSocket; everything else uses HTTP.
     let mut stream = text::stream(
