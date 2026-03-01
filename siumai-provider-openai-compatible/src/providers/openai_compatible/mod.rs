@@ -1,49 +1,32 @@
 //! OpenAI-Compatible Provider Interface
 //!
 //! This module provides model constants for OpenAI-compatible providers.
-//! These providers now use the OpenAI client directly with custom base URLs.
+//! These providers use a dedicated OpenAI-compatible client (`OpenAiCompatibleClient`) that
+//! applies provider adapters (field mappings, reasoning extraction, etc.).
 //!
 //! # Usage
 //! ```rust,no_run
-//! use siumai::prelude::*;
-//! use siumai::providers::openai_compatible::{deepseek, openrouter};
+//! use siumai_provider_openai_compatible::providers::openai_compatible::{
+//!     get_provider_config, ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig,
+//! };
+//! use siumai_provider_openai_compatible::providers::openai_compatible::deepseek;
+//! use siumai_provider_openai_compatible::types::ChatRequest;
+//! use siumai_provider_openai_compatible::{text, user};
+//! use std::sync::Arc;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Recommended: enter from `openai()` and switch to a vendor preset
-//!     // (keeps the mental model "OpenAI-like protocol family").
-//!     let siliconflow = LlmBuilder::new()
-//!         .openai()
-//!         .compatible("siliconflow")
-//!         .api_key("your-api-key")
-//!         .model(deepseek::CHAT) // or a vendor-specific model id
-//!         .build()
-//!         .await?;
+//!     // Config-first construction (recommended):
+//!     let provider = get_provider_config("deepseek").expect("builtin provider");
+//!     let adapter = Arc::new(ConfigurableAdapter::new(provider.clone()));
+//!     let cfg =
+//!         OpenAiCompatibleConfig::new(&provider.id, "your-api-key", &provider.base_url, adapter)
+//!             .with_model(deepseek::CHAT);
+//!     let client = OpenAiCompatibleClient::from_config(cfg).await?;
 //!
-//!     // DeepSeek using OpenAI client with DeepSeek endpoint
-//!     let deepseek = LlmBuilder::new()
-//!         .deepseek()
-//!         .api_key("your-api-key")
-//!         .model(deepseek::REASONER)  // Using model constant
-//!         .build()
-//!         .await?;
-//!
-//!     // OpenRouter using OpenAI client with OpenRouter endpoint
-//!     let openrouter = LlmBuilder::new()
-//!         .openrouter()
-//!         .api_key("your-api-key")
-//!         .model(openrouter::openai::GPT_4)  // Using model constant
-//!         .build()
-//!         .await?;
-//!
-//!     // Other providers using OpenAI client with custom base URL
-//!     let groq = LlmBuilder::new()
-//!         .openai()
-//!         .base_url("https://api.groq.com/openai/v1")
-//!         .api_key("your-api-key")
-//!         .model("llama-3.1-70b-versatile")
-//!         .build()
-//!         .await?;
+//!     // Invocation goes through the stable model-family APIs:
+//!     let req = ChatRequest::new(vec![user!("hi")]);
+//!     let _resp = text::generate(&client, req, text::GenerateOptions::default()).await?;
 //!
 //!     Ok(())
 //! }

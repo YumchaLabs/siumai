@@ -309,6 +309,14 @@ impl OpenAiCompatibleClient {
         })
     }
 
+    /// Construct an `OpenAiCompatibleClient` from an `OpenAiCompatibleConfig` (config-first construction).
+    ///
+    /// This is a convenience alias for `OpenAiCompatibleClient::new(...)` to align naming with
+    /// other provider clients (`*_Client::from_config`).
+    pub async fn from_config(config: OpenAiCompatibleConfig) -> Result<Self, LlmError> {
+        Self::new(config).await
+    }
+
     /// Create a new OpenAI compatible client with custom HTTP client
     pub async fn with_http_client(
         config: OpenAiCompatibleConfig,

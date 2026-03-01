@@ -72,6 +72,16 @@ impl AzureOpenAiClient {
         })
     }
 
+    /// Construct an `AzureOpenAiClient` from an `AzureOpenAiConfig` (config-first construction).
+    ///
+    /// This is the recommended construction style for new code that does not want to
+    /// depend on the unified builder surface.
+    pub fn from_config(config: AzureOpenAiConfig) -> Result<Self, LlmError> {
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Self::new(config, http_client)
+    }
+
     pub fn with_retry_options(mut self, opts: Option<RetryOptions>) -> Self {
         self.retry_options = opts;
         self
@@ -460,5 +470,19 @@ impl LlmClient for AzureOpenAiClient {
 
     fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {
         Some(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn azure_openai_client_from_config_builds_http_client() {
+        let cfg = AzureOpenAiConfig::new("test-key")
+            .with_base_url("https://example.openai.azure.com/openai")
+            .with_model("deployment-id");
+        let client = AzureOpenAiClient::from_config(cfg).expect("from_config ok");
+        assert_eq!(client.provider_id(), std::borrow::Cow::Borrowed("azure"));
     }
 }
