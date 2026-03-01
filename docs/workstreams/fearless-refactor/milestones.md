@@ -1,6 +1,9 @@
 # Fearless Refactor Workstream — Milestones
 
-Last updated: 2026-02-27
+Note (2026-03-01): These milestones describe the earlier phase. The active V3 milestones are in
+`docs/workstreams/fearless-refactor-v3/milestones.md`.
+
+Last updated: 2026-03-01 (phase 1)
 
 This workstream is tracked by **milestones** with clear acceptance criteria.
 

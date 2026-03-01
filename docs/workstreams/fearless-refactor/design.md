@@ -1,6 +1,10 @@
 # Fearless Refactor Workstream — Design
 
-Last updated: 2026-02-27
+Note (2026-03-01): This folder tracks the earlier “spec/runtime split + registry routing” refactor.
+The next phase (model interface + Rust-first API shape + tool unification) is tracked in
+`docs/workstreams/fearless-refactor-v3/`.
+
+Last updated: 2026-03-01 (phase 1)
 
 ## Why this workstream exists
 

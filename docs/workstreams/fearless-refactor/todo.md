@@ -1,6 +1,9 @@
 # Fearless Refactor Workstream — TODO
 
-Last updated: 2026-02-27
+Note (2026-03-01): This TODO list is for the earlier phase. The active V3 workstream plan is in
+`docs/workstreams/fearless-refactor-v3/todo.md`.
+
+Last updated: 2026-03-01 (phase 1)
 
 ## Status snapshot
 
