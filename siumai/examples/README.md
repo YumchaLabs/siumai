@@ -198,11 +198,16 @@ let client = Siumai::builder()
     .build()
     .await?;
 
-let response = client.chat(vec![user!("Hello!")]).await?;
+let response = text::generate(
+    &client,
+    ChatRequest::new(vec![user!("Hello!")]),
+    text::GenerateOptions::default(),
+)
+.await?;
 ```
 
 ### Recommended API (0.11.0+)
-Use `chat_request()` and `chat_stream_request()` for full control:
+Use the model-family APIs for inference, and pass a `ChatRequest` for full control:
 
 ```rust
 use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions};
@@ -212,7 +217,7 @@ let request = ChatRequest::builder()
     .build()
     .with_openai_options(OpenAiOptions::new());
 
-let response = client.chat_request(request).await?;
+let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
 ```
 
 ### Provider Registry
@@ -221,7 +226,12 @@ String-driven model selection for dynamic applications:
 ```rust
 let registry = create_registry_with_defaults();
 let lm = registry.language_model("openai:gpt-4o-mini")?;
-let response = lm.chat(vec![user!("Hello!")]).await?;
+let response = text::generate(
+    &lm,
+    ChatRequest::new(vec![user!("Hello!")]),
+    text::GenerateOptions::default(),
+)
+.await?;
 ```
 
 ---

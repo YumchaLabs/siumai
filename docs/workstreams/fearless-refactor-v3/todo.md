@@ -72,3 +72,5 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
 - [ ] Move application-flavored helpers out of core traits (keep them in extras/compat)
 - [ ] Deprecate `Siumai::builder()` as the recommended entry (keep as convenience for provider construction)
 - [ ] Update docs and examples to the new recommended surface
+  - [x] Add `siumai::compat` as an explicit legacy surface
+  - [ ] Migrate README + key examples to family APIs

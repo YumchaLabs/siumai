@@ -30,12 +30,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start streaming
     println!("AI: ");
-    let mut stream = client
-        .chat_stream(
-            vec![user!("Write a short poem about Rust programming")],
-            None,
-        )
-        .await?;
+    let mut stream = text::stream(
+        &client,
+        ChatRequest::new(vec![user!("Write a short poem about Rust programming")]),
+        text::StreamOptions::default(),
+    )
+    .await?;
 
     // Process stream events
     while let Some(event) = stream.next().await {

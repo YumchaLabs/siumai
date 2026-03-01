@@ -28,10 +28,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // Send a simple message
-    let response = client
-        .chat(vec![user!("Hello! Introduce yourself in one sentence.")])
-        .await?;
+    // Recommended invocation style: model-family APIs.
+    let response = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("Hello! Introduce yourself in one sentence.")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
 
     // Print the response
     println!("AI: {}\n", response.content_text().unwrap());

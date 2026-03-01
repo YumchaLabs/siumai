@@ -71,7 +71,12 @@ use siumai::prelude::unified::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reg = registry::global();
     let model = reg.language_model("openai:gpt-4o-mini")?;
-    let resp = model.chat(vec![user!("Hello")], None).await?;
+    let resp = text::generate(
+        &model,
+        ChatRequest::new(vec![user!("Hello")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
     println!("{}", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -107,7 +112,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let resp = client.chat(vec![user!("Hi")]).await?;
+    let resp = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("Hi")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
     println!("{}", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -127,7 +137,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let resp = client.chat(vec![user!("What's Rust?")]).await?;
+    let resp = text::generate(
+        &client,
+        ChatRequest::new(vec![user!("What's Rust?")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
     println!("{}", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -148,7 +163,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let resp = vllm.chat(vec![user!("Hello from vLLM")]).await?;
+    let resp = text::generate(
+        &vllm,
+        ChatRequest::new(vec![user!("Hello from vLLM")]),
+        text::GenerateOptions::default(),
+    )
+    .await?;
     println!("{}", resp.content_text().unwrap_or_default());
     Ok(())
 }
@@ -179,7 +199,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    let mut stream = client.chat_stream(vec![user!("Stream a long answer")], None).await?;
+    let mut stream = text::stream(
+        &client,
+        ChatRequest::new(vec![user!("Stream a long answer")]),
+        text::StreamOptions::default(),
+    )
+    .await?;
     while let Some(ev) = stream.next().await {
         if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = ev { print!("{}", delta); }
     }
@@ -199,7 +224,12 @@ use siumai::prelude::unified::*;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Siumai::builder().openai().api_key("dummy").model("gpt-4o-mini").build().await?;
-    let handle = client.chat_stream_with_cancel(vec![user!("Stream...")], None).await?;
+    let handle = text::stream_with_cancel(
+        &client,
+        ChatRequest::new(vec![user!("Stream...")]),
+        text::StreamOptions::default(),
+    )
+    .await?;
 
     let ChatStreamHandle { mut stream, cancel } = handle;
     let reader = tokio::spawn(async move { while stream.next().await.is_some() {} });
