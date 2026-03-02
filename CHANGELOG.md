@@ -12,6 +12,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Fearless Refactor V3: add Rust-first model-family APIs (`siumai::{text,embedding,image,rerank,speech,transcription}`) and keep method-style APIs behind an explicit compatibility module (`siumai::compat`).
 - Orchestrator routes internal calls through `siumai::text::*` (family API) to decouple from chat-centric traits.
 - Construction guidance flips: prefer registry + config-first provider clients; builder-style entry points remain as compatibility conveniences.
+- Family call options are now more complete: per-call `timeout`/`headers` across families, and (for text) per-call `tools`/`tool_choice`/`telemetry`.
+- Config-first provider constructors can wire HTTP interceptors and model middlewares directly from `*_Config` (runtime-only; not serialized).
 
 ### Added
 
@@ -20,6 +22,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Tool runtime surface that binds schema + execution (`siumai::tooling`) for orchestrator/tool-loop workflows.
 - Explicit compatibility module: `siumai::compat`.
 - Orchestrator tool-loop contract tests (no network) in `siumai-extras`.
+- Per-request `HttpConfig` overrides (headers + timeout) applied at the HTTP executor layer (including streaming requests).
+- Convenience methods on `dyn LlmClient` for full chat requests (`chat_request`, `chat_stream_request`).
 
 ### Changed
 
