@@ -1,6 +1,6 @@
 # Fearless Refactor V3 — Design
 
-Last updated: 2026-03-01
+Last updated: 2026-03-02
 
 ## Context
 
@@ -235,6 +235,7 @@ Notes:
 2. **New public surface**
    - Add `siumai::text::*` / `siumai::embed::*` / etc. entry points.
    - Keep old entry points under `compat` and migrate internal usages.
+   - Introduce small per-call options per family (timeout/headers + text tooling/telemetry).
 
 3. **Tools unification**
    - Introduce executable tool definition (schema + execute).
@@ -248,6 +249,7 @@ Notes:
    - Add config-first constructors (`*_Client::from_config(...)`) for core providers.
    - Update README and key examples to avoid `Siumai::builder()` for new code.
    - Keep builder path under `compat` and time-bound it (removal target is a future beta).
+   - Allow config-driven wiring for interceptors/middlewares (runtime-only; not serialized).
 
 ## Risks & mitigations
 
