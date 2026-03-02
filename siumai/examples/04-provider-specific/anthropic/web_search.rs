@@ -14,12 +14,9 @@ use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .anthropic()
-        .api_key(&std::env::var("ANTHROPIC_API_KEY")?)
-        .model("claude-3-7-sonnet-20250219")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `ANTHROPIC_API_KEY`.
+    let model = registry::global().language_model("anthropic:claude-3-7-sonnet-20250219")?;
 
     let tool = siumai::hosted_tools::anthropic::web_search_20250305()
         .with_max_uses(1)
@@ -28,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let request =
         ChatRequest::new(vec![user!("Search the web: What is Rust 1.85?")]).with_tools(vec![tool]);
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("{}", response.content_text().unwrap_or_default());
 
     if let Some(meta) = response.anthropic_metadata() {

@@ -15,12 +15,9 @@ use siumai::user;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .anthropic()
-        .api_key(&std::env::var("ANTHROPIC_API_KEY")?)
-        .model("claude-3-7-sonnet-20250219")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `ANTHROPIC_API_KEY`.
+    let client = registry::global().language_model("anthropic:claude-3-7-sonnet-20250219")?;
 
     // Extension API: enable Anthropic thinking mode for this request.
     let request = ChatRequest::builder()

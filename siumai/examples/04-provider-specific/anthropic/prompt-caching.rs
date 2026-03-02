@@ -13,12 +13,9 @@ use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .anthropic()
-        .api_key(&std::env::var("ANTHROPIC_API_KEY")?)
-        .model("claude-3-5-sonnet-20241022")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `ANTHROPIC_API_KEY`.
+    let model = registry::global().language_model("anthropic:claude-3-5-sonnet-20241022")?;
 
     println!("💾 Anthropic Prompt Caching Example\n");
 
@@ -33,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // First request - will create cache
     println!("First request (creating cache)...");
     let response1 = text::generate(
-        &client,
+        &model,
         ChatRequest::new(vec![system_msg.clone(), user!("Summarize the document")]),
         text::GenerateOptions::default(),
     )
@@ -52,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Second request - will use cache
     println!("Second request (using cache)...");
     let response2 = text::generate(
-        &client,
+        &model,
         ChatRequest::new(vec![system_msg, user!("What are the key points?")]),
         text::GenerateOptions::default(),
     )

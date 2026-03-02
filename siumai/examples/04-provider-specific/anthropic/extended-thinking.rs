@@ -15,12 +15,9 @@ use siumai::provider_ext::anthropic::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .anthropic()
-        .api_key(&std::env::var("ANTHROPIC_API_KEY")?)
-        .model("claude-3-7-sonnet-20250219")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `ANTHROPIC_API_KEY`.
+    let model = registry::global().language_model("anthropic:claude-3-7-sonnet-20250219")?;
 
     println!("🧠 Anthropic Extended Thinking Example\n");
 
@@ -33,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             thinking_budget: Some(5000),
         }));
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
 
     // The response will include thinking process
     let reasoning = response.reasoning();

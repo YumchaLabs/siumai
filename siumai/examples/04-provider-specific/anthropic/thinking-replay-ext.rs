@@ -19,12 +19,9 @@ use siumai::user;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .anthropic()
-        .api_key(&std::env::var("ANTHROPIC_API_KEY")?)
-        .model("claude-3-7-sonnet-20250219")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `ANTHROPIC_API_KEY`.
+    let client = registry::global().language_model("anthropic:claude-3-7-sonnet-20250219")?;
 
     let question =
         user!("Prove that the sum of the first n odd numbers equals n^2. Show your reasoning.");
