@@ -69,7 +69,7 @@ Acceptance criteria:
 - OpenAI / Anthropic / Gemini providers implement the new family traits (directly or via adapters).
 - No-network tests cover provider-specific mapping invariants.
 
-Status: ⏳ in progress
+Status: ✅ done
 
 ## V3-M7 — Cleanup and stabilization
 
