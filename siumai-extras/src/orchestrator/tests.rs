@@ -743,6 +743,188 @@ async fn test_generate_with_tool_error() {
 }
 
 // ============================================================================
+// Tool-loop Contract Suite (no network)
+// ============================================================================
+
+/// Contract: tool results must be appended into the next model call history,
+/// preserving the tool_call_id and tool_name, so the model can continue the loop.
+#[tokio::test]
+async fn contract_tool_loop_appends_tool_result_to_next_turn_history() {
+    let tool_call_id = "call_get_weather";
+    let tool_name = "get_weather";
+
+    let tool_call = ContentPart::tool_call(
+        tool_call_id.to_string(),
+        tool_name.to_string(),
+        json!({"city": "Tokyo"}),
+        None,
+    );
+
+    let responses = vec![
+        create_response_with_tools(vec![tool_call]),
+        create_text_response("Tokyo is sunny."),
+    ];
+
+    let model = MockChatModel::new(responses);
+    let resolver = MockToolResolver::new()
+        .with_result(tool_name, json!({"temperature": 25, "condition": "sunny"}));
+
+    let messages = vec![ChatMessage::user("What's the weather in Tokyo?").build()];
+    let tools = vec![Tool::function(
+        tool_name.to_string(),
+        "Get weather for a city".to_string(),
+        json!({
+            "type": "object",
+            "properties": { "city": { "type": "string" } },
+            "required": ["city"]
+        }),
+    )];
+
+    let (_response, _steps) = generate(
+        &model,
+        messages,
+        Some(tools),
+        Some(&resolver),
+        &[],
+        OrchestratorOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let calls = model.get_calls();
+    assert_eq!(calls.len(), 2);
+
+    let second_call = &calls[1];
+    let tool_msg = second_call
+        .iter()
+        .find(|m| matches!(m.role, MessageRole::Tool))
+        .expect("second call should include a tool message");
+
+    let results = tool_msg.tool_results();
+    assert_eq!(results.len(), 1);
+    let info = results[0]
+        .as_tool_result()
+        .expect("expected tool result part");
+    assert_eq!(info.tool_call_id, tool_call_id);
+    assert_eq!(info.tool_name, tool_name);
+
+    let out = serde_json::to_value(info.output).expect("tool output should be serializable");
+    assert_eq!(
+        out,
+        json!({
+            "type": "json",
+            "value": { "temperature": 25, "condition": "sunny" }
+        })
+    );
+}
+
+/// Contract: invalid tool arguments must not call the resolver and must emit a tool error message.
+#[tokio::test]
+async fn contract_invalid_tool_args_skips_resolver_and_emits_tool_error() {
+    let tool_call = create_tool_call("get_weather", json!({})); // missing required "city"
+    let responses = vec![
+        create_response_with_tools(vec![tool_call]),
+        create_text_response("I could not call the tool."),
+    ];
+
+    let model = MockChatModel::new(responses);
+    let resolver = MockToolResolver::new().with_result("get_weather", json!({"ok": true}));
+
+    let messages = vec![ChatMessage::user("Weather?").build()];
+    let tools = vec![Tool::function(
+        "get_weather".to_string(),
+        "Get weather for a city".to_string(),
+        json!({
+            "type": "object",
+            "properties": { "city": { "type": "string" } },
+            "required": ["city"]
+        }),
+    )];
+
+    let (_response, steps) = generate(
+        &model,
+        messages,
+        Some(tools),
+        Some(&resolver),
+        &[],
+        OrchestratorOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    // NOTE: JSON Schema validation is optional in siumai-extras.
+    // - With `--features schema`, invalid args should be blocked before resolver execution.
+    // - Without it, validation is a no-op and the resolver will still be called.
+    #[cfg(feature = "schema")]
+    assert_eq!(resolver.get_calls().len(), 0);
+    #[cfg(not(feature = "schema"))]
+    assert_eq!(resolver.get_calls().len(), 1);
+
+    // The first step should contain a tool error message (role=Tool).
+    let step0 = &steps[0];
+    let tool_msg = step0
+        .messages
+        .iter()
+        .find(|m| matches!(m.role, MessageRole::Tool))
+        .expect("expected a tool error message");
+
+    let results = tool_msg.tool_results();
+    assert_eq!(results.len(), 1);
+    let info = results[0]
+        .as_tool_result()
+        .expect("expected tool result part");
+    assert_eq!(info.tool_name, "get_weather");
+
+    let out = serde_json::to_value(info.output).expect("tool output should be serializable");
+    #[cfg(feature = "schema")]
+    {
+        assert_eq!(out["type"], json!("error-text"));
+        let value = out["value"]
+            .as_str()
+            .expect("error-text value should be a string");
+        let err_json: Value =
+            serde_json::from_str(value).expect("error-text should be JSON string");
+        assert_eq!(err_json["error"], json!("invalid_args"));
+    }
+
+    #[cfg(not(feature = "schema"))]
+    {
+        assert_eq!(out["type"], json!("json"));
+    }
+}
+
+/// Contract: provider metadata from a step response must be exposed through StepResult.
+#[tokio::test]
+async fn contract_provider_metadata_is_exposed_in_step_result() {
+    let mut resp = create_text_response("ok");
+    resp.provider_metadata = Some(std::collections::HashMap::from([(
+        "openai".to_string(),
+        std::collections::HashMap::from([("foo".to_string(), json!("bar"))]),
+    )]));
+
+    let model = MockChatModel::new(vec![resp]);
+    let messages = vec![ChatMessage::user("hi").build()];
+
+    let (_response, steps) = generate(
+        &model,
+        messages,
+        None,
+        None,
+        &[],
+        OrchestratorOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(steps.len(), 1);
+    let md = steps[0]
+        .provider_metadata
+        .as_ref()
+        .expect("expected provider metadata");
+    assert_eq!(md["openai"]["foo"], json!("bar"));
+}
+
+// ============================================================================
 // Tests for edge cases
 // ============================================================================
 

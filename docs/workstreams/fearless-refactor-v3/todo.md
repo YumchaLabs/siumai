@@ -63,7 +63,7 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
 
 - [x] Make orchestrator call the new text APIs instead of calling chat traits directly
 - [x] Keep stop conditions + approvals + streaming behavior intact
-- [ ] Add a small “contract suite” for tool-loop behavior (no network)
+- [x] Add a small “contract suite” for tool-loop behavior (no network)
 
 ## 6) Provider-by-provider migration
 
