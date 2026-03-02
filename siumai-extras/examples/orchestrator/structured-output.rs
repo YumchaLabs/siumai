@@ -9,8 +9,7 @@
 //! ```
 
 use serde_json::json;
-use siumai::prelude::Siumai;
-use siumai::prelude::unified::{ChatMessage, OutputSchema};
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{ToolLoopAgent, step_count_is};
 
 // Simple tool resolver that doesn't actually execute tools
@@ -29,14 +28,8 @@ impl siumai_extras::orchestrator::ToolResolver for DummyResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the model via the unified Siumai builder
-    let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&api_key)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("openai:gpt-4o-mini")?;
 
     // Define the output schema
     let schema = json!({

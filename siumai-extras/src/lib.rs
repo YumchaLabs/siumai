@@ -21,8 +21,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! siumai = "0.11"
-//! siumai-extras = { version = "0.11", features = ["schema", "telemetry", "mcp"] }
+//! siumai = "0.11.0-beta.6"
+//! siumai-extras = { version = "0.11.0-beta.6", features = ["schema", "telemetry", "mcp"] }
 //! ```
 //!
 //! ## MCP Integration
@@ -30,14 +30,15 @@
 //! The `mcp` feature provides seamless integration with MCP servers:
 //!
 //! ```rust,ignore
-//! use siumai::prelude::*;
+//! use siumai::prelude::unified::*;
 //! use siumai_extras::mcp::mcp_tools_from_stdio;
 //!
 //! // Connect to MCP server and get tools
 //! let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
 //!
 //! // Use with any Siumai model
-//! let model = Siumai::builder().openai().build().await?;
+//! let reg = registry::global();
+//! let model = reg.language_model("openai:gpt-4o-mini")?;
 //! let (response, _) = siumai_extras::orchestrator::generate(
 //!     &model,
 //!     messages,

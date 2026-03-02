@@ -18,7 +18,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use siumai::prelude::*;
+//! use siumai::prelude::unified::*;
 //! use siumai_extras::mcp::{McpToolResolver, mcp_tools_from_stdio};
 //!
 //! #[tokio::main]
@@ -27,12 +27,8 @@
 //!     let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
 //!     
 //!     // Create Siumai model
-//!     let model = Siumai::builder()
-//!         .openai()
-//!         .api_key(std::env::var("OPENAI_API_KEY")?)
-//!         .model("gpt-4o-mini")
-//!         .build()
-//!         .await?;
+//!     let reg = registry::global();
+//!     let model = reg.language_model("openai:gpt-4o-mini")?;
 //!     
 //!     // Use with orchestrator
 //!     let messages = vec![user!("Use the available tools to help me")];

@@ -9,7 +9,7 @@
 //! Run with: cargo run -p siumai-extras --example streaming-orchestrator
 
 use futures::StreamExt;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 
 // Simple tool resolver
@@ -54,12 +54,8 @@ impl ToolResolver for NewsResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("openai:gpt-4o-mini")?;
 
     let tools = vec![
         Tool::function(

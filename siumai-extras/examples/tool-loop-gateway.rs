@@ -39,7 +39,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::ToolResolver;
 use siumai_extras::server::axum::{
     TargetSseFormat, TranscodeSseOptions, to_transcoded_sse_response,
@@ -48,7 +48,7 @@ use siumai_extras::server::tool_loop::{ToolLoopGatewayOptions, tool_loop_chat_st
 
 #[derive(Clone)]
 struct AppState {
-    model: Arc<Siumai>,
+    model: Arc<dyn ChatCapability + Send + Sync>,
     tools: Vec<Tool>,
     resolver: Arc<dyn ToolResolver + Send + Sync>,
 }
@@ -194,14 +194,9 @@ async fn gemini_generate_content(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("GOOGLE_API_KEY")?;
-
-    let model = Siumai::builder()
-        .gemini()
-        .api_key(&api_key)
-        .model("gemini-2.0-flash-exp")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let model = reg.language_model("gemini:gemini-2.0-flash-exp")?;
+    let model: Arc<dyn ChatCapability + Send + Sync> = Arc::new(model);
 
     let tools = vec![Tool::function(
         "get_weather".to_string(),
@@ -216,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )];
 
     let state = AppState {
-        model: Arc::new(model),
+        model,
         tools,
         resolver: Arc::new(LocalToolResolver),
     };

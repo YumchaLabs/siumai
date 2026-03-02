@@ -8,7 +8,7 @@
 //!
 //! Run with: cargo run -p siumai-extras --example tool-approval
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{
     OrchestratorOptions, ToolApproval, ToolResolver, generate, step_count_is,
 };
@@ -58,12 +58,8 @@ impl ToolResolver for SystemResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("openai:gpt-4o-mini")?;
 
     let tools = vec![
         Tool::function(

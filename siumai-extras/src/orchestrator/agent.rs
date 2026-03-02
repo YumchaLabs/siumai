@@ -22,14 +22,10 @@ use siumai::prelude::unified::*;
 ///
 /// ```rust,ignore
 /// use siumai_extras::orchestrator::{ToolLoopAgent, step_count_is};
-/// use siumai::prelude::Siumai;
+/// use siumai::prelude::unified::*;
 ///
-/// // Build a unified model client (recommended)
-/// let model = Siumai::builder()
-///     .openai()
-///     .model("gpt-4o")
-///     .build()
-///     .await?;
+/// let reg = registry::global();
+/// let model = reg.language_model("openai:gpt-4o")?;
 ///
 /// let agent = ToolLoopAgent::new(
 ///     model,

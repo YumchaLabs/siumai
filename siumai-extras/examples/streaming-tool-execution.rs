@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{
     OrchestratorOptions, ToolExecutionResult, ToolResolver, generate, step_count_is,
 };
@@ -153,17 +153,8 @@ impl ToolResolver for StreamingToolResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Get API key from environment
-    let api_key =
-        std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY environment variable not set");
-
-    // Create client
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&api_key)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("openai:gpt-4o-mini")?;
 
     // Define tools
     let tools = vec![

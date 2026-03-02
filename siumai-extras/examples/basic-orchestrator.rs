@@ -8,7 +8,7 @@
 //!
 //! Run with: cargo run -p siumai-extras --example basic-orchestrator
 
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{OrchestratorOptions, ToolResolver, generate, step_count_is};
 
 // Simple tool resolver that implements weather and calculator tools
@@ -59,12 +59,8 @@ impl ToolResolver for MyToolResolver {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize client
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("openai:gpt-4o-mini")?;
 
     // Define tools
     let tools = vec![

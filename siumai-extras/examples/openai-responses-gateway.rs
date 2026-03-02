@@ -39,7 +39,7 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::server::axum::{
     TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions, TranscodeSseOptions,
     to_transcoded_json_response, to_transcoded_sse_response,
@@ -47,7 +47,7 @@ use siumai_extras::server::axum::{
 
 #[derive(Clone)]
 struct AppState {
-    client: Arc<Siumai>,
+    client: Arc<registry::LanguageModelHandle>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -87,7 +87,13 @@ async fn responses(State(state): State<AppState>, Query(q): Query<GatewayQuery>)
         .clone()
         .unwrap_or_else(|| "Explain Rust lifetimes in one short paragraph.".to_string());
 
-    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+    let stream = match text::stream(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::StreamOptions::default(),
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => return internal_error_response(&e),
     };
@@ -104,7 +110,13 @@ async fn chat_completions(
         .clone()
         .unwrap_or_else(|| "Write a short haiku about Rust.".to_string());
 
-    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+    let stream = match text::stream(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::StreamOptions::default(),
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => return internal_error_response(&e),
     };
@@ -126,7 +138,13 @@ async fn anthropic_messages(
         .clone()
         .unwrap_or_else(|| "Answer in JSON: {\"summary\":\"...\"}. Use one sentence.".to_string());
 
-    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+    let stream = match text::stream(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::StreamOptions::default(),
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => return internal_error_response(&e),
     };
@@ -148,7 +166,13 @@ async fn gemini_generate_content(
         .clone()
         .unwrap_or_else(|| "List three practical tips for learning Rust.".to_string());
 
-    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+    let stream = match text::stream(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::StreamOptions::default(),
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => return internal_error_response(&e),
     };
@@ -166,7 +190,13 @@ async fn responses_json(State(state): State<AppState>, Query(q): Query<GatewayQu
         .clone()
         .unwrap_or_else(|| "Explain Rust lifetimes in one short paragraph.".to_string());
 
-    let resp = match state.client.chat(vec![user!(prompt)]).await {
+    let resp = match text::generate(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::GenerateOptions::default(),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => return internal_error_response(&e),
     };
@@ -187,7 +217,13 @@ async fn chat_completions_json(
         .clone()
         .unwrap_or_else(|| "Write a short haiku about Rust.".to_string());
 
-    let resp = match state.client.chat(vec![user!(prompt)]).await {
+    let resp = match text::generate(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::GenerateOptions::default(),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => return internal_error_response(&e),
     };
@@ -209,7 +245,13 @@ async fn anthropic_messages_json(
         .clone()
         .unwrap_or_else(|| "Answer in JSON: {\"summary\":\"...\"}. Use one sentence.".to_string());
 
-    let resp = match state.client.chat(vec![user!(prompt)]).await {
+    let resp = match text::generate(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::GenerateOptions::default(),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => return internal_error_response(&e),
     };
@@ -231,7 +273,13 @@ async fn gemini_generate_content_json(
         .clone()
         .unwrap_or_else(|| "List three practical tips for learning Rust.".to_string());
 
-    let resp = match state.client.chat(vec![user!(prompt)]).await {
+    let resp = match text::generate(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::GenerateOptions::default(),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => return internal_error_response(&e),
     };
@@ -245,15 +293,8 @@ async fn gemini_generate_content_json(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("GOOGLE_API_KEY")?;
-
-    // Gemini backend (upstream).
-    let client = Siumai::builder()
-        .gemini()
-        .api_key(&api_key)
-        .model("gemini-2.0-flash-exp")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("gemini:gemini-2.0-flash-exp")?;
 
     let state = AppState {
         client: Arc::new(client),

@@ -14,8 +14,7 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use siumai::prelude::Siumai;
-use siumai::prelude::unified::{ChatMessage, LlmError, OutputSchema, Tool};
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{
     InMemoryWorkflowMemory, ToolLoopAgent, ToolResolver, WORKER_CODER, WORKER_PLANNER,
     WorkflowBuilder, WorkflowMemory,
@@ -41,15 +40,8 @@ impl ToolResolver for DummyToolResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Build a unified client (OpenAI in this example).
-    //
-    // API key is read from OPENAI_API_KEY by default. You can also call
-    // .api_key("...") explicitly if needed.
-    let model = Siumai::builder()
-        .openai()
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
 
     // Define tools used by the top-level orchestrator. These are "worker tools"
     // that route into the corresponding workers via the Workflow.

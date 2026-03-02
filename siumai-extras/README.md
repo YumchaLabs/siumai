@@ -16,8 +16,8 @@ This crate provides optional functionality that extends `siumai` without adding 
 
 ```toml
 [dependencies]
-siumai = "0.11"
-siumai-extras = { version = "0.11", features = ["schema", "telemetry", "mcp"] }
+siumai = "0.11.0-beta.6"
+siumai-extras = { version = "0.11.0-beta.6", features = ["schema", "telemetry", "mcp"] }
 ```
 
 ## Usage
@@ -32,7 +32,7 @@ Provider-agnostic helpers for generating typed JSON objects:
 
 ```rust
 use serde::Deserialize;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::highlevel::object::{generate_object, GenerateObjectOptions};
 
 #[derive(Deserialize, Debug)]
@@ -40,14 +40,11 @@ struct Post { title: String }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
 
     let (post, _resp) = generate_object::<Post>(
-        &client,
+        &model,
         vec![user!("Return JSON: {\"title\":\"hi\"}")],
         None,
         GenerateObjectOptions::default(),
@@ -68,7 +65,7 @@ Multi-step tool calling, agents, and stop conditions:
 
 ```rust
 use serde_json::json;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{
     ToolLoopAgent, ToolResolver, ToolChoice, step_count_is,
 };
@@ -97,11 +94,8 @@ impl ToolResolver for SimpleResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("openai:gpt-4o-mini")?;
 
     let weather_tool = Tool::function(
         "get_weather",
@@ -264,20 +258,32 @@ fn handler(resp: ChatResponse) -> Response<Body> {
 ### MCP Integration
 
 ```rust
+use siumai::prelude::unified::*;
 use siumai_extras::mcp::mcp_tools_from_stdio;
 
-// Connect to MCP server and get tools
-let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
+    let messages = vec![user!("Use the available tools to help me")];
 
-// Use with Siumai orchestrator (from siumai-extras)
-let (response, _) = siumai_extras::orchestrator::generate(
-    &model,
-    messages,
-    Some(tools),
-    Some(&resolver),
-    vec![siumai_extras::orchestrator::step_count_is(10)],
-    Default::default(),
-).await?;
+    // Connect to MCP server and get tools
+    let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
+
+    // Use with Siumai orchestrator (from siumai-extras)
+    let (response, _) = siumai_extras::orchestrator::generate(
+        &model,
+        messages,
+        Some(tools),
+        Some(&resolver),
+        vec![siumai_extras::orchestrator::step_count_is(10)],
+        Default::default(),
+    )
+    .await?;
+
+    println!("{}", response.content_text().unwrap_or_default());
+    Ok(())
+}
 ```
 
 ## Documentation

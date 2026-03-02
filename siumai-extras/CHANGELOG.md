@@ -123,7 +123,7 @@ siumai-extras = { version = "0.11", features = ["all"] }
 #### MCP Integration
 
 ```rust
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::mcp::mcp_tools_from_stdio;
 
 #[tokio::main]
@@ -132,7 +132,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
     
     // Create model
-    let model = Siumai::builder().openai().build().await?;
+    let reg = registry::global();
+    let model = reg.language_model("openai:gpt-4o-mini")?;
     
     // Use with orchestrator
     let messages = vec![user!("Use the available tools to help me")];

@@ -11,8 +11,7 @@
 //! ```
 
 use serde_json::json;
-use siumai::prelude::Siumai;
-use siumai::prelude::unified::{ChatMessage, OutputSchema, Tool};
+use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{
     ToolChoice, ToolLoopAgent, has_no_tool_calls, has_tool_result, step_count_is,
 };
@@ -64,13 +63,8 @@ impl siumai_extras::orchestrator::ToolResolver for SimpleResolver {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&api_key)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("openai:gpt-4o-mini")?;
 
     // Define tools
     let weather_tool = Tool::function(

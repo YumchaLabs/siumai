@@ -34,7 +34,7 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
 use siumai_extras::server::axum::{
     TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions, TranscodeSseOptions,
     to_transcoded_json_response, to_transcoded_json_response_with_response_transform,
@@ -43,7 +43,7 @@ use siumai_extras::server::axum::{
 
 #[derive(Clone)]
 struct AppState {
-    client: Arc<Siumai>,
+    client: Arc<registry::LanguageModelHandle>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -85,7 +85,13 @@ async fn responses(State(state): State<AppState>, Query(q): Query<GatewayQuery>)
         .clone()
         .unwrap_or_else(|| "Explain Rust lifetimes in one short paragraph.".to_string());
 
-    let stream = match state.client.chat_stream(vec![user!(prompt)], None).await {
+    let stream = match text::stream(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::StreamOptions::default(),
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => return internal_error_response(&e),
     };
@@ -114,7 +120,13 @@ async fn responses_json(State(state): State<AppState>, Query(q): Query<GatewayQu
         .clone()
         .unwrap_or_else(|| "Write one sentence about Rust.".to_string());
 
-    let resp = match state.client.chat(vec![user!(prompt)]).await {
+    let resp = match text::generate(
+        &*state.client,
+        ChatRequest::new(vec![user!(prompt)]),
+        text::GenerateOptions::default(),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => return internal_error_response(&e),
     };
@@ -139,15 +151,8 @@ async fn responses_json(State(state): State<AppState>, Query(q): Query<GatewayQu
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("GOOGLE_API_KEY")?;
-
-    // Gemini backend (upstream).
-    let client = Siumai::builder()
-        .gemini()
-        .api_key(&api_key)
-        .model("gemini-2.0-flash-exp")
-        .build()
-        .await?;
+    let reg = registry::global();
+    let client = reg.language_model("gemini:gemini-2.0-flash-exp")?;
 
     let state = AppState {
         client: Arc::new(client),
