@@ -29,12 +29,9 @@ use siumai::provider_ext::openai::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     println!("🔄 OpenAI Responses API Example\n");
 
@@ -65,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!(
         "AI Response: {}\n",
         response.content_text().unwrap_or_default()
@@ -83,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_reasoning_effort(ReasoningEffort::Medium),
     );
 
-    let response2 = text::generate(&client, request2, text::GenerateOptions::default()).await?;
+    let response2 = text::generate(&model, request2, text::GenerateOptions::default()).await?;
     println!(
         "AI Response: {}\n",
         response2.content_text().unwrap_or_default()
@@ -111,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response3 = text::generate(&client, request3, text::GenerateOptions::default()).await?;
+    let response3 = text::generate(&model, request3, text::GenerateOptions::default()).await?;
     println!(
         "AI Response: {}\n",
         response3.content_text().unwrap_or_default()
@@ -133,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response4 = text::generate(&client, request4, text::GenerateOptions::default()).await?;
+    let response4 = text::generate(&model, request4, text::GenerateOptions::default()).await?;
     println!(
         "AI Response: {}\n",
         response4.content_text().unwrap_or_default()

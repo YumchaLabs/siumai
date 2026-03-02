@@ -10,28 +10,22 @@
 
 use futures_util::StreamExt;
 use siumai::prelude::unified::*;
+use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_file = std::env::var("OPENAI_AUDIO_FILE")
         .expect("set OPENAI_AUDIO_FILE=/path/to/audio.(mp3|wav|...)");
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini") // chat default, not used for STT below
-        .build()
-        .await?;
-
-    let openai = client
-        .downcast_client::<siumai::provider_ext::openai::OpenAiClient>()
-        .expect("this Siumai instance is backed by OpenAiClient");
+    let openai = OpenAiClient::from_config(
+        OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?).with_model("gpt-4o-mini"),
+    )?;
 
     let mut req = SttRequest::from_file(audio_file);
     req.model = Some("gpt-4o-mini-transcribe".to_string());
 
     let mut stream =
-        siumai::provider_ext::openai::ext::transcription_streaming::stt_sse_stream(openai, req)
+        siumai::provider_ext::openai::ext::transcription_streaming::stt_sse_stream(&openai, req)
             .await?;
 
     while let Some(item) = stream.next().await {

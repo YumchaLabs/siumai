@@ -15,12 +15,9 @@ use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, Response
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     let tool = siumai::hosted_tools::openai::computer_use(1920, 1080, "headless");
 
@@ -30,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(vec![tool])
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("{}", response.content_text().unwrap_or_default());
 
     Ok(())

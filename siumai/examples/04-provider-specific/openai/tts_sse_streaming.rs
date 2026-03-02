@@ -9,19 +9,13 @@
 
 use futures_util::StreamExt;
 use siumai::prelude::unified::*;
+use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini") // chat default, not used for TTS below
-        .build()
-        .await?;
-
-    let openai = client
-        .downcast_client::<siumai::provider_ext::openai::OpenAiClient>()
-        .expect("this Siumai instance is backed by OpenAiClient");
+    let openai = OpenAiClient::from_config(
+        OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?).with_model("gpt-4o-mini"),
+    )?;
 
     let req = TtsRequest::new("hello from siumai (SSE)".to_string())
         .with_model("gpt-4o-mini-tts".to_string())
@@ -29,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_format("mp3".to_string());
 
     let mut stream =
-        siumai::provider_ext::openai::ext::speech_streaming::tts_sse_stream(openai, req).await?;
+        siumai::provider_ext::openai::ext::speech_streaming::tts_sse_stream(&openai, req).await?;
 
     let mut total_bytes = 0usize;
     while let Some(item) = stream.next().await {

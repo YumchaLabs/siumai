@@ -23,12 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Multi-turn Conversation with Responses API\n");
     println!("This example shows how to chain conversations using previous_response_id\n");
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // ========================================
     // Turn 1: Initial Question
@@ -48,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response1 = text::generate(&client, request1, text::GenerateOptions::default()).await?;
+    let response1 = text::generate(&model, request1, text::GenerateOptions::default()).await?;
     println!("User: What is Rust programming language?");
     println!("AI: {}\n", response1.content_text().unwrap_or_default());
 
@@ -76,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response2 = text::generate(&client, request2, text::GenerateOptions::default()).await?;
+    let response2 = text::generate(&model, request2, text::GenerateOptions::default()).await?;
     println!("User: Can you give me a simple code example?");
     println!("AI: {}\n", response2.content_text().unwrap_or_default());
 
@@ -104,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response3 = text::generate(&client, request3, text::GenerateOptions::default()).await?;
+    let response3 = text::generate(&model, request3, text::GenerateOptions::default()).await?;
     println!("User: Explain ownership in that example");
     println!("AI: {}\n", response3.content_text().unwrap_or_default());
 
@@ -132,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-    let response4 = text::generate(&client, request4, text::GenerateOptions::default()).await?;
+    let response4 = text::generate(&model, request4, text::GenerateOptions::default()).await?;
     println!("User: What are the main benefits?");
     println!("AI: {}\n", response4.content_text().unwrap_or_default());
 
