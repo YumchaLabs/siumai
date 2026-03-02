@@ -116,3 +116,16 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
   - [x] Update `examples/04-provider-specific/openai-compatible/README.md` to avoid builder in troubleshooting snippets
   - [x] Keep a single explicit builder example as compat (`moonshot-siumai-builder.rs`)
   - [x] Remove `Siumai::builder()` from stubbed MCP snippets (use registry handle in guidance blocks)
+
+## Post-beta.6 cleanup candidates (0.12+)
+
+These are intentionally *not* part of the beta.6 refactor ship target, but are good follow-ups
+to reduce long-term maintenance burden.
+
+- [ ] Remove `siumai::compat` (time-bounded) and method-style legacy APIs
+- [ ] Remove builder-centric legacy surfaces (`SiumaiBuilder`, `Provider::*`) or move them fully under `compat`
+- [ ] Remove backward-compatible re-exports in `siumai-core` (e.g. `execution::middleware` re-export shim)
+- [ ] Remove deprecated HTTP helper `execute_json_request_with_headers` (or move it under a compat module)
+- [ ] Re-evaluate redundant constructors like `OpenAiClient::new_with_config` (prefer `from_config`)
+- [ ] Consolidate redundant builder HTTP config tests (e.g. `builder_http_config_test.rs` vs `siumai_builder_http_config_test.rs`)
+- [ ] Consider dropping legacy crate aliases (`siumai-provider-*-compatible`) once downstream migration stabilizes
